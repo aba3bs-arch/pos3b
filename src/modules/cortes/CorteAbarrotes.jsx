@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
@@ -58,20 +59,29 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     };
   }, [supabase, sucursal, user?.nombre, recargar]);
 
-  const confirmarCierre = () => {
-    const f = estado.folio || folio;
-    if (!f?.trim()) return alert('Capture el folio de abarrotes.');
-    const msg =
-      `¿Cerrar corte abarrotes?\n\n` +
-      `Folio: ${f}\n` +
-      `Venta: ${fmtCorte(calc.venta)}\n` +
-      `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
-      `Caja actual: ${fmtCorte(calc.cajaActual)}`;
-    if (confirm(msg)) cerrarCorte();
+  const uiLock = useRef(createSubmitLock()).current;
+
+  const confirmarCierre = async () => {
+    if (!uiLock.tryBegin()) return;
+    try {
+      const f = estado.folio || folio;
+      if (!f?.trim()) return alert('Capture el folio de abarrotes.');
+      const msg =
+        `¿Cerrar corte abarrotes?\n\n` +
+        `Folio: ${f}\n` +
+        `Venta: ${fmtCorte(calc.venta)}\n` +
+        `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
+        `Caja actual: ${fmtCorte(calc.cajaActual)}`;
+      if (confirm(msg)) await cerrarCorte();
+    } finally {
+      uiLock.end();
+    }
   };
 
   const montoRec = Number(estado.recoleccion) || 0;
   const confirmarRecoleccion = async () => {
+    if (!uiLock.tryBegin()) return;
+    try {
     if (!perm.recoleccion) return alert('Solo admin/recolector puede recolectar.');
     if (!(montoRec > 0)) return alert('Indique el monto a recolectar en el campo Recolección.');
     if (!confirm(
@@ -103,6 +113,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         ? '.\n⚠️ Pendiente en RC Abarrotes hasta que FJBB la reciba (IE ABARROTES / CEDIS).'
         : '.\nAprobada → IE ABARROTES.'),
     );
+    } finally {
+      uiLock.end();
+    }
   };
 
   const { pagares: pagaresAbiertos, recargar: recargarPagares } = usePagaresAbiertosCorte(supabase, sucursal, 'abarrotes');

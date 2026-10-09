@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
@@ -110,8 +111,11 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
   const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const miInyectada = Boolean(calc.monedaInyectada);
   const pendientesLocales = (gastos || []).filter((g) => (g.estado_aprobacion || 'aprobado') === 'pendiente_admin').length;
+  const uiLock = useRef(createSubmitLock()).current;
 
   const confirmarCierre = async () => {
+    if (!uiLock.tryBegin()) return;
+    try {
     if (!perm.guardar) return alert('Sin permiso para cerrar corte.');
     if (!confirm(
       `¿Cerrar corte virtual?\n\n` +
@@ -141,9 +145,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
       }),
     );
     alert('Corte cerrado. Gastos en $0 para el nuevo corte. Esta venta no va a IE; solo la recolección.');
+    } finally {
+      uiLock.end();
+    }
   };
 
   const confirmarRecoleccion = async () => {
+    if (!uiLock.tryBegin()) return;
+    try {
     if (!puedeRec) return alert('Solo admin/recolector puede recolectar.');
     if (!(montoRec > 0)) return alert('Indique el monto a recolectar.');
 
@@ -245,6 +254,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
           ? '\n\n⚠️ Transferencia a IE (ingresos + gastos) pendiente de aprobación por ABB, FJBB o JLBB.'
           : '\n\nTransferencia a IE aplicada (ingresos y gastos del periodo).'),
     );
+    } finally {
+      uiLock.end();
+    }
   };
 
   const imprimirBorrador = () => {

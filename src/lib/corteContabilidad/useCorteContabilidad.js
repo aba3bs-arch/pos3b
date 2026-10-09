@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { turnoActual, nombreTurnoLegible } from '../turnos.js';
 import { empleadosParaCorte } from '../empleadosVisibles.js';
+import { createSubmitLock } from '../submitLock.js';
 import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js';
 import { gastoRequiereEmpleado } from './catalogoGastos.js';
 import {
@@ -109,6 +110,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const [empleados, setEmpleados] = useState([]);
   const [usuariosRawCorte, setUsuariosRawCorte] = useState([]);
   const saveTimer = useRef(null);
+  /** Candado síncrono: evita doble clic en Cerrar corte / Recolectar. */
+  const accionLock = useRef(createSubmitLock()).current;
   const perm = useMemo(
     () => permisosCorteContabilidad(user?.rol ?? user?.role, user?.id),
     [user?.rol, user?.role, user?.id],
@@ -380,6 +383,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   };
 
   const cerrarCorte = async (detalleExtra = {}) => {
+    if (!accionLock.tryBegin()) {
+      return { ok: false, skipped: true, error: 'Ya hay un cierre o recolección en curso.' };
+    }
+    setCargando(true);
+    try {
     if (!perm.guardar) {
       return alert('No tiene permiso para cerrar este corte.');
     }
@@ -471,9 +479,18 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       gastosImpresion: gastosCierre,
       calcImpresion: calcCierre,
     };
+    } finally {
+      accionLock.end();
+      setCargando(false);
+    }
   };
 
   const registrarRecoleccion = async (opts = {}) => {
+    if (!accionLock.tryBegin()) {
+      return { ok: false, skipped: true, error: 'Ya hay un cierre o recolección en curso.' };
+    }
+    setCargando(true);
+    try {
     if (!perm.recoleccion) {
       return alert('Solo el administrador o recolector con privilegio puede registrar recolección.');
     }
@@ -940,6 +957,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         `Los gastos del periodo quedan en historial y se deducen en IE (una sola vez).`,
     );
     return { ok: true };
+    } finally {
+      accionLock.end();
+      setCargando(false);
+    }
   };
 
   const eliminarCierreHistorial = async (cierreId, meta = {}) => {

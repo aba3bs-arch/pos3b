@@ -1,5 +1,6 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
@@ -82,6 +83,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
   const { pagares: pagaresAbiertos, recargar: recargarPagares } = usePagaresAbiertosCorte(supabase, sucursal, 'garage', { enabled: !sinAlertas });
   const montoRec = round2(estado.recoleccion);
   const montoAnt = round2(estado.recoleccion_anterior);
+  const uiLock = useRef(createSubmitLock()).current;
 
   const setMaquina = (key, val) => {
     const next = { ...maquinasBase };
@@ -91,6 +93,8 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
   };
 
   const confirmarCierre = async () => {
+    if (!uiLock.tryBegin()) return;
+    try {
     // Si hay monto en Recolección y solo se cierra el corte, el dinero pasa a
     // «recolección anterior» PERO no se crea fila en RC Garage (temporal).
     // Eso hacía que recolectores (p. ej. Luis Enrique) “recolectaran” sin que
@@ -159,10 +163,15 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
     ) {
       return;
     }
-    cerrarCorte();
+    await cerrarCorte();
+    } finally {
+      uiLock.end();
+    }
   };
 
   const generarRecoleccion = async () => {
+    if (!uiLock.tryBegin()) return;
+    try {
     if (!perm.recoleccion) {
       return alert('Solo administrador o recolector autorizado puede generar la recolección.');
     }
@@ -274,6 +283,9 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
               ? 'Transferencia a IE pendiente de aprobación (ABB/FJBB/JLBB).'
               : 'Recolección registrada en Contabilidad/IE.'),
     );
+    } finally {
+      uiLock.end();
+    }
   };
 
   const cajaNegativa = calc.cajaActual < -0.001;

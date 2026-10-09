@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
 import DetalleTiendasLiquidacion from '../components/DetalleTiendasLiquidacion.jsx';
 import VolverContabilidad from '../components/VolverContabilidad.jsx';
+import { createSubmitLock } from '../lib/submitLock.js';
 import {
   SUBCOMANDOS_RECOLECCIONES_CONTAB,
   subcomandosRecoleccionesVisibles,
@@ -86,6 +87,17 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const submitLock = useRef(createSubmitLock()).current;
+  const conCandado = async (fn) => {
+    if (!submitLock.tryBegin()) return;
+    setGuardando(true);
+    try {
+      return await fn();
+    } finally {
+      submitLock.end();
+      setGuardando(false);
+    }
+  };
 
   const [servicios, setServicios] = useState([]);
   const [repsAdmin, setRepsAdmin] = useState([]);
@@ -306,19 +318,19 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   };
 
   const guardarServicio = async () => {
-    setGuardando(true);
-    const res = await crearServicioCobro(supabase, {
-      clave: srvForm.clave,
-      nombre: srvForm.nombre,
-      monto_default: srvForm.monto_default,
-      frecuencia: srvForm.frecuencia,
-      obligatorio: srvForm.obligatorio,
+    await conCandado(async () => {
+      const res = await crearServicioCobro(supabase, {
+        clave: srvForm.clave,
+        nombre: srvForm.nombre,
+        monto_default: srvForm.monto_default,
+        frecuencia: srvForm.frecuencia,
+        obligatorio: srvForm.obligatorio,
+      });
+      if (!res.ok) return alert(res.error);
+      alert('✅ Servicio registrado.');
+      setSrvForm({ clave: '', nombre: '', monto_default: '50', frecuencia: 'Diario', obligatorio: true });
+      cargarServicios();
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert('✅ Servicio registrado.');
-    setSrvForm({ clave: '', nombre: '', monto_default: '50', frecuencia: 'Diario', obligatorio: true });
-    cargarServicios();
   };
 
   const toggleServicio = async (srv) => {
@@ -337,29 +349,29 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   };
 
   const guardarRepartidor = async () => {
-    setGuardando(true);
-    const res = await crearRepartidor(supabase, repForm);
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert('✅ Recolector creado.');
-    setRepForm({ id: '', nombre: '', pin: '' });
-    cargarRepartidoresAdmin();
-    cargarReporte();
+    await conCandado(async () => {
+      const res = await crearRepartidor(supabase, repForm);
+      if (!res.ok) return alert(res.error);
+      alert('✅ Recolector creado.');
+      setRepForm({ id: '', nombre: '', pin: '' });
+      cargarRepartidoresAdmin();
+      cargarReporte();
+    });
   };
 
   const guardarEdicionRep = async () => {
     if (!repEdit) return;
-    setGuardando(true);
-    const res = await actualizarRepartidor(supabase, repEdit.id, {
-      nombre: repEdit.nombre,
-      pin: repEdit.pin,
-      activo: repEdit.activo,
+    await conCandado(async () => {
+      const res = await actualizarRepartidor(supabase, repEdit.id, {
+        nombre: repEdit.nombre,
+        pin: repEdit.pin,
+        activo: repEdit.activo,
+      });
+      if (!res.ok) return alert(res.error);
+      alert('✅ Recolector actualizado.');
+      setRepEdit(null);
+      cargarRepartidoresAdmin();
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert('✅ Recolector actualizado.');
-    setRepEdit(null);
-    cargarRepartidoresAdmin();
   };
 
   const desactivarRepartidor = async (r) => {
@@ -392,12 +404,12 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
 
   const borrarRegistro = async (row) => {
     if (!window.confirm(`¿Eliminar ${row.num_traspaso} (${fmtMonto(row.monto)})? Esta acción no se puede deshacer.`)) return;
-    setGuardando(true);
-    const res = await eliminarMovimientoTransito(supabase, row.id);
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    cargarRegistrosAdmin();
-    cargarReporte();
+    await conCandado(async () => {
+      const res = await eliminarMovimientoTransito(supabase, row.id);
+      if (!res.ok) return alert(res.error);
+      cargarRegistrosAdmin();
+      cargarReporte();
+    });
   };
 
   const confirmarGasto = async () => {
@@ -412,36 +424,36 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           : 'Indica un monto válido.',
       );
     }
-    setGuardando(true);
-    const res = await registrarGastoRecolector(supabase, {
-      repartidorId: gastoRep,
-      monto,
-      descripcion: gastoDesc,
-      adminNombre,
-      tienda: gastoTienda || 'Cuenta FJBB',
+    await conCandado(async () => {
+      const res = await registrarGastoRecolector(supabase, {
+        repartidorId: gastoRep,
+        monto,
+        descripcion: gastoDesc,
+        adminNombre,
+        tienda: gastoTienda || 'Cuenta FJBB',
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`✅ Gasto autorizado (${etiquetaOrigenGasto(gastoTienda)}) para ${res.recolector || 'recolector'}. El recolector debe aceptarlo con su PIN en Recolecciones → Gastos.`);
+      setGastoMonto('');
+      setGastoDesc('');
+      setGastoTienda('Cuenta FJBB');
+      if (gastoRep) {
+        saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
+        listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes);
+      }
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ Gasto autorizado (${etiquetaOrigenGasto(gastoTienda)}) para ${res.recolector || 'recolector'}. El recolector debe aceptarlo con su PIN en Recolecciones → Gastos.`);
-    setGastoMonto('');
-    setGastoDesc('');
-    setGastoTienda('Cuenta FJBB');
-    if (gastoRep) {
-      saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
-      listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes);
-    }
   };
 
   const cancelarGasto = async (g) => {
     if (!window.confirm(`¿Cancelar gasto ${g.num_traspaso} (${fmtMonto(g.monto)})?`)) return;
-    setGuardando(true);
-    const res = await cancelarGastoPendiente(supabase, g.id);
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    if (gastoRep) {
-      saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
-      listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes);
-    }
+    await conCandado(async () => {
+      const res = await cancelarGastoPendiente(supabase, g.id);
+      if (!res.ok) return alert(res.error);
+      if (gastoRep) {
+        saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
+        listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes);
+      }
+    });
   };
 
   const confirmarLiberar = async () => {
@@ -449,48 +461,53 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     const bruto = Number(saldoRep?.ingresos || 0);
     const gastos = Number(saldoRep?.egresos || 0);
     const neto = Number(saldoRep?.aLiberar ?? saldoRep?.total ?? 0);
-    if (
-      !window.confirm(
-        `¿Liberar efectivo del recolector?\n\n` +
-          `Mercancía → ${etiquetaCuentaRt(cuentaRtLiberarMerc)}\n` +
-          `Servicios → ${etiquetaCuentaRt(cuentaRtLiberarSrv)}\n\n` +
-          `Recolecciones: ${fmtMonto(bruto)}\n` +
-          `Gastos aceptados: −${fmtMonto(gastos)} (solo mercancía)\n` +
-          `A acreditar (neto): ${fmtMonto(neto)}`,
-      )
-    ) {
-      return;
-    }
+    if (!submitLock.tryBegin()) return;
     setGuardando(true);
-    const res = await liberarEfectivoRepartidor(supabase, {
-      repartidorId: gastoRep,
-      adminNombre,
-      cuentaRtMercancia: cuentaRtLiberarMerc,
-      cuentaRtServicios: cuentaRtLiberarSrv,
-    });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ Liberados ${res.count} movimiento(s). Neto acreditado: ${fmtMonto(res.montoTotal || 0)}.`);
-    saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
-    cargarReporte();
-    cargarCuentasRt();
+    try {
+      if (
+        !window.confirm(
+          `¿Liberar efectivo del recolector?\n\n` +
+            `Mercancía → ${etiquetaCuentaRt(cuentaRtLiberarMerc)}\n` +
+            `Servicios → ${etiquetaCuentaRt(cuentaRtLiberarSrv)}\n\n` +
+            `Recolecciones: ${fmtMonto(bruto)}\n` +
+            `Gastos aceptados: −${fmtMonto(gastos)} (solo mercancía)\n` +
+            `A acreditar (neto): ${fmtMonto(neto)}`,
+        )
+      ) {
+        return;
+      }
+      const res = await liberarEfectivoRepartidor(supabase, {
+        repartidorId: gastoRep,
+        adminNombre,
+        cuentaRtMercancia: cuentaRtLiberarMerc,
+        cuentaRtServicios: cuentaRtLiberarSrv,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`✅ Liberados ${res.count} movimiento(s). Neto acreditado: ${fmtMonto(res.montoTotal || 0)}.`);
+      saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
+      cargarReporte();
+      cargarCuentasRt();
+    } finally {
+      submitLock.end();
+      setGuardando(false);
+    }
   };
 
   const confirmarTransferencia = async () => {
-    setGuardando(true);
-    const res = await transferirEntreCuentasRt(supabase, {
-      desdeId: transDesde,
-      haciaId: transHacia,
-      monto: transMonto,
-      usuarioNombre: adminNombre,
-      notas: transNotas,
+    await conCandado(async () => {
+      const res = await transferirEntreCuentasRt(supabase, {
+        desdeId: transDesde,
+        haciaId: transHacia,
+        monto: transMonto,
+        usuarioNombre: adminNombre,
+        notas: transNotas,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`✅ Transferidos ${fmtMonto(res.monto)} de ${etiquetaCuentaRt(transDesde)} a ${etiquetaCuentaRt(transHacia)}.`);
+      setTransMonto('');
+      setTransNotas('');
+      cargarCuentasRt();
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ Transferidos ${fmtMonto(res.monto)} de ${etiquetaCuentaRt(transDesde)} a ${etiquetaCuentaRt(transHacia)}.`);
-    setTransMonto('');
-    setTransNotas('');
-    cargarCuentasRt();
   };
 
   const confirmarGastoCuentaRt = async () => {
@@ -501,21 +518,26 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     if (!(monto > 0)) {
       return alert(gastoRtModoMonto === 'todo' ? 'No hay saldo disponible en esa cuenta.' : 'Indica un monto válido.');
     }
-    if (!window.confirm(`¿Registrar gasto de ${fmtMonto(monto)} desde cuenta ${etiquetaCuentaRt(gastoRtCuenta)}?\n\n${gastoRtDesc.trim()}`)) return;
+    if (!submitLock.tryBegin()) return;
     setGuardando(true);
-    const res = await registrarGastoCuentaRt(supabase, {
-      cuentaId: gastoRtCuenta,
-      monto,
-      descripcion: gastoRtDesc,
-      tienda: gastoRtTienda || 'MAIN',
-      usuarioNombre: adminNombre,
-    });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ Gasto registrado: ${fmtMonto(res.monto)} · ${etiquetaCuentaRt(gastoRtCuenta)}. Quedó en contabilidad (Corte Virtual).`);
-    setGastoRtMonto('');
-    setGastoRtDesc('');
-    cargarCuentasRt();
+    try {
+      if (!window.confirm(`¿Registrar gasto de ${fmtMonto(monto)} desde cuenta ${etiquetaCuentaRt(gastoRtCuenta)}?\n\n${gastoRtDesc.trim()}`)) return;
+      const res = await registrarGastoCuentaRt(supabase, {
+        cuentaId: gastoRtCuenta,
+        monto,
+        descripcion: gastoRtDesc,
+        tienda: gastoRtTienda || 'MAIN',
+        usuarioNombre: adminNombre,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`✅ Gasto registrado: ${fmtMonto(res.monto)} · ${etiquetaCuentaRt(gastoRtCuenta)}. Quedó en contabilidad (Corte Virtual).`);
+      setGastoRtMonto('');
+      setGastoRtDesc('');
+      cargarCuentasRt();
+    } finally {
+      submitLock.end();
+      setGuardando(false);
+    }
   };
 
   const confirmarImportarHistorico = async () => {
@@ -532,19 +554,24 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     ]
       .filter(Boolean)
       .join('\n');
-    if (!window.confirm(msg)) return;
+    if (!submitLock.tryBegin()) return;
     setGuardando(true);
-    const res = await importarLiquidacionesHistoricasRt(supabase, {
-      cuentaFallback: cuentaFallbackHist,
-      usuarioNombre: adminNombre,
-    });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(
-      `✅ Importadas ${res.importados} liquidación(es) · ${fmtMonto(res.monto)} · ${res.movimientos} movimiento(s) de tránsito.`,
-    );
-    cargarCuentasRt();
-    resumenLiquidacionesHistoricasRt(supabase, { cuentaFallback: cuentaFallbackHist }).then(setResumenHistRt);
+    try {
+      if (!window.confirm(msg)) return;
+      const res = await importarLiquidacionesHistoricasRt(supabase, {
+        cuentaFallback: cuentaFallbackHist,
+        usuarioNombre: adminNombre,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(
+        `✅ Importadas ${res.importados} liquidación(es) · ${fmtMonto(res.monto)} · ${res.movimientos} movimiento(s) de tránsito.`,
+      );
+      cargarCuentasRt();
+      resumenLiquidacionesHistoricasRt(supabase, { cuentaFallback: cuentaFallbackHist }).then(setResumenHistRt);
+    } finally {
+      submitLock.end();
+      setGuardando(false);
+    }
   };
 
   const resumenRt = useMemo(() => resumenPeriodoRt(movsRt), [movsRt]);
