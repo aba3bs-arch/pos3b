@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
+import { createSubmitLock } from '../lib/submitLock.js';
 import InputPin from '../components/InputPin.jsx';
 import { BtnLabel } from '../components/Icon.jsx';
 import {
@@ -52,6 +53,18 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [esEfectivo, setEsEfectivo] = useState(true);
   const [filas, setFilas] = useState([{ folio: '', monto: '' }]);
   const [guardando, setGuardando] = useState(false);
+  const submitLock = useRef(createSubmitLock()).current;
+
+  const conCandado = async (fn) => {
+    if (!submitLock.tryBegin()) return;
+    setGuardando(true);
+    try {
+      return await fn();
+    } finally {
+      submitLock.end();
+      setGuardando(false);
+    }
+  };
 
   const [servicios, setServicios] = useState([]);
   const [pendientesSrv, setPendientesSrv] = useState([]);
@@ -254,48 +267,47 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) {
       return alert('Escribe el PIN del recolector (arriba) para cobrar CFE / servicios.');
     }
-    setGuardando(true);
-    try {
-      const res = await registrarCobroServicio(supabase, {
-        tienda: tiendaSesion,
-        repartidorId: repTraspaso,
-        cajero: user?.nombre || 'Cajero',
-        srv,
-        monto: montosSrv[srv.clave] ?? srv.monto_default,
-        pin: pinTraspaso,
-        repartidores,
-      });
-      if (!res.ok) return alert(res.error);
-      alert(`✅ Cobro de ${srv.nombre} registrado.`);
-      setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
-      setPendientesSrv((prev) => prev.filter((p) => p.clave !== srv.clave));
-      await cargarEstadoServicios();
-    } catch (e) {
-      alert(e?.message || String(e));
-    } finally {
-      setGuardando(false);
-    }
+    await conCandado(async () => {
+      try {
+        const res = await registrarCobroServicio(supabase, {
+          tienda: tiendaSesion,
+          repartidorId: repTraspaso,
+          cajero: user?.nombre || 'Cajero',
+          srv,
+          monto: montosSrv[srv.clave] ?? srv.monto_default,
+          pin: pinTraspaso,
+          repartidores,
+        });
+        if (!res.ok) return alert(res.error);
+        alert(`✅ Cobro de ${srv.nombre} registrado.`);
+        setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
+        setPendientesSrv((prev) => prev.filter((p) => p.clave !== srv.clave));
+        await cargarEstadoServicios();
+      } catch (e) {
+        alert(e?.message || String(e));
+      }
+    });
   };
 
   const confirmarNoCobroServicio = async (srv) => {
     const motivo = motivosNoCobro[srv.clave]?.trim();
     if (!motivo) return alert('Indica el motivo (ej. falta de liquidez).');
     if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) return alert('PIN de recolector incorrecto.');
-    setGuardando(true);
-    const res = await registrarServicioNoCobrado(supabase, {
-      tienda: tiendaSesion,
-      repartidorId: repTraspaso,
-      cajero: user?.nombre || 'Cajero',
-      srv,
-      motivo,
-      pin: pinTraspaso,
-      repartidores,
+    await conCandado(async () => {
+      const res = await registrarServicioNoCobrado(supabase, {
+        tienda: tiendaSesion,
+        repartidorId: repTraspaso,
+        cajero: user?.nombre || 'Cajero',
+        srv,
+        motivo,
+        pin: pinTraspaso,
+        repartidores,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`Registrado: ${srv.nombre} no cobrado (${motivo}). Puedes continuar con el traspaso.`);
+      setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
+      cargarEstadoServicios();
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`Registrado: ${srv.nombre} no cobrado (${motivo}). Puedes continuar con el traspaso.`);
-    setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
-    cargarEstadoServicios();
   };
 
   const confirmarTraspaso = async () => {
@@ -304,19 +316,19 @@ export default function Recolecciones({ supabase, sucursal, user }) {
       return alert(`Registra primero los servicios obligatorios: ${pendientesSrv.map((s) => s.nombre).join(', ')}`);
     }
     if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) return alert('PIN de recolector incorrecto.');
-    setGuardando(true);
-    const res = await registrarTraspasos(supabase, filas, {
-      tienda: tiendaSesion,
-      repartidorId: repTraspaso,
-      cajero: user?.nombre || 'Cajero',
-      esEfectivo,
+    await conCandado(async () => {
+      const res = await registrarTraspasos(supabase, filas, {
+        tienda: tiendaSesion,
+        repartidorId: repTraspaso,
+        cajero: user?.nombre || 'Cajero',
+        esEfectivo,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`✅ ${res.count} traspaso(s) registrado(s)${esEfectivo ? ' en tránsito' : ' a crédito'}.`);
+      setFilas([{ folio: '', monto: '' }]);
+      setPinTraspaso('');
+      if (!esEfectivo) setTab('cobro');
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ ${res.count} traspaso(s) registrado(s)${esEfectivo ? ' en tránsito' : ' a crédito'}.`);
-    setFilas([{ folio: '', monto: '' }]);
-    setPinTraspaso('');
-    if (!esEfectivo) setTab('cobro');
   };
 
   const toggleTodosGastos = (valor) => {
@@ -332,39 +344,39 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     if (!pinRepartidorValido(pinGasto, repGasto, repartidores)) return alert('PIN de recolector incorrecto.');
     const ids = gastosPendientes.filter((g) => selGasto[g.id]).map((g) => g.id);
     if (!ids.length) return alert('Selecciona al menos un gasto autorizado.');
-    setGuardando(true);
-    const res = await aceptarGastosRecolector(supabase, {
-      ids,
-      repartidorId: repGasto,
-      recolectorNombre: repGastoNombre || user?.nombre || 'Recolector',
+    await conCandado(async () => {
+      const res = await aceptarGastosRecolector(supabase, {
+        ids,
+        repartidorId: repGasto,
+        recolectorNombre: repGastoNombre || user?.nombre || 'Recolector',
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`✅ ${res.count} gasto(s) registrado(s) por ${fmtMonto(res.total)}.`);
+      setPinGasto('');
+      cargarGastosPendientes();
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ ${res.count} gasto(s) registrado(s) por ${fmtMonto(res.total)}.`);
-    setPinGasto('');
-    cargarGastosPendientes();
   };
 
   const confirmarCobro = async () => {
     if (!tiendaCobro) return alert('Selecciona la tienda a cobrar.');
     if (!pinRepartidorValido(pinCobro, repCobro, repartidores)) return alert('PIN de recolector incorrecto.');
     const ids = pendientes.filter((p) => selCobro[p.id]).map((p) => p.id);
-    setGuardando(true);
-    const res = await cobrarCreditosSeleccionados(supabase, {
-      ids,
-      repartidorId: repCobro,
-      cajero: cajeroCobro || user?.nombre || '',
-      pendientes,
+    await conCandado(async () => {
+      const res = await cobrarCreditosSeleccionados(supabase, {
+        ids,
+        repartidorId: repCobro,
+        cajero: cajeroCobro || user?.nombre || '',
+        pendientes,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(
+        `✅ Cobrados ${res.count} folio(s) por ${fmtMonto(res.total)}.\n`
+        + 'Quedaron en tránsito como «Cobro Crédito» (no como venta/recolección) '
+        + 'y se cargó gasto «CREDITO · COBRADO» al corte de Abarrotes.',
+      );
+      setPinCobro('');
+      cargarPendientes();
     });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(
-      `✅ Cobrados ${res.count} folio(s) por ${fmtMonto(res.total)}.\n`
-      + 'Quedaron en tránsito como «Cobro Crédito» (no como venta/recolección) '
-      + 'y se cargó gasto «CREDITO · COBRADO» al corte de Abarrotes.',
-    );
-    setPinCobro('');
-    cargarPendientes();
   };
 
   const toggleTodosCreditos = (valor) => {

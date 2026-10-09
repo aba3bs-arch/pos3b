@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizarRol } from '../lib/roles.js';
+import { createSubmitLock } from '../lib/submitLock.js';
 import {
   fmtFechaClave,
   fmtMonto,
@@ -60,6 +61,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [selIds, setSelIds] = useState({});
   const [alertas, setAlertas] = useState([]);
   const [guardando, setGuardando] = useState(false);
+  const submitLock = useRef(createSubmitLock()).current;
   const [error, setError] = useState(null);
   const [modoConsulta, setModoConsulta] = useState('pendiente');
   const [presetFecha, setPresetFecha] = useState('todos');
@@ -211,55 +213,60 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   };
 
   const confirmarLiquidacion = async () => {
-    const ids = seleccionados.map((m) => m.id);
-    if (!ids.length) return alert('Selecciona al menos un día o movimiento para liquidar.');
-    if (!cuentaRtMercancia && netosLiquidacion.netoMercancia > 0) {
-      return alert('Selecciona la cuenta RT para mercancía.');
-    }
-    if (!cuentaRtServicios && netosLiquidacion.netoServicios > 0) {
-      return alert('Selecciona la cuenta RT para servicios.');
-    }
-    const { acreditaciones } = armarAcreditacionesLiquidacion({
-      seleccionados,
-      totalGastos: totalGastosActivos,
-      cuentaRtMercancia,
-      cuentaRtServicios,
-      repartidorNombre: repNombre,
-    });
-    if (!acreditaciones.length) return alert('No hay monto neto para acreditar.');
-    const diasTxt = diasSeleccionados.map((d) => d.etiqueta).join(', ');
-    const lineasCuentas = acreditaciones
-      .map((a) => `${etiquetaCuentaRt(a.cuentaRtId)}: ${fmtMonto(a.monto)}`)
-      .join('\n');
-    if (
-      !window.confirm(
-        `¿Sellar liquidación del ${fechaLiquidacion}?\n\n` +
-          `Días: ${diasTxt || '—'}\n` +
-          `Mercancía bruta: ${fmtMonto(netosLiquidacion.brutoMerc)} · Servicios: ${fmtMonto(netosLiquidacion.brutoSrv)}\n` +
-          `Gastos aceptados: −${fmtMonto(totalGastosActivos)} (solo mercancía)\n\n` +
-          `Acreditar:\n${lineasCuentas}\n\n` +
-          `Total neto: ${fmtMonto(totalARecolectar)} (${ids.length} movimiento(s))`,
-      )
-    )
-      return;
+    if (!submitLock.tryBegin()) return;
     setGuardando(true);
-    const res = await liquidarMovimientos(supabase, {
-      ids,
-      adminNombre: user?.nombre || rol,
-      repartidorNombre: repNombre,
-      acreditaciones,
-      montoLiquidacion: totalARecolectar,
-    });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(
-      `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalARecolectar)} acreditados` +
-        (acreditaciones.length > 1
-          ? ` (${acreditaciones.map((a) => `${etiquetaCuentaRt(a.cuentaRtId)} ${fmtMonto(a.monto)}`).join(' · ')})`
-          : ` a ${etiquetaCuentaRt(acreditaciones[0]?.cuentaRtId)}`) +
-        (totalGastosActivos > 0 ? `. Gastos descontados de mercancía: ${fmtMonto(totalGastosActivos)}.` : '.'),
-    );
-    cargar();
+    try {
+      const ids = seleccionados.map((m) => m.id);
+      if (!ids.length) return alert('Selecciona al menos un día o movimiento para liquidar.');
+      if (!cuentaRtMercancia && netosLiquidacion.netoMercancia > 0) {
+        return alert('Selecciona la cuenta RT para mercancía.');
+      }
+      if (!cuentaRtServicios && netosLiquidacion.netoServicios > 0) {
+        return alert('Selecciona la cuenta RT para servicios.');
+      }
+      const { acreditaciones } = armarAcreditacionesLiquidacion({
+        seleccionados,
+        totalGastos: totalGastosActivos,
+        cuentaRtMercancia,
+        cuentaRtServicios,
+        repartidorNombre: repNombre,
+      });
+      if (!acreditaciones.length) return alert('No hay monto neto para acreditar.');
+      const diasTxt = diasSeleccionados.map((d) => d.etiqueta).join(', ');
+      const lineasCuentas = acreditaciones
+        .map((a) => `${etiquetaCuentaRt(a.cuentaRtId)}: ${fmtMonto(a.monto)}`)
+        .join('\n');
+      if (
+        !window.confirm(
+          `¿Sellar liquidación del ${fechaLiquidacion}?\n\n` +
+            `Días: ${diasTxt || '—'}\n` +
+            `Mercancía bruta: ${fmtMonto(netosLiquidacion.brutoMerc)} · Servicios: ${fmtMonto(netosLiquidacion.brutoSrv)}\n` +
+            `Gastos aceptados: −${fmtMonto(totalGastosActivos)} (solo mercancía)\n\n` +
+            `Acreditar:\n${lineasCuentas}\n\n` +
+            `Total neto: ${fmtMonto(totalARecolectar)} (${ids.length} movimiento(s))`,
+        )
+      )
+        return;
+      const res = await liquidarMovimientos(supabase, {
+        ids,
+        adminNombre: user?.nombre || rol,
+        repartidorNombre: repNombre,
+        acreditaciones,
+        montoLiquidacion: totalARecolectar,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(
+        `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalARecolectar)} acreditados` +
+          (acreditaciones.length > 1
+            ? ` (${acreditaciones.map((a) => `${etiquetaCuentaRt(a.cuentaRtId)} ${fmtMonto(a.monto)}`).join(' · ')})`
+            : ` a ${etiquetaCuentaRt(acreditaciones[0]?.cuentaRtId)}`) +
+          (totalGastosActivos > 0 ? `. Gastos descontados de mercancía: ${fmtMonto(totalGastosActivos)}.` : '.'),
+      );
+      cargar();
+    } finally {
+      submitLock.end();
+      setGuardando(false);
+    }
   };
 
   const multiplesDias = reporte.resumenDias.length > 1;
