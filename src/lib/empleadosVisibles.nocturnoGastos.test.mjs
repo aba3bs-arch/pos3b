@@ -7,6 +7,7 @@ import {
   empleadosParaCorte,
   agruparEmpleadosParaSelectCorte,
   elegirEmpleadosTiendaParaGastos,
+  esEmpleadoConsumoPinCorte,
   etiquetaEmpleadoSelectGastos,
   resolverTipoEmpleado,
   turnoDominanteDesdeHorario,
@@ -157,5 +158,51 @@ const cat3b7 = empleadosParaCatalogoEmpleado([diurno3b7, nocturnoRot3b7, extra3b
 const g7 = cat3b7.tiendaGrupos.find((x) => x.sucursalId === '3B7');
 assert.ok(g7);
 assert.ok(g7.empleados.some((e) => e.id === 'n7'), 'catálogo 3B7 incluye nocturno');
+
+// ——— Caso real 3B7: Frania (diurno) + Leyver Misael (nocturno); Misael MAIN intacto ———
+const frania = {
+  id: 'fc4184b8-03d6-4006-8a17-6fa643f172fb',
+  nombre: 'Frania Pahola Zazueta Amparan',
+  rol: 'Cajero',
+  sucursal_id: '3B7',
+  tipo_empleado: 'tienda',
+  turno_id: 'diurno',
+  activo: true,
+};
+const leyver = {
+  id: '43b09789-f7f2-4865-9efa-789896e9d200',
+  nombre: 'Leyver Misael Jimenez salinas',
+  rol: 'Cajero',
+  sucursal_id: '3B7',
+  tipo_empleado: 'tienda',
+  turno_id: 'nocturno',
+  activo: true,
+};
+const misaelMain = {
+  id: 'e686f39b-82e2-4a52-9d1e-896666f28f84',
+  nombre: 'Misael Edwin Avalos Perez',
+  rol: 'Técnico',
+  sucursal_id: 'MAIN',
+  tipo_empleado: 'indirecto',
+  turno_id: 'ambos',
+  activo: true,
+};
+assert.equal(esEmpleadoConsumoPinCorte(leyver), false, 'Leyver no es el Misael de PIN');
+assert.equal(esEmpleadoConsumoPinCorte(misaelMain), true, 'Misael MAIN sigue con PIN');
+
+const real3b7 = empleadosParaCorte([frania, leyver, misaelMain], '3B7', 'virtual', 'Administrador');
+const gruposReal = agruparEmpleadosParaSelectCorte(real3b7);
+assert.equal(gruposReal.tienda.length, 2, 'exactamente diurno + nocturno en 3B7');
+assert.ok(gruposReal.tienda.some((e) => e.id === frania.id), 'Frania diurno');
+assert.ok(gruposReal.tienda.some((e) => e.id === leyver.id), 'Leyver nocturno en tienda');
+assert.match(etiquetaEmpleadoSelectGastos(leyver), /Nocturno/);
+assert.ok(
+  (gruposReal.consumoPin || []).some((e) => esEmpleadoConsumoPinCorte(e) && /misael/i.test(e.nombre || e.etiqueta_consumo_pin || '')),
+  'Misael MAIN sigue en consumo PIN',
+);
+assert.ok(
+  !(gruposReal.consumoPin || []).some((e) => String(e.id) === leyver.id),
+  'Leyver no va al grupo MAIN',
+);
 
 console.log('empleadosVisibles.nocturnoGastos.test.mjs ok');
