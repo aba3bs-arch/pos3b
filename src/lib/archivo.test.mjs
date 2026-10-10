@@ -6,6 +6,7 @@ import {
   construirArbolArchivoPorEvento,
   construirArbolArchivoPorDepartamento,
   fechaUmbralArchivo,
+  limiteHistorialCierresCorte,
   ymdUmbralArchivo,
   faltaColumnaArchivedAt,
   guardarDiasArchivoOperativo,
@@ -16,6 +17,15 @@ assert.equal(DIAS_ARCHIVO_DEFAULT, 15);
 assert.ok(TIPOS_ARCHIVO.length >= 6);
 assert.ok(TIPOS_ARCHIVO.some((t) => t.id === 'cierres'));
 assert.ok(TIPOS_ARCHIVO.some((t) => t.id === 'nominas'));
+
+{
+  const prev = leerDiasArchivoOperativo();
+  guardarDiasArchivoOperativo(15, { silencioso: true });
+  assert.ok(limiteHistorialCierresCorte('abarrotes') >= 100, 'historial abarrotes cubre plazo Archivo');
+  assert.ok(limiteHistorialCierresCorte('abarrotes') >= 15 * 5, 'no volver a limitar a 15 filas');
+  assert.ok(limiteHistorialCierresCorte('virtual') >= limiteHistorialCierresCorte('abarrotes'));
+  guardarDiasArchivoOperativo(prev, { silencioso: true });
+}
 
 {
   const ref = new Date('2026-10-08T12:00:00');

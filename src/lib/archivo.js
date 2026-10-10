@@ -105,6 +105,19 @@ export function ymdUmbralArchivo(ahora = new Date(), dias = null) {
   return fechaUmbralArchivo(ahora, dias).slice(0, 10);
 }
 
+/**
+ * Cuántos cierres cargar en el historial de Corte (Virtual / Abarrotes / Garage).
+ * Debe cubrir el plazo de Archivo: si solo se pedían 15 filas, los cortes de hace
+ * ~1 semana desaparecían del historial sin estar aún en Archivo (archived_at).
+ */
+export function limiteHistorialCierresCorte(modulo = null) {
+  const dias = leerDiasArchivoOperativo();
+  const m = String(modulo || '').toLowerCase();
+  // Abarrotes/Garage: ~2 turnos + recolecciones/día. Virtual un poco más denso.
+  const porDia = m === 'virtual' ? 6 : 5;
+  return Math.min(250, Math.max(100, dias * porDia + 20));
+}
+
 /** Aplica .is('archived_at', null) a una query Supabase. */
 export function excluirArchivados(query) {
   if (!query || typeof query.is !== 'function') return query;

@@ -257,6 +257,8 @@ export default function Archivo({ supabase, user }) {
           <strong>{modo === 'evento' ? 'evento (cortes, vales, pagarés…)' : 'departamento'}</strong>
           {' '}y {modo === 'evento' ? 'departamento' : 'evento'}.
           {' '}Plazo: <strong>{diasRetencion} días</strong> (Configuración → Operación).
+          {' '}Los cortes más recientes siguen en <strong>Corte Abarrotes / Virtual / Garage</strong> (historial);
+          aquí solo aparecen después de <strong>Archivar +{diasRetencion} días</strong>.
           {' '}No afecta IE VIRTUAL / IE ABARROTES.
         </p>
       </div>

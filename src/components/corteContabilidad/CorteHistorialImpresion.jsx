@@ -59,12 +59,12 @@ export default function CorteHistorialImpresion({
       {!vacioActivos && (
         <div className="card">
           <h4 style={{ margin: '0 0 0.5rem' }}>Últimos cierres</h4>
-          {(puedeEliminar || puedeEditar) && (
-            <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
-              {puedeEditar ? 'Puede editar montos de un cierre guardado. ' : ''}
-              {puedeEliminar ? 'Al borrar, el cierre pasa a la papelera y se puede recuperar (solo administrador).' : ''}
-            </p>
-          )}
+          <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
+            Historial operativo (aún no archivados). Tras el plazo de Archivo, el admin usa Archivar en el módulo Archivo.
+            {(puedeEditar || puedeEliminar) ? ' ' : ''}
+            {puedeEditar ? 'Puede editar montos de un cierre guardado. ' : ''}
+            {puedeEliminar ? 'Al borrar, el cierre pasa a la papelera y se puede recuperar (solo administrador).' : ''}
+          </p>
           <div className="table-wrap">
             <table className="data">
               <thead>

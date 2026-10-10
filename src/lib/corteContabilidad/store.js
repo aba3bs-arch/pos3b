@@ -23,6 +23,7 @@ import {
   empleadoPermitidoEnGastoCorte,
   esEmpleadoConsumoPinCorte,
 } from '../empleadosVisibles.js';
+import { limiteHistorialCierresCorte } from '../archivo.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -1217,13 +1218,16 @@ function guardarHistorialLocal(sucursal, modulo, hist) {
 }
 
 /** Lista cierres activos (no borrados). */
-export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30) {
+export async function listarCierresCorte(supabase, sucursal, modulo, limit = null) {
   const sid = sucursalIdCorte(sucursal);
   const vars = sucursalesIdCorteQuery(sid);
+  const lim = Number.isFinite(Number(limit)) && Number(limit) > 0
+    ? Math.min(500, Math.round(Number(limit)))
+    : limiteHistorialCierresCorte(modulo);
   if (!supabase) {
     const hist = leerHistorialLocal(sid, modulo)
       .filter((h) => !h?.deleted_at)
-      .slice(0, limit);
+      .slice(0, lim);
     return { data: hist };
   }
   let q = await supabase
@@ -1234,7 +1238,7 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
     .is('deleted_at', null)
     .is('archived_at', null)
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .limit(lim);
   if (q.error && String(q.error.message || '').toLowerCase().includes('archived_at')) {
     q = await supabase
       .from('cortes_contabilidad_cierres')
@@ -1243,7 +1247,7 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
       .eq('modulo', modulo)
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .limit(lim);
   }
   if (q.error && faltaColumnaDeletedAt(q.error)) {
     q = await supabase
@@ -1252,7 +1256,7 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
       .in('sucursal_id', vars)
       .eq('modulo', modulo)
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .limit(lim);
     return { data: q.data || [], error: q.error?.message || null, aviso: AVISO_FALTA_SOFT_DELETE_CIERRES };
   }
   return { data: q.data || [], error: q.error?.message || null };

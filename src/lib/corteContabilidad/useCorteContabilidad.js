@@ -36,6 +36,7 @@ import {
   notificarRecoleccionPendienteIe,
 } from './store.js';
 import { estadoAprobacionRecoleccionInicial } from '../contabilidadConstants.js';
+import { limiteHistorialCierresCorte } from '../archivo.js';
 import { normalizarRol } from '../roles.js';
 import { esUsuarioCubreTurno } from '../cubreTurno.js';
 
@@ -239,7 +240,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   );
 
   const refrescarHistorial = useCallback(async () => {
-    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
     setHistorial(hist.data || []);
     if (hist.aviso) setAviso(hist.aviso);
     if (perm.editarTodo) {
@@ -276,7 +277,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const [estRes, gasRes, histRes, empRes] = await Promise.all([
       cargarEstadoCorte(supabase, sucursal, modulo),
       listarGastosTurno(supabase, sucursal, modulo),
-      listarCierresCorte(supabase, sucursal, modulo, modulo === 'virtual' ? 80 : 15),
+      listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo)),
       cargarUsuariosCorte(),
     ]);
     if (estRes.aviso || gasRes.aviso || histRes.aviso) {
@@ -450,7 +451,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const quedan = gas.data || [];
     setGastos(quedan);
 
-    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
     setHistorial(hist.data || []);
 
     if (modulo !== 'garage' && (!limpia.ok || quedan.length > 0)) {
@@ -600,7 +601,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       });
       await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
       setEstado(nuevoEstado);
-      const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+      const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
       setHistorial(hist.data || []);
       return {
         ok: true,
@@ -628,7 +629,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         return alert('Indique el monto de recolección.');
       }
       // Historial amplio: gastos del periodo + MF del último cierre.
-      const histPeriodoRes = await listarCierresCorte(supabase, sucursal, modulo, 120);
+      const histPeriodoRes = await listarCierresCorte(supabase, sucursal, modulo, Math.max(120, limiteHistorialCierresCorte(modulo)));
       const histPeriodo = histPeriodoRes.data?.length ? histPeriodoRes.data : historial;
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
       const mf = monedaFinalParaInyectarVirtual(estado, histPeriodo);
@@ -722,7 +723,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       setEstado(nuevoEstado);
       const gasRec = await listarGastosTurno(supabase, sucursal, modulo);
       setGastos(gasRec.data || []);
-      const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+      const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
       setHistorial(hist.data || []);
       return {
         ok: true,
@@ -822,7 +823,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       };
       await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
       setEstado(nuevoEstado);
-      const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+      const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
       setHistorial(hist.data || []);
       return {
         ok: true,
@@ -935,7 +936,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setEstado(nuevoEstado);
     const gasPost = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gasPost.data || []);
-    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
     setHistorial(hist.data || []);
     const monOp = monedaTope > 0 ? monedaTope : mf;
     const brutoIe = round2(montoRec + gastosPeriodo);
@@ -1128,7 +1129,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     } catch {
       /* ignore */
     }
-    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
     setHistorial(hist.data || []);
     return { ok: true };
   };
