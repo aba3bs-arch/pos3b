@@ -1,7 +1,13 @@
 import { listarSucursalesOperativas, normalizarCodigoTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { BENEFICIARIOS_VALES, slugBeneficiarioVale, AREAS_CONTABILIDAD } from './contabilidadConstants.js';
 import { normalizarRol, puedeGestionarUsuarios } from './roles.js';
-import { esTurnoAmbos, turnoActual, turnoIdParaUsuario } from './turnos.js';
+import {
+  esTurnoAmbos,
+  parseTurnoHorario,
+  patronRotacionPorId,
+  turnoActual,
+  turnoIdParaUsuario,
+} from './turnos.js';
 import {
   BENEFICIARIOS_CONSUMO_PIN,
   resolverBeneficiarioConsumoPin,
@@ -26,26 +32,60 @@ export function moduloCorteIncluyeConsumoPin(modulo) {
   return MODULOS_CORTE_CONSUMO_PIN.has(String(modulo || '').toLowerCase());
 }
 
-/**
- * Turno fijo/rotación del empleado para etiquetas de gastos (diurno / nocturno / ambos).
- * No usa la hora actual: en Gastos deben verse ambos turnos de la tienda.
- */
-export function turnoEmpleadoParaGastos(user, date = new Date()) {
-  if (!user) return '';
-  const asignado = turnoIdParaUsuario(user, date);
-  if (!asignado) {
-    const fijo = String(user.turno_id || '').trim().toLowerCase();
-    if (!fijo) return '';
-    if (esTurnoAmbos(fijo)) return 'ambos';
-    if (fijo.includes('nocturn')) return 'nocturno';
-    if (fijo.includes('diurn')) return 'diurno';
-    return fijo;
-  }
-  const id = String(asignado).toLowerCase();
+/** Clasifica un id de turno a diurno / nocturno / ambos / raw. */
+function clasificarTurnoId(turnoId) {
+  const id = String(turnoId || '').trim().toLowerCase();
+  if (!id) return '';
   if (esTurnoAmbos(id)) return 'ambos';
   if (id.includes('nocturn')) return 'nocturno';
   if (id.includes('diurn')) return 'diurno';
   return id;
+}
+
+/**
+ * Turno característico del horario/patrón (mayoría de días), no el de «hoy».
+ * Así el nocturno de rotación (p. ej. Mié–Dom) sigue contando como nocturno en lunes.
+ */
+export function turnoDominanteDesdeHorario(user) {
+  if (!user) return '';
+  const horario = parseTurnoHorario(user?.turno_horario);
+  let dias = null;
+  if (horario?.patron) {
+    dias = patronRotacionPorId(horario.patron)?.dias;
+  } else if (horario?.dias && typeof horario.dias === 'object') {
+    dias = horario.dias;
+  }
+  if (!dias) return '';
+  let nDiurno = 0;
+  let nNocturno = 0;
+  for (const v of Object.values(dias)) {
+    const t = clasificarTurnoId(v);
+    if (t === 'nocturno') nNocturno += 1;
+    else if (t === 'diurno') nDiurno += 1;
+  }
+  if (nNocturno > nDiurno) return 'nocturno';
+  if (nDiurno > nNocturno) return 'diurno';
+  if (nNocturno > 0 && nDiurno > 0) return 'ambos';
+  if (nNocturno) return 'nocturno';
+  if (nDiurno) return 'diurno';
+  return '';
+}
+
+/**
+ * Turno fijo/rotación del empleado para etiquetas de gastos (diurno / nocturno / ambos).
+ * No usa la hora actual: en Gastos deben verse ambos turnos de la tienda.
+ * Prioriza el turno dominante del patrón/horario; luego turno_id fijo; luego el del día.
+ */
+export function turnoEmpleadoParaGastos(user, date = new Date()) {
+  if (!user) return '';
+  const dominante = turnoDominanteDesdeHorario(user);
+  if (dominante) return dominante;
+
+  const fijo = clasificarTurnoId(user.turno_id);
+  if (fijo) return fijo;
+
+  const asignado = turnoIdParaUsuario(user, date);
+  return clasificarTurnoId(asignado);
 }
 
 export function etiquetaTurnoEmpleadoGastos(user, date = new Date()) {
@@ -196,6 +236,7 @@ function esPersonalIndirectoPorNombre(user) {
  *
  * Cajero/Repartidor anclado a tienda operativa cuenta como «tienda»
  * aunque el alta diga indirecto por error (así el nocturno no desaparece de Gastos).
+ * También: personal con turno diurno/nocturno en tienda operativa (altas mal tipadas).
  */
 export function resolverTipoEmpleado(e) {
   const t = String(e?.tipo_empleado || '')
@@ -203,12 +244,13 @@ export function resolverTipoEmpleado(e) {
     .toLowerCase();
   const suc = normalizarCodigoTienda(e?.sucursal_id);
   const rol = normalizarRol(e?.rol);
-  if (
-    (rol === 'Cajero' || rol === 'Repartidor')
-    && suc
-    && !esSucursalNoVenta(suc)
-  ) {
-    return 'tienda';
+  if (suc && !esSucursalNoVenta(suc) && rol !== 'Administrador') {
+    if (rol === 'Cajero' || rol === 'Repartidor') return 'tienda';
+    // Turno de piso en tienda operativa: no ocultar aunque el alta diga indirecto.
+    const turnoG = turnoEmpleadoParaGastos(e);
+    if (turnoG === 'diurno' || turnoG === 'nocturno' || turnoG === 'ambos') {
+      return 'tienda';
+    }
   }
   if (t === 'indirecto' || t === 'tienda') return t;
   if (esPersonalIndirectoPorNombre(e)) return 'indirecto';

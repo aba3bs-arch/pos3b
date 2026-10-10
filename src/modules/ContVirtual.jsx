@@ -1048,6 +1048,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       return;
     }
     const intentos = [
+      'id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo',
+      'id, nombre, rol, sucursal_id, tipo_empleado, turno_id, turno_horario, activo',
       '*',
       'id, nombre, rol, sucursal_id, tipo_empleado, activo',
       'id, nombre, rol, sucursal_id, activo',

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   etiquetaTienda,
+  equivalentesCodigoTienda,
   nombreUbicacionSucursal,
+  normalizarCodigoTienda,
   urlGoogleMapsSucursal,
   ubicacionSucursal,
 } from './sucursales.js';
@@ -20,5 +22,11 @@ assert.match(urlGoogleMapsSucursal('3B2'), /maps\?q=31\.300544,-110\.923907/);
 assert.equal(ubicacionSucursal('3B10')?.lat, 31.30125);
 assert.ok(urlGoogleMapsSucursal('3B7'));
 assert.equal(urlGoogleMapsSucursal('MAIN'), null);
+
+assert.equal(normalizarCodigoTienda('Del Valle'), '3B7');
+assert.equal(normalizarCodigoTienda('DEL_VALLE'), '3B7');
+assert.equal(normalizarCodigoTienda('3B7 Del Valle'), '3B7');
+assert.equal(normalizarCodigoTienda('3B7_DEL_VALLE'), '3B7');
+assert.ok(equivalentesCodigoTienda('3B7').includes('Del Valle'));
 
 console.log('sucursales.ubicacion.test.mjs ok');

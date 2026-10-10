@@ -36,6 +36,20 @@ const ALIAS_A_CODIGO = {
   ADMINISTRACION: 'MAIN',
   // Histórico: recolecciones guardaban "Fusión" / "FUSIÓN" y no cuadraban con FUSION.
   FUSION: 'FUSION',
+  // Colonias → código (altas / CT a veces guardan el nombre en vez de 3Bn).
+  DEL_VALLE: '3B7',
+  DELVALLE: '3B7',
+  PUEBLO_NUEVO: '3B2',
+  PUEBLONUEVO: '3B2',
+  PETROLEOS: '3B3',
+  LOMAS_DOS: '3B5',
+  LOMASDOS: '3B5',
+  SOLIDARIDAD: '3B6',
+  BUENOS_AIRES: '3B9',
+  BUENOSAIRES: '3B9',
+  EL_MEZQUITE: '3B10',
+  ELMEZQUITE: '3B10',
+  MEZQUITE: '3B10',
 };
 
 export function normalizarCodigoTienda(s) {
@@ -44,7 +58,11 @@ export function normalizarCodigoTienda(s) {
     .toUpperCase()
     .replace(/\s+/g, '_');
   if (!c) return '';
-  return ALIAS_A_CODIGO[c] || c;
+  if (ALIAS_A_CODIGO[c]) return ALIAS_A_CODIGO[c];
+  // "3B7_DEL_VALLE" / "3B7-DEL-VALLE" → 3B7
+  const m = c.match(/^(3B\d+)/);
+  if (m) return m[1];
+  return c;
 }
 
 /**
@@ -60,6 +78,13 @@ export function equivalentesCodigoTienda(codigo) {
     out.add('FUSIÓN');
     out.add('Fusion');
     out.add('fusion');
+  }
+  if (c === '3B7') {
+    out.add('Del Valle');
+    out.add('DEL_VALLE');
+    out.add('DELVALLE');
+    out.add('3B7 Del Valle');
+    out.add('3B7_DEL_VALLE');
   }
   return [...out];
 }

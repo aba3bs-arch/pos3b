@@ -101,7 +101,10 @@ export default function CorteGastosPanel({
       setUsuariosRaw([]);
       return;
     }
+    // turno_id / turno_horario: necesarios para etiquetar y priorizar diurno+nocturno.
     const intentos = [
+      'id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo',
+      'id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, activo',
       'id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, activo',
       'id, nombre, rol, sucursal_id, tipo_empleado, activo',
       'id, nombre, rol, sucursal_id, activo',
@@ -129,7 +132,15 @@ export default function CorteGastosPanel({
     const opts = { esCubreTurno: esUsuarioCubreTurno(user), user };
     const desdeRaw = empleadosParaCorte(usuariosRaw, sucursal, modulo, user?.rol, opts);
     const desdeProp = empleadosParaCorte(empleados || [], sucursal, modulo, user?.rol, opts);
-    return contarReales(desdeRaw) >= contarReales(desdeProp) ? desdeRaw : desdeProp.length ? desdeProp : desdeRaw;
+    const nRaw = contarReales(desdeRaw);
+    const nProp = contarReales(desdeProp);
+    const tieneTurno = (lista) => (lista || []).some((e) => e?.turno_id || e?.turno_horario);
+    if (nRaw > nProp) return desdeRaw;
+    if (nProp > nRaw) return desdeProp.length ? desdeProp : desdeRaw;
+    // Empate: preferir la lista con turno (etiqueta · Nocturno / priorización diurno+nocturno).
+    if (tieneTurno(desdeProp) && !tieneTurno(desdeRaw)) return desdeProp;
+    if (tieneTurno(desdeRaw)) return desdeRaw;
+    return desdeProp.length ? desdeProp : desdeRaw;
   }, [usuariosRaw, empleados, sucursal, modulo, user]);
 
   const gruposEmpleados = useMemo(
