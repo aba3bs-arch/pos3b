@@ -43,6 +43,10 @@ assert.equal(
 );
 
 assert.equal(resolverBeneficiarioConsumoPin('misael')?.id, 'misael');
+assert.equal(resolverBeneficiarioConsumoPin('Misael Edwin Avalos Perez')?.id, 'misael');
 assert.equal(resolverBeneficiarioConsumoPin('Luis Enrique')?.id, 'luis-enrique');
+// 3B7 nocturno: segundo nombre Misael ≠ beneficiario MAIN
+assert.equal(resolverBeneficiarioConsumoPin('Leyver Misael Jimenez salinas'), null);
+assert.equal(beneficiarioRequierePinConsumo('Leyver Misael Jimenez salinas'), false);
 
 console.log('pinBeneficiarioConsumo.test.mjs OK');

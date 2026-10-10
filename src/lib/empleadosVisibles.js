@@ -466,8 +466,14 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _ac
     const tipo = resolverTipoEmpleado(e);
     if (rol === 'Administrador') continue;
 
-    // Misael / Luis Enrique: siempre en grupo consumo+PIN (aunque figuren como tienda).
+    // Misael / Luis Enrique (MAIN): grupo consumo+PIN.
+    // No redirigir cajeros de tienda operativa aunque el nombre contenga «Misael»
+    // (caso 3B7: Leyver Misael = nocturno de piso, no el Misael de consumo).
     if (incluirConsumoPin && esEmpleadoConsumoPinCorte(e)) {
+      if (tipo === 'tienda' && empSuc && !esSucursalNoVenta(empSuc)) {
+        if (enMain || empSuc === suc) pushTienda(e);
+        continue;
+      }
       pushConsumoPin(e);
       continue;
     }
