@@ -435,7 +435,59 @@ function movimientosDesdeAjustesLocales() {
   return out;
 }
 
-function dedupeMovimientos(list) {
+/** Salida por venta (retiro de piso o fila derivada del ticket). */
+function esSalidaVenta(m) {
+  if (!m) return false;
+  if (m.origen === 'ventas') return true;
+  if (m.modo === 'venta' || m.tipo === 'venta') return true;
+  return false;
+}
+
+function scorePreferenciaMovimiento(m) {
+  let s = 0;
+  if (m?.stock_antes != null || m?.stock_despues != null) s += 10;
+  if (m?.origen === 'nube' || m?.cloudId) s += 5;
+  if (Number(m?.subtotal) > 0 || Number(m?.precio) > 0) s += 2;
+  if (m?.origen === 'ventas') s += 1;
+  return s;
+}
+
+/** Une retiro-nube + ticket derivado: conserva stock y monto del ticket. */
+function fusionarMovimientoVenta(prev, next) {
+  const preferNext = scorePreferenciaMovimiento(next) > scorePreferenciaMovimiento(prev);
+  const base = preferNext ? { ...next } : { ...prev };
+  const other = preferNext ? prev : next;
+  if (base.stock_antes == null && other.stock_antes != null) {
+    base.stock_antes = other.stock_antes;
+    base.stock_despues = other.stock_despues;
+  }
+  if (!(Number(base.subtotal) > 0) && Number(other.subtotal) > 0) {
+    base.subtotal = other.subtotal;
+    if (other.precio != null) base.precio = other.precio;
+  } else if (!(Number(base.precio) > 0) && Number(other.precio) > 0) {
+    base.precio = other.precio;
+  }
+  if ((!base.motivo || String(base.motivo).length < 8) && other.motivo) {
+    base.motivo = other.motivo;
+  }
+  if ((!base.usuario || base.usuario === '—') && other.usuario) base.usuario = other.usuario;
+  return base;
+}
+
+function claveParVenta(m, suc, pid, bucket) {
+  return `venta|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`;
+}
+
+function idxParVenta(seen, ventaKey) {
+  if (!ventaKey) return null;
+  return seen.has(ventaKey) ? seen.get(ventaKey) : null;
+}
+
+/**
+ * Deduplica movimientos de inventario + filas derivadas (ventas/compras…).
+ * Caso real 3B10 Coca 75004699: el historial sumaba ticket + retiro/venta (= ×2).
+ */
+export function dedupeMovimientos(list) {
   const seen = new Map(); // key -> index in out
   const out = [];
   const mark = (key, idx) => {
@@ -444,13 +496,14 @@ function dedupeMovimientos(list) {
   for (const m of list) {
     const origenLocal = m.meta?.origen_local_id || (m.origen === 'local' || m.pendiente_nube ? m.id : null);
     const folio = m.folio || m.meta?.folio || '';
-    const suc = normalizarCodigoTienda(m.sucursal || '') || '';
+    const suc = normalizarCodigoTienda(m.sucursal || m.sucursal_id || '') || '';
     const pid = String(m.producto_id || '');
     const t = new Date(m.created_at || 0).getTime();
     const bucket = Math.floor(t / 120000); // 2 min
     const folioKey = folio
       ? `folio|${folio}|${suc}|${pid}|${m.tipo || ''}|${Number(m.cantidad) || 0}`
       : null;
+    const ventaKey = esSalidaVenta(m) ? claveParVenta(m, suc, pid, bucket) : null;
     // Identidad estable primero (nube / origen local / folio de lote) para no perder ni duplicar.
     const key =
       m.cloudId ||
@@ -460,6 +513,16 @@ function dedupeMovimientos(list) {
       (m.tipo === 'traspaso'
         ? `trp|${folio}|${pid}|${m.sucursal_origen || ''}|${m.sucursal_destino || ''}|${Number(m.cantidad) || 0}|${bucket}`
         : `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`);
+
+    const idxVenta = idxParVenta(seen, ventaKey);
+    if (idxVenta != null) {
+      out[idxVenta] = fusionarMovimientoVenta(out[idxVenta], m);
+      mark(key, idxVenta);
+      if (origenLocal) mark(`local|${origenLocal}`, idxVenta);
+      if (folioKey) mark(folioKey, idxVenta);
+      if (ventaKey) mark(ventaKey, idxVenta);
+      continue;
+    }
 
     if (seen.has(key)) {
       const idx = seen.get(key);
@@ -474,6 +537,7 @@ function dedupeMovimientos(list) {
           subtotal: m.subtotal != null ? m.subtotal : prev.subtotal,
         };
       }
+      if (ventaKey) mark(ventaKey, idx);
       continue;
     }
     const idx = out.length;
@@ -481,6 +545,7 @@ function dedupeMovimientos(list) {
     mark(key, idx);
     if (origenLocal) mark(`local|${origenLocal}`, idx);
     if (folioKey) mark(folioKey, idx);
+    if (ventaKey) mark(ventaKey, idx);
   }
   return out;
 }
