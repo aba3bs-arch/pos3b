@@ -177,6 +177,7 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Vendido</div>
           <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{totales.vendido} uds.</div>
+          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>piezas (sin duplicar ticket + retiro)</div>
         </div>
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Ingresos</div>
