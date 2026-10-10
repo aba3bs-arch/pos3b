@@ -9,6 +9,7 @@ import {
   elegirEmpleadosTiendaParaGastos,
   etiquetaEmpleadoSelectGastos,
   resolverTipoEmpleado,
+  turnoDominanteDesdeHorario,
   turnoEmpleadoParaGastos,
 } from './empleadosVisibles.js';
 import { empleadosParaCatalogoEmpleado } from './catalogoEmpleadoGastos.js';
@@ -92,5 +93,69 @@ const g = cat.tiendaGrupos.find((x) => x.sucursalId === '3B5');
 assert.ok(g);
 assert.equal(g.empleados.length, 2);
 assert.ok(g.empleados.some((e) => e.turno_id === 'nocturno'));
+
+// ——— 3B7 Del Valle: rotación nocturna + alias de colonia + alta mal tipada ———
+const diurno3b7 = {
+  id: 'd7',
+  nombre: 'Ana 3B7',
+  rol: 'Cajero',
+  sucursal_id: '3B7',
+  tipo_empleado: 'tienda',
+  turno_id: 'diurno',
+  activo: true,
+};
+const nocturnoRot3b7 = {
+  id: 'n7',
+  nombre: 'Beto 3B7 Noche',
+  rol: 'Cajero',
+  sucursal_id: '3B7',
+  tipo_empleado: 'tienda',
+  turno_id: null,
+  turno_horario: { tipo: 'personalizado', patron: 'empleado_2' }, // Mié–Dom nocturno
+  activo: true,
+};
+const extra3b7 = {
+  id: 'x7',
+  nombre: 'Zora 3B7',
+  rol: 'Cajero',
+  sucursal_id: '3B7',
+  tipo_empleado: 'tienda',
+  turno_id: 'diurno',
+  activo: true,
+};
+// Alta con colonia en vez de código + tipado indirecto + rol no cajero.
+const nocturnoDelValle = {
+  id: 'n7b',
+  nombre: 'Diego Del Valle',
+  rol: 'Supervisor',
+  sucursal_id: 'Del Valle',
+  tipo_empleado: 'indirecto',
+  turno_id: 'nocturno',
+  activo: true,
+};
+
+assert.equal(turnoDominanteDesdeHorario(nocturnoRot3b7), 'nocturno');
+const lunes = new Date('2026-10-12T18:00:00.000Z'); // lunes = descanso en empleado_2
+assert.equal(turnoEmpleadoParaGastos(nocturnoRot3b7, lunes), 'nocturno', 'dominante aunque hoy descanse');
+assert.match(etiquetaEmpleadoSelectGastos(nocturnoRot3b7, lunes), /Nocturno/);
+
+const corte3b7 = empleadosParaCorte([diurno3b7, nocturnoRot3b7], '3B7', 'virtual', 'Administrador');
+assert.ok(corte3b7.some((e) => e.id === 'n7'), 'nocturno 3B7 en gastos');
+
+const elegLunes = elegirEmpleadosTiendaParaGastos([extra3b7, nocturnoRot3b7, diurno3b7], { date: lunes });
+assert.ok(elegLunes.some((e) => e.id === 'n7'), 'rotación nocturna no se pierde el lunes');
+assert.ok(
+  elegLunes.some((e) => turnoEmpleadoParaGastos(e, lunes) === 'diurno'),
+  'incluye diurno',
+);
+
+assert.equal(resolverTipoEmpleado(nocturnoDelValle), 'tienda', 'Del Valle + turno nocturno = tienda');
+const corteAlias = empleadosParaCorte([diurno3b7, nocturnoDelValle], '3B7', 'abarrotes', 'Cajero');
+assert.ok(corteAlias.some((e) => e.id === 'n7b'), 'empleado con sucursal Del Valle aparece en 3B7');
+
+const cat3b7 = empleadosParaCatalogoEmpleado([diurno3b7, nocturnoRot3b7, extra3b7], '3B7');
+const g7 = cat3b7.tiendaGrupos.find((x) => x.sucursalId === '3B7');
+assert.ok(g7);
+assert.ok(g7.empleados.some((e) => e.id === 'n7'), 'catálogo 3B7 incluye nocturno');
 
 console.log('empleadosVisibles.nocturnoGastos.test.mjs ok');
