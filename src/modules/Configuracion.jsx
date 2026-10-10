@@ -2197,7 +2197,8 @@ export default function Configuracion({
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
                     Qué ve cada rol en el hub de <strong>Venta en Ruta</strong> (POS, preinventario, carga, corte, etc.).
                     El <strong>administrador</strong> siempre tiene todo. Marca o desmarca para otorgar o quitar al rol / empleado
-                    (el checkbox manda sobre el default: Repartidor → POS + preinventario; Cajero → créditos; Gerente → todo).
+                    (el checkbox manda sobre el default: Repartidor → POS + preinventario; Cajero → créditos; Gerente → hub;
+                    «Limpiar consultas» solo Admin por defecto — otórgalo aquí si alguien más lo necesita).
                   </p>
                   {ACCIONES_VENTA_RUTA_PRIVILEGIO.map((acc) => {
                     const uidPriv = privModo === 'usuario' ? privKey : null;

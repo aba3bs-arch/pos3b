@@ -37,6 +37,30 @@ export const TABLAS_VENTA_RUTA_PURGA = [
   'cedis_ruta_stock',
 ];
 
+/**
+ * Solo lo que alimenta Consultas (Ingresos, Ventas, Cargas, Créditos).
+ * No borra camiones, clientes ni precios del catálogo.
+ */
+export const TABLAS_CONSULTAS_VENTA_RUTA = [
+  'ruta_cxc_movimientos',
+  'ruta_liquidaciones',
+  'ruta_ventas',
+  'ruta_cortes_caja',
+  'ruta_carga_eventos',
+  'ruta_carga_lineas',
+  'ruta_cargas',
+  'ruta_preinventario_sesiones',
+];
+
+const LS_CONSULTAS_RUTA = [
+  'pos3b_ruta_cargas',
+  'pos3b_ruta_carga_lineas',
+  'pos3b_ruta_carga_eventos',
+  'pos3b_ruta_ventas',
+  'pos3b_ruta_cxc_movimientos',
+  'pos3b_cortes_ruta',
+];
+
 function faltaTabla(error) {
   const msg = String(error?.message || error || '').toLowerCase();
   const code = String(error?.code || '');
@@ -152,4 +176,56 @@ function limpiarLocalStorageVentaEnRutaSafe() {
   } catch {
     return [];
   }
+}
+
+function limpiarLocalStorageConsultasRuta() {
+  const borradas = [];
+  try {
+    for (const k of LS_CONSULTAS_RUTA) {
+      if (localStorage.getItem(k) != null) {
+        localStorage.removeItem(k);
+        borradas.push(k);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return borradas;
+}
+
+/**
+ * Borra la información de Consultas (ingresos, ventas, cargas, créditos).
+ * No toca camiones, clientes externos ni precios de ruta.
+ */
+export async function borrarDatosConsultasVentaRuta(supabase) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+
+  const hechos = [];
+  const errores = [];
+
+  for (const tabla of TABLAS_CONSULTAS_VENTA_RUTA) {
+    const r = await vaciarTabla(supabase, tabla);
+    if (!r.ok) errores.push(`${tabla}: ${r.error}`);
+    else if (r.borrada) hechos.push(tabla);
+  }
+
+  const tr = await borrarTransitoVentaRuta(supabase);
+  if (tr.ok) hechos.push(tr.detalle || 'transito_venta_ruta');
+  else errores.push(tr.error);
+
+  const ls = limpiarLocalStorageConsultasRuta();
+  if (ls.length) hechos.push(`caché local (${ls.length})`);
+
+  if (!hechos.length && errores.length) {
+    return { ok: false, error: errores.join('\n'), errores };
+  }
+
+  return {
+    ok: errores.length === 0,
+    detalle:
+      `Consultas limpiadas: ${hechos.join(', ') || 'sin filas'}.`
+      + (errores.length ? ` Avisos: ${errores.join(' · ')}` : '')
+      + ' Camiones, clientes y precios de ruta se conservan.',
+    errores,
+  };
 }
