@@ -12,6 +12,15 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_precios', vista: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar', grupo: 'admin' },
   { id: 'ruta_clientes', vista: 'clientes', label: 'Clientes externos', desc: 'Clientes no propios', icon: 'users', grupo: 'admin' },
   { id: 'ruta_consultas', vista: 'consultas', label: 'Consultas', desc: 'Ingresos, ventas, cargas y créditos', icon: 'search', grupo: 'admin' },
+  {
+    id: 'ruta_limpiar_consultas',
+    vista: null,
+    hub: false,
+    label: 'Limpiar consultas',
+    desc: 'Borrar ingresos, ventas, cargas y créditos (botón en Consultas)',
+    icon: 'trash',
+    grupo: 'admin',
+  },
   { id: 'ruta_pos', vista: 'venta', label: 'POS venta en ruta', desc: 'Login vendedor · inventario del camión', icon: 'cart', grupo: 'oper' },
   { id: 'ruta_corte', vista: 'corte', label: 'Corte de caja', desc: 'Admin cierra · imprime ticket', icon: 'dollar', grupo: 'corte' },
   { id: 'ruta_preinventario', vista: 'preinventario', label: 'Preinventario', desc: 'Plantillas y conteo del camión', icon: 'package', grupo: 'oper' },
@@ -22,7 +31,8 @@ export const SUBCOMANDOS_VENTA_RUTA = [
 
 /** Defaults por rol cuando no hay checkbox en Configuración. */
 export const ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL = {
-  Gerente: SUBCOMANDOS_VENTA_RUTA.map((s) => s.id),
+  // Gerente: todo el hub, excepto limpiar consultas (solo Admin por defecto).
+  Gerente: SUBCOMANDOS_VENTA_RUTA.filter((s) => s.hub !== false).map((s) => s.id),
   Repartidor: ['ruta_pos', 'ruta_preinventario'],
   Cajero: ['ruta_creditos'],
   Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos'],
@@ -60,7 +70,14 @@ export function puedeAccionVentaRuta(rol, userId, accionId, data = null) {
 }
 
 export function subcomandosVentaRutaVisibles(rol, userId, data = null) {
-  return SUBCOMANDOS_VENTA_RUTA.filter((s) => puedeAccionVentaRuta(rol, userId, s.id, data));
+  return SUBCOMANDOS_VENTA_RUTA.filter(
+    (s) => s.hub !== false && s.vista && puedeAccionVentaRuta(rol, userId, s.id, data),
+  );
+}
+
+/** Privilegio: botón «Limpiar consultas» (Admin por defecto; otorgable a otros). */
+export function puedeLimpiarConsultasVentaRuta(rol, userId, data = null) {
+  return puedeAccionVentaRuta(rol, userId, 'ruta_limpiar_consultas', data);
 }
 
 /** Alias para Configuración → Privilegios (misma forma que Productos / Checador). */

@@ -45,7 +45,12 @@ import {
   leerCarritoPosRuta,
   limpiarCarritoPosRuta,
 } from '../lib/carritoPosRutaPersistencia.js';
-import { subcomandosVentaRutaVisibles, puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
+import {
+  subcomandosVentaRutaVisibles,
+  puedeAccionVentaRuta,
+  puedeLimpiarConsultasVentaRuta,
+} from '../lib/ventaEnRutaAcciones.js';
+import { borrarDatosConsultasVentaRuta } from '../lib/purgaVentaEnRuta.js';
 import {
   AVISO_FALTA_RUTA_CAMIONES,
   actualizarCamionRuta,
@@ -2649,11 +2654,34 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
   const [expandido, setExpandido] = useState(null);
   const [cancelandoId, setCancelandoId] = useState('');
   const [liquidandoId, setLiquidandoId] = useState('');
+  const [limpiando, setLimpiando] = useState(false);
 
   const puedeCancelar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_carga');
   const puedeLiquidarCarga = puedeCancelar
     || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_liquidacion')
     || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_corte');
+  const puedeLimpiar = puedeLimpiarConsultasVentaRuta(user?.rol, user?.id);
+
+  const limpiarConsultas = async () => {
+    if (!puedeLimpiar) return alert('Sin privilegio para limpiar consultas.');
+    if (!confirm(
+      '¿Borrar toda la información de Consultas?\n\n'
+      + 'Se eliminan: Ingresos, Ventas, Cargas y Créditos (por tienda / cobrados).\n'
+      + 'No se borran camiones, clientes externos ni precios de ruta.\n\n'
+      + 'Esta acción no se puede deshacer.',
+    )) return;
+    const frase = window.prompt('Escribe LIMPIAR CONSULTAS para confirmar:');
+    if (String(frase || '').trim().toUpperCase() !== 'LIMPIAR CONSULTAS') {
+      return alert('Cancelado: debes escribir LIMPIAR CONSULTAS.');
+    }
+    setLimpiando(true);
+    const r = await borrarDatosConsultasVentaRuta(supabase);
+    setLimpiando(false);
+    if (!r.ok) return alert(r.error || 'No se pudo limpiar.');
+    setAviso(r.detalle || 'Consultas limpiadas.');
+    setRows([]);
+    setTick((t) => t + 1);
+  };
 
   useEffect(() => {
     let cancel = false;
@@ -2814,10 +2842,26 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
-      <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta, para aclaraciones). En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
-      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div style={{ flex: '1 1 240px' }}>
+          <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta, para aclaraciones). En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
+          </p>
+        </div>
+        {puedeLimpiar && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+            disabled={limpiando || cargando}
+            onClick={() => void limpiarConsultas()}
+            title="Borra ingresos, ventas, cargas y créditos. Privilegio: Limpiar consultas."
+          >
+            {limpiando ? 'Limpiando…' : 'Limpiar consultas'}
+          </button>
+        )}
+      </div>
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         {[
           { id: 'ingresos', label: 'Ingresos' },

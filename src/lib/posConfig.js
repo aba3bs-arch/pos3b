@@ -444,6 +444,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'ruta_precios', label: 'Venta en Ruta — Precios de ruta' },
   { id: 'ruta_clientes', label: 'Venta en Ruta — Clientes externos' },
   { id: 'ruta_consultas', label: 'Venta en Ruta — Consultas' },
+  { id: 'ruta_limpiar_consultas', label: 'Venta en Ruta — Limpiar consultas' },
   { id: 'ruta_pos', label: 'Venta en Ruta — POS venta en ruta' },
   { id: 'ruta_corte', label: 'Venta en Ruta — Corte de caja' },
   { id: 'ruta_preinventario', label: 'Venta en Ruta — Preinventario' },
