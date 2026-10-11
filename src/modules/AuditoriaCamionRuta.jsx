@@ -3,26 +3,30 @@ import CampoCodigo from '../components/CampoCodigo.jsx';
 import {
   construirLineasAuditoriaCamion,
   guardarAuditoriaCamionLocal,
+  lineasAuditoriaPorDepartamento,
   listarAuditoriasCamionLocal,
+  progresoDepartamentosAuditoria,
+  resolverCamionDeRecolector,
   resumirAuditoriaCamion,
 } from '../lib/auditoriaCamionRuta.js';
 import {
   inventarioCamionDesdeLineas,
   lineasDeVariasCargas,
   listarCargasRuta,
+  listarRecolectoresCargaRuta,
 } from '../lib/ventaEnRuta.js';
 import {
   etiquetaCamion,
   listarCamionesRuta,
 } from '../lib/rutaCamiones.js';
+import { etiquetaDepartamento } from '../lib/departamentos.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
-
-const COLOR = '#0f766e';
+import './VentaEnRuta.css';
 
 /**
  * Venta en Ruta → Inv-op / Auditorías.
- * Conteo físico del camión vs teórico; faltantes valorizados a costo y a precio público.
+ * 1) Seleccionar recolector → 2) inventariar por departamento → 3) cerrar.
  * No modifica inventario.
  */
 export default function AuditoriaCamionRuta({
@@ -33,27 +37,57 @@ export default function AuditoriaCamionRuta({
   setAviso,
   onVolver,
 }) {
+  const [paso, setPaso] = useState('recolector'); // recolector | deptos | conteo
+  const [recolectores, setRecolectores] = useState([]);
   const [camiones, setCamiones] = useState([]);
+  const [recolectorId, setRecolectorId] = useState('');
   const [camionId, setCamionId] = useState('');
   const [cargas, setCargas] = useState([]);
   const [lineasCarga, setLineasCarga] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [cargandoLista, setCargandoLista] = useState(true);
   const [conteos, setConteos] = useState({});
   const [codigo, setCodigo] = useState('');
   const [historial, setHistorial] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [soloFaltantes, setSoloFaltantes] = useState(false);
+  const [deptoActivo, setDeptoActivo] = useState('');
+  const [flashId, setFlashId] = useState('');
 
-  const cargarCamiones = useCallback(async () => {
-    const r = await listarCamionesRuta(supabase, { soloActivos: true });
-    if (r.aviso) setAviso?.(r.aviso);
-    if (r.error) setAviso?.(r.error);
-    setCamiones(r.data || []);
+  const cargarListas = useCallback(async () => {
+    setCargandoLista(true);
+    try {
+      const [rCam, rRec] = await Promise.all([
+        listarCamionesRuta(supabase, { soloActivos: true }),
+        listarRecolectoresCargaRuta(supabase),
+      ]);
+      if (rCam.aviso) setAviso?.(rCam.aviso);
+      if (rCam.error) setAviso?.(rCam.error);
+      if (rRec.error) setAviso?.(rRec.error);
+      setCamiones(rCam.data || []);
+      setRecolectores(rRec.data || []);
+    } finally {
+      setCargandoLista(false);
+    }
   }, [supabase, setAviso]);
 
   useEffect(() => {
-    void cargarCamiones();
-  }, [cargarCamiones]);
+    void cargarListas();
+  }, [cargarListas]);
+
+  const recolectorSel = useMemo(
+    () => recolectores.find((r) => String(r.id) === String(recolectorId)) || null,
+    [recolectores, recolectorId],
+  );
+
+  const camionResuelto = useMemo(
+    () => resolverCamionDeRecolector(camiones, recolectorSel),
+    [camiones, recolectorSel],
+  );
+
+  useEffect(() => {
+    setCamionId(camionResuelto?.id ? String(camionResuelto.id) : '');
+  }, [camionResuelto]);
 
   const refrescarCargas = useCallback(async () => {
     setCargando(true);
@@ -91,9 +125,11 @@ export default function AuditoriaCamionRuta({
 
   useEffect(() => {
     setConteos({});
+    setDeptoActivo('');
+    setPaso(recolectorId && camionId ? 'deptos' : 'recolector');
     const h = listarAuditoriasCamionLocal({ camionId: camionId || undefined, limit: 8 });
     setHistorial(h.data || []);
-  }, [camionId]);
+  }, [camionId, recolectorId]);
 
   const inventarioCamion = useMemo(
     () => inventarioCamionDesdeLineas(lineasCarga, { productoPorId, inventario }),
@@ -106,13 +142,36 @@ export default function AuditoriaCamionRuta({
   );
 
   const resumen = useMemo(() => resumirAuditoriaCamion(lineas), [lineas]);
+  const progresoDeptos = useMemo(() => progresoDepartamentosAuditoria(lineas), [lineas]);
 
-  const lineasVista = useMemo(() => {
-    if (!soloFaltantes) return lineas;
-    return lineas.filter((l) => (Number(l.faltante) || 0) > 0 || (l.contado != null && (Number(l.diferencia) || 0) < 0));
-  }, [lineas, soloFaltantes]);
+  const lineasDepto = useMemo(() => {
+    const base = lineasAuditoriaPorDepartamento(lineas, deptoActivo);
+    if (!soloFaltantes) return base;
+    return base.filter((l) => (Number(l.faltante) || 0) > 0 || (l.contado != null && (Number(l.diferencia) || 0) < 0));
+  }, [lineas, deptoActivo, soloFaltantes]);
+
+  const progresoDeptoActivo = useMemo(
+    () => progresoDeptos.find((d) => d.departamento === deptoActivo) || null,
+    [progresoDeptos, deptoActivo],
+  );
 
   const camionSel = camiones.find((c) => String(c.id) === String(camionId));
+
+  const setContado = (id, valor) => {
+    setConteos((prev) => ({ ...prev, [id]: valor }));
+  };
+
+  const ajustarContado = (id, delta) => {
+    setConteos((prev) => {
+      const actual = prev[id];
+      const base = actual === null || actual === undefined || String(actual).trim() === ''
+        ? 0
+        : Math.max(0, Math.floor(Number(actual) || 0));
+      return { ...prev, [id]: String(Math.max(0, base + delta)) };
+    });
+    setFlashId(String(id));
+    window.setTimeout(() => setFlashId((cur) => (cur === String(id) ? '' : cur)), 420);
+  };
 
   const registrarEscaneo = (raw) => {
     const code = String(raw || codigo || '').trim();
@@ -127,21 +186,32 @@ export default function AuditoriaCamionRuta({
       return;
     }
     const id = String(hit.id);
-    setConteos((prev) => {
-      const actual = prev[id];
-      const n = actual === null || actual === undefined || String(actual).trim() === ''
-        ? 1
-        : Math.max(0, Math.floor(Number(actual) || 0)) + 1;
-      return { ...prev, [id]: String(n) };
-    });
+    const cat = String(hit.cat || 'GENERAL').toUpperCase();
+    if (paso !== 'conteo' || deptoActivo !== cat) {
+      setDeptoActivo(cat);
+      setPaso('conteo');
+    }
+    ajustarContado(id, 1);
     setCodigo('');
   };
 
+  const elegirRecolector = (id) => {
+    setRecolectorId(String(id || ''));
+  };
+
+  const entrarDepto = (dept) => {
+    setDeptoActivo(dept);
+    setSoloFaltantes(false);
+    setPaso('conteo');
+  };
+
   const cerrarAuditoria = async () => {
-    if (!camionId) return alert('Selecciona un camión.');
+    if (!camionId) return alert('Selecciona un recolector con camión asignado.');
     if (!resumen.contados) return alert('Captura al menos un conteo.');
+    const nombreRec = recolectorSel?.nombre || '—';
     if (!confirm(
-      `¿Cerrar auditoría de ${etiquetaCamion(camionSel)}?\n\n`
+      `¿Cerrar auditoría de ${etiquetaCamion(camionSel)}?\n`
+      + `Recolector: ${nombreRec}\n\n`
       + `Faltantes: ${resumen.piezasFaltantes} pza\n`
       + `Pérdida a costo: ${fmtMonto(resumen.perdidaCosto)}\n`
       + `Pérdida a precio público: ${fmtMonto(resumen.perdidaPublico)}\n\n`
@@ -151,213 +221,338 @@ export default function AuditoriaCamionRuta({
     const r = guardarAuditoriaCamionLocal({
       camion_id: camionId,
       camion_etiqueta: etiquetaCamion(camionSel),
+      recolector_id: recolectorSel?.repartidor_id || recolectorSel?.id || null,
+      recolector_nombre: nombreRec,
       usuario_nombre: user?.nombre || null,
       usuario_id: user?.id || null,
       cargas: cargas.map((c) => ({ id: c.id, folio: c.folio })),
       resumen,
+      progreso_deptos: progresoDeptos,
       lineas: lineas.filter((l) => l.contado != null || (Number(l.faltante) || 0) > 0),
     });
     setGuardando(false);
     if (!r.ok) return alert(r.error || 'No se pudo guardar.');
     setAviso?.(`Auditoría guardada · faltante ${resumen.piezasFaltantes} pza · público ${fmtMonto(resumen.perdidaPublico)}`);
     setHistorial(listarAuditoriasCamionLocal({ camionId, limit: 8 }).data || []);
+    setPaso('deptos');
   };
 
-  const kpi = (label, value, color) => (
-    <div
-      style={{
-        flex: '1 1 140px',
-        minWidth: 130,
-        padding: '0.65rem 0.75rem',
-        borderRadius: 10,
-        border: '1px solid var(--border, #e2e8f0)',
-        background: '#fff',
-      }}
-    >
-      <div className="muted" style={{ fontSize: '0.72rem' }}>{label}</div>
-      <strong style={{ fontSize: '1.05rem', color: color || 'inherit' }}>{value}</strong>
-    </div>
-  );
+  const deptosCompletos = progresoDeptos.filter((d) => d.completo).length;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <div className="card" style={{ borderTop: `4px solid ${COLOR}`, margin: 0 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-          <div>
-            <h3 style={{ margin: 0, color: COLOR }}>Inv-op / Auditorías</h3>
-            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: 640 }}>
-              Audita mercancía del camión: teórico vs contado.
-              Calcula <strong>faltantes</strong>, pérdida a <strong>costo</strong> y diferencia a
-              {' '}<strong>precio de venta al público</strong> (lo que se deja de vender).
-              No modifica inventario.
-            </p>
-          </div>
-          {onVolver && (
-            <button type="button" className="btn btn-ghost" onClick={onVolver}>Volver</button>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end', marginTop: '0.85rem' }}>
-          <label className="muted" style={{ display: 'block', fontSize: '0.8rem', flex: '1 1 240px', maxWidth: 420 }}>
-            Camión a auditar
-            <select
-              className="input"
-              style={{ marginTop: '0.35rem' }}
-              value={camionId}
-              onChange={(e) => setCamionId(e.target.value)}
-            >
-              <option value="">— Selecciona —</option>
-              {camiones.map((c) => (
-                <option key={c.id} value={c.id}>{etiquetaCamion(c)}</option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="btn btn-ghost" onClick={() => void refrescarCargas()} disabled={!camionId || cargando}>
-            Actualizar
-          </button>
-          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem' }}>
-            <input type="checkbox" checked={soloFaltantes} onChange={(e) => setSoloFaltantes(e.target.checked)} />
-            Solo faltantes
-          </label>
-        </div>
-
-        {camionId && !cargando && (
-          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
-            {cargas.length === 0
-              ? 'Sin cargas en ruta en este camión.'
-              : `${cargas.length} carga(s) · ${inventarioCamion.length} producto(s) · teórico disponible en camión`}
+    <div className="ruta-invop">
+      <header className="ruta-invop-hero">
+        <div className="ruta-invop-hero-text">
+          <p className="ruta-invop-kicker">Inv-op · Venta en ruta</p>
+          <h3>Inventario operativo por departamento</h3>
+          <p className="ruta-invop-lead">
+            Elige el recolector, abre un departamento y cuenta en el celular.
+            No modifica el stock del camión.
           </p>
+        </div>
+        {onVolver && (
+          <button type="button" className="btn btn-ghost ruta-invop-volver" onClick={onVolver}>
+            Volver
+          </button>
         )}
-      </div>
+      </header>
 
-      {camionId && !cargando && cargas.length > 0 && (
-        <>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-            {kpi('Contados', `${resumen.contados}/${resumen.productos}`)}
-            {kpi('Faltantes (pza)', String(resumen.piezasFaltantes), resumen.piezasFaltantes > 0 ? '#b91c1c' : undefined)}
-            {kpi('Pérdida a costo', fmtMonto(resumen.perdidaCosto), resumen.perdidaCosto > 0 ? '#b45309' : undefined)}
-            {kpi('Pérdida precio público', fmtMonto(resumen.perdidaPublico), resumen.perdidaPublico > 0 ? '#b91c1c' : undefined)}
-            {kpi('Margen perdido (público − costo)', fmtMonto(resumen.margenPerdidoPublico), '#7c3aed')}
+      <nav className="ruta-invop-steps" aria-label="Pasos">
+        <button
+          type="button"
+          className={`ruta-invop-step${paso === 'recolector' ? ' activo' : ''}${recolectorId ? ' hecho' : ''}`}
+          onClick={() => setPaso('recolector')}
+        >
+          <span className="ruta-invop-step-n">1</span>
+          Recolector
+        </button>
+        <button
+          type="button"
+          className={`ruta-invop-step${paso === 'deptos' ? ' activo' : ''}${deptosCompletos > 0 ? ' hecho' : ''}`}
+          onClick={() => recolectorId && camionId && setPaso('deptos')}
+          disabled={!recolectorId || !camionId}
+        >
+          <span className="ruta-invop-step-n">2</span>
+          Departamentos
+        </button>
+        <button
+          type="button"
+          className={`ruta-invop-step${paso === 'conteo' ? ' activo' : ''}`}
+          onClick={() => deptoActivo && setPaso('conteo')}
+          disabled={!deptoActivo}
+        >
+          <span className="ruta-invop-step-n">3</span>
+          Conteo
+        </button>
+      </nav>
+
+      {paso === 'recolector' && (
+        <section className="ruta-invop-panel ruta-invop-panel--in">
+          <div className="ruta-invop-panel-head">
+            <h4>Selecciona el recolector</h4>
+            <button type="button" className="btn btn-ghost" onClick={() => void cargarListas()} disabled={cargandoLista}>
+              Actualizar
+            </button>
+          </div>
+          {cargandoLista ? (
+            <p className="muted">Cargando recolectores…</p>
+          ) : recolectores.length === 0 ? (
+            <p className="muted">
+              No hay recolectores en Panel RT. Agrégalos en Contabilidad → Panel RT → Recolectores.
+            </p>
+          ) : (
+            <div className="ruta-invop-rec-grid">
+              {recolectores.map((r) => {
+                const cam = resolverCamionDeRecolector(camiones, r);
+                const activo = String(r.id) === String(recolectorId);
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className={`ruta-invop-rec-card${activo ? ' activo' : ''}${cam ? '' : ' sin-camion'}`}
+                    onClick={() => elegirRecolector(r.id)}
+                  >
+                    <span className="ruta-invop-rec-name">{r.nombre}</span>
+                    <span className="ruta-invop-rec-meta">
+                      {cam
+                        ? `Camión ${etiquetaCamion(cam)}`
+                        : 'Sin camión asignado'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {recolectorSel && (
+            <div className="ruta-invop-rec-footer">
+              {!camionResuelto ? (
+                <p className="ruta-invop-warn">
+                  {recolectorSel.nombre} no tiene camión activo. Asígnalo en Camiones.
+                </p>
+              ) : (
+                <>
+                  <p className="muted">
+                    {recolectorSel.nombre} · {etiquetaCamion(camionResuelto)}
+                    {cargando ? ' · cargando mercancía…' : cargas.length
+                      ? ` · ${cargas.length} carga(s) · ${inventarioCamion.length} producto(s)`
+                      : ' · sin cargas en ruta'}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={!camionResuelto || cargando || !cargas.length}
+                    onClick={() => setPaso('deptos')}
+                  >
+                    Continuar a departamentos
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {paso === 'deptos' && camionId && (
+        <section className="ruta-invop-panel ruta-invop-panel--in">
+          <div className="ruta-invop-panel-head">
+            <div>
+              <h4>Departamentos del camión</h4>
+              <p className="muted ruta-invop-sub">
+                {recolectorSel?.nombre || '—'} · {etiquetaCamion(camionSel)}
+              </p>
+            </div>
+            <button type="button" className="btn btn-ghost" onClick={() => void refrescarCargas()} disabled={cargando}>
+              Actualizar
+            </button>
           </div>
 
-          <div className="card" style={{ margin: 0 }}>
+          {cargando ? (
+            <p className="muted">Cargando inventario del camión…</p>
+          ) : !cargas.length ? (
+            <p className="muted">Sin cargas en ruta para este recolector.</p>
+          ) : (
+            <>
+              <div className="ruta-invop-kpi-row">
+                <div className="ruta-invop-kpi">
+                  <span>Avance</span>
+                  <strong>{resumen.contados}/{resumen.productos}</strong>
+                </div>
+                <div className="ruta-invop-kpi">
+                  <span>Deptos listos</span>
+                  <strong>{deptosCompletos}/{progresoDeptos.length}</strong>
+                </div>
+                <div className={`ruta-invop-kpi${resumen.piezasFaltantes ? ' alerta' : ''}`}>
+                  <span>Faltantes</span>
+                  <strong>{resumen.piezasFaltantes}</strong>
+                </div>
+                <div className={`ruta-invop-kpi${resumen.perdidaPublico ? ' alerta' : ''}`}>
+                  <span>$ público</span>
+                  <strong>{fmtMonto(resumen.perdidaPublico)}</strong>
+                </div>
+              </div>
+
+              <div className="ruta-invop-depto-grid">
+                {progresoDeptos.map((d) => (
+                  <button
+                    key={d.departamento}
+                    type="button"
+                    className={`ruta-invop-depto-card${d.completo ? ' completo' : ''}${d.contados > 0 && !d.completo ? ' parcial' : ''}`}
+                    onClick={() => entrarDepto(d.departamento)}
+                  >
+                    <div className="ruta-invop-depto-top">
+                      <strong>{d.etiqueta}</strong>
+                      <span className="ruta-invop-depto-pct">{d.pct}%</span>
+                    </div>
+                    <div className="ruta-invop-depto-bar" aria-hidden>
+                      <i style={{ width: `${d.pct}%` }} />
+                    </div>
+                    <div className="ruta-invop-depto-meta">
+                      <span>{d.contados}/{d.productos} prod.</span>
+                      <span>{d.piezasTeoricas} pza teor.</span>
+                      {d.piezasFaltantes > 0 && (
+                        <span className="ruta-invop-falt">{d.piezasFaltantes} falt.</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="ruta-invop-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setPaso('recolector')}>
+                  Cambiar recolector
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={guardando || !resumen.contados}
+                  onClick={() => void cerrarAuditoria()}
+                >
+                  {guardando ? 'Guardando…' : 'Cerrar auditoría'}
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {paso === 'conteo' && deptoActivo && (
+        <section className="ruta-invop-panel ruta-invop-panel--in ruta-invop-conteo">
+          <div className="ruta-invop-conteo-head sticky">
+            <button type="button" className="btn btn-ghost" onClick={() => setPaso('deptos')}>
+              ← Deptos
+            </button>
+            <div className="ruta-invop-conteo-title">
+              <h4>{etiquetaDepartamento(deptoActivo)}</h4>
+              <p className="muted">
+                {progresoDeptoActivo
+                  ? `${progresoDeptoActivo.contados}/${progresoDeptoActivo.productos} · ${progresoDeptoActivo.pct}%`
+                  : '—'}
+              </p>
+            </div>
+            <label className="ruta-invop-check">
+              <input type="checkbox" checked={soloFaltantes} onChange={(e) => setSoloFaltantes(e.target.checked)} />
+              Faltantes
+            </label>
+          </div>
+
+          <div className="ruta-invop-scan">
             <CampoCodigo
               value={codigo}
               onChange={(e) => setCodigo(e.target.value)}
               onEscanear={registrarEscaneo}
               beepAlEnter
               placeholder="Escanear o escribir código…"
-              tituloCamara="Auditar camión"
+              tituloCamara={`Auditar · ${etiquetaDepartamento(deptoActivo)}`}
             />
-            <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
-              <table className="consultas-table">
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th>Teórico</th>
-                    <th>Contado</th>
-                    <th>Falt.</th>
-                    <th>Costo u.</th>
-                    <th>Público u.</th>
-                    <th>$ costo</th>
-                    <th>$ público</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lineasVista.map((l) => (
-                    <tr
-                      key={l.id}
-                      style={{
-                        background: l.faltante > 0 ? 'rgba(185,28,28,0.06)' : undefined,
-                      }}
-                    >
-                      <td>
-                        <strong style={{ display: 'block' }}>{l.nombre}</strong>
-                        <span className="muted" style={{ fontSize: '0.72rem', fontFamily: 'monospace' }}>{l.id}</span>
-                      </td>
-                      <td>{l.teorico}</td>
-                      <td style={{ minWidth: 84 }}>
-                        <input
-                          className="input"
-                          type="number"
-                          min={0}
-                          value={conteos[l.id] ?? ''}
-                          onChange={(e) => setConteos((prev) => ({ ...prev, [l.id]: e.target.value }))}
-                          style={{ width: 72 }}
-                        />
-                      </td>
-                      <td style={{ color: l.faltante > 0 ? '#b91c1c' : undefined, fontWeight: l.faltante > 0 ? 700 : undefined }}>
-                        {l.contado == null ? '—' : l.faltante}
-                      </td>
-                      <td className="muted">{fmtMonto(l.costoUnit)}</td>
-                      <td>{fmtMonto(l.precioPublico)}</td>
-                      <td style={{ color: l.perdidaCosto > 0 ? '#b45309' : undefined }}>
-                        {l.contado == null ? '—' : fmtMonto(l.perdidaCosto)}
-                      </td>
-                      <td style={{ color: l.perdidaPublico > 0 ? '#b91c1c' : undefined, fontWeight: l.perdidaPublico > 0 ? 700 : undefined }}>
-                        {l.contado == null ? '—' : fmtMonto(l.perdidaPublico)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ marginTop: '0.85rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={guardando || !resumen.contados}
-                onClick={() => void cerrarAuditoria()}
-              >
-                {guardando ? 'Guardando…' : 'Cerrar auditoría'}
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={() => setConteos({})}>
-                Limpiar conteos
-              </button>
-              <span className="muted" style={{ fontSize: '0.78rem' }}>
-                Teórico valorizado: costo {fmtMonto(resumen.valorTeoricoCosto)} · público {fmtMonto(resumen.valorTeoricoPublico)}
-              </span>
-            </div>
           </div>
-        </>
+
+          <div className="ruta-invop-prod-list">
+            {lineasDepto.length === 0 ? (
+              <p className="muted" style={{ padding: '0.75rem' }}>
+                {soloFaltantes ? 'Sin faltantes en este departamento.' : 'Sin productos en este departamento.'}
+              </p>
+            ) : lineasDepto.map((l) => {
+              const estado = l.contado == null
+                ? 'pendiente'
+                : l.faltante > 0
+                  ? 'faltante'
+                  : l.sobrante > 0
+                    ? 'sobrante'
+                    : 'ok';
+              return (
+                <article
+                  key={l.id}
+                  className={`ruta-invop-prod${flashId === String(l.id) ? ' flash' : ''} estado-${estado}`}
+                >
+                  <div className="ruta-invop-prod-info">
+                    <strong>{l.nombre}</strong>
+                    <span className="ruta-invop-sku">{l.id}</span>
+                    <div className="ruta-invop-prod-nums">
+                      <span>Teórico <b>{l.teorico}</b></span>
+                      {l.contado != null && (
+                        <span className={l.faltante > 0 ? 'falt' : ''}>
+                          {l.faltante > 0 ? `Falt. ${l.faltante}` : l.sobrante > 0 ? `Sobra ${l.sobrante}` : 'OK'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="ruta-invop-stepper">
+                    <button type="button" aria-label="Menos" onClick={() => ajustarContado(l.id, -1)}>−</button>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      inputMode="numeric"
+                      value={conteos[l.id] ?? ''}
+                      onChange={(e) => setContado(l.id, e.target.value)}
+                      placeholder="0"
+                    />
+                    <button type="button" aria-label="Más" onClick={() => ajustarContado(l.id, 1)}>+</button>
+                  </div>
+                  {l.contado != null && l.faltante > 0 && (
+                    <div className="ruta-invop-prod-loss">
+                      Costo {fmtMonto(l.perdidaCosto)} · Público {fmtMonto(l.perdidaPublico)}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+
+          <footer className="ruta-invop-conteo-bar">
+            <div>
+              <span className="muted">Faltantes depto</span>
+              <strong>{progresoDeptoActivo?.piezasFaltantes ?? 0}</strong>
+            </div>
+            <button type="button" className="btn btn-primary" onClick={() => setPaso('deptos')}>
+              Listo · otro depto
+            </button>
+          </footer>
+        </section>
       )}
 
-      {camionId && !cargando && cargas.length === 0 && (
-        <div className="card">
-          <p className="muted" style={{ margin: 0 }}>No hay mercancía en ruta en este camión para auditar.</p>
-        </div>
-      )}
-
-      {historial.length > 0 && (
-        <div className="card" style={{ margin: 0 }}>
+      {historial.length > 0 && paso !== 'conteo' && (
+        <section className="ruta-invop-panel">
           <h4 style={{ margin: '0 0 0.5rem' }}>Últimas auditorías (este dispositivo)</h4>
-          <div className="table-wrap">
-            <table className="consultas-table">
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Camión</th>
-                  <th>Falt. pza</th>
-                  <th>$ costo</th>
-                  <th>$ público</th>
-                  <th>Por</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historial.map((a) => (
-                  <tr key={a.id}>
-                    <td className="muted" style={{ fontSize: '0.8rem' }}>{String(a.created_at || '').slice(0, 16).replace('T', ' ')}</td>
-                    <td>{a.camion_etiqueta || '—'}</td>
-                    <td style={{ color: '#b91c1c', fontWeight: 700 }}>{a.resumen?.piezasFaltantes ?? 0}</td>
-                    <td>{fmtMonto(a.resumen?.perdidaCosto)}</td>
-                    <td style={{ color: '#b91c1c', fontWeight: 700 }}>{fmtMonto(a.resumen?.perdidaPublico)}</td>
-                    <td className="muted">{a.usuario_nombre || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="ruta-invop-hist">
+            {historial.map((a) => (
+              <div key={a.id} className="ruta-invop-hist-row">
+                <div>
+                  <strong>{a.recolector_nombre || a.camion_etiqueta || '—'}</strong>
+                  <span className="muted">
+                    {String(a.created_at || '').slice(0, 16).replace('T', ' ')}
+                    {a.camion_etiqueta ? ` · ${a.camion_etiqueta}` : ''}
+                  </span>
+                </div>
+                <div className="ruta-invop-hist-nums">
+                  <span className="falt">{a.resumen?.piezasFaltantes ?? 0} pza</span>
+                  <span>{fmtMonto(a.resumen?.perdidaPublico)}</span>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

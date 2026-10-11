@@ -2,10 +2,12 @@
  * Inv-op / Auditorías de mercancía en camión (Venta en Ruta).
  * Compara teórico (disponible en carga) vs contado físico y valoriza
  * faltantes a costo y a precio de venta al público.
+ * Flujo operativo: recolector → departamentos → conteo móvil.
  */
 
 import { precioCompraCatalogo, precioRutaEspecial } from './ventaEnRuta.js';
 import { costoUnitarioInventario } from './valorInventario.js';
+import { etiquetaDepartamento, normalizarDepartamento } from './departamentos.js';
 
 const LS_AUDITORIAS = 'pos3b_ruta_auditorias';
 
@@ -54,6 +56,7 @@ export function construirLineasAuditoriaCamion(inventarioCamion, conteos = {}) {
     return {
       id,
       nombre: p.nombre || id,
+      cat: normalizarDepartamento(p.cat || 'GENERAL') || 'GENERAL',
       teorico,
       contado,
       diferencia,
@@ -69,6 +72,87 @@ export function construirLineasAuditoriaCamion(inventarioCamion, conteos = {}) {
       valorTeoricoPublico: round2(teorico * precioPub),
     };
   });
+}
+
+/** Lista de departamentos presentes en el inventario del camión (con productos). */
+export function departamentosAuditoriaCamion(inventarioCamion = []) {
+  const seen = new Set();
+  const out = [];
+  for (const p of inventarioCamion || []) {
+    const d = normalizarDepartamento(p?.cat || 'GENERAL') || 'GENERAL';
+    if (seen.has(d)) continue;
+    seen.add(d);
+    out.push(d);
+  }
+  return out.sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/**
+ * Progreso de conteo agrupado por departamento.
+ * @param {Array} lineas — salida de construirLineasAuditoriaCamion
+ */
+export function progresoDepartamentosAuditoria(lineas = []) {
+  const map = new Map();
+  for (const l of lineas || []) {
+    const cat = normalizarDepartamento(l.cat || 'GENERAL') || 'GENERAL';
+    if (!map.has(cat)) {
+      map.set(cat, {
+        departamento: cat,
+        etiqueta: etiquetaDepartamento(cat),
+        productos: 0,
+        contados: 0,
+        piezasTeoricas: 0,
+        piezasFaltantes: 0,
+        perdidaCosto: 0,
+        perdidaPublico: 0,
+      });
+    }
+    const row = map.get(cat);
+    row.productos += 1;
+    row.piezasTeoricas += Number(l.teorico) || 0;
+    if (l.contado != null) {
+      row.contados += 1;
+      row.piezasFaltantes += Number(l.faltante) || 0;
+      row.perdidaCosto = round2(row.perdidaCosto + (Number(l.perdidaCosto) || 0));
+      row.perdidaPublico = round2(row.perdidaPublico + (Number(l.perdidaPublico) || 0));
+    }
+  }
+  return [...map.values()]
+    .map((r) => ({
+      ...r,
+      pct: r.productos ? Math.round((r.contados / r.productos) * 100) : 0,
+      completo: r.productos > 0 && r.contados >= r.productos,
+    }))
+    .sort((a, b) => a.departamento.localeCompare(b.departamento, 'es'));
+}
+
+/** Filtra líneas de un departamento. */
+export function lineasAuditoriaPorDepartamento(lineas = [], departamento) {
+  const dept = normalizarDepartamento(departamento || 'GENERAL') || 'GENERAL';
+  return (lineas || []).filter(
+    (l) => (normalizarDepartamento(l.cat || 'GENERAL') || 'GENERAL') === dept,
+  );
+}
+
+/**
+ * Resuelve camión activo del recolector (Panel RT o usuario POS enlazado).
+ * @param {Array} camiones
+ * @param {{ repartidor_id?: string, usuario_id?: string, id?: string }} recolector
+ */
+export function resolverCamionDeRecolector(camiones = [], recolector) {
+  if (!recolector) return null;
+  const rid = String(recolector.repartidor_id || recolector.id || '').trim();
+  const uid = String(recolector.usuario_id || '').trim();
+  const activos = (camiones || []).filter((c) => c && c.activo !== false);
+  if (rid) {
+    const byRt = activos.find((c) => String(c.repartidor_id || '') === rid);
+    if (byRt) return byRt;
+  }
+  if (uid) {
+    const byUsu = activos.find((c) => String(c.usuario_id || '') === uid);
+    if (byUsu) return byUsu;
+  }
+  return null;
 }
 
 /** Totales de una auditoría (solo líneas con conteo). */
