@@ -24,7 +24,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_pos', vista: 'venta', label: 'POS venta en ruta', desc: 'Login vendedor · inventario del camión', icon: 'cart', grupo: 'oper' },
   { id: 'ruta_corte', vista: 'corte', label: 'Corte de caja', desc: 'Admin cierra · imprime ticket', icon: 'dollar', grupo: 'corte' },
   { id: 'ruta_preinventario', vista: 'preinventario', label: 'Preinventario', desc: 'Plantillas y conteo del camión', icon: 'package', grupo: 'oper' },
-  { id: 'ruta_auditorias', vista: 'auditorias', label: 'Inv-op / Auditorías', desc: 'Faltantes camión · costo y precio público', icon: 'search', grupo: 'admin' },
+  { id: 'ruta_auditorias', vista: 'auditorias', label: 'Inv-op / Auditorías', desc: 'Recolector → departamentos · faltantes costo/público', icon: 'search', grupo: 'admin' },
   { id: 'ruta_creditos', vista: 'creditos', label: 'Créditos por pagar', desc: 'Cajero liquida con PIN', icon: 'register', grupo: 'oper' },
   { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo recolectado del repartidor', icon: 'register', grupo: 'admin' },
 ];
