@@ -145,9 +145,9 @@ export default function PanelFondoServicios({ supabase, user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-        Registro de <strong>servicios</strong> recolectados (CFE y Panel RT → Servicios).
-        Separado de la venta / mercancía (Francisco).
-        Ingresos = cobros aprobados · Liquidación = cuenta <strong>Servicios</strong> · luego → Tesorería (Cheche).
+        Solo <strong>recolección de servicios</strong> (CFE y Panel RT → Servicios).
+        No se mezcla con mercancía (Francisco).
+        Ingresos = cobros · Liquidación = cuenta <strong>Servicios</strong> · luego → Tesorería (Cheche).
       </p>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>

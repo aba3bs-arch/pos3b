@@ -1173,6 +1173,10 @@ export function calcularNetosLiquidacion(seleccionados, totalGastos = 0) {
   };
 }
 
+/** Destinos fijos: mercancía → Francisco; cobros de servicio → Servicios (nunca mezclar). */
+const CUENTA_RT_MERCANCIA_FIJA = 'francisco';
+const CUENTA_RT_SERVICIOS_FIJA = 'servicios';
+
 export function armarAcreditacionesLiquidacion({
   seleccionados,
   totalGastos = 0,
@@ -1182,20 +1186,31 @@ export function armarAcreditacionesLiquidacion({
 }) {
   const netos = calcularNetosLiquidacion(seleccionados, totalGastos);
   const acreditaciones = [];
-  if (netos.netoMercancia > 0 && cuentaRtMercancia) {
+  // Mercancía nunca va a Servicios/Tesorería.
+  let cuentaMerc = cuentaRtMercancia || CUENTA_RT_MERCANCIA_FIJA;
+  if (cuentaMerc === CUENTA_RT_SERVICIOS_FIJA || cuentaMerc === 'cheche') {
+    cuentaMerc = CUENTA_RT_MERCANCIA_FIJA;
+  }
+  // Cobros de servicio solo a cuenta Servicios (ignore cualquier otra selección).
+  const cuentaSrv = CUENTA_RT_SERVICIOS_FIJA;
+  void cuentaRtServicios;
+
+  if (netos.netoMercancia > 0 && cuentaMerc) {
     acreditaciones.push({
-      cuentaRtId: cuentaRtMercancia,
+      cuentaRtId: cuentaMerc,
       monto: netos.netoMercancia,
       movimientoIds: netos.merc.map((m) => m.id),
       notas: `Mercancía · ${repartidorNombre || 'recolector'}${totalGastos > 0 ? ` · gastos −${fmtMonto(totalGastos)}` : ''}`,
+      tipoPartida: 'mercancia',
     });
   }
-  if (netos.netoServicios > 0 && cuentaRtServicios) {
+  if (netos.netoServicios > 0) {
     acreditaciones.push({
-      cuentaRtId: cuentaRtServicios,
+      cuentaRtId: cuentaSrv,
       monto: netos.netoServicios,
       movimientoIds: netos.srv.map((m) => m.id),
-      notas: `Servicios (CFE, etc.) · ${repartidorNombre || 'recolector'}`,
+      notas: `Servicios (solo recolección CFE/etc.) · ${repartidorNombre || 'recolector'}`,
+      tipoPartida: 'servicios',
     });
   }
   return { acreditaciones, netos };
@@ -1268,6 +1283,7 @@ export async function liquidarMovimientos(supabase, {
         usuarioNombre: adminNombre,
         repartidorNombre,
         notas: ac.notas,
+        tipoPartida: ac.tipoPartida || null,
       });
       if (!cred.ok) return { ok: false, error: cred.error, count: ids.length, parcial: true };
       montoAcreditado = Math.round((montoAcreditado + monto) * 100) / 100;
@@ -1762,8 +1778,11 @@ export async function liberarEfectivoRepartidor(supabase, {
   const bruto = movs.reduce((a, m) => a + Number(m.monto || 0), 0);
   const gastosActivos = await listarGastosActivosParaLiquidacion(supabase, repartidorId);
   const totalGastos = gastosActivos.reduce((a, m) => a + Number(m.monto || 0), 0);
-  const cMerc = cuentaRtMercancia || cuentaRtId;
-  const cSrv = cuentaRtServicios || cuentaRtId;
+  const cMerc = (cuentaRtMercancia || cuentaRtId) === 'servicios' || (cuentaRtMercancia || cuentaRtId) === 'cheche'
+    ? 'francisco'
+    : (cuentaRtMercancia || cuentaRtId || 'francisco');
+  const cSrv = 'servicios';
+  void cuentaRtServicios;
   const { acreditaciones, netos } = armarAcreditacionesLiquidacion({
     seleccionados: movs,
     totalGastos,
@@ -1782,7 +1801,7 @@ export async function liberarEfectivoRepartidor(supabase, {
       });
       if (!cerrados.ok) return { ok: false, error: cerrados.error };
       // Si solo hay servicios, aún se puede liberar ese tramo.
-      if (netos.netoServicios > 0 && cSrv) {
+      if (netos.netoServicios > 0) {
         const soloSrv = movimientosServicios(movs);
         if (soloSrv.length) {
           return liquidarMovimientos(supabase, {
@@ -1791,10 +1810,11 @@ export async function liberarEfectivoRepartidor(supabase, {
             repartidorNombre: rep?.nombre || '',
             acreditaciones: [
               {
-                cuentaRtId: cSrv,
+                cuentaRtId: 'servicios',
                 monto: netos.netoServicios,
                 movimientoIds: soloSrv.map((m) => m.id),
-                notas: `Servicios · ${rep?.nombre || 'recolector'}`,
+                notas: `Servicios (solo recolección) · ${rep?.nombre || 'recolector'}`,
+                tipoPartida: 'servicios',
               },
             ],
           });

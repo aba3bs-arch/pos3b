@@ -23,7 +23,7 @@ export const CUENTA_RT_FRANCISCO_ID = 'francisco';
 export const CUENTA_RT_SERVICIOS_ID = 'servicios';
 export const CUENTA_RT_ABB_ID = 'abb';
 
-/** Tarjetas / gastos / transferencias en pestaña Cuentas RT (sin Cheche). */
+/** Tarjetas en pestaña Cuentas RT (sin Cheche). */
 export const CUENTAS_RT_PANEL = CUENTAS_RT.filter((c) => c.id !== 'cheche');
 
 /** Liquidación de mercancía / recolecciones → solo Francisco. */
@@ -32,12 +32,24 @@ export const CUENTAS_RT_LIQUIDACION = CUENTAS_RT.filter((c) => c.id === 'francis
 /** Liquidación de cobros de servicio (Fondo / liberar servicios). */
 export const CUENTAS_RT_LIQUIDACION_SERVICIOS = CUENTAS_RT.filter((c) => c.id === 'servicios');
 
+/**
+ * Gastos operativos desde Cuentas RT: solo mercancía (Francisco).
+ * Servicios / Tesorería no se gastan aquí (solo recolección de servicios → Cheche).
+ */
+export const CUENTAS_RT_GASTO = CUENTAS_RT_LIQUIDACION;
+
 /** Tesorería RC/VentaRuta: recibe fondos desde la cuenta Servicios. Tesorero Cheche. */
 export const CUENTA_TESORERIA_ID = 'cheche';
 /** Origen de fondos de servicio hacia Tesorería (alias histórico del id). */
 export const ADMIN_TESORERIA_CUENTA_ID = CUENTA_RT_SERVICIOS_ID;
 /** Solo la cuenta Servicios envía a Tesorería (Cheche). */
 export const CUENTAS_ORIGEN_TESORERIA = [CUENTA_RT_SERVICIOS_ID];
+
+/** Cuentas exclusivas de recolección / pagos de servicio (no mercancía). */
+export function esCuentaSoloServicios(cuentaId) {
+  const id = String(cuentaId || '');
+  return id === CUENTA_RT_SERVICIOS_ID || id === CUENTA_TESORERIA_ID;
+}
 
 export const PRESETS_RT_CUENTAS = [
   { id: 'hoy', label: 'Hoy' },
@@ -224,10 +236,39 @@ export async function calcularSaldosRt(supabase) {
 }
 
 export async function acreditarLiquidacionCuentaRt(supabase, opts = {}) {
-  const { cuentaId, movimientoIds = [], montoTotal, usuarioNombre, repartidorNombre, notas, fecha } = opts;
+  const {
+    cuentaId,
+    movimientoIds = [],
+    montoTotal,
+    usuarioNombre,
+    repartidorNombre,
+    notas,
+    fecha,
+    /** 'servicios' | 'mercancia' | null — valida destino según tipo de efectivo */
+    tipoPartida = null,
+  } = opts;
   if (!supabase || !cuentaId) return { ok: false, error: 'Selecciona la cuenta RT que recibe el efectivo.' };
   const monto = Number(montoTotal) || 0;
   if (monto <= 0) return { ok: false, error: 'Monto de liquidación inválido.' };
+
+  if (tipoPartida === 'servicios' && cuentaId !== CUENTA_RT_SERVICIOS_ID) {
+    return {
+      ok: false,
+      error: 'Los cobros de servicio solo se acreditan en la cuenta Servicios (no en mercancía).',
+    };
+  }
+  if (tipoPartida === 'mercancia' && esCuentaSoloServicios(cuentaId)) {
+    return {
+      ok: false,
+      error: 'La cuenta Servicios / Tesorería es solo para recolección de servicios. La mercancía va a Francisco.',
+    };
+  }
+  if (cuentaId === CUENTA_TESORERIA_ID && tipoPartida !== 'tesoreria') {
+    return {
+      ok: false,
+      error: 'Tesorería (Cheche) no recibe liquidaciones directas. Liquida a Servicios y luego transfiere.',
+    };
+  }
 
   const meta =
     CUENTAS_RT.find((c) => c.id === cuentaId)
@@ -415,12 +456,26 @@ export async function importarLiquidacionesHistoricasRt(supabase, { cuentaFallba
 }
 
 export async function transferirEntreCuentasRt(supabase, opts = {}) {
-  const { desdeId, haciaId, monto, usuarioNombre, notas } = opts;
+  const { desdeId, haciaId, monto, usuarioNombre, notas, permitirServiciosTesoreria = false } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!desdeId || !haciaId) return { ok: false, error: 'Selecciona cuenta origen y destino.' };
   if (desdeId === haciaId) return { ok: false, error: 'Origen y destino deben ser distintos.' };
   const m = Number(monto) || 0;
   if (m <= 0) return { ok: false, error: 'Indica un monto mayor a cero.' };
+
+  const mezclaMercanciaServicios =
+    (esCuentaSoloServicios(desdeId) && !esCuentaSoloServicios(haciaId))
+    || (!esCuentaSoloServicios(desdeId) && esCuentaSoloServicios(haciaId));
+  const esServiciosATesoreria =
+    desdeId === CUENTA_RT_SERVICIOS_ID && haciaId === CUENTA_TESORERIA_ID;
+  if (mezclaMercanciaServicios && !(permitirServiciosTesoreria && esServiciosATesoreria)) {
+    return {
+      ok: false,
+      error:
+        'Servicios y Tesorería son solo para recolección de servicios. '
+        + 'No se mezclan con mercancía (Francisco). Usa Fondo/Tesorería para Servicios → Cheche.',
+    };
+  }
 
   const { saldos, error: errSaldo } = await calcularSaldosRt(supabase);
   if (errSaldo) return { ok: false, error: errSaldo };
@@ -475,7 +530,15 @@ export async function registrarGastoCuentaRt(supabase, opts = {}) {
     usuarioNombre,
   } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  if (!cuentaId) return { ok: false, error: 'Selecciona la cuenta RT (Francisco o Servicios).' };
+  if (!cuentaId) return { ok: false, error: 'Selecciona la cuenta RT (Francisco).' };
+  if (cuentaId === CUENTA_RT_SERVICIOS_ID) {
+    return {
+      ok: false,
+      error:
+        'La cuenta Servicios es solo para recolección de servicios. '
+        + 'Los egresos del proveedor se registran en Tesorería (Cheche), no como gasto RT.',
+    };
+  }
   const desc = String(descripcion || '').trim();
   if (!desc) return { ok: false, error: 'Describe en qué se usó el dinero.' };
   const m = Number(monto) || 0;
@@ -660,6 +723,7 @@ export async function enviarFondosServiciosATesoreria(supabase, {
     monto,
     usuarioNombre,
     notas: detalle,
+    permitirServiciosTesoreria: true,
   });
 }
 

@@ -48,8 +48,8 @@ import {
 } from '../lib/controlEfectivo.js';
 import {
   CUENTA_RT_SERVICIOS_ID,
+  CUENTAS_RT_GASTO,
   CUENTAS_RT_LIQUIDACION,
-  CUENTAS_RT_LIQUIDACION_SERVICIOS,
   CUENTAS_RT_PANEL,
   calcularSaldosRt,
   cuentaRtMercanciaPorDefecto,
@@ -64,7 +64,6 @@ import {
   rangoDesdePresetRt,
   signoMovimientoRt,
   esEgresoMovimientoRt,
-  transferirEntreCuentasRt,
 } from '../lib/rtCuentas.js';
 
 function etiquetaTipo(m) {
@@ -119,17 +118,13 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [saldoRep, setSaldoRep] = useState(null);
   const [gastosPendientes, setGastosPendientes] = useState([]);
   const [cuentaRtLiberarMerc, setCuentaRtLiberarMerc] = useState(() => cuentaRtMercanciaPorDefecto(user?.nombre));
-  const [cuentaRtLiberarSrv, setCuentaRtLiberarSrv] = useState(CUENTA_RT_SERVICIOS_ID);
+  const cuentaRtLiberarSrv = CUENTA_RT_SERVICIOS_ID;
 
   const [saldosRt, setSaldosRt] = useState({});
   const [desgloseRt, setDesgloseRt] = useState({});
   const [movsRt, setMovsRt] = useState([]);
   const [presetRt, setPresetRt] = useState('hoy');
   const [filtroCuentaRt, setFiltroCuentaRt] = useState('');
-  const [transDesde, setTransDesde] = useState('francisco');
-  const [transHacia, setTransHacia] = useState(CUENTA_RT_SERVICIOS_ID);
-  const [transMonto, setTransMonto] = useState('');
-  const [transNotas, setTransNotas] = useState('');
   const [gastoRtCuenta, setGastoRtCuenta] = useState(() => cuentaRtMercanciaPorDefecto(user?.nombre));
   const [gastoRtMonto, setGastoRtMonto] = useState('');
   const [gastoRtModoMonto, setGastoRtModoMonto] = useState('fijo');
@@ -253,13 +248,6 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
       listarRepartidores(supabase).then(setRepartidores).catch(() => {});
     }
   }, [tab, supabase]);
-
-  useEffect(() => {
-    if (transDesde === transHacia) {
-      const otra = CUENTAS_RT_PANEL.find((c) => c.id !== transDesde);
-      if (otra) setTransHacia(otra.id);
-    }
-  }, [transDesde, transHacia]);
 
   useEffect(() => {
     if (tab === 'cuentas') cargarCuentasRt();
@@ -503,23 +491,6 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
       submitLock.end();
       setGuardando(false);
     }
-  };
-
-  const confirmarTransferencia = async () => {
-    await conCandado(async () => {
-      const res = await transferirEntreCuentasRt(supabase, {
-        desdeId: transDesde,
-        haciaId: transHacia,
-        monto: transMonto,
-        usuarioNombre: adminNombre,
-        notas: transNotas,
-      });
-      if (!res.ok) return alert(res.error);
-      alert(`✅ Transferidos ${fmtMonto(res.monto)} de ${etiquetaCuentaRt(transDesde)} a ${etiquetaCuentaRt(transHacia)}.`);
-      setTransMonto('');
-      setTransNotas('');
-      cargarCuentasRt();
-    });
   };
 
   const confirmarGastoCuentaRt = async () => {
@@ -1123,14 +1094,14 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                 </select>
               </label>
               <label className="muted" style={{ display: 'block' }}>
-                Cuenta RT — Servicios
-                <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtLiberarSrv} onChange={(e) => setCuentaRtLiberarSrv(e.target.value)}>
-                  {CUENTAS_RT_LIQUIDACION_SERVICIOS.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre}
-                    </option>
-                  ))}
-                </select>
+                Cuenta RT — Servicios (solo recolección)
+                <input
+                  className="input"
+                  style={{ marginTop: '0.35rem' }}
+                  value={etiquetaCuentaRt(CUENTA_RT_SERVICIOS_ID)}
+                  readOnly
+                  disabled
+                />
               </label>
             </div>
             <button
@@ -1150,8 +1121,8 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid var(--brand-gold)' }}>
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Efectivo en tránsito (aún no en cuenta RT)</h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-              Este dinero sigue con el recolector o pendiente de sellar. <strong>No suma</strong> al saldo de Francisco / Servicios hasta liquidarlo en{' '}
-              <strong>Liquidación recolecciones</strong> o <strong>Gastos / liberar</strong>.
+              Este dinero sigue con el recolector o pendiente de sellar. <strong>No suma</strong> hasta liquidarlo:
+              mercancía → Francisco · cobros de servicio → Servicios (solo recolección).
             </p>
             <p style={{ margin: '0.75rem 0 0', fontSize: '1.35rem', fontWeight: 700, color: netoTransitoRt < 0 ? 'var(--brand-red)' : 'var(--brand-gold-dark)' }}>
               {fmtMonto(netoTransitoRt)}
@@ -1220,8 +1191,8 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                   </div>
                   <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.72rem', lineHeight: 1.35 }}>
                     {c.id === 'servicios'
-                      ? 'Aquí entran las liquidaciones de cobros de servicio (Fondo / CFE). Desde esta cuenta se transfieren fondos a Tesorería (Cheche).'
-                      : 'Los gastos del recolector ya se restaron al sellar; aquí solo entra el neto de mercancía. Si hay varias liquidaciones, el disponible es la suma de esos netos.'}
+                      ? 'Solo recolección de servicios (CFE/etc. y Fondo). No recibe mercancía. De aquí se transfieren fondos a Tesorería (Cheche).'
+                      : 'Solo mercancía / recolecciones. Los gastos del recolector ya se restaron al sellar; aquí entra el neto.'}
                   </p>
                 </div>
               );
@@ -1245,9 +1216,9 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                 </p>
               )}
               <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
-                Cuenta respaldo (si el nombre no identifica a Francisco)
+                Cuenta respaldo mercancía (si el nombre no identifica a Francisco)
                 <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaFallbackHist} onChange={(e) => setCuentaFallbackHist(e.target.value)}>
-                  {CUENTAS_RT_PANEL.map((c) => (
+                  {CUENTAS_RT_LIQUIDACION.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nombre}
                     </option>
@@ -1263,7 +1234,8 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid var(--brand-gold)' }}>
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Registrar gasto desde cuenta RT</h3>
             <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-              Solo se puede gastar el <strong>disponible</strong> de cada cuenta (liquidaciones − gastos previos − transferencias). Al registrar, se descuenta y queda en Corte Virtual → GASTOS OPERATIVOS.
+              Solo desde <strong>Francisco</strong> (mercancía). La cuenta Servicios es solo recolección de servicios;
+              sus egresos van por Tesorería (Cheche).
             </p>
             {gastoRtCuenta ? (
               <p style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
@@ -1274,7 +1246,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <label className="muted">
                 Cuenta
                 <select className="select" style={{ marginTop: '0.35rem' }} value={gastoRtCuenta} onChange={(e) => setGastoRtCuenta(e.target.value)}>
-                  {CUENTAS_RT_PANEL.map((c) => (
+                  {CUENTAS_RT_GASTO.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nombre} ({fmtMonto(saldosRt[c.id] || 0)})
                     </option>
@@ -1330,43 +1302,12 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           </div>
 
           <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid #0d9488' }}>
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Transferir entre cuentas</h3>
-            <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-              Francisco (mercancía) y Servicios (cobros). Para enviar Servicios → Tesorería usa la pestaña Tesorería o Fondo.
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Servicios → Tesorería</h3>
+            <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0, marginBottom: 0 }}>
+              La cuenta <strong>Servicios</strong> es solo para recolección de servicios (no mercancía).
+              Para transferir ese saldo a Cheche usa RC/VentaRuta → <strong>Fondo</strong> o <strong>Tesorería</strong>.
+              No hay transferencia mixta con Francisco.
             </p>
-            <div className="grid-2" style={{ gap: '0.75rem' }}>
-              <label className="muted">
-                Desde
-                <select className="select" style={{ marginTop: '0.35rem' }} value={transDesde} onChange={(e) => setTransDesde(e.target.value)}>
-                  {CUENTAS_RT_PANEL.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre} ({fmtMonto(saldosRt[c.id] || 0)})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="muted">
-                Hacia
-                <select className="select" style={{ marginTop: '0.35rem' }} value={transHacia} onChange={(e) => setTransHacia(e.target.value)}>
-                  {CUENTAS_RT_PANEL.filter((c) => c.id !== transDesde).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="muted">
-                Monto ($)
-                <input className="input" type="number" min="0" step="0.01" style={{ marginTop: '0.35rem' }} value={transMonto} onChange={(e) => setTransMonto(e.target.value)} />
-              </label>
-              <label className="muted">
-                Notas (opcional)
-                <input className="input" style={{ marginTop: '0.35rem' }} value={transNotas} onChange={(e) => setTransNotas(e.target.value)} placeholder="Motivo de la transferencia" />
-              </label>
-            </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando || !transMonto} onClick={confirmarTransferencia}>
-              Registrar transferencia
-            </button>
           </div>
 
           <div className="card" style={{ padding: '0.85rem' }}>
