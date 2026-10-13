@@ -22,7 +22,7 @@ import {
  * - Una fila / cuenta por tienda (nunca mezclar sucursales).
  * - Al tocar una tienda se despliegan sus folios.
  * - Solo se selecciona y paga UNA tienda a la vez.
- * - Se puede pagar un monto parcial (liquidez para otros proveedores).
+ * - Se pueden marcar folios concretos y/o pagar un monto parcial (FIFO).
  * - Administrador puede eliminar créditos por error.
  * - Al pagar: gasto abarrotes + efectivo a tránsito (recolección reusa la ficha).
  * - Carga rápida de CxC + sync Recolecciones en segundo plano.
@@ -39,6 +39,8 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const [guardando, setGuardando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
   const [montoPagarStr, setMontoPagarStr] = useState('');
+  /** Folios marcados para pagar (ids). Vacío = ninguno. */
+  const [foliosSel, setFoliosSel] = useState(() => new Set());
   const syncGen = useRef(0);
   const puedeEliminar = puedeEliminarCreditosRuta(user?.rol);
 
@@ -175,9 +177,22 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       .sort((a, b) => String(a.id).localeCompare(String(b.id), 'es'));
   }, [rows]);
 
+  const marcarTodosFolios = useCallback((items) => {
+    setFoliosSel(new Set((items || []).map((x) => String(x.id))));
+  }, []);
+
   const toggleGrupo = (grupoId) => {
     // Una sola tienda a la vez (no mezclar cuentas de varias sucursales).
-    setSelTienda((prev) => (prev === grupoId ? '' : grupoId));
+    setSelTienda((prev) => {
+      const next = prev === grupoId ? '' : grupoId;
+      if (next) {
+        const g = grupos.find((x) => x.id === next);
+        marcarTodosFolios(g?.items);
+      } else {
+        setFoliosSel(new Set());
+      }
+      return next;
+    });
     setMontoPagarStr('');
   };
 
@@ -185,10 +200,37 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     if (!verTodasLasTiendas && grupos.length === 1) return grupos[0];
     return grupos.find((g) => g.id === selTienda) || null;
   }, [grupos, selTienda, verTodasLasTiendas]);
-  const totalSel = grupoSel?.total || 0;
+
+  // Al cargar / cambiar a vista de una sola tienda: seleccionar todos los folios.
+  useEffect(() => {
+    if (!grupoSel?.items?.length) return;
+    if (!verTodasLasTiendas || selTienda === grupoSel.id) {
+      setFoliosSel((prev) => {
+        const ids = grupoSel.items.map((x) => String(x.id));
+        const mismos = ids.length === prev.size && ids.every((id) => prev.has(id));
+        if (mismos) return prev;
+        // Si el usuario ya desmarcó alguno y sigue en la misma tienda, no pisar.
+        const algunoDeTienda = ids.some((id) => prev.has(id));
+        if (algunoDeTienda && prev.size > 0 && prev.size < ids.length) return prev;
+        if (prev.size === 0 || !algunoDeTienda) return new Set(ids);
+        return prev;
+      });
+    }
+  }, [grupoSel, verTodasLasTiendas, selTienda]);
+
+  const itemsMarcados = useMemo(() => {
+    if (!grupoSel) return [];
+    return grupoSel.items.filter((m) => foliosSel.has(String(m.id)));
+  }, [grupoSel, foliosSel]);
+
+  const totalTienda = grupoSel?.total || 0;
+  const totalFoliosSel = useMemo(
+    () => Math.round(itemsMarcados.reduce((s, m) => s + (Number(m.monto) || 0), 0) * 100) / 100,
+    [itemsMarcados],
+  );
   const idsSeleccionados = useMemo(
-    () => (grupoSel ? grupoSel.items.map((x) => x.id) : []),
-    [grupoSel],
+    () => itemsMarcados.map((x) => x.id),
+    [itemsMarcados],
   );
 
   const montoPagarNum = useMemo(() => {
@@ -197,9 +239,26 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     return Math.round(n * 100) / 100;
   }, [montoPagarStr]);
 
-  const usarTodo = () => {
+  const toggleFolio = (id) => {
+    const sid = String(id);
+    setFoliosSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(sid)) next.delete(sid);
+      else next.add(sid);
+      return next;
+    });
+  };
+
+  const seleccionarTodosFolios = () => {
     if (!grupoSel) return;
-    setMontoPagarStr(String(grupoSel.total));
+    marcarTodosFolios(grupoSel.items);
+  };
+
+  const limpiarFoliosSel = () => setFoliosSel(new Set());
+
+  const usarTodo = () => {
+    if (!itemsMarcados.length) return;
+    setMontoPagarStr(String(totalFoliosSel));
   };
 
   const abrirConPin = async () => {
@@ -216,15 +275,16 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     setCajero(null);
     setRows([]);
     setSelTienda('');
+    setFoliosSel(new Set());
     setMontoPagarStr('');
     setAviso('');
     setSyncBg(false);
   };
 
   const eliminarSeleccion = async () => {
-    if (!grupoSel?.items?.length) return;
+    if (!idsSeleccionados.length) return;
     if (!confirm(
-      `¿Eliminar ${grupoSel.items.length} crédito(s) de ${grupoSel.label} (${fmtMonto(totalSel)})?\n\n`
+      `¿Eliminar ${idsSeleccionados.length} folio(s) marcado(s) de ${grupoSel?.label || 'tienda'} (${fmtMonto(totalFoliosSel)})?\n\n`
       + 'Solo para corregir errores. No registra pago ni gasto.',
     )) return;
     setEliminando(true);
@@ -236,17 +296,24 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     setEliminando(false);
     if (!r.ok) return alert(r.error);
     alert(`Eliminados ${r.eliminados || idsSeleccionados.length} crédito(s).`);
+    setFoliosSel(new Set());
     await cargar({ conSyncFondo: false });
   };
 
   const pagar = async () => {
-    if (!grupoSel || !(montoPagarNum > 0)) return;
-    if (montoPagarNum > totalSel + 0.009) {
-      return alert(`El monto no puede superar ${fmtMonto(totalSel)}.`);
+    if (!grupoSel || !idsSeleccionados.length) {
+      return alert('Marca al menos un folio para pagar.');
+    }
+    const monto = montoPagarNum > 0 ? montoPagarNum : totalFoliosSel;
+    if (!(monto > 0)) return;
+    if (monto > totalFoliosSel + 0.009) {
+      return alert(`El monto no puede superar los folios marcados (${fmtMonto(totalFoliosSel)}).`);
     }
     if (!confirm(
-      `¿Pagar ${fmtMonto(montoPagarNum)} de ${grupoSel.label}?\n`
-      + `${grupoSel.items.length} folio(s) · saldo tienda ${fmtMonto(totalSel)}\n\n`
+      `¿Pagar ${fmtMonto(monto)} de ${grupoSel.label}?\n`
+      + `${idsSeleccionados.length} folio(s) marcado(s) · ${fmtMonto(totalFoliosSel)}`
+      + (monto < totalFoliosSel - 0.001 ? ' · parcial FIFO' : '')
+      + `\nSaldo tienda ${fmtMonto(totalTienda)}\n\n`
       + 'Gasto abarrotes en ESA tienda + efectivo a tránsito.',
     )) return;
     setGuardando(true);
@@ -254,12 +321,14 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       movimientoIds: idsSeleccionados,
       sucursal: grupoSel.id || sucActiva,
       cajeroUser: cajero,
-      montoPagar: montoPagarNum,
+      montoPagar: monto,
     });
     setGuardando(false);
     if (!r.ok) return alert(r.error);
     const extra = r.parcial ? ' (parcial; queda saldo pendiente)' : '';
-    alert(`Pagado ${fmtMonto(r.montoPagado || montoPagarNum)} · ${grupoSel.label} · ${r.cajero}.${extra}`);
+    alert(`Pagado ${fmtMonto(r.montoPagado || monto)} · ${grupoSel.label} · ${r.cajero}.${extra}`);
+    setFoliosSel(new Set());
+    setMontoPagarStr('');
     await cargar({ conSyncFondo: true });
   };
 
@@ -278,8 +347,8 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
             Ingresa el <strong>PIN del cajero</strong> para abrir créditos por pagar
             (venta en ruta y créditos del módulo Recolecciones).
             {verTodasLasTiendas
-              ? ' Central: ves todas las tiendas; toca una para ver folios y pagar.'
-              : ` Solo créditos de ${tiendaLabelActiva || sucActiva || 'esta sucursal'} con desglose de folios.`}
+              ? ' Central: ves todas las tiendas; toca una, marca folios o paga un monto.'
+              : ` Solo créditos de ${tiendaLabelActiva || sucActiva || 'esta sucursal'}; marca folios o paga un monto.`}
           </p>
         </div>
         <div className="card" style={{ borderTop: '4px solid #0f766e', maxWidth: 360 }}>
@@ -320,9 +389,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           Cajero: <strong>{cajero.nombre || '—'}</strong>.
           {verTodasLasTiendas
-            ? ' Central: toca una tienda para ver folios y pagar (parcial permitido).'
-            : ` Créditos de ${tiendaLabelActiva || sucActiva} con desglose de folios (parcial permitido).`}
-          {puedeEliminar ? ' · Admin: puedes eliminar créditos por error.' : ''}
+            ? ' Central: toca una tienda, marca folios y/o escribe un monto (parcial FIFO).'
+            : ` Créditos de ${tiendaLabelActiva || sucActiva}: marca folios y/o escribe un monto (parcial FIFO).`}
+          {puedeEliminar ? ' · Admin: puedes eliminar folios marcados por error.' : ''}
         </p>
       </div>
       {aviso && <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>{aviso}</div>}
@@ -401,31 +470,66 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                   </button>
                   {marcado && (
                     <div style={{ padding: '0.15rem 0.65rem 0.75rem', borderTop: '1px solid var(--border, #e2e8f0)' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', margin: '0.35rem 0 0.5rem' }}>
+                        <span className="muted" style={{ fontSize: '0.75rem' }}>
+                          {foliosSel.size}/{g.items.length} folio(s) · {fmtMonto(totalFoliosSel)}
+                        </span>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={seleccionarTodosFolios}>
+                          Marcar todos
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={limpiarFoliosSel}
+                          disabled={!foliosSel.size}
+                        >
+                          Quitar marcas
+                        </button>
+                      </div>
                       <table className="consultas-table" style={{ width: '100%', fontSize: '0.84rem' }}>
                         <thead>
                           <tr>
+                            <th style={{ width: 36, textAlign: 'center' }} aria-label="Seleccionar" />
                             <th style={{ textAlign: 'left' }}>Folio</th>
                             <th style={{ textAlign: 'left' }}>Fecha</th>
                             <th style={{ textAlign: 'right' }}>Monto</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {g.items.map((m) => (
-                            <tr key={m.id}>
-                              <td>
-                                <strong>{m.folio_venta || m.venta_id || '—'}</strong>
-                                {m.notas ? (
-                                  <div className="muted" style={{ fontSize: '0.72rem', maxWidth: 280 }}>
-                                    {String(m.notas).length > 72 ? `${String(m.notas).slice(0, 72)}…` : m.notas}
-                                  </div>
-                                ) : null}
-                              </td>
-                              <td className="muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                                {fmtFechaCorta(m.created_at)}
-                              </td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMonto(m.monto)}</td>
-                            </tr>
-                          ))}
+                          {g.items.map((m) => {
+                            const checked = foliosSel.has(String(m.id));
+                            return (
+                              <tr
+                                key={m.id}
+                                onClick={() => toggleFolio(m.id)}
+                                style={{
+                                  cursor: 'pointer',
+                                  background: checked ? 'rgba(15,118,110,0.06)' : undefined,
+                                }}
+                              >
+                                <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleFolio(m.id)}
+                                    aria-label={`Seleccionar folio ${m.folio_venta || m.venta_id || m.id}`}
+                                  />
+                                </td>
+                                <td>
+                                  <strong>{m.folio_venta || m.venta_id || '—'}</strong>
+                                  {m.notas ? (
+                                    <div className="muted" style={{ fontSize: '0.72rem', maxWidth: 280 }}>
+                                      {String(m.notas).length > 72 ? `${String(m.notas).slice(0, 72)}…` : m.notas}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                  {fmtFechaCorta(m.created_at)}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMonto(m.monto)}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -438,51 +542,67 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
 
         <div style={{ marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
           <div>
-            <div className="muted" style={{ fontSize: '0.75rem' }}>Tienda seleccionada</div>
-            <strong>{grupoSel ? `${grupoSel.id} · ${fmtMonto(totalSel)}` : 'Ninguna'}</strong>
+            <div className="muted" style={{ fontSize: '0.75rem' }}>A pagar (folios marcados)</div>
+            <strong>
+              {grupoSel
+                ? `${grupoSel.id} · ${idsSeleccionados.length} folio(s) · ${fmtMonto(totalFoliosSel)}`
+                : 'Ninguna'}
+            </strong>
+            {grupoSel && totalFoliosSel < totalTienda - 0.001 ? (
+              <div className="muted" style={{ fontSize: '0.72rem' }}>
+                Saldo tienda {fmtMonto(totalTienda)}
+              </div>
+            ) : null}
           </div>
           <label style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
             Monto a pagar
+            <span className="muted" style={{ fontSize: '0.68rem', fontWeight: 400 }}>
+              Opcional · vacío = total marcado
+            </span>
             <input
               type="number"
               className="input"
               min="0"
               step="0.01"
-              max={totalSel || undefined}
+              max={totalFoliosSel || undefined}
               value={montoPagarStr}
-              disabled={!grupoSel || guardando}
+              disabled={!grupoSel || !idsSeleccionados.length || guardando}
               onChange={(e) => setMontoPagarStr(e.target.value)}
               style={{ width: 140 }}
-              placeholder="0.00"
+              placeholder={totalFoliosSel > 0 ? String(totalFoliosSel) : '0.00'}
             />
           </label>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            disabled={!grupoSel || guardando || !(totalSel > 0)}
+            disabled={!idsSeleccionados.length || guardando || !(totalFoliosSel > 0)}
             onClick={usarTodo}
-            title="Usar el total acumulado de esta tienda"
+            title="Poner el total de los folios marcados en el monto"
           >
-            Usar todo
+            Usar marcado
           </button>
           <button
             type="button"
             className="btn btn-primary"
-            disabled={guardando || eliminando || !grupoSel || !(montoPagarNum > 0)}
+            disabled={guardando || eliminando || !idsSeleccionados.length || !(totalFoliosSel > 0)}
             onClick={() => void pagar()}
           >
-            {guardando ? 'Pagando…' : 'Pagar tienda'}
+            {guardando
+              ? 'Pagando…'
+              : montoPagarNum > 0
+                ? `Pagar ${fmtMonto(montoPagarNum)}`
+                : `Pagar ${idsSeleccionados.length || 0} folio(s)`}
           </button>
           {puedeEliminar && (
             <button
               type="button"
               className="btn btn-ghost"
               style={{ color: '#b91c1c', borderColor: '#fecaca' }}
-              disabled={guardando || eliminando || !grupoSel}
+              disabled={guardando || eliminando || !idsSeleccionados.length}
               onClick={() => void eliminarSeleccion()}
-              title="Solo administrador · corrige créditos erróneos"
+              title="Solo administrador · elimina folios marcados"
             >
-              {eliminando ? 'Eliminando…' : 'Eliminar créditos'}
+              {eliminando ? 'Eliminando…' : 'Eliminar marcados'}
             </button>
           )}
           <button type="button" className="btn btn-ghost" onClick={cerrarSesionCajero} disabled={guardando || eliminando}>
@@ -497,9 +617,11 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
             Actualizar
           </button>
         </div>
-        {grupoSel && montoPagarNum > 0 && montoPagarNum < totalSel - 0.001 && (
+        {grupoSel && idsSeleccionados.length > 0 && (
           <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-            Pago parcial en {grupoSel.id}: quedan {fmtMonto(Math.max(0, totalSel - montoPagarNum))} pendientes en esa tienda.
+            {montoPagarNum > 0 && montoPagarNum < totalFoliosSel - 0.001
+              ? `Pago parcial FIFO sobre ${idsSeleccionados.length} folio(s): quedan ${fmtMonto(Math.max(0, totalFoliosSel - montoPagarNum))} en los marcados.`
+              : 'Marca folios concretos o deja el monto vacío para pagar el total marcado (como antes).'}
           </p>
         )}
       </div>
