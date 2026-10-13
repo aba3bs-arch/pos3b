@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { listarServiciosCobroAdmin } from '../lib/controlEfectivo.js';
+import {
+  agruparCobrosServicioPorTienda,
+  fmtFechaClave,
+  listarCobrosServicioEnTransito,
+  listarRepartidores,
+  listarServiciosCobroAdmin,
+  liquidarCobrosServicioEnTransito,
+} from '../lib/controlEfectivo.js';
 import {
   CUENTA_RT_FONDO_DEFAULT,
   liquidarFondoACuentaRt,
@@ -37,6 +44,11 @@ export default function PanelFondoServicios({ supabase, user }) {
   const [notaTesoreria, setNotaTesoreria] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [limpiando, setLimpiando] = useState(false);
+  const [repartidores, setRepartidores] = useState([]);
+  const [filtroRepCobros, setFiltroRepCobros] = useState(''); // '' = todos
+  const [cobrosTransito, setCobrosTransito] = useState([]);
+  const [selCobros, setSelCobros] = useState({});
+  const [liquidandoCobros, setLiquidandoCobros] = useState(false);
 
   const liqCuenta = CUENTA_RT_FONDO_DEFAULT;
   const puedeTesoreria = puedeAdministrarTesoreria(user);
@@ -45,20 +57,33 @@ export default function PanelFondoServicios({ supabase, user }) {
   const cargar = useCallback(async () => {
     if (!supabase) return;
     await asegurarCuentaServicios(supabase);
-    const [srvs, movs, origen] = await Promise.all([
+    const [srvs, movs, origen, reps, cobros] = await Promise.all([
       listarServiciosCobroAdmin(supabase),
       listarMovimientosFondo(supabase, { limit: 300 }),
       saldosOrigenTesoreria(supabase),
+      listarRepartidores(supabase),
+      listarCobrosServicioEnTransito(supabase, {
+        repartidorId: filtroRepCobros || null,
+      }),
     ]);
     setServicios(srvs || []);
+    setRepartidores(reps || []);
     if (movs.aviso) setAviso(movs.aviso);
     if (movs.error) setAviso(movs.error);
     setMovimientos(movs.data || []);
+    setCobrosTransito(cobros || []);
+    setSelCobros((prev) => {
+      const next = {};
+      for (const m of cobros || []) {
+        next[m.id] = prev[m.id] !== false;
+      }
+      return next;
+    });
     const srv = (origen.data || []).find((x) => x.id === CUENTA_RT_SERVICIOS_ID);
     const saldo = srv?.saldo || 0;
     setSaldoServicios(saldo);
     setMontoTesoreria(saldo > 0 ? String(saldo) : '');
-  }, [supabase]);
+  }, [supabase, filtroRepCobros]);
 
   useEffect(() => {
     void cargar();
@@ -70,6 +95,27 @@ export default function PanelFondoServicios({ supabase, user }) {
   );
   const totales = useMemo(() => totalesFondo(resumen), [resumen]);
   const conSaldo = useMemo(() => resumen.filter((r) => (Number(r.saldo) || 0) > 0), [resumen]);
+
+  const cobrosAgrupados = useMemo(
+    () => agruparCobrosServicioPorTienda(cobrosTransito),
+    [cobrosTransito],
+  );
+  const cobrosSeleccionados = useMemo(
+    () => cobrosTransito.filter((m) => selCobros[m.id]),
+    [cobrosTransito, selCobros],
+  );
+  const totalCobrosSel = useMemo(
+    () => cobrosSeleccionados.reduce((a, m) => a + (Number(m.monto) || 0), 0),
+    [cobrosSeleccionados],
+  );
+  const repsFiltroOpts = useMemo(() => {
+    const map = new Map();
+    for (const r of repartidores || []) map.set(String(r.id), r);
+    for (const r of cobrosAgrupados.repartidores || []) {
+      if (!map.has(String(r.id))) map.set(String(r.id), r);
+    }
+    return [...map.values()].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es'));
+  }, [repartidores, cobrosAgrupados.repartidores]);
 
   useEffect(() => {
     if (!liqClave) {
@@ -89,6 +135,55 @@ export default function PanelFondoServicios({ supabase, user }) {
     if (m.tipo === 'ingreso') return 'Ingreso';
     if (m.meta?.origen === 'liquidacion_cuenta_rt') return 'Liquidación';
     return 'Egreso';
+  };
+
+  const toggleTiendaCobros = (items, val) => {
+    setSelCobros((prev) => {
+      const next = { ...prev };
+      for (const m of items || []) next[m.id] = val;
+      return next;
+    });
+  };
+
+  const toggleTodosCobros = (val) => {
+    setSelCobros((prev) => {
+      const next = { ...prev };
+      for (const m of cobrosTransito) next[m.id] = val;
+      return next;
+    });
+  };
+
+  const liquidarCobrosPendientes = async () => {
+    if (!cobrosSeleccionados.length) return alert('Selecciona al menos un cobro de servicio.');
+    const reps = [...new Set(
+      cobrosSeleccionados.map((m) => m.repartidores?.nombre || m.repartidor_nombre).filter(Boolean),
+    )];
+    const tiendas = [...new Set(cobrosSeleccionados.map((m) => m.sucursal_origen).filter(Boolean))];
+    if (!confirm(
+      `¿Liquidar cobros de servicio a la cuenta Servicios?\n\n`
+      + `Total: ${fmtMonto(totalCobrosSel)}\n`
+      + `Movimientos: ${cobrosSeleccionados.length}\n`
+      + `Tiendas: ${tiendas.join(', ') || '—'}\n`
+      + `Recolectó: ${reps.join(', ') || '—'}\n\n`
+      + 'No se mezcla con mercancía (Francisco).',
+    )) return;
+    setLiquidandoCobros(true);
+    try {
+      const r = await liquidarCobrosServicioEnTransito(supabase, {
+        ids: cobrosSeleccionados.map((m) => m.id),
+        adminNombre: user?.nombre || 'RC Servicios',
+        movimientos: cobrosSeleccionados,
+      });
+      if (!r.ok) return alert(r.error || 'No se pudo liquidar.');
+      alert(
+        `✅ Cobros de servicio liquidados · ${fmtMonto(r.montoTotal)} → Servicios`
+        + ` (${r.count} mov. · ${(r.tiendas || []).join(', ') || 'tiendas'})`
+        + (r.repartidores?.length ? ` · recolectó: ${r.repartidores.join(', ')}` : ''),
+      );
+      await cargar();
+    } finally {
+      setLiquidandoCobros(false);
+    }
   };
 
   const liquidar = async () => {
@@ -192,6 +287,147 @@ export default function PanelFondoServicios({ supabase, user }) {
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
       )}
+
+      <div
+        style={{
+          padding: '0.85rem',
+          borderRadius: 12,
+          border: '1px solid rgba(15,118,110,0.4)',
+          background: 'linear-gradient(180deg, #f0fdfa, #fff)',
+        }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.55rem', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 220px' }}>
+            <h4 style={{ margin: '0 0 0.2rem', color: '#0f766e' }}>
+              Cobros de servicio pendientes
+            </h4>
+            <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
+              Ya no aparecen en Pendientes por liquidar. Agrupados por tienda, totalizados juntos.
+              Filtra por repartidor / usuario que recolectó y liquida a la cuenta <strong>Servicios</strong>.
+            </p>
+          </div>
+          <label className="muted" style={{ display: 'block', fontSize: '0.8rem', minWidth: 200 }}>
+            Recolector / repartidor
+            <select
+              className="input"
+              style={{ marginTop: '0.3rem' }}
+              value={filtroRepCobros}
+              onChange={(e) => setFiltroRepCobros(e.target.value)}
+            >
+              <option value="">Todos los pendientes</option>
+              {repsFiltroOpts.map((r) => (
+                <option key={r.id} value={r.id}>{r.nombre}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <p style={{ margin: '0.65rem 0 0.45rem', fontSize: '0.85rem' }}>
+          En tránsito: <strong>{fmtMonto(cobrosAgrupados.total)}</strong>
+          {' · '}{cobrosAgrupados.count} movimiento(s)
+          {' · '}{cobrosAgrupados.grupos.length} tienda(s)
+          {cobrosAgrupados.repartidores.length > 0 && (
+            <>
+              {' · '}Recolectó:{' '}
+              <strong>{cobrosAgrupados.repartidores.map((r) => r.nombre).join(', ')}</strong>
+            </>
+          )}
+        </p>
+
+        {!cobrosTransito.length ? (
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+            Sin cobros de servicio en tránsito
+            {filtroRepCobros ? ' para este repartidor' : ''}.
+          </p>
+        ) : (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', alignItems: 'center', marginBottom: '0.45rem' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem' }}>
+                <input
+                  type="checkbox"
+                  checked={cobrosSeleccionados.length === cobrosTransito.length && cobrosTransito.length > 0}
+                  onChange={(e) => toggleTodosCobros(e.target.checked)}
+                />
+                Seleccionar todos
+              </label>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem' }} onClick={() => void cargar()}>
+                Actualizar
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table className="consultas-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }} />
+                    <th>Tienda</th>
+                    <th>Recolectó</th>
+                    <th>Detalle</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cobrosAgrupados.grupos.map((g) => {
+                    const selCount = g.items.filter((m) => selCobros[m.id]).length;
+                    const all = selCount === g.items.length && g.items.length > 0;
+                    const repsTienda = [...new Set(
+                      g.items.map((m) => m.repartidores?.nombre || m.repartidor_nombre || '—'),
+                    )];
+                    const detalle = g.items
+                      .map((m) => {
+                        const f = fmtFechaClave(String(m.fecha_hora || '').slice(0, 10));
+                        const quien = m.repartidores?.nombre || m.cajero_nombre || '';
+                        return `${f || '—'} ${fmtMonto(m.monto)}${quien ? ` (${quien})` : ''}`;
+                      })
+                      .join(' · ');
+                    return (
+                      <tr key={g.tienda}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={all}
+                            ref={(el) => {
+                              if (el) el.indeterminate = selCount > 0 && !all;
+                            }}
+                            onChange={(e) => toggleTiendaCobros(g.items, e.target.checked)}
+                          />
+                        </td>
+                        <td>
+                          <strong>{etiquetaTienda(g.tienda) || g.tienda}</strong>
+                          <span className="muted" style={{ display: 'block', fontSize: '0.72rem' }}>
+                            {g.count} mov.
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '0.85rem' }}>{repsTienda.join(', ')}</td>
+                        <td className="muted" style={{ fontSize: '0.78rem' }}>{detalle}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#0f766e' }}>
+                          {fmtMonto(g.total)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ background: 'rgba(15,118,110,0.06)' }}>
+                    <td colSpan={4} style={{ fontWeight: 700 }}>Total seleccionado</td>
+                    <td style={{ textAlign: 'right', fontWeight: 800, color: '#0f766e' }}>
+                      {fmtMonto(totalCobrosSel)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginTop: '0.65rem' }}
+              disabled={liquidandoCobros || guardando || cobrosSeleccionados.length === 0}
+              onClick={() => void liquidarCobrosPendientes()}
+            >
+              {liquidandoCobros
+                ? 'Liquidando…'
+                : `Liquidar cobros · ${fmtMonto(totalCobrosSel)} → Servicios`}
+            </button>
+          </>
+        )}
+      </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         {[
