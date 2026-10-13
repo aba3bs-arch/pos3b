@@ -38,8 +38,13 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     const r = await listarCreditosPendientesRuta(supabase, {
       sucursalId: vistaCentral ? undefined : sucActiva,
     });
-    if (r.aviso) setAviso(r.aviso);
-    if (r.error) setAviso(r.error);
+    const msgs = [];
+    if (r.aviso) msgs.push(r.aviso);
+    if (r.error) msgs.push(r.error);
+    if (r.sync?.creados > 0) {
+      msgs.push(`Sincronizados ${r.sync.creados} crédito(s) de Recolecciones → Créditos por pagar.`);
+    }
+    setAviso(msgs.join(' · '));
     setRows(r.data || []);
     setSel(new Set());
     setMontoPagarStr('');
