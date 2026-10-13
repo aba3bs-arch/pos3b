@@ -11,7 +11,6 @@ import {
 import { fmtFechaCorta, fmtMonto } from '../lib/consultasUi.js';
 import {
   esCentralAdmin,
-  esSucursalRuta,
   etiquetaTienda,
   normalizarCodigoTienda,
 } from '../constants/sucursales.js';
@@ -43,13 +42,10 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const syncGen = useRef(0);
   const puedeEliminar = puedeEliminarCreditosRuta(user?.rol);
 
-  const sucActiva = sucursal || user?.sucursal_id || '';
-  // Venta en Ruta / MAIN / RUTA: ver créditos de TODAS las tiendas, agrupados.
-  const verTodasLasTiendas = embedded
-    || esCentralAdmin(sucActiva)
-    || esSucursalRuta(sucActiva)
-    || !sucActiva
-    || String(sucActiva).toUpperCase() === 'MAIN';
+  const sucActiva = normalizarCodigoTienda(sucursal || user?.sucursal_id || '') || '';
+  // Solo central (MAIN): ve todas las tiendas. Cada sucursal ve únicamente la suya.
+  const verTodasLasTiendas = esCentralAdmin(sucActiva) || sucActiva === 'MAIN' || !sucActiva;
+  const tiendaLabelActiva = sucActiva ? (etiquetaTienda(sucActiva) || sucActiva) : '';
 
   const armarAvisos = useCallback((r, data) => {
     const msgs = [];
@@ -62,21 +58,29 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       msgs.push(`Sync Recolecciones: ${partes.join(' · ')}`);
     }
     const lista = data || r?.data || [];
-    const mezquiteSync = (r?.sync?.porTienda || []).find((t) => String(t.tienda).toUpperCase() === '3B10');
-    const mezquiteRows = lista.filter((m) => {
-      const cid = normalizarCodigoTienda(m.cliente_id) || String(m.cliente_id || '').toUpperCase();
-      return cid === '3B10';
-    });
-    const mezquiteMonto = mezquiteRows.reduce((s, m) => s + (Number(m.monto) || 0), 0);
-    if (mezquiteSync || mezquiteRows.length) {
-      const monto = mezquiteRows.length
-        ? Math.round(mezquiteMonto * 100) / 100
-        : Number(mezquiteSync?.monto) || 0;
-      const count = mezquiteRows.length || mezquiteSync?.count || 0;
-      msgs.push(`3B10 El Mezquite: ${count} crédito(s) · ${fmtMonto(monto)}`);
+    if (!verTodasLasTiendas && sucActiva) {
+      const monto = lista.reduce((s, m) => s + (Number(m.monto) || 0), 0);
+      msgs.push(
+        `${sucActiva} ${tiendaLabelActiva}: ${lista.length} crédito(s) · ${fmtMonto(Math.round(monto * 100) / 100)}`,
+      );
+    } else if (verTodasLasTiendas) {
+      // Resumen útil en central (p. ej. Mezquite con saldo alto).
+      const mezquiteSync = (r?.sync?.porTienda || []).find((t) => String(t.tienda).toUpperCase() === '3B10');
+      const mezquiteRows = lista.filter((m) => {
+        const cid = normalizarCodigoTienda(m.cliente_id) || String(m.cliente_id || '').toUpperCase();
+        return cid === '3B10';
+      });
+      const mezquiteMonto = mezquiteRows.reduce((s, m) => s + (Number(m.monto) || 0), 0);
+      if (mezquiteSync || mezquiteRows.length) {
+        const monto = mezquiteRows.length
+          ? Math.round(mezquiteMonto * 100) / 100
+          : Number(mezquiteSync?.monto) || 0;
+        const count = mezquiteRows.length || mezquiteSync?.count || 0;
+        msgs.push(`3B10 El Mezquite: ${count} crédito(s) · ${fmtMonto(monto)}`);
+      }
     }
     return msgs.filter(Boolean).join(' · ');
-  }, []);
+  }, [verTodasLasTiendas, sucActiva, tiendaLabelActiva]);
 
   const cargar = useCallback(async ({ conSyncFondo = true } = {}) => {
     const gen = ++syncGen.current;
@@ -91,13 +95,18 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     const data = r.data || [];
     setAviso(armarAvisos(r, data));
     setRows(data);
-    setSelTienda((prev) => (data.some((m) => {
-      const esSuc = String(m.cliente_tipo || 'sucursal') === 'sucursal';
-      const id = esSuc
-        ? (normalizarCodigoTienda(m.cliente_id) || String(m.cliente_id || '').toUpperCase())
-        : `ext:${m.cliente_id || m.cliente_nombre || '—'}`;
-      return id === prev;
-    }) ? prev : ''));
+    // Sucursal: siempre abrir su desglose. Central: conservar selección si sigue existiendo.
+    if (!verTodasLasTiendas && sucActiva) {
+      setSelTienda(sucActiva);
+    } else {
+      setSelTienda((prev) => (data.some((m) => {
+        const esSuc = String(m.cliente_tipo || 'sucursal') === 'sucursal';
+        const id = esSuc
+          ? (normalizarCodigoTienda(m.cliente_id) || String(m.cliente_id || '').toUpperCase())
+          : `ext:${m.cliente_id || m.cliente_nombre || '—'}`;
+        return id === prev;
+      }) ? prev : ''));
+    }
     setMontoPagarStr('');
     setCargando(false);
 
@@ -172,10 +181,10 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     setMontoPagarStr('');
   };
 
-  const grupoSel = useMemo(
-    () => grupos.find((g) => g.id === selTienda) || null,
-    [grupos, selTienda],
-  );
+  const grupoSel = useMemo(() => {
+    if (!verTodasLasTiendas && grupos.length === 1) return grupos[0];
+    return grupos.find((g) => g.id === selTienda) || null;
+  }, [grupos, selTienda, verTodasLasTiendas]);
   const totalSel = grupoSel?.total || 0;
   const idsSeleccionados = useMemo(
     () => (grupoSel ? grupoSel.items.map((x) => x.id) : []),
@@ -268,7 +277,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
             Ingresa el <strong>PIN del cajero</strong> para abrir créditos por pagar
             (venta en ruta y créditos del módulo Recolecciones).
-            Cada tienda es una cuenta aparte: eliges una, ves sus folios y pagas su acumulado.
+            {verTodasLasTiendas
+              ? ' Central: ves todas las tiendas; toca una para ver folios y pagar.'
+              : ` Solo créditos de ${tiendaLabelActiva || sucActiva || 'esta sucursal'} con desglose de folios.`}
           </p>
         </div>
         <div className="card" style={{ borderTop: '4px solid #0f766e', maxWidth: 360 }}>
@@ -308,8 +319,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
         )}
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           Cajero: <strong>{cajero.nombre || '—'}</strong>.
-          {' '}Toca una <strong>tienda</strong> para ver sus <strong>folios</strong> y pagar
-          (parcial permitido). Cada sucursal es su propia cuenta.
+          {verTodasLasTiendas
+            ? ' Central: toca una tienda para ver folios y pagar (parcial permitido).'
+            : ` Créditos de ${tiendaLabelActiva || sucActiva} con desglose de folios (parcial permitido).`}
           {puedeEliminar ? ' · Admin: puedes eliminar créditos por error.' : ''}
         </p>
       </div>
@@ -323,16 +335,20 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       <div className="card" style={{ borderTop: '4px solid #0f766e' }}>
         {grupos.length === 0 && !cargando ? (
           <p className="muted">
-            No hay créditos pendientes. Si en Recolecciones aún hay folios «Por Cobrar»,
-            pulsa Actualizar (la sync los trae solas por tienda).
+            {verTodasLasTiendas
+              ? 'No hay créditos pendientes. Si en Recolecciones aún hay folios «Por Cobrar», pulsa Actualizar.'
+              : `No hay créditos pendientes en ${tiendaLabelActiva || sucActiva}. Si en Recolecciones hay «Por Cobrar» de esta tienda, pulsa Actualizar.`}
           </p>
         ) : (
           <div style={{ display: 'grid', gap: '0.5rem' }}>
             <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
-              {grupos.length} tienda{grupos.length === 1 ? '' : 's'} con crédito · toca una para ver folios y pagar
+              {verTodasLasTiendas
+                ? `${grupos.length} tienda${grupos.length === 1 ? '' : 's'} con crédito · toca una para ver folios y pagar`
+                : `Desglose · ${tiendaLabelActiva || sucActiva}`}
             </p>
             {grupos.map((g) => {
-              const marcado = selTienda === g.id;
+              const marcado = selTienda === g.id || (!verTodasLasTiendas && grupos.length === 1);
+              const soloTienda = !verTodasLasTiendas;
               return (
                 <div
                   key={g.id}
@@ -345,7 +361,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                 >
                   <button
                     type="button"
-                    onClick={() => toggleGrupo(g.id)}
+                    onClick={() => (soloTienda ? setSelTienda(g.id) : toggleGrupo(g.id))}
                     aria-expanded={marcado}
                     style={{
                       display: 'flex',
@@ -360,22 +376,25 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                       color: 'inherit',
                     }}
                   >
-                    <span
-                      aria-hidden
-                      style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: '50%',
-                        border: marcado ? '6px solid #0f766e' : '2px solid #94a3b8',
-                        boxSizing: 'border-box',
-                        flexShrink: 0,
-                      }}
-                    />
+                    {!soloTienda && (
+                      <span
+                        aria-hidden
+                        style={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: '50%',
+                          border: marcado ? '6px solid #0f766e' : '2px solid #94a3b8',
+                          boxSizing: 'border-box',
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
                     <span style={{ fontWeight: 700, width: 16, flexShrink: 0 }}>{marcado ? '▾' : '▸'}</span>
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <strong style={{ display: 'block' }}>{g.label}</strong>
                       <span className="muted" style={{ fontSize: '0.78rem' }}>
-                        {g.items.length} folio{g.items.length === 1 ? '' : 's'} · solo esta tienda
+                        {g.items.length} folio{g.items.length === 1 ? '' : 's'}
+                        {soloTienda ? ' · esta sucursal' : ' · solo esta tienda'}
                       </span>
                     </span>
                     <strong style={{ color: '#b45309', flexShrink: 0, fontSize: '1.05rem' }}>{fmtMonto(g.total)}</strong>
