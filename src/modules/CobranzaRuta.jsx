@@ -384,7 +384,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: 150 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: 72 }}>
       <div>
         {embedded ? (
           <h3 style={{ margin: 0, color: '#0f766e' }}>{heading}</h3>
@@ -573,7 +573,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
         <div style={{ height: 8 }} aria-hidden />
       </div>
 
-      {/* Barra pegante: siempre visible al scrollear el desglose */}
+      {/* Barra pegante angosta: una sola línea, fija hasta abajo */}
       <div
         style={{
           position: 'fixed',
@@ -581,123 +581,142 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           right: 0,
           bottom: 0,
           zIndex: 60,
-          padding: '0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px))',
-          background: 'rgba(255,255,255,0.97)',
-          borderTop: '3px solid #0f766e',
-          boxShadow: '0 -10px 28px rgba(15, 23, 42, 0.12)',
+          padding: '0.4rem 0.75rem calc(0.4rem + env(safe-area-inset-bottom, 0px))',
+          background: 'rgba(255,255,255,0.98)',
+          borderTop: '2px solid #0f766e',
+          boxShadow: '0 -6px 18px rgba(15, 23, 42, 0.1)',
           backdropFilter: 'blur(8px)',
         }}
       >
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.85rem', alignItems: 'flex-end' }}>
-            <div
-              style={{
-                minWidth: 150,
-                padding: '0.45rem 0.65rem',
-                borderRadius: 8,
-                background: 'rgba(180, 83, 9, 0.08)',
-                border: '1px solid #fde68a',
-              }}
-            >
-              <div className="muted" style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.01em' }}>
-                Balance antes del ingreso
-              </div>
-              <strong style={{ color: '#b45309', fontSize: '1.15rem', display: 'block', lineHeight: 1.2 }}>
-                {grupoBalance ? fmtMonto(totalTienda) : '—'}
-              </strong>
-              {grupoBalance ? (
-                <div className="muted" style={{ fontSize: '0.68rem' }}>
-                  {grupoBalance.id} · {grupoBalance.items.length} folio(s)
-                  {!grupoSel ? ' · plegado' : ''}
-                </div>
-              ) : null}
-            </div>
+        <div
+          style={{
+            maxWidth: 1200,
+            margin: '0 auto',
+            display: 'flex',
+            flexWrap: 'nowrap',
+            alignItems: 'center',
+            gap: '0.55rem',
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '0.35rem',
+              flexShrink: 0,
+              padding: '0.2rem 0.5rem',
+              borderRadius: 6,
+              background: 'rgba(180, 83, 9, 0.08)',
+              border: '1px solid #fde68a',
+              whiteSpace: 'nowrap',
+            }}
+            title={grupoBalance ? `${grupoBalance.id} · ${grupoBalance.items.length} folio(s)` : ''}
+          >
+            <span className="muted" style={{ fontSize: '0.68rem', fontWeight: 600 }}>
+              Balance antes del ingreso
+            </span>
+            <strong style={{ color: '#b45309', fontSize: '0.98rem' }}>
+              {grupoBalance ? fmtMonto(totalTienda) : '—'}
+            </strong>
+          </div>
 
-            <div>
-              <div className="muted" style={{ fontSize: '0.75rem' }}>A pagar (folios marcados)</div>
-              <strong>
-                {grupoSel
-                  ? `${idsSeleccionados.length} folio(s) · ${fmtMonto(totalFoliosSel)}`
-                  : 'Ninguna'}
-              </strong>
-              {grupoSel && (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel) > 0 ? (
-                <div className="muted" style={{ fontSize: '0.72rem' }}>
-                  Después:{' '}
-                  {fmtMonto(Math.max(0, Math.round((totalTienda - (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel)) * 100) / 100))}
-                </div>
-              ) : null}
-            </div>
+          <span className="muted" style={{ fontSize: '0.72rem', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            A pagar:{' '}
+            <strong style={{ color: 'inherit' }}>
+              {grupoSel
+                ? `${idsSeleccionados.length} · ${fmtMonto(totalFoliosSel)}`
+                : '—'}
+            </strong>
+            {grupoSel && (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel) > 0 ? (
+              <>
+                {' · '}Después:{' '}
+                {fmtMonto(Math.max(0, Math.round((totalTienda - (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel)) * 100) / 100))}
+              </>
+            ) : null}
+          </span>
 
-            <label style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              Monto a pagar
-              <span className="muted" style={{ fontSize: '0.68rem', fontWeight: 400 }}>
-                Opcional · vacío = total marcado
-              </span>
-              <input
-                type="number"
-                className="input"
-                min="0"
-                step="0.01"
-                max={totalFoliosSel || undefined}
-                value={montoPagarStr}
-                disabled={!grupoSel || !idsSeleccionados.length || guardando}
-                onChange={(e) => setMontoPagarStr(e.target.value)}
-                style={{ width: 140 }}
-                placeholder={totalFoliosSel > 0 ? String(totalFoliosSel) : '0.00'}
-              />
-            </label>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: '0.75rem',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+              margin: 0,
+            }}
+            title="Opcional · vacío = total marcado"
+          >
+            Monto
+            <input
+              type="number"
+              className="input"
+              min="0"
+              step="0.01"
+              max={totalFoliosSel || undefined}
+              value={montoPagarStr}
+              disabled={!grupoSel || !idsSeleccionados.length || guardando}
+              onChange={(e) => setMontoPagarStr(e.target.value)}
+              style={{ width: 100, padding: '0.28rem 0.4rem', fontSize: '0.85rem' }}
+              placeholder={totalFoliosSel > 0 ? String(totalFoliosSel) : '0.00'}
+            />
+          </label>
+
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={!idsSeleccionados.length || guardando || !(totalFoliosSel > 0)}
+            onClick={usarTodo}
+            title="Poner el total de los folios marcados en el monto"
+            style={{ flexShrink: 0 }}
+          >
+            Usar marcado
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={guardando || eliminando || !idsSeleccionados.length || !(totalFoliosSel > 0)}
+            onClick={() => void pagar()}
+            style={{ flexShrink: 0 }}
+          >
+            {guardando
+              ? 'Pagando…'
+              : montoPagarNum > 0
+                ? `Pagar ${fmtMonto(montoPagarNum)}`
+                : `Pagar ${idsSeleccionados.length || 0}`}
+          </button>
+          {puedeEliminar && (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              disabled={!idsSeleccionados.length || guardando || !(totalFoliosSel > 0)}
-              onClick={usarTodo}
-              title="Poner el total de los folios marcados en el monto"
+              style={{ color: '#b91c1c', borderColor: '#fecaca', flexShrink: 0 }}
+              disabled={guardando || eliminando || !idsSeleccionados.length}
+              onClick={() => void eliminarSeleccion()}
+              title="Solo administrador · elimina folios marcados"
             >
-              Usar marcado
+              {eliminando ? 'Eliminando…' : 'Eliminar'}
             </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={guardando || eliminando || !idsSeleccionados.length || !(totalFoliosSel > 0)}
-              onClick={() => void pagar()}
-            >
-              {guardando
-                ? 'Pagando…'
-                : montoPagarNum > 0
-                  ? `Pagar ${fmtMonto(montoPagarNum)}`
-                  : `Pagar ${idsSeleccionados.length || 0} folio(s)`}
-            </button>
-            {puedeEliminar && (
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ color: '#b91c1c', borderColor: '#fecaca' }}
-                disabled={guardando || eliminando || !idsSeleccionados.length}
-                onClick={() => void eliminarSeleccion()}
-                title="Solo administrador · elimina folios marcados"
-              >
-                {eliminando ? 'Eliminando…' : 'Eliminar marcados'}
-              </button>
-            )}
-            <button type="button" className="btn btn-ghost" onClick={cerrarSesionCajero} disabled={guardando || eliminando}>
-              Cerrar sesión cajero
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => void cargar({ conSyncFondo: true })}
-              disabled={guardando || eliminando || cargando || syncBg}
-            >
-              Actualizar
-            </button>
-          </div>
-          {grupoSel && idsSeleccionados.length > 0 && (
-            <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.78rem' }}>
-              {montoPagarNum > 0 && montoPagarNum < totalFoliosSel - 0.001
-                ? `Pago parcial FIFO sobre ${idsSeleccionados.length} folio(s): quedan ${fmtMonto(Math.max(0, totalFoliosSel - montoPagarNum))} en los marcados.`
-                : 'Marca folios o deja el monto vacío para pagar el total marcado.'}
-            </p>
           )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={cerrarSesionCajero}
+            disabled={guardando || eliminando}
+            style={{ flexShrink: 0 }}
+          >
+            Cerrar sesión
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void cargar({ conSyncFondo: true })}
+            disabled={guardando || eliminando || cargando || syncBg}
+            style={{ flexShrink: 0 }}
+          >
+            Actualizar
+          </button>
         </div>
       </div>
     </div>
