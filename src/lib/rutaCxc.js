@@ -21,9 +21,19 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** Solo tabla ausente. No confundir con columna faltante (p. ej. carga_id en schema cache). */
 function faltaTabla(error) {
+  if (error?.code === '42P01') return true;
   const msg = String(error?.message || error || '').toLowerCase();
-  return error?.code === '42P01' || msg.includes('ruta_cxc') || msg.includes('schema cache') || msg.includes('does not exist');
+  if (msg.includes('could not find the table') && msg.includes('ruta_cxc')) return true;
+  if (msg.includes('relation') && msg.includes('ruta_cxc') && msg.includes('does not exist')) return true;
+  return false;
+}
+
+function errorColumnaCxc(error) {
+  const msg = String(error?.message || error || '');
+  return /carga_id|estatus|folio_venta|pagado_por|pagado_at|gasto_id|schema cache/i.test(msg)
+    && !faltaTabla(error);
 }
 
 function leerLocal() {
@@ -58,6 +68,13 @@ export function precioCedisRuta(producto) {
   return null;
 }
 
+function esCargoPendienteCxc(m) {
+  if (!m || m.tipo !== 'cargo') return false;
+  if (m.pagado_at) return false;
+  const est = String(m.estatus || 'pendiente').toLowerCase();
+  return est === 'pendiente' || est === '' || est === 'null';
+}
+
 export async function listarMovimientosCxc(supabase, { clienteTipo, clienteId, limit = 500, soloPendientes } = {}) {
   if (!supabase) {
     let list = leerLocal();
@@ -66,34 +83,35 @@ export async function listarMovimientosCxc(supabase, { clienteTipo, clienteId, l
         (m) => String(m.cliente_tipo) === String(clienteTipo || m.cliente_tipo) && String(m.cliente_id) === String(clienteId),
       );
     }
-    if (soloPendientes) list = list.filter((m) => m.tipo === 'cargo' && String(m.estatus || 'pendiente') === 'pendiente');
+    if (soloPendientes) list = list.filter(esCargoPendienteCxc);
     return { data: list.slice(0, limit) };
   }
-  let q = supabase.from('ruta_cxc_movimientos').select('*').order('created_at', { ascending: false }).limit(limit);
+  // Con pendientes: traer cargos y filtrar en cliente (incluye estatus null / sin columna).
+  let q = supabase.from('ruta_cxc_movimientos').select('*').order('created_at', { ascending: false }).limit(soloPendientes ? Math.max(limit, 1000) : limit);
   if (clienteId) {
     q = q.eq('cliente_id', String(clienteId));
     if (clienteTipo) q = q.eq('cliente_tipo', clienteTipo);
   }
   if (soloPendientes) {
-    q = q.eq('tipo', 'cargo').eq('estatus', 'pendiente');
+    q = q.eq('tipo', 'cargo');
   }
   const { data, error } = await q;
   if (error && faltaTabla(error)) {
     let list = leerLocal();
-    if (soloPendientes) list = list.filter((m) => m.tipo === 'cargo' && String(m.estatus || 'pendiente') === 'pendiente');
+    if (soloPendientes) list = list.filter(esCargoPendienteCxc);
     return { data: list.slice(0, limit), aviso: AVISO_FALTA_CXC };
   }
-  if (error && /estatus/i.test(String(error.message || ''))) {
-    const retry = await supabase.from('ruta_cxc_movimientos').select('*').order('created_at', { ascending: false }).limit(limit);
+  if (error && errorColumnaCxc(error)) {
+    const retry = await supabase.from('ruta_cxc_movimientos').select('*').order('created_at', { ascending: false }).limit(soloPendientes ? Math.max(limit, 1000) : limit);
     if (retry.error) return { data: [], error: retry.error.message };
     let rows = retry.data || [];
-    if (soloPendientes) {
-      rows = rows.filter((m) => m.tipo === 'cargo' && !m.pagado_at);
-    }
-    return { data: rows, aviso: AVISO_FALTA_CXC };
+    if (soloPendientes) rows = rows.filter(esCargoPendienteCxc);
+    return { data: rows.slice(0, limit), aviso: AVISO_FALTA_CXC };
   }
   if (error) return { data: [], error: error.message };
-  return { data: data || [] };
+  let rows = data || [];
+  if (soloPendientes) rows = rows.filter(esCargoPendienteCxc);
+  return { data: rows.slice(0, limit) };
 }
 
 /** Extrae id de tránsito de un cargo CxC nacido en Recolecciones. */
@@ -131,30 +149,28 @@ export async function asegurarCargoCxcDesdeRecoleccion(supabase, credito) {
     .eq('carga_id', cargaId)
     .eq('tipo', 'cargo')
     .limit(5);
-  if (eEx && faltaTabla(eEx)) {
-    return registrarCargoCreditoRuta(supabase, {
-      clienteTipo: 'sucursal',
-      clienteId: suc,
-      clienteNombre: etiquetaTienda(suc) || suc,
-      monto: credito.monto,
-      cargaId,
-      folioVenta: folio,
-      usuarioNombre: credito.cajero_nombre || null,
-      notas: `Recolección · Entrega Crédito · ficha ${folio || '—'} · transito:${transitoId}`,
-    });
-  }
-  if (eEx && /carga_id/i.test(String(eEx.message || ''))) {
-    // Sin columna carga_id: buscar por notas.
-    const { data: allPend } = await supabase
+
+  // Columna carga_id / schema cache: buscar por notas (no ir a localStorage).
+  if (eEx && (/carga_id/i.test(String(eEx.message || '')) || errorColumnaCxc(eEx))) {
+    const { data: allPend, error: eAll } = await supabase
       .from('ruta_cxc_movimientos')
-      .select('id, notas, estatus, tipo')
+      .select('id, notas, estatus, tipo, pagado_at')
       .eq('tipo', 'cargo')
-      .limit(800);
-    const hit = (allPend || []).find(
-      (m) => String(m.estatus || 'pendiente') === 'pendiente'
-        && String(m.notas || '').includes(`transito:${transitoId}`),
-    );
-    if (hit) return { ok: true, data: hit, yaExistia: true };
+      .limit(1200);
+    if (!eAll) {
+      const hit = (allPend || []).find(
+        (m) => String(m.notas || '').includes(`transito:${transitoId}`),
+      );
+      if (hit) {
+        const est = String(hit.estatus || (hit.pagado_at ? 'pagado' : 'pendiente'));
+        if (est === 'pagado' || hit.pagado_at) {
+          return { ok: true, data: hit, yaExistia: true, yaPagado: true };
+        }
+        return { ok: true, data: hit, yaExistia: true };
+      }
+    }
+  } else if (eEx && faltaTabla(eEx)) {
+    // Tabla realmente ausente: registrarCargo hará fallback local si aplica.
   } else if (eEx) {
     return { ok: false, error: eEx.message };
   } else {
@@ -227,19 +243,24 @@ export async function marcarCxcPagadoDesdeCobroRecoleccion(supabase, credito, { 
 /** Créditos pendientes para el cajero (filtros folio / fecha / monto). */
 export async function listarCreditosPendientesRuta(supabase, { sucursalId, folio, fechaDesde, fechaHasta, montoMin, montoMax, limit = 200 } = {}) {
   // Trae a CxC todo crédito pendiente del módulo Recolecciones.
+  let sync = null;
   if (supabase) {
     try {
-      await sincronizarCreditosRecoleccionACxc(supabase);
-    } catch {
-      /* no bloquear listado */
+      sync = await sincronizarCreditosRecoleccionACxc(supabase);
+    } catch (e) {
+      sync = { ok: false, error: e?.message || String(e), creados: 0, omitidos: 0 };
     }
   }
   const { data, error, aviso } = await listarMovimientosCxc(supabase, { soloPendientes: true, limit: 1000 });
-  if (error) return { data: [], error, aviso };
-  let rows = (data || []).filter((m) => m.tipo === 'cargo' && String(m.estatus || 'pendiente') === 'pendiente');
+  if (error) return { data: [], error, aviso, sync };
+  let rows = (data || []).filter(esCargoPendienteCxc);
   if (sucursalId) {
-    const suc = String(sucursalId).toUpperCase();
-    rows = rows.filter((m) => String(m.cliente_tipo) === 'sucursal' && String(m.cliente_id).toUpperCase() === suc);
+    const suc = normalizarCodigoTienda(sucursalId) || String(sucursalId).toUpperCase();
+    rows = rows.filter((m) => {
+      if (String(m.cliente_tipo) !== 'sucursal') return false;
+      const cid = normalizarCodigoTienda(m.cliente_id) || String(m.cliente_id || '').toUpperCase();
+      return cid === suc;
+    });
   }
   if (folio) {
     const f = String(folio).trim().toUpperCase();
@@ -257,7 +278,7 @@ export async function listarCreditosPendientesRuta(supabase, { sucursalId, folio
   if (montoMax != null && montoMax !== '') {
     rows = rows.filter((m) => Number(m.monto) <= Number(montoMax));
   }
-  return { data: rows.slice(0, limit), aviso };
+  return { data: rows.slice(0, limit), aviso, sync };
 }
 
 /** Créditos ya cobrados (pagados con PIN de cajero) — reporte de consultas. */
@@ -348,19 +369,48 @@ async function insertarMovimiento(supabase, payload) {
     return { ok: true, data: row, soloLocal: true };
   }
   const { data, error } = await supabase.from('ruta_cxc_movimientos').insert([payload]).select('*').single();
-  if (error && faltaTabla(error)) return insertarMovimiento(null, payload);
-  if (error && /estatus|folio_venta|pagado|carga_id/i.test(String(error.message || ''))) {
+  // Primero columnas faltantes (carga_id/estatus/…) — NUNCA localStorage por schema cache de columna.
+  if (error && errorColumnaCxc(error)) {
     const slim = { ...payload };
-    delete slim.estatus;
-    delete slim.folio_venta;
-    delete slim.pagado_por;
-    delete slim.pagado_at;
-    delete slim.gasto_id;
-    if (/carga_id/i.test(String(error.message || ''))) delete slim.carga_id;
+    const msg = String(error.message || '');
+    if (/estatus/i.test(msg)) delete slim.estatus;
+    if (/folio_venta/i.test(msg)) delete slim.folio_venta;
+    if (/pagado_por/i.test(msg)) delete slim.pagado_por;
+    if (/pagado_at/i.test(msg)) delete slim.pagado_at;
+    if (/gasto_id/i.test(msg)) delete slim.gasto_id;
+    if (/carga_id/i.test(msg)) delete slim.carga_id;
+    // Si el mensaje solo dice schema cache, quitar columnas opcionales nuevas.
+    if (/schema cache/i.test(msg) && !/carga_id|estatus|folio_venta|pagado|gasto_id/i.test(msg)) {
+      delete slim.estatus;
+      delete slim.folio_venta;
+      delete slim.pagado_por;
+      delete slim.pagado_at;
+      delete slim.gasto_id;
+      delete slim.carga_id;
+    }
     const retry = await supabase.from('ruta_cxc_movimientos').insert([slim]).select('*').single();
+    if (retry.error && faltaTabla(retry.error)) return insertarMovimiento(null, payload);
+    if (retry.error && errorColumnaCxc(retry.error)) {
+      // Segundo intento: solo columnas base del ledger.
+      const base = {
+        cliente_tipo: payload.cliente_tipo,
+        cliente_id: payload.cliente_id,
+        cliente_nombre: payload.cliente_nombre,
+        tipo: payload.tipo,
+        monto: payload.monto,
+        saldo_despues: payload.saldo_despues,
+        venta_id: payload.venta_id ?? null,
+        notas: payload.notas || null,
+        usuario_nombre: payload.usuario_nombre || null,
+      };
+      const retry2 = await supabase.from('ruta_cxc_movimientos').insert([base]).select('*').single();
+      if (retry2.error) return { ok: false, error: retry2.error.message };
+      return { ok: true, data: retry2.data, aviso: AVISO_FALTA_CXC };
+    }
     if (retry.error) return { ok: false, error: retry.error.message };
     return { ok: true, data: retry.data, aviso: AVISO_FALTA_CXC };
   }
+  if (error && faltaTabla(error)) return insertarMovimiento(null, payload);
   if (error) return { ok: false, error: error.message };
   return { ok: true, data };
 }

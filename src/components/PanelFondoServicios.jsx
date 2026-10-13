@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   agruparCobrosServicioPorTienda,
+  eliminarServicioCobro,
   fmtFechaClave,
   listarCobrosServicioEnTransito,
   listarRepartidores,
@@ -22,7 +23,6 @@ import {
   puedeAdministrarTesoreria,
   saldosOrigenTesoreria,
 } from '../lib/rtCuentas.js';
-import { borrarDatosPruebaFondoTesoreria } from '../lib/purgaVentaEnRuta.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
@@ -43,7 +43,7 @@ export default function PanelFondoServicios({ supabase, user }) {
   const [montoTesoreria, setMontoTesoreria] = useState('');
   const [notaTesoreria, setNotaTesoreria] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [limpiando, setLimpiando] = useState(false);
+  const [borrandoSrv, setBorrandoSrv] = useState('');
   const [repartidores, setRepartidores] = useState([]);
   const [filtroRepCobros, setFiltroRepCobros] = useState(''); // '' = todos
   const [cobrosTransito, setCobrosTransito] = useState([]);
@@ -52,7 +52,7 @@ export default function PanelFondoServicios({ supabase, user }) {
 
   const liqCuenta = CUENTA_RT_FONDO_DEFAULT;
   const puedeTesoreria = puedeAdministrarTesoreria(user);
-  const puedeLimpiarPrueba = normalizarRol(user?.rol) === 'Administrador' || puedeTesoreria;
+  const puedeBorrarServicio = normalizarRol(user?.rol) === 'Administrador' || puedeTesoreria;
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -241,26 +241,31 @@ export default function PanelFondoServicios({ supabase, user }) {
     }
   };
 
-  const limpiarPrueba = async () => {
-    if (!puedeLimpiarPrueba) return alert('Solo administrador / gerente puede limpiar datos de prueba.');
-    if (!confirm(
-      '¿Borrar datos de prueba de RC Servicios y Tesorería?\n\n'
-      + 'Se eliminan movimientos del ledger RC Servicios y de las cuentas Servicios / Cheche.\n'
-      + 'No se toca mercancía (Francisco) ni el catálogo de servicios.\n\n'
-      + 'Esta acción no se puede deshacer.',
-    )) return;
-    const frase = window.prompt('Escribe LIMPIAR RC SERVICIOS para confirmar:');
-    if (String(frase || '').trim().toUpperCase() !== 'LIMPIAR RC SERVICIOS') {
-      return alert('Cancelado: debes escribir LIMPIAR RC SERVICIOS.');
+  const borrarServicioCatalogo = async (clave) => {
+    if (!puedeBorrarServicio) return alert('Solo administrador / gerente puede borrar servicios.');
+    const srv = (servicios || []).find(
+      (s) => String(s.clave || '').toUpperCase() === String(clave || '').toUpperCase(),
+    );
+    if (!srv?.id) {
+      return alert('Este renglón solo tiene movimientos; no hay servicio en el catálogo para borrar.');
     }
-    setLimpiando(true);
+    if (!confirm(
+      `¿Borrar el servicio ${srv.clave} — ${srv.nombre}?\n\n`
+      + 'Se elimina del catálogo. Los cobros / movimientos ya registrados no se borran.',
+    )) return;
+    setBorrandoSrv(String(srv.id));
     try {
-      const r = await borrarDatosPruebaFondoTesoreria(supabase);
-      if (!r.ok) return alert(r.error || 'No se pudo limpiar.');
-      alert(r.detalle || 'Datos de prueba limpiados.');
+      const r = await eliminarServicioCobro(supabase, srv.id);
+      if (!r.ok) return alert(r.error || 'No se pudo borrar.');
+      if (filtroSrv && String(filtroSrv).toUpperCase() === String(srv.clave).toUpperCase()) {
+        setFiltroSrv('');
+      }
+      if (liqClave && String(liqClave).toUpperCase() === String(srv.clave).toUpperCase()) {
+        setLiqClave('');
+      }
       await cargar();
     } finally {
-      setLimpiando(false);
+      setBorrandoSrv('');
     }
   };
 
@@ -271,18 +276,8 @@ export default function PanelFondoServicios({ supabase, user }) {
           <strong>RC Servicios</strong> · solo <strong>recolección de servicios</strong> (CFE y Panel RT).
           No se mezcla con mercancía (Francisco).
           Ingresos = cobros · Liquidación = cuenta <strong>Servicios</strong> · luego → Tesorería (Cheche).
+          {puedeBorrarServicio ? ' Puedes borrar servicios individuales del catálogo.' : ''}
         </p>
-        {puedeLimpiarPrueba && (
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ color: '#b91c1c', borderColor: '#fecaca', fontSize: '0.8rem' }}
-            disabled={limpiando || guardando}
-            onClick={() => void limpiarPrueba()}
-          >
-            {limpiando ? 'Limpiando…' : 'Limpiar datos de prueba'}
-          </button>
-        )}
       </div>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
@@ -461,22 +456,49 @@ export default function PanelFondoServicios({ supabase, user }) {
               <th>Ingresos</th>
               <th>Egresos</th>
               <th>Saldo</th>
+              {puedeBorrarServicio ? <th style={{ width: 90 }} /> : null}
             </tr>
           </thead>
           <tbody>
             {resumen.length === 0 ? (
-              <tr><td colSpan={4} className="muted">Sin movimientos. Configura servicios en Contabilidad → Panel RT → Servicios.</td></tr>
-            ) : resumen.map((r) => (
-              <tr key={r.clave} style={{ cursor: 'pointer' }} onClick={() => setFiltroSrv(r.clave)}>
-                <td>
-                  <strong>{r.nombre}</strong>
-                  <span className="muted" style={{ display: 'block', fontSize: '0.72rem' }}>{r.clave}</span>
+              <tr>
+                <td colSpan={puedeBorrarServicio ? 5 : 4} className="muted">
+                  Sin movimientos. Configura servicios en Contabilidad → Panel RT → Servicios.
                 </td>
-                <td>{fmtMonto(r.ingresos)}</td>
-                <td style={{ color: r.egresos ? '#b45309' : undefined }}>{fmtMonto(r.egresos)}</td>
-                <td style={{ fontWeight: 700, color: '#0f766e' }}>{fmtMonto(r.saldo)}</td>
               </tr>
-            ))}
+            ) : resumen.map((r) => {
+              const srvCat = (servicios || []).find(
+                (s) => String(s.clave || '').toUpperCase() === String(r.clave || '').toUpperCase(),
+              );
+              return (
+                <tr key={r.clave} style={{ cursor: 'pointer' }} onClick={() => setFiltroSrv(r.clave)}>
+                  <td>
+                    <strong>{r.nombre}</strong>
+                    <span className="muted" style={{ display: 'block', fontSize: '0.72rem' }}>{r.clave}</span>
+                  </td>
+                  <td>{fmtMonto(r.ingresos)}</td>
+                  <td style={{ color: r.egresos ? '#b45309' : undefined }}>{fmtMonto(r.egresos)}</td>
+                  <td style={{ fontWeight: 700, color: '#0f766e' }}>{fmtMonto(r.saldo)}</td>
+                  {puedeBorrarServicio ? (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {srvCat?.id ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ fontSize: '0.75rem', padding: '0.2rem 0.45rem', color: '#b91c1c' }}
+                          disabled={guardando || borrandoSrv === String(srvCat.id)}
+                          onClick={() => void borrarServicioCatalogo(r.clave)}
+                        >
+                          {borrandoSrv === String(srvCat.id) ? '…' : 'Borrar'}
+                        </button>
+                      ) : (
+                        <span className="muted" style={{ fontSize: '0.72rem' }}>—</span>
+                      )}
+                    </td>
+                  ) : null}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
