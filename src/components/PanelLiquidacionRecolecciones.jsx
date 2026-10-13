@@ -109,8 +109,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   };
 
   useEffect(() => {
-    const detectada = resolverCuentaRtPorNombre(user?.nombre);
-    if (detectada) setCuentaRtMercancia(detectada);
+    setCuentaRtMercancia(cuentaRtMercanciaPorDefecto(user?.nombre));
   }, [user?.nombre]);
 
   const cargar = useCallback(async () => {
