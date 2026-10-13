@@ -25,7 +25,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_corte', vista: 'corte', label: 'Corte de caja', desc: 'Admin cierra · imprime ticket', icon: 'dollar', grupo: 'corte' },
   { id: 'ruta_preinventario', vista: 'preinventario', label: 'Preinventario', desc: 'Plantillas y conteo del camión', icon: 'package', grupo: 'oper' },
   { id: 'ruta_auditorias', vista: 'auditorias', label: 'Inv-op / Auditorías', desc: 'Recolector → departamentos · faltantes costo/público', icon: 'search', grupo: 'admin' },
-  { id: 'ruta_creditos', vista: 'creditos', label: 'Créditos por pagar', desc: 'Cajero liquida con PIN', icon: 'register', grupo: 'oper' },
+  { id: 'ruta_creditos', vista: 'creditos', label: 'Créditos por pagar', desc: 'Ruta + Recolecciones · cajero con PIN', icon: 'register', grupo: 'oper' },
   { id: 'ruta_servicios', vista: 'servicios', label: 'Cobro servicios', desc: 'CFE y servicios · solicitud móvil · PIN cajero', icon: 'dollar', grupo: 'oper' },
   { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · pestaña Fondo servicios', icon: 'register', grupo: 'admin' },
 ];

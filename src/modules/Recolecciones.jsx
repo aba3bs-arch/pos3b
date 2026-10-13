@@ -324,7 +324,14 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         esEfectivo,
       });
       if (!res.ok) return alert(res.error);
-      alert(`✅ ${res.count} traspaso(s) registrado(s)${esEfectivo ? ' en tránsito' : ' a crédito'}.`);
+      if (esEfectivo) {
+        alert(`✅ ${res.count} traspaso(s) registrado(s) en tránsito.`);
+      } else {
+        alert(
+          `✅ ${res.count} crédito(s) registrado(s).\n`
+          + 'Pasaron a Venta en Ruta → Créditos por pagar para que el cajero los liquide con PIN.',
+        );
+      }
       setFilas([{ folio: '', monto: '' }]);
       setPinTraspaso('');
       if (!esEfectivo) setTab('cobro');
@@ -371,8 +378,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
       if (!res.ok) return alert(res.error);
       alert(
         `✅ Cobrados ${res.count} folio(s) por ${fmtMonto(res.total)}.\n`
-        + 'Quedaron en tránsito como «Cobro Crédito» (no como venta/recolección) '
-        + 'y se cargó gasto «CREDITO · COBRADO» al corte de Abarrotes.',
+        + 'Quedaron en tránsito como «Cobro Crédito», gasto «CREDITO · COBRADO» en Abarrotes, '
+        + 'y se actualizó Venta en Ruta → Créditos por pagar.',
       );
       setPinCobro('');
       cargarPendientes();
@@ -595,7 +602,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
           <div className="card" style={{ opacity: serviciosBloqueanTraspaso ? 0.55 : 1, pointerEvents: serviciosBloqueanTraspaso ? 'none' : 'auto' }}>
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo traspaso</h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              Cajero: <strong>{user?.nombre}</strong>. Si es a crédito, el recolector lo cobra después en «Cobrar crédito».
+              Cajero: <strong>{user?.nombre}</strong>. Si es a crédito, queda en Venta en Ruta → Créditos por pagar.
               {soloCreditoTraspaso && (
                 <span style={{ display: 'block', marginTop: '0.35rem', color: 'var(--brand-red)' }}>
                   {bloqueoLiqTraspaso
@@ -684,11 +691,11 @@ export default function Recolecciones({ supabase, sucursal, user }) {
 
       {tab === 'cobro' && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Cobrar crédito por tienda</h3>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Créditos de recolección</h3>
           <p className="muted" style={{ margin: '0 0 0.85rem', fontSize: '0.85rem' }}>
-            Al cobrar, el efectivo pasa a tránsito con el recolector y el monto se registra como gasto
-            {' '}<strong>CREDITO · COBRADO</strong> en el corte de Abarrotes de la tienda
-            {' '}(no se registra como venta ni como recolección Smoking).
+            Todos los créditos de este módulo pasan a{' '}
+            <strong>Venta en Ruta → Créditos por pagar</strong>, donde el cajero los liquida con PIN.
+            Aquí puedes ver pendientes por tienda; el cobro en ruta también marca el crédito como pagado allá.
           </p>
 
           <label className="muted" style={{ display: 'block' }}>

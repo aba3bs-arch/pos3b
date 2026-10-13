@@ -1,11 +1,16 @@
 /**
  * Crédito por cobrar de Venta en Ruta.
- * Cargos por venta a crédito; el cajero paga con PIN → gasto abarrotes + efectivo en tránsito.
+ * Cargos por venta a crédito + créditos de Recolecciones (Entrega Crédito).
+ * El cajero paga con PIN → gasto abarrotes + efectivo en tránsito.
  */
 
+import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { normalizarRol, rolSistemaEfectivo } from './roles.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
+
+/** Prefijo carga_id / notas para créditos nacidos en Recolecciones. */
+export const PREFIJO_CXC_RECOLECCION = 'rec:';
 
 const LS_CXC = 'pos3b_ruta_cxc_movimientos';
 
@@ -91,8 +96,144 @@ export async function listarMovimientosCxc(supabase, { clienteTipo, clienteId, l
   return { data: data || [] };
 }
 
+/** Extrae id de tránsito de un cargo CxC nacido en Recolecciones. */
+export function transitoIdDesdeCargoRecoleccion(cargo) {
+  if (!cargo) return null;
+  const carga = String(cargo.carga_id || '');
+  if (carga.startsWith(PREFIJO_CXC_RECOLECCION)) {
+    const id = carga.slice(PREFIJO_CXC_RECOLECCION.length).trim();
+    if (id) return id;
+  }
+  const notas = String(cargo.notas || '');
+  const m = notas.match(/transito:([0-9a-f-]{8,})/i);
+  return m?.[1] || null;
+}
+
+export function esCargoDesdeRecoleccion(cargo) {
+  return Boolean(transitoIdDesdeCargoRecoleccion(cargo));
+}
+
+/**
+ * Crea (si falta) el cargo CxC de un crédito «Entrega Crédito / Por Cobrar» de Recolecciones.
+ * Así todos esos créditos aparecen en Venta en Ruta → Créditos por pagar.
+ */
+export async function asegurarCargoCxcDesdeRecoleccion(supabase, credito) {
+  if (!supabase || !credito?.id) return { ok: false, error: 'Crédito inválido.' };
+  const transitoId = String(credito.id);
+  const cargaId = `${PREFIJO_CXC_RECOLECCION}${transitoId}`;
+  const folio = String(credito.num_traspaso || '').trim() || null;
+  const suc = normalizarCodigoTienda(credito.sucursal_origen) || String(credito.sucursal_origen || '').trim();
+  if (!suc) return { ok: false, error: 'Tienda inválida.' };
+
+  const { data: existentes, error: eEx } = await supabase
+    .from('ruta_cxc_movimientos')
+    .select('id, estatus, tipo, carga_id')
+    .eq('carga_id', cargaId)
+    .eq('tipo', 'cargo')
+    .limit(5);
+  if (eEx && faltaTabla(eEx)) {
+    return registrarCargoCreditoRuta(supabase, {
+      clienteTipo: 'sucursal',
+      clienteId: suc,
+      clienteNombre: etiquetaTienda(suc) || suc,
+      monto: credito.monto,
+      cargaId,
+      folioVenta: folio,
+      usuarioNombre: credito.cajero_nombre || null,
+      notas: `Recolección · Entrega Crédito · ficha ${folio || '—'} · transito:${transitoId}`,
+    });
+  }
+  if (eEx && /carga_id/i.test(String(eEx.message || ''))) {
+    // Sin columna carga_id: buscar por notas.
+    const { data: allPend } = await supabase
+      .from('ruta_cxc_movimientos')
+      .select('id, notas, estatus, tipo')
+      .eq('tipo', 'cargo')
+      .limit(800);
+    const hit = (allPend || []).find(
+      (m) => String(m.estatus || 'pendiente') === 'pendiente'
+        && String(m.notas || '').includes(`transito:${transitoId}`),
+    );
+    if (hit) return { ok: true, data: hit, yaExistia: true };
+  } else if (eEx) {
+    return { ok: false, error: eEx.message };
+  } else {
+    const pend = (existentes || []).find((m) => String(m.estatus || 'pendiente') === 'pendiente');
+    if (pend) return { ok: true, data: pend, yaExistia: true };
+    const cualquiera = (existentes || [])[0];
+    if (cualquiera && String(cualquiera.estatus || '') === 'pagado') {
+      return { ok: true, data: cualquiera, yaExistia: true, yaPagado: true };
+    }
+  }
+
+  return registrarCargoCreditoRuta(supabase, {
+    clienteTipo: 'sucursal',
+    clienteId: suc,
+    clienteNombre: etiquetaTienda(suc) || suc,
+    monto: credito.monto,
+    cargaId,
+    folioVenta: folio,
+    usuarioNombre: credito.cajero_nombre || null,
+    notas: `Recolección · Entrega Crédito · ficha ${folio || '—'} · transito:${transitoId}`,
+  });
+}
+
+/** Sincroniza todos los «Por Cobrar» de Recolecciones hacia CxC pendientes. */
+export async function sincronizarCreditosRecoleccionACxc(supabase, { limit = 400 } = {}) {
+  if (!supabase) return { ok: true, creados: 0, omitidos: 0 };
+  const { data, error } = await supabase
+    .from('transito_efectivo')
+    .select('id, num_traspaso, monto, cajero_nombre, fecha_hora, sucursal_origen, repartidor_id')
+    .eq('estatus', 'Por Cobrar')
+    .eq('tipo_movimiento', 'Entrega Crédito')
+    .order('fecha_hora', { ascending: true })
+    .limit(limit);
+  if (error) {
+    if (error.code === '42P01') return { ok: true, creados: 0, omitidos: 0 };
+    return { ok: false, error: error.message, creados: 0, omitidos: 0 };
+  }
+  let creados = 0;
+  let omitidos = 0;
+  for (const row of data || []) {
+    const r = await asegurarCargoCxcDesdeRecoleccion(supabase, row);
+    if (!r.ok) continue;
+    if (r.yaExistia || r.yaPagado) omitidos += 1;
+    else creados += 1;
+  }
+  return { ok: true, creados, omitidos, revisados: (data || []).length };
+}
+
+/** Marca CxC pagado cuando el cobro se hizo desde Recolecciones (Cobrar crédito). */
+export async function marcarCxcPagadoDesdeCobroRecoleccion(supabase, credito, { cajeroNombre = null, gastoId = null } = {}) {
+  if (!supabase || !credito?.id) return { ok: true };
+  const ensure = await asegurarCargoCxcDesdeRecoleccion(supabase, credito);
+  if (!ensure.ok || !ensure.data?.id) return ensure;
+  if (ensure.yaPagado) return { ok: true, yaPagado: true };
+  const ahora = new Date().toISOString();
+  const patch = {
+    estatus: 'pagado',
+    pagado_por: cajeroNombre || null,
+    pagado_at: ahora,
+    gasto_id: gastoId || null,
+  };
+  let { error } = await supabase.from('ruta_cxc_movimientos').update(patch).eq('id', ensure.data.id);
+  if (error && /estatus|pagado|gasto_id/i.test(String(error.message || ''))) {
+    error = null;
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, cargoId: ensure.data.id };
+}
+
 /** Créditos pendientes para el cajero (filtros folio / fecha / monto). */
 export async function listarCreditosPendientesRuta(supabase, { sucursalId, folio, fechaDesde, fechaHasta, montoMin, montoMax, limit = 200 } = {}) {
+  // Trae a CxC todo crédito pendiente del módulo Recolecciones.
+  if (supabase) {
+    try {
+      await sincronizarCreditosRecoleccionACxc(supabase);
+    } catch {
+      /* no bloquear listado */
+    }
+  }
   const { data, error, aviso } = await listarMovimientosCxc(supabase, { soloPendientes: true, limit: 1000 });
   if (error) return { data: [], error, aviso };
   let rows = (data || []).filter((m) => m.tipo === 'cargo' && String(m.estatus || 'pendiente') === 'pendiente');
@@ -208,13 +349,14 @@ async function insertarMovimiento(supabase, payload) {
   }
   const { data, error } = await supabase.from('ruta_cxc_movimientos').insert([payload]).select('*').single();
   if (error && faltaTabla(error)) return insertarMovimiento(null, payload);
-  if (error && /estatus|folio_venta|pagado/i.test(String(error.message || ''))) {
+  if (error && /estatus|folio_venta|pagado|carga_id/i.test(String(error.message || ''))) {
     const slim = { ...payload };
     delete slim.estatus;
     delete slim.folio_venta;
     delete slim.pagado_por;
     delete slim.pagado_at;
     delete slim.gasto_id;
+    if (/carga_id/i.test(String(error.message || ''))) delete slim.carga_id;
     const retry = await supabase.from('ruta_cxc_movimientos').insert([slim]).select('*').single();
     if (retry.error) return { ok: false, error: retry.error.message };
     return { ok: true, data: retry.data, aviso: AVISO_FALTA_CXC };
@@ -356,22 +498,40 @@ export async function pagarCreditosRutaConPin(supabase, {
     const parcial = parte.parcial;
     const sucGasto = String(cargo.cliente_tipo) === 'sucursal' ? String(cargo.cliente_id) : sucursal;
     const folio = cargo.folio_venta || cargo.venta_id || cargo.id;
-    const etiqueta = parcial ? 'credito liquidado parcial' : 'credito liquidado';
+    const desdeRecoleccion = esCargoDesdeRecoleccion(cargo);
+    const transitoRecId = transitoIdDesdeCargoRecoleccion(cargo);
+    const etiqueta = parcial
+      ? (desdeRecoleccion ? 'CREDITO COBRADO parcial' : 'credito liquidado parcial')
+      : (desdeRecoleccion ? 'CREDITO COBRADO' : 'credito liquidado');
 
     // 1) Gasto en corte abarrotes
-    const gastoPayload = {
-      sucursal_id: sucGasto,
-      modulo: 'abarrotes',
-      categoria: 'CREDITO RUTA',
-      subcategoria: 'LIQUIDADO',
-      comentario: `${etiqueta} · ${folio} · ${cargo.cliente_nombre || ''}`.trim(),
-      monto,
-      usuario_nombre: auth.user?.nombre || null,
-      cerrado: false,
-      descontado_nomina: false,
-      estado_aprobacion: 'aprobado',
-      solicitado_por: auth.user?.nombre || null,
-    };
+    const gastoPayload = desdeRecoleccion
+      ? {
+          sucursal_id: sucGasto,
+          modulo: 'abarrotes',
+          categoria: 'CREDITO',
+          subcategoria: 'COBRADO',
+          comentario: `${etiqueta} · FICHA ${folio}${parcial ? ' · PARCIAL' : ''} · ${auth.user?.nombre || ''}`.trim().toUpperCase(),
+          monto,
+          usuario_nombre: auth.user?.nombre || null,
+          cerrado: false,
+          descontado_nomina: false,
+          estado_aprobacion: 'aprobado',
+          solicitado_por: auth.user?.nombre || null,
+        }
+      : {
+          sucursal_id: sucGasto,
+          modulo: 'abarrotes',
+          categoria: 'CREDITO RUTA',
+          subcategoria: 'LIQUIDADO',
+          comentario: `${etiqueta} · ${folio} · ${cargo.cliente_nombre || ''}`.trim(),
+          monto,
+          usuario_nombre: auth.user?.nombre || null,
+          cerrado: false,
+          descontado_nomina: false,
+          estado_aprobacion: 'aprobado',
+          solicitado_por: auth.user?.nombre || null,
+        };
     let { data: gasto, error: eGasto } = await supabase
       .from('cortes_contabilidad_gastos')
       .insert([gastoPayload])
@@ -387,15 +547,50 @@ export async function pagarCreditosRutaConPin(supabase, {
     if (eGasto) return { ok: false, error: `Gasto corte: ${eGasto.message}` };
 
     // 2) Efectivo cobrado → tránsito
-    const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
-      sucursalOrigen: sucGasto,
-      monto,
-      folioVenta: `CXC-${folio}${parcial ? '-P' : ''}`,
-      vendedorId: cargo.usuario_nombre || 'ruta',
-      vendedorNombre: auth.user?.nombre,
-      nota: `Crédito ${parcial ? 'parcial' : 'liquidado'} ${folio} · cajero ${auth.user?.nombre}`,
-    });
-    if (!tr.ok) return { ok: false, error: tr.error || 'No se registró en tránsito.' };
+    // Recolecciones: reutiliza la ficha Entrega Crédito (evita doble conteo).
+    let transitoId = null;
+    if (desdeRecoleccion && transitoRecId && !parcial) {
+      const { TIPO_COBRO_CREDITO, ahoraIsoNogales } = await import('./controlEfectivo.js');
+      const { error: eUp } = await supabase
+        .from('transito_efectivo')
+        .update({
+          estatus: 'En Tránsito',
+          cajero_nombre: auth.user?.nombre || null,
+          foto_url: `Crédito cobrado en Créditos por pagar · ficha ${folio}`,
+          tipo_movimiento: TIPO_COBRO_CREDITO,
+          descripcion_gasto: 'Crédito cobrado',
+          usuario_liquida: 'No Leído',
+          fecha_hora: ahoraIsoNogales(),
+        })
+        .eq('id', transitoRecId)
+        .eq('estatus', 'Por Cobrar')
+        .eq('tipo_movimiento', 'Entrega Crédito');
+      if (eUp) return { ok: false, error: `Tránsito recolección: ${eUp.message}` };
+      transitoId = transitoRecId;
+    } else if (desdeRecoleccion && transitoRecId && parcial) {
+      // Parcial: deja ficha original y registra el tramo cobrado en tránsito ruta.
+      const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
+        sucursalOrigen: sucGasto,
+        monto,
+        folioVenta: `CXC-REC-${folio}-P`,
+        vendedorId: cargo.usuario_nombre || 'ruta',
+        vendedorNombre: auth.user?.nombre,
+        nota: `Crédito recolección parcial ${folio} · cajero ${auth.user?.nombre}`,
+      });
+      if (!tr.ok) return { ok: false, error: tr.error || 'No se registró en tránsito.' };
+      transitoId = tr.id;
+    } else {
+      const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
+        sucursalOrigen: sucGasto,
+        monto,
+        folioVenta: `CXC-${folio}${parcial ? '-P' : ''}`,
+        vendedorId: cargo.usuario_nombre || 'ruta',
+        vendedorNombre: auth.user?.nombre,
+        nota: `Crédito ${parcial ? 'parcial' : 'liquidado'} ${folio} · cajero ${auth.user?.nombre}`,
+      });
+      if (!tr.ok) return { ok: false, error: tr.error || 'No se registró en tránsito.' };
+      transitoId = tr.id;
+    }
 
     // 3) Actualizar cargo + abono
     const saldoAntes = await saldoClienteCxc(supabase, cargo.cliente_tipo, cargo.cliente_id);
@@ -438,26 +633,27 @@ export async function pagarCreditosRutaConPin(supabase, {
       folio_venta: cargo.folio_venta || folio,
       metodo_pago: 'efectivo',
       estatus: 'pagado',
-      notas: `Pago cajero · ${etiqueta} · ${folio}`,
+      notas: `Pago cajero · ${etiqueta} · ${folio}${desdeRecoleccion ? ' · recolección' : ''}`,
       usuario_nombre: auth.user?.nombre || null,
       pagado_por: auth.user?.nombre || null,
       pagado_at: ahora,
       gasto_id: gasto?.id || null,
     });
 
-    if (!parcial && cargo.venta_id) {
+    if (!parcial && cargo.venta_id && !String(cargo.venta_id).startsWith(PREFIJO_CXC_RECOLECCION)) {
       await supabase
         .from('ruta_ventas')
-        .update({ estado_credito: 'pagado', transito_id: String(tr.id) })
+        .update({ estado_credito: 'pagado', transito_id: String(transitoId) })
         .eq('id', cargo.venta_id);
     }
 
     resultados.push({
       cargoId: cargo.id,
       gastoId: gasto?.id,
-      transitoId: tr.id,
+      transitoId,
       monto,
       parcial,
+      desdeRecoleccion,
     });
   }
 
