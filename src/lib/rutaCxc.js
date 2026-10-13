@@ -320,13 +320,52 @@ export async function repararTiendaCargosCxcRecoleccion(supabase, { limit = 800 
 }
 
 /**
+ * Índice de cargos CxC de Recolecciones ya en DB (una sola query).
+ * Evita N selects .eq('carga_id') al sincronizar.
+ */
+async function cargarMapaCargosRecoleccionCxc(supabase, { limit = 2000 } = {}) {
+  const map = new Map();
+  if (!supabase) return map;
+  const { data, error } = await supabase
+    .from('ruta_cxc_movimientos')
+    .select('id, estatus, tipo, carga_id, pagado_at, cliente_id, cliente_nombre, monto, notas')
+    .eq('tipo', 'cargo')
+    .like('carga_id', `${PREFIJO_CXC_RECOLECCION}%`)
+    .limit(limit);
+  if (!error) {
+    for (const c of data || []) {
+      if (c?.carga_id) map.set(String(c.carga_id), c);
+    }
+    return map;
+  }
+  // Sin columna carga_id: índice por notas transito:…
+  if (/carga_id|schema cache/i.test(String(error.message || ''))) {
+    const retry = await supabase
+      .from('ruta_cxc_movimientos')
+      .select('id, estatus, tipo, pagado_at, cliente_id, cliente_nombre, monto, notas')
+      .eq('tipo', 'cargo')
+      .limit(limit);
+    if (!retry.error) {
+      for (const c of retry.data || []) {
+        const tid = transitoIdDesdeCargoRecoleccion(c);
+        if (tid) map.set(`${PREFIJO_CXC_RECOLECCION}${tid}`, c);
+      }
+    }
+  }
+  return map;
+}
+
+/**
  * Restaura / sincroniza todos los «Por Cobrar» de Recolecciones → CxC pendientes.
  * - Crea cargos faltantes
  * - Reabre cargos marcados pagado si el tránsito sigue Por Cobrar
  * - Reasigna a la tienda correcta
  * - Migra cargos locales (localStorage) que aún existan en tránsito
+ *
+ * @param {{ limit?: number, skipReparar?: boolean }} [opts]
+ *   skipReparar: true en sync de apertura (más rápido; la tienda se corrige al crear/omitar).
  */
-export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500 } = {}) {
+export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500, skipReparar = false } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', creados: 0, reabiertos: 0, omitidos: 0 };
   const { data, error } = await supabase
     .from('transito_efectivo')
@@ -348,17 +387,38 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500 
   const porTienda = {};
   const errores = [];
 
+  // Una sola lectura de CxC existentes → evita N round-trips por folio.
+  const mapaExistentes = await cargarMapaCargosRecoleccionCxc(supabase, {
+    limit: Math.max(2000, (Number(limit) || 1500) * 2),
+  });
+
   for (const row of data || []) {
-    const r = await asegurarCargoCxcDesdeRecoleccion(supabase, row);
-    if (!r.ok) {
-      errores.push(r.error || `Folio ${row.num_traspaso}`);
-      continue;
-    }
     const suc = normalizarCodigoTienda(row.sucursal_origen) || String(row.sucursal_origen || '—');
     if (!porTienda[suc]) porTienda[suc] = { tienda: suc, count: 0, monto: 0 };
     porTienda[suc].count += 1;
     porTienda[suc].monto = round2(porTienda[suc].monto + (Number(row.monto) || 0));
 
+    const cargaId = `${PREFIJO_CXC_RECOLECCION}${row.id}`;
+    const hit = mapaExistentes.get(cargaId);
+    if (hit && esCargoPendienteCxc(hit)) {
+      // Ya pendiente: solo corregir tienda si hace falta (sin re-select).
+      try {
+        await asegurarTiendaCargoCxc(supabase, hit, suc);
+      } catch {
+        /* ignore */
+      }
+      omitidos += 1;
+      continue;
+    }
+
+    const r = await asegurarCargoCxcDesdeRecoleccion(supabase, row);
+    if (!r.ok) {
+      errores.push(r.error || `Folio ${row.num_traspaso}`);
+      continue;
+    }
+    if (r.data?.carga_id || cargaId) {
+      mapaExistentes.set(cargaId, r.data);
+    }
     if (r.reabierto) reabiertos += 1;
     else if (r.yaPagado) omitidos += 1;
     else if (r.yaExistia) omitidos += 1;
@@ -371,28 +431,28 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500 
     const locales = leerLocal().filter(
       (m) => m.tipo === 'cargo' && esCargoPendienteCxc(m) && esCargoDesdeRecoleccion(m),
     );
-    for (const loc of locales) {
-      const tid = transitoIdDesdeCargoRecoleccion(loc);
-      if (!tid) continue;
-      const sigue = await transitoSiguePorCobrar(supabase, tid);
-      if (!sigue) continue;
-      const { data: tr } = await supabase
-        .from('transito_efectivo')
-        .select('id, num_traspaso, monto, cajero_nombre, sucursal_origen, estatus, tipo_movimiento')
-        .eq('id', tid)
-        .maybeSingle();
-      if (!tr) continue;
-      const r = await asegurarCargoCxcDesdeRecoleccion(supabase, tr);
-      if (r.ok && !r.yaExistia && !r.yaPagado) {
-        migradosLocal += 1;
-        creados += 1;
-      } else if (r.ok && r.reabierto) {
-        migradosLocal += 1;
-        reabiertos += 1;
-      }
-    }
-    // Quitar del local los que ya están en DB (evita doble conteo en fallback).
     if (locales.length) {
+      for (const loc of locales) {
+        const tid = transitoIdDesdeCargoRecoleccion(loc);
+        if (!tid) continue;
+        const sigue = await transitoSiguePorCobrar(supabase, tid);
+        if (!sigue) continue;
+        const { data: tr } = await supabase
+          .from('transito_efectivo')
+          .select('id, num_traspaso, monto, cajero_nombre, sucursal_origen, estatus, tipo_movimiento')
+          .eq('id', tid)
+          .maybeSingle();
+        if (!tr) continue;
+        const r = await asegurarCargoCxcDesdeRecoleccion(supabase, tr);
+        if (r.ok && !r.yaExistia && !r.yaPagado) {
+          migradosLocal += 1;
+          creados += 1;
+        } else if (r.ok && r.reabierto) {
+          migradosLocal += 1;
+          reabiertos += 1;
+        }
+      }
+      // Quitar del local los que ya están en DB (evita doble conteo en fallback).
       const idsLocal = new Set(locales.map((m) => String(m.id)));
       guardarLocal(leerLocal().filter((m) => !idsLocal.has(String(m.id))));
     }
@@ -401,11 +461,13 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500 
   }
 
   let corregidos = 0;
-  try {
-    const rep = await repararTiendaCargosCxcRecoleccion(supabase, { limit });
-    corregidos = rep.corregidos || 0;
-  } catch {
-    /* no bloquear */
+  if (!skipReparar) {
+    try {
+      const rep = await repararTiendaCargosCxcRecoleccion(supabase, { limit });
+      corregidos = rep.corregidos || 0;
+    } catch {
+      /* no bloquear */
+    }
   }
 
   return {
@@ -422,8 +484,8 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500 
 }
 
 /** Alias: sincroniza Por Cobrar → CxC (usa restauración completa). */
-export async function sincronizarCreditosRecoleccionACxc(supabase, { limit = 1500 } = {}) {
-  return restaurarCreditosRecoleccionACxc(supabase, { limit });
+export async function sincronizarCreditosRecoleccionACxc(supabase, { limit = 1500, skipReparar = true } = {}) {
+  return restaurarCreditosRecoleccionACxc(supabase, { limit, skipReparar });
 }
 
 /** Marca CxC pagado cuando el cobro se hizo desde Recolecciones (Cobrar crédito). */
@@ -447,20 +509,34 @@ export async function marcarCxcPagadoDesdeCobroRecoleccion(supabase, credito, { 
   return { ok: true, cargoId: ensure.data.id };
 }
 
-/** Créditos pendientes para el cajero (filtros folio / fecha / monto). */
-export async function listarCreditosPendientesRuta(supabase, { sucursalId, folio, fechaDesde, fechaHasta, montoMin, montoMax, limit = 200 } = {}) {
-  // Trae a CxC todo crédito pendiente del módulo Recolecciones.
+/**
+ * Créditos pendientes para el cajero (filtros folio / fecha / monto).
+ * @param {{ sync?: boolean|'await'|'skip' }} [opts]
+ *   sync false|'skip' → solo lee CxC (rápido; la UI puede sync en segundo plano).
+ *   sync true|'await' → sincroniza Por Cobrar→CxC antes de listar (más lento).
+ */
+export async function listarCreditosPendientesRuta(supabase, {
+  sucursalId,
+  folio,
+  fechaDesde,
+  fechaHasta,
+  montoMin,
+  montoMax,
+  limit = 200,
+  sync = 'skip',
+} = {}) {
   const limSync = Math.max(200, Math.min(2000, Number(limit) || 1500));
-  let sync = null;
-  if (supabase) {
+  let syncRes = null;
+  const debeSync = sync === true || sync === 'await';
+  if (supabase && debeSync) {
     try {
-      sync = await sincronizarCreditosRecoleccionACxc(supabase, { limit: limSync });
+      syncRes = await sincronizarCreditosRecoleccionACxc(supabase, { limit: limSync, skipReparar: true });
     } catch (e) {
-      sync = { ok: false, error: e?.message || String(e), creados: 0, omitidos: 0 };
+      syncRes = { ok: false, error: e?.message || String(e), creados: 0, omitidos: 0 };
     }
   }
   const { data, error, aviso } = await listarMovimientosCxc(supabase, { soloPendientes: true, limit: limSync });
-  if (error) return { data: [], error, aviso, sync };
+  if (error) return { data: [], error, aviso, sync: syncRes };
   let rows = (data || []).filter(esCargoPendienteCxc);
   if (sucursalId) {
     const suc = normalizarCodigoTienda(sucursalId) || String(sucursalId).toUpperCase();
@@ -486,7 +562,7 @@ export async function listarCreditosPendientesRuta(supabase, { sucursalId, folio
   if (montoMax != null && montoMax !== '') {
     rows = rows.filter((m) => Number(m.monto) <= Number(montoMax));
   }
-  return { data: rows.slice(0, limit), aviso, sync };
+  return { data: rows.slice(0, limit), aviso, sync: syncRes };
 }
 
 /** Créditos ya cobrados (pagados con PIN de cajero) — reporte de consultas. */
