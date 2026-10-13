@@ -196,34 +196,39 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     setMontoPagarStr('');
   };
 
-  const grupoSel = useMemo(() => {
-    if (!verTodasLasTiendas && grupos.length === 1) return grupos[0];
-    return grupos.find((g) => g.id === selTienda) || null;
-  }, [grupos, selTienda, verTodasLasTiendas]);
+  // Tienda con folios desplegados (la flecha ▾/▸ controla selTienda).
+  const grupoSel = useMemo(
+    () => grupos.find((g) => g.id === selTienda) || null,
+    [grupos, selTienda],
+  );
 
-  // Al cargar / cambiar a vista de una sola tienda: seleccionar todos los folios.
+  // Al desplegar una tienda: marcar todos los folios (sin pisar si el usuario ya desmarcó alguno).
   useEffect(() => {
     if (!grupoSel?.items?.length) return;
-    if (!verTodasLasTiendas || selTienda === grupoSel.id) {
-      setFoliosSel((prev) => {
-        const ids = grupoSel.items.map((x) => String(x.id));
-        const mismos = ids.length === prev.size && ids.every((id) => prev.has(id));
-        if (mismos) return prev;
-        // Si el usuario ya desmarcó alguno y sigue en la misma tienda, no pisar.
-        const algunoDeTienda = ids.some((id) => prev.has(id));
-        if (algunoDeTienda && prev.size > 0 && prev.size < ids.length) return prev;
-        if (prev.size === 0 || !algunoDeTienda) return new Set(ids);
-        return prev;
-      });
-    }
-  }, [grupoSel, verTodasLasTiendas, selTienda]);
+    setFoliosSel((prev) => {
+      const ids = grupoSel.items.map((x) => String(x.id));
+      const mismos = ids.length === prev.size && ids.every((id) => prev.has(id));
+      if (mismos) return prev;
+      const algunoDeTienda = ids.some((id) => prev.has(id));
+      if (algunoDeTienda && prev.size > 0 && prev.size < ids.length) return prev;
+      if (prev.size === 0 || !algunoDeTienda) return new Set(ids);
+      return prev;
+    });
+  }, [grupoSel]);
 
   const itemsMarcados = useMemo(() => {
     if (!grupoSel) return [];
     return grupoSel.items.filter((m) => foliosSel.has(String(m.id)));
   }, [grupoSel, foliosSel]);
 
-  const totalTienda = grupoSel?.total || 0;
+  // En sucursal, el balance se muestra aunque los folios estén plegados.
+  const grupoBalance = useMemo(() => {
+    if (grupoSel) return grupoSel;
+    if (!verTodasLasTiendas && grupos.length === 1) return grupos[0];
+    return null;
+  }, [grupoSel, grupos, verTodasLasTiendas]);
+
+  const totalTienda = grupoBalance?.total || 0;
   const totalFoliosSel = useMemo(
     () => Math.round(itemsMarcados.reduce((s, m) => s + (Number(m.monto) || 0), 0) * 100) / 100,
     [itemsMarcados],
@@ -416,13 +421,13 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                 : `Desglose · ${tiendaLabelActiva || sucActiva}`}
             </p>
             {grupos.map((g) => {
-              const marcado = selTienda === g.id || (!verTodasLasTiendas && grupos.length === 1);
+              const desplegado = selTienda === g.id;
               const soloTienda = !verTodasLasTiendas;
               return (
                 <div
                   key={g.id}
                   style={{
-                    border: marcado ? '2px solid #0f766e' : '1px solid var(--border, #e2e8f0)',
+                    border: desplegado ? '2px solid #0f766e' : '1px solid var(--border, #e2e8f0)',
                     borderRadius: 10,
                     overflow: 'hidden',
                     background: '#fff',
@@ -430,8 +435,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                 >
                   <button
                     type="button"
-                    onClick={() => (soloTienda ? setSelTienda(g.id) : toggleGrupo(g.id))}
-                    aria-expanded={marcado}
+                    onClick={() => toggleGrupo(g.id)}
+                    aria-expanded={desplegado}
+                    title={desplegado ? 'Plegar folios' : 'Desplegar folios'}
                     style={{
                       display: 'flex',
                       width: '100%',
@@ -439,7 +445,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                       gap: '0.65rem',
                       padding: '0.75rem 0.9rem',
                       border: 'none',
-                      background: marcado ? 'rgba(15,118,110,0.08)' : '#fff',
+                      background: desplegado ? 'rgba(15,118,110,0.08)' : '#fff',
                       cursor: 'pointer',
                       textAlign: 'left',
                       color: 'inherit',
@@ -452,23 +458,25 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                           width: 22,
                           height: 22,
                           borderRadius: '50%',
-                          border: marcado ? '6px solid #0f766e' : '2px solid #94a3b8',
+                          border: desplegado ? '6px solid #0f766e' : '2px solid #94a3b8',
                           boxSizing: 'border-box',
                           flexShrink: 0,
                         }}
                       />
                     )}
-                    <span style={{ fontWeight: 700, width: 16, flexShrink: 0 }}>{marcado ? '▾' : '▸'}</span>
+                    <span style={{ fontWeight: 700, width: 16, flexShrink: 0 }} aria-hidden>
+                      {desplegado ? '▾' : '▸'}
+                    </span>
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <strong style={{ display: 'block' }}>{g.label}</strong>
                       <span className="muted" style={{ fontSize: '0.78rem' }}>
                         {g.items.length} folio{g.items.length === 1 ? '' : 's'}
-                        {soloTienda ? ' · esta sucursal' : ' · solo esta tienda'}
+                        {desplegado ? ' · toca para plegar' : ' · toca para desplegar'}
                       </span>
                     </span>
                     <strong style={{ color: '#b45309', flexShrink: 0, fontSize: '1.05rem' }}>{fmtMonto(g.total)}</strong>
                   </button>
-                  {marcado && (
+                  {desplegado && (
                     <div style={{ padding: '0.15rem 0.65rem 0.75rem', borderTop: '1px solid var(--border, #e2e8f0)' }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', margin: '0.35rem 0 0.5rem' }}>
                         <span className="muted" style={{ fontSize: '0.75rem' }}>
@@ -574,11 +582,12 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                 Balance antes del ingreso
               </div>
               <strong style={{ color: '#b45309', fontSize: '1.15rem', display: 'block', lineHeight: 1.2 }}>
-                {grupoSel ? fmtMonto(totalTienda) : '—'}
+                {grupoBalance ? fmtMonto(totalTienda) : '—'}
               </strong>
-              {grupoSel ? (
+              {grupoBalance ? (
                 <div className="muted" style={{ fontSize: '0.68rem' }}>
-                  {grupoSel.id} · {grupoSel.items.length} folio(s)
+                  {grupoBalance.id} · {grupoBalance.items.length} folio(s)
+                  {!grupoSel ? ' · plegado' : ''}
                 </div>
               ) : null}
             </div>
