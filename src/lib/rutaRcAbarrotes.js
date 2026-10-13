@@ -1,6 +1,8 @@
 /**
- * Efectivo cobrado en Venta en Ruta → recolección RC Abarrotes
- * (bandeja Contabilidad → RC Abarrotes, agrupada por recolector).
+ * @deprecated Para ventas del camión ya no se usa: el efectivo va a
+ * RC/VentaRuta (transito_efectivo tipo «Venta Ruta»).
+ * Esta helper queda por compatibilidad / tests de bandeja RC Abarrotes
+ * (recolecciones de corte de tienda, no POS ruta).
  */
 import { normalizarCodigoTienda, ALMACEN_CENTRAL } from '../constants/sucursales.js';
 import { detalleRecoleccionParaIe } from './corteContabilidad/calc.js';

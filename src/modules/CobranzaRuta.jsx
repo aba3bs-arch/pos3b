@@ -384,7 +384,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: 72 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '100%' }}>
       <div>
         {embedded ? (
           <h3 style={{ margin: 0, color: '#0f766e' }}>{heading}</h3>
@@ -569,29 +569,20 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           </div>
         )}
 
-        {/* Espacio para que el último folio no quede bajo la barra pegante */}
-        <div style={{ height: 8 }} aria-hidden />
       </div>
 
-      {/* Barra pegante angosta: una sola línea, fija hasta abajo */}
+      {/* Pie de página del módulo (no flotante): una sola línea */}
       <div
         style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 60,
-          padding: '0.4rem 0.75rem calc(0.4rem + env(safe-area-inset-bottom, 0px))',
-          background: 'rgba(255,255,255,0.98)',
+          marginTop: 'auto',
+          padding: '0.45rem 0.65rem',
+          background: '#fff',
           borderTop: '2px solid #0f766e',
-          boxShadow: '0 -6px 18px rgba(15, 23, 42, 0.1)',
-          backdropFilter: 'blur(8px)',
+          borderRadius: '0 0 10px 10px',
         }}
       >
         <div
           style={{
-            maxWidth: 1200,
-            margin: '0 auto',
             display: 'flex',
             flexWrap: 'nowrap',
             alignItems: 'center',

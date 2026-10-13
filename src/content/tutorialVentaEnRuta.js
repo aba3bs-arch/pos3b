@@ -83,7 +83,7 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         '2. Navega por **departamentos**, toca productos o **escanea**.',
         '3. Revisa el **carrito** (cantidades) y cobra.',
         'Pagos: **efectivo**, **crédito** o **mixto** (parte efectivo + parte crédito).',
-        'Efectivo va a tránsito / RC Abarrotes del recolector. Crédito queda por cobrar **por tienda**.',
+        'Efectivo va a **RC/VentaRuta** (tránsito del recolector). Crédito queda por cobrar **por tienda**.',
         'La venta genera pedido en Compras para que la **tienda reciba** la mercancía.',
       ],
       imagen: `${IMG}/06-pos-venta.svg`,
