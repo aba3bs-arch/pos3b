@@ -9,10 +9,18 @@ import { MODULOS_CORTE, etiquetaModuloCorte } from './corteContabilidad/store.js
 import { listarServiciosCobro } from './controlEfectivo.js';
 import { verificarPinCajero } from './rutaCxc.js';
 import {
+  acreditarLiquidacionCuentaRt,
+  CUENTAS_RT,
+  etiquetaCuentaRt,
+} from './rtCuentas.js';
+import {
   crearNotificacion,
   marcarNotificacionAtendida,
   TIPOS_NOTIF,
 } from './contabilidadNotificaciones.js';
+
+export { CUENTAS_RT };
+export const CUENTA_RT_FONDO_DEFAULT = 'francisco';
 
 export const AVISO_FALTA_FONDO =
   'Faltan tablas de Fondo servicios. En Supabase ejecuta supabase/fix_ruta_fondo_servicios.sql';
@@ -341,12 +349,113 @@ export async function retirarFondoServicio(supabase, {
       monto: m,
       usuario_nombre: usuarioNombre || null,
       concepto: String(concepto || `Retiro para pago ${nombre}`).trim(),
+      meta: { origen: 'retiro_pago' },
     }])
     .select('*')
     .single();
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_FONDO, aviso: AVISO_FALTA_FONDO };
   if (error) return { ok: false, error: error.message };
   return { ok: true, data };
+}
+
+/**
+ * Liquida saldo del Fondo (servicios) a una cuenta RT de administrador.
+ * Separado de la liquidación de mercancía / venta en ruta.
+ * Default: Francisco.
+ */
+export async function liquidarFondoACuentaRt(supabase, {
+  servicioClave = null,
+  monto = null,
+  cuentaRtId = CUENTA_RT_FONDO_DEFAULT,
+  usuarioNombre = null,
+  concepto = '',
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const cuentaId = String(cuentaRtId || CUENTA_RT_FONDO_DEFAULT).trim() || CUENTA_RT_FONDO_DEFAULT;
+  if (!CUENTAS_RT.some((c) => c.id === cuentaId)) {
+    return { ok: false, error: 'Cuenta de administrador inválida.' };
+  }
+
+  const movs = await listarMovimientosFondo(supabase, { limit: 2000 });
+  if (movs.aviso) return { ok: false, error: movs.aviso, aviso: movs.aviso };
+  if (movs.error) return { ok: false, error: movs.error };
+  const catalogo = await listarServiciosCobro(supabase);
+  const resumen = resumirFondoPorServicio(movs.data || [], catalogo);
+  const conSaldo = resumen.filter((r) => (Number(r.saldo) || 0) > 0.001);
+
+  let targets;
+  if (servicioClave) {
+    const clave = String(servicioClave).toUpperCase();
+    const row = resumen.find((r) => r.clave === clave);
+    if (!row || !(row.saldo > 0.001)) {
+      return { ok: false, error: `Sin saldo en Fondo para ${clave}.` };
+    }
+    targets = [row];
+  } else {
+    targets = conSaldo;
+  }
+  if (!targets.length) return { ok: false, error: 'El Fondo no tiene saldo para liquidar.' };
+
+  const resultados = [];
+  let total = 0;
+
+  for (const row of targets) {
+    let m = monto != null && monto !== '' && servicioClave
+      ? round2(monto)
+      : round2(row.saldo);
+    if (!(m > 0)) continue;
+    if (m > round2(row.saldo) + 0.001) {
+      return { ok: false, error: `Monto mayor al saldo de ${row.clave} (${row.saldo.toFixed(2)}).` };
+    }
+
+    const notas =
+      String(concepto || '').trim()
+      || `Liquidación Fondo servicios · ${row.nombre} → ${etiquetaCuentaRt(cuentaId)} (separado de venta)`;
+
+    const acred = await acreditarLiquidacionCuentaRt(supabase, {
+      cuentaId,
+      montoTotal: m,
+      usuarioNombre,
+      repartidorNombre: null,
+      notas,
+      movimientoIds: [],
+    });
+    if (!acred.ok) return acred;
+
+    const { data: egreso, error: eEg } = await supabase
+      .from('ruta_fondo_movimientos')
+      .insert([{
+        tipo: 'egreso',
+        servicio_clave: row.clave,
+        servicio_nombre: row.nombre,
+        monto: m,
+        usuario_nombre: usuarioNombre || null,
+        concepto: notas,
+        meta: {
+          origen: 'liquidacion_cuenta_rt',
+          cuenta_rt_id: cuentaId,
+          cuenta_rt_nombre: etiquetaCuentaRt(cuentaId),
+        },
+      }])
+      .select('*')
+      .single();
+    if (eEg && faltaTabla(eEg)) return { ok: false, error: AVISO_FALTA_FONDO, aviso: AVISO_FALTA_FONDO };
+    if (eEg) return { ok: false, error: eEg.message };
+
+    resultados.push({ servicio: row.clave, monto: m, movimiento: egreso, cuentaId });
+    total = round2(total + m);
+  }
+
+  if (!resultados.length) return { ok: false, error: 'No se liquidó ningún servicio.' };
+  return {
+    ok: true,
+    data: {
+      cuentaId,
+      cuentaNombre: etiquetaCuentaRt(cuentaId),
+      total,
+      items: resultados,
+    },
+  };
 }
 
 export async function listarMovimientosFondo(supabase, { servicioClave = null, limit = 200 } = {}) {
