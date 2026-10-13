@@ -36,6 +36,7 @@ import {
   gananciaRutaMonto,
   gananciaRutaPct,
   registrarVentaRuta,
+  eliminarIngresoCargaRuta,
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
@@ -48,9 +49,7 @@ import {
 import {
   subcomandosVentaRutaVisibles,
   puedeAccionVentaRuta,
-  puedeLimpiarConsultasVentaRuta,
 } from '../lib/ventaEnRutaAcciones.js';
-import { borrarDatosConsultasVentaRuta } from '../lib/purgaVentaEnRuta.js';
 import {
   AVISO_FALTA_RUTA_CAMIONES,
   actualizarCamionRuta,
@@ -2677,35 +2676,15 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
   const [expandido, setExpandido] = useState(null);
   const [cancelandoId, setCancelandoId] = useState('');
   const [liquidandoId, setLiquidandoId] = useState('');
-  const [limpiando, setLimpiando] = useState(false);
+  const [eliminandoIngresoId, setEliminandoIngresoId] = useState('');
 
   const puedeCancelar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_carga');
   const puedeLiquidarCarga = puedeCancelar
     || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_liquidacion')
     || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_corte');
-  const puedeLimpiar = puedeLimpiarConsultasVentaRuta(user?.rol, user?.id);
-
-  const limpiarConsultas = async () => {
-    if (!puedeLimpiar) return alert('Sin privilegio para limpiar consultas.');
-    if (!confirm(
-      '¿Borrar registros de prueba de Consultas / Ingresos?\n\n'
-      + 'Se eliminan: Ingresos, Ventas, Cargas y Créditos (por tienda / cobrados).\n'
-      + 'No se borran camiones, clientes externos ni precios de ruta.\n'
-      + 'RC Servicios / Tesorería se limpian en sus propias pestañas.\n\n'
-      + 'Esta acción no se puede deshacer.',
-    )) return;
-    const frase = window.prompt('Escribe LIMPIAR CONSULTAS para confirmar:');
-    if (String(frase || '').trim().toUpperCase() !== 'LIMPIAR CONSULTAS') {
-      return alert('Cancelado: debes escribir LIMPIAR CONSULTAS.');
-    }
-    setLimpiando(true);
-    const r = await borrarDatosConsultasVentaRuta(supabase);
-    setLimpiando(false);
-    if (!r.ok) return alert(r.error || 'No se pudo limpiar.');
-    setAviso(r.detalle || 'Consultas / ingresos de prueba limpiados.');
-    setRows([]);
-    setTick((t) => t + 1);
-  };
+  const puedeEliminarIngreso = puedeCancelar
+    || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_corte')
+    || String(user?.rol || '').toLowerCase() === 'administrador';
 
   useEffect(() => {
     let cancel = false;
@@ -2864,27 +2843,43 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
     }
   };
 
+  const onEliminarIngreso = async (ingreso) => {
+    if (!puedeEliminarIngreso || !ingreso) return;
+    const key = ingreso.id || ingreso.folio;
+    if (!key) return;
+    if (!confirm(
+      `¿Eliminar ingreso ${ingreso.folio || ''}?\n\n`
+      + 'Solo borra el ticket de Consultas (aclaración).\n'
+      + 'No revierte inventario del camión ni de CEDIS.\n'
+      + 'Para devolver mercancía usa Cancelar/Liquidar en Cargas.',
+    )) return;
+    setEliminandoIngresoId(String(key));
+    setAviso('');
+    try {
+      const res = await eliminarIngresoCargaRuta(supabase, {
+        id: ingreso.id,
+        folio: ingreso.folio,
+      });
+      if (!res.ok) {
+        setAviso(res.error || 'No se pudo eliminar el ingreso.');
+        return;
+      }
+      setExpandido(null);
+      setAviso(`Ingreso ${ingreso.folio || ''} eliminado de Consultas.`);
+      setTick((t) => t + 1);
+    } finally {
+      setEliminandoIngresoId('');
+    }
+  };
+
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div style={{ flex: '1 1 240px' }}>
-          <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
-          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-            Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta, para aclaraciones). En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
-          </p>
-        </div>
-        {puedeLimpiar && (
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ color: '#b91c1c', borderColor: '#fecaca' }}
-            disabled={limpiando || cargando}
-            onClick={() => void limpiarConsultas()}
-            title="Borra ingresos, ventas, cargas y créditos. Privilegio: Limpiar consultas."
-          >
-            {limpiando ? 'Limpiando…' : 'Limpiar ingresos / consultas'}
-          </button>
-        )}
+      <div>
+        <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
+        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+          Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta, para aclaraciones).
+          En cada línea de Ingresos puedes eliminar el ticket. En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
+        </p>
       </div>
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         {[
@@ -2959,6 +2954,18 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
                             }}
                           >
                             Reimprimir
+                          </button>
+                        ) : null}
+                        {puedeEliminarIngreso ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem', color: '#b91c1c' }}
+                            disabled={eliminandoIngresoId === String(rowKey) || cargando}
+                            onClick={() => void onEliminarIngreso(c)}
+                            title="Eliminar este ingreso de Consultas (no revierte inventario)"
+                          >
+                            {eliminandoIngresoId === String(rowKey) ? '…' : 'Eliminar'}
                           </button>
                         ) : null}
                       </td>

@@ -5,7 +5,6 @@ import {
   listarCreditosPendientesRuta,
   pagarCreditosRutaConPin,
   puedeEliminarCreditosRuta,
-  restaurarCreditosRecoleccionACxc,
   verificarPinCajero,
 } from '../lib/rutaCxc.js';
 import { fmtMonto } from '../lib/consultasUi.js';
@@ -25,6 +24,7 @@ import {
  * - Se puede pagar un monto parcial (liquidez para otros proveedores).
  * - Administrador puede eliminar créditos por error.
  * - Al pagar: gasto abarrotes + efectivo a tránsito (recolección reusa la ficha).
+ * - Al abrir: sync silenciosa Por Cobrar → CxC (sin botón Restaurar).
  */
 export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo }) {
   const [aviso, setAviso] = useState('');
@@ -35,9 +35,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const [abriendo, setAbriendo] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
-  const [restaurando, setRestaurando] = useState(false);
   const [montoPagarStr, setMontoPagarStr] = useState('');
-  const [ultimoRestore, setUltimoRestore] = useState(null);
   const puedeEliminar = puedeEliminarCreditosRuta(user?.rol);
 
   const sucActiva = sucursal || user?.sucursal_id || '';
@@ -48,67 +46,40 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     || !sucActiva
     || String(sucActiva).toUpperCase() === 'MAIN';
 
-  const mensajeSync = (sync) => {
-    if (!sync) return [];
-    const msgs = [];
-    if (sync.creados > 0) msgs.push(`Restaurados/creados ${sync.creados}`);
-    if (sync.reabiertos > 0) msgs.push(`Reabiertos ${sync.reabiertos} (estaban marcados pagados por error)`);
-    if (sync.corregidos > 0) msgs.push(`Reasignados ${sync.corregidos} a su tienda`);
-    if (sync.revisados != null) msgs.push(`${sync.revisados} folio(s) Por Cobrar en Recolecciones`);
-    if (sync.porTienda?.length) {
-      msgs.push(
-        sync.porTienda.map((t) => `${t.tienda}: ${t.count}`).join(', '),
-      );
-    }
-    if (sync.error) msgs.push(sync.error);
-    return msgs;
-  };
-
   const cargar = useCallback(async () => {
     const r = await listarCreditosPendientesRuta(supabase, {
       sucursalId: verTodasLasTiendas ? undefined : sucActiva,
-      limit: 1000,
+      limit: 1500,
     });
+    const data = r.data || [];
     const msgs = [];
     if (r.aviso) msgs.push(r.aviso);
     if (r.error) msgs.push(r.error);
-    msgs.push(...mensajeSync(r.sync));
+    // Sync silenciosa: avisar cambios y resaltar El Mezquite si aparece.
+    if (r.sync?.creados > 0 || r.sync?.reabiertos > 0) {
+      const partes = [];
+      if (r.sync.creados) partes.push(`${r.sync.creados} nuevos`);
+      if (r.sync.reabiertos) partes.push(`${r.sync.reabiertos} reabiertos`);
+      msgs.push(`Sync Recolecciones: ${partes.join(' · ')}`);
+    }
+    const mezquiteSync = (r.sync?.porTienda || []).find((t) => String(t.tienda).toUpperCase() === '3B10');
+    const mezquiteRows = data.filter((m) => {
+      const cid = normalizarCodigoTienda(m.cliente_id) || String(m.cliente_id || '').toUpperCase();
+      return cid === '3B10';
+    });
+    const mezquiteMonto = mezquiteRows.reduce((s, m) => s + (Number(m.monto) || 0), 0);
+    if (mezquiteSync || mezquiteRows.length) {
+      const monto = mezquiteRows.length
+        ? Math.round(mezquiteMonto * 100) / 100
+        : Number(mezquiteSync?.monto) || 0;
+      const count = mezquiteRows.length || mezquiteSync?.count || 0;
+      msgs.push(`3B10 El Mezquite: ${count} crédito(s) · ${fmtMonto(monto)}`);
+    }
     setAviso(msgs.filter(Boolean).join(' · '));
-    setUltimoRestore(r.sync || null);
-    setRows(r.data || []);
+    setRows(data);
     setSelTienda('');
     setMontoPagarStr('');
   }, [supabase, sucActiva, verTodasLasTiendas]);
-
-  const restaurarDesdeRecolecciones = async () => {
-    if (!supabase) return;
-    if (!confirm(
-      '¿Restaurar créditos desde Recolecciones?\n\n'
-      + 'Se buscan todos los folios «Por Cobrar / Entrega Crédito» de Fusión, 3B2…3B10 '
-      + 'y se recrean o reabren en Créditos por pagar, cada uno en su tienda.\n'
-      + 'No borra nada de Recolecciones.',
-    )) return;
-    setRestaurando(true);
-    try {
-      const r = await restaurarCreditosRecoleccionACxc(supabase, { limit: 1000 });
-      setUltimoRestore(r);
-      if (!r.ok) return alert(r.error || 'No se pudo restaurar.');
-      const detalleTiendas = (r.porTienda || [])
-        .map((t) => `${t.tienda}: ${t.count} (${fmtMonto(t.monto)})`)
-        .join('\n');
-      alert(
-        `✅ Restauración terminada\n\n`
-        + `Folios en Recolecciones: ${r.revisados || 0}\n`
-        + `Creados: ${r.creados || 0}\n`
-        + `Reabiertos: ${r.reabiertos || 0}\n`
-        + `Ya estaban: ${r.omitidos || 0}\n`
-        + (detalleTiendas ? `\nPor tienda:\n${detalleTiendas}` : '\n⚠ No hay folios Por Cobrar en Recolecciones.'),
-      );
-      await cargar();
-    } finally {
-      setRestaurando(false);
-    }
-  };
 
   useEffect(() => {
     if (!cajero) return;
@@ -305,34 +276,11 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       {aviso && <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>{aviso}</div>}
 
       <div className="card" style={{ borderTop: '4px solid #0f766e' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={restaurando || guardando}
-            onClick={() => void restaurarDesdeRecolecciones()}
-          >
-            {restaurando ? 'Restaurando…' : 'Restaurar créditos de Recolecciones'}
-          </button>
-          <span className="muted" style={{ fontSize: '0.78rem' }}>
-            Trae folios Por Cobrar de Fusión / 3B2…3B10 a esta pantalla (por tienda).
-          </span>
-        </div>
         {grupos.length === 0 ? (
-          <div>
-            <p className="muted" style={{ marginTop: 0 }}>
-              No hay créditos pendientes en CxC.
-              {ultimoRestore?.revisados === 0
-                ? ' Tampoco hay folios «Por Cobrar» en Recolecciones (pueden haberse cobrado ya o no existir).'
-                : ' Usa «Restaurar créditos de Recolecciones» para recuperarlos por tienda.'}
-            </p>
-            {ultimoRestore?.porTienda?.length > 0 && (
-              <p className="muted" style={{ fontSize: '0.8rem' }}>
-                Última restauración:{' '}
-                {ultimoRestore.porTienda.map((t) => `${t.tienda} (${t.count})`).join(' · ')}
-              </p>
-            )}
-          </div>
+          <p className="muted">
+            No hay créditos pendientes. Si en Recolecciones aún hay folios «Por Cobrar»,
+            pulsa Actualizar (la sync los trae solas por tienda).
+          </p>
         ) : (
           <div style={{ display: 'grid', gap: '0.5rem' }}>
             <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>

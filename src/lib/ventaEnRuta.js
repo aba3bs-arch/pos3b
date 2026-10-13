@@ -588,6 +588,45 @@ export async function registrarEventoCargaRuta(supabase, {
 }
 
 /**
+ * Elimina un ingreso de Consultas (ticket/evento de aplicación de carga).
+ * Solo borra el registro de aclaración; no revierte inventario CEDIS/camión.
+ * Para devolver mercancía usa Cancelar carga en la pestaña Cargas.
+ */
+export async function eliminarIngresoCargaRuta(supabase, { id, folio } = {}) {
+  const eid = id != null ? String(id) : '';
+  const fol = folio != null ? String(folio).trim() : '';
+  if (!eid && !fol) return { ok: false, error: 'Ingreso inválido.' };
+
+  let borradoNube = false;
+  if (supabase && eid) {
+    const { error } = await supabase.from('ruta_carga_eventos').delete().eq('id', eid);
+    if (error && !faltaTabla(error)) {
+      return { ok: false, error: error.message };
+    }
+    if (!error) borradoNube = true;
+  } else if (supabase && fol) {
+    const { error } = await supabase.from('ruta_carga_eventos').delete().eq('folio', fol);
+    if (error && !faltaTabla(error)) {
+      return { ok: false, error: error.message };
+    }
+    if (!error) borradoNube = true;
+  }
+
+  const prev = leerLS(LS_CARGA_EVENTOS, []);
+  const next = (Array.isArray(prev) ? prev : []).filter((e) => {
+    if (eid && String(e.id) === eid) return false;
+    if (fol && String(e.folio || '') === fol) return false;
+    return true;
+  });
+  guardarLS(LS_CARGA_EVENTOS, next);
+
+  if (!borradoNube && next.length === (Array.isArray(prev) ? prev : []).length && supabase) {
+    return { ok: false, error: 'No se encontró el ingreso para eliminar.' };
+  }
+  return { ok: true, id: eid || null, folio: fol || null };
+}
+
+/**
  * Lista eventos de aplicación de carga (más recientes primero).
  * Preferido para Consultas → Ingresos / reimpresión de tickets.
  */
