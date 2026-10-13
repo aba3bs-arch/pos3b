@@ -10,63 +10,55 @@
       <stop offset="0%" stop-color="#0f766e"/>
       <stop offset="100%" stop-color="#0d9488"/>
     </linearGradient>
-    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#0d47a1"/>
-      <stop offset="100%" stop-color="#1565c0"/>
-    </linearGradient>
     <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
       <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
     </filter>
   </defs>
   <rect width="100%" height="100%" fill="url(#bg)"/>
 
-  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">1. Mapa del flujo · Venta en Ruta</text>
-  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">CEDIS guarda · camión lleva · POS vende · corte cierra</text>
+  <text x="40" y="42" font-family="Segoe UI,Arial,sans-serif" font-size="24" font-weight="700" fill="#0f766e">1. Mapa · Venta en Ruta (actualizado)</text>
+  <text x="40" y="70" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#546e7a">CEDIS guarda · camión lleva · POS vende · corte cierra · servicios van solos</text>
   <g font-family="Segoe UI,Arial,sans-serif" filter="url(#shadow)">
-    
-    <rect x="40" y="120" width="160" height="110" rx="14" fill="#fff"/>
-    <circle cx="68" cy="150" r="16" fill="#0f766e"/>
-    <text x="68" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">1</text>
-    <text x="92" y="155" font-size="14" font-weight="700" fill="#0f766e">CEDIS</text>
-    <text x="60" y="195" font-size="13" fill="#546e7a">Bodega / stock</text>
-    
-    <rect x="220" y="120" width="160" height="110" rx="14" fill="#fff"/>
-    <circle cx="248" cy="150" r="16" fill="#0f766e"/>
-    <text x="248" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">2</text>
-    <text x="272" y="155" font-size="14" font-weight="700" fill="#0f766e">Camión</text>
-    <text x="240" y="195" font-size="13" fill="#546e7a">Carga abierta</text>
-    
-    <rect x="400" y="120" width="160" height="110" rx="14" fill="#fff"/>
-    <circle cx="428" cy="150" r="16" fill="#0f766e"/>
-    <text x="428" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">3</text>
-    <text x="452" y="155" font-size="14" font-weight="700" fill="#0f766e">POS ruta</text>
-    <text x="420" y="195" font-size="13" fill="#546e7a">Vende destino</text>
-    
-    <rect x="580" y="120" width="160" height="110" rx="14" fill="#fff"/>
-    <circle cx="608" cy="150" r="16" fill="#0f766e"/>
-    <text x="608" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">4</text>
-    <text x="632" y="155" font-size="14" font-weight="700" fill="#0f766e">Consultas</text>
-    <text x="600" y="195" font-size="13" fill="#546e7a">Tickets / aclarar</text>
-    
-    <rect x="760" y="120" width="160" height="110" rx="14" fill="#fff"/>
-    <circle cx="788" cy="150" r="16" fill="#0f766e"/>
-    <text x="788" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">5</text>
-    <text x="812" y="155" font-size="14" font-weight="700" fill="#0f766e">Corte</text>
-    <text x="780" y="195" font-size="13" fill="#546e7a">Cierra turno</text>
-    
+    <rect x="28" y="95" width="148" height="100" rx="12" fill="#fff"/>
+    <circle cx="52" cy="122" r="14" fill="#0f766e"/><text x="52" y="127" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">1</text>
+    <text x="74" y="127" font-size="13" font-weight="700" fill="#0f766e">CEDIS</text>
+    <text x="44" y="165" font-size="12" fill="#546e7a">Bodega</text>
+
+    <rect x="192" y="95" width="148" height="100" rx="12" fill="#fff"/>
+    <circle cx="216" cy="122" r="14" fill="#0f766e"/><text x="216" y="127" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">2</text>
+    <text x="238" y="127" font-size="13" font-weight="700" fill="#0f766e">Camión</text>
+    <text x="208" y="165" font-size="12" fill="#546e7a">Carga</text>
+
+    <rect x="356" y="95" width="148" height="100" rx="12" fill="#fff"/>
+    <circle cx="380" cy="122" r="14" fill="#0f766e"/><text x="380" y="127" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">3</text>
+    <text x="402" y="127" font-size="13" font-weight="700" fill="#0f766e">POS</text>
+    <text x="372" y="165" font-size="12" fill="#546e7a">Vende</text>
+
+    <rect x="520" y="95" width="148" height="100" rx="12" fill="#fff"/>
+    <circle cx="544" cy="122" r="14" fill="#0f766e"/><text x="544" y="127" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">4</text>
+    <text x="566" y="127" font-size="13" font-weight="700" fill="#0f766e">Créditos</text>
+    <text x="536" y="165" font-size="12" fill="#546e7a">Por tienda</text>
+
+    <rect x="684" y="95" width="148" height="100" rx="12" fill="#fff"/>
+    <circle cx="708" cy="122" r="14" fill="#0f766e"/><text x="708" y="127" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">5</text>
+    <text x="730" y="127" font-size="13" font-weight="700" fill="#0f766e">Corte / RC</text>
+    <text x="700" y="165" font-size="12" fill="#546e7a">Mercancía</text>
   </g>
-  <g font-family="Segoe UI,Arial,sans-serif">
-    <path d="M190 175 H220" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
-    <path d="M370 175 H400" stroke="#94a3b8" stroke-width="2"/>
-    <path d="M550 175 H580" stroke="#94a3b8" stroke-width="2"/>
-    <path d="M730 175 H760" stroke="#94a3b8" stroke-width="2"/>
+  <g font-family="Segoe UI,Arial,sans-serif" fill="#94a3b8" font-size="18">
+    <text x="176" y="150">→</text><text x="340" y="150">→</text><text x="504" y="150">→</text><text x="668" y="150">→</text>
   </g>
   <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
-    <rect x="40" y="280" width="880" height="150" rx="16" fill="#fff"/>
-    <rect x="40" y="280" width="8" height="150" rx="4" fill="#0f766e"/>
-    <text x="72" y="320" font-size="17" font-weight="700" fill="#0f766e">Cómo leerlo</text>
-    <text x="72" y="355" font-size="15" fill="#37474f">Mercancía sale de CEDIS → viaja en el camión → se vende en el POS → queda historial → se cierra con corte / liquidación.</text>
-    <text x="72" y="390" font-size="14" fill="#546e7a">Cada rol ve solo sus botones. Admin ve el hub completo.</text>
+    <rect x="40" y="220" width="880" height="100" rx="14" fill="#fff"/>
+    <rect x="40" y="220" width="8" height="100" rx="4" fill="#b45309"/>
+    <text x="70" y="255" font-size="15" font-weight="700" fill="#b45309">Vía servicios (aparte)</text>
+    <text x="70" y="285" font-size="14" fill="#37474f">Cobro servicios → PIN cajero → RC Servicios → cuenta Servicios → Tesorería (Cheche)</text>
+    <text x="70" y="305" font-size="12" fill="#94a3b8">No se mezcla con Pendientes de mercancía (Francisco)</text>
+  </g>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="40" y="340" width="880" height="100" rx="14" fill="#fff"/>
+    <rect x="40" y="340" width="8" height="100" rx="4" fill="#0f766e"/>
+    <text x="70" y="375" font-size="15" font-weight="700" fill="#0f766e">Novedades a memorizar</text>
+    <text x="70" y="405" font-size="13" fill="#37474f">Créditos por tienda · Eliminar ingreso por línea · sin Limpiar/Restaurar · RC Servicios ≠ Pendientes</text>
   </g>
 
 </svg>
