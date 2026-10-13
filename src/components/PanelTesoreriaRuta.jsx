@@ -17,6 +17,8 @@ import {
 import { fmtMonto } from '../lib/consultasUi.js';
 import { borrarDatosPruebaFondoTesoreria } from '../lib/purgaVentaEnRuta.js';
 import { normalizarRol } from '../lib/roles.js';
+import VisorTutorialModal from './VisorTutorialModal.jsx';
+import { TUTORIAL_COBRO_SERVICIOS } from '../content/tutorialCobroServicios.js';
 
 /**
  * RC/VentaRuta → Tesorería.
@@ -34,6 +36,7 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
   const [gastoDesc, setGastoDesc] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [limpiando, setLimpiando] = useState(false);
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
 
   const puedeAdmin = puedeAdministrarTesoreria(user);
   const puedeLimpiarPrueba = normalizarRol(user?.rol) === 'Administrador' || puedeAdmin;
@@ -143,17 +146,27 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
           <strong>Servicios</strong> (liquidaciones de RC Servicios).
           No se mezcla con venta / mercancía (Francisco).
         </p>
-        {puedeLimpiarPrueba && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
           <button
             type="button"
             className="btn btn-ghost"
-            style={{ color: '#b91c1c', borderColor: '#fecaca', fontSize: '0.8rem' }}
-            disabled={limpiando || guardando}
-            onClick={() => void limpiarPrueba()}
+            style={{ fontSize: '0.8rem' }}
+            onClick={() => setTutorialAbierto(true)}
           >
-            {limpiando ? 'Limpiando…' : 'Limpiar datos de prueba'}
+            Ver tutorial
           </button>
-        )}
+          {puedeLimpiarPrueba && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ color: '#b91c1c', borderColor: '#fecaca', fontSize: '0.8rem' }}
+              disabled={limpiando || guardando}
+              onClick={() => void limpiarPrueba()}
+            >
+              {limpiando ? 'Limpiando…' : 'Limpiar datos de prueba'}
+            </button>
+          )}
+        </div>
       </div>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
@@ -344,6 +357,12 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
           </table>
         </div>
       </div>
+
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_COBRO_SERVICIOS}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }

@@ -10,8 +10,10 @@ import { TUTORIAL_ADMIN_CT } from './tutorialAdminCt.js';
 import { TUTORIAL_RELOJ_EMPLEADO } from './tutorialRelojEmpleado.js';
 import { TUTORIAL_CEDIS } from './tutorialCedis.js';
 import { TUTORIAL_VENTA_EN_RUTA } from './tutorialVentaEnRuta.js';
+import { TUTORIAL_COBRO_SERVICIOS } from './tutorialCobroServicios.js';
 
 export const TUTORIALES = [
+  TUTORIAL_COBRO_SERVICIOS,
   TUTORIAL_VENTA_EN_RUTA,
   TUTORIAL_CEDIS,
   TUTORIAL_RELOJ_EMPLEADO,

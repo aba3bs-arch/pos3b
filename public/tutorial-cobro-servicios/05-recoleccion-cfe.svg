@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">5. Vía Recolecciones · CFE en tienda</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Servicios obligatorios antes del traspaso · generan Cobro Servicio</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="864" height="320" rx="16" fill="#fff"/>
+    <rect x="48" y="110" width="864" height="48" fill="#e6f4f1"/>
+    <text x="72" y="140" font-size="15" font-weight="700" fill="#0f766e">Recolecciones · Traspaso · servicios obligatorios</text>
+    <rect x="72" y="180" width="800" height="90" rx="12" fill="#fff7ed" stroke="#fdba74"/>
+    <text x="96" y="215" font-size="15" font-weight="700" fill="#b45309">⚠ Registra CFE antes de continuar</text>
+    <text x="96" y="245" font-size="14" fill="#78350f">PIN del recolector + monto · confirma cobro</text>
+    <text x="72" y="310" font-size="14" fill="#334155">Al confirmar se crea movimiento tipo <tspan font-weight="700" fill="#0f766e">Cobro Servicio</tspan> en tránsito.</text>
+    <text x="72" y="345" font-size="14" fill="#334155">Ese monto NO aparece en Pendientes de mercancía.</text>
+    <text x="72" y="380" font-size="14" font-weight="600" fill="#0f766e">Se liquida en RC/VentaRuta → RC Servicios.</text>
+  </g>
+
+</svg>
