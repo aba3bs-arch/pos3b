@@ -495,15 +495,26 @@ function resumirMerma(movimientos, inventario, tiendas) {
   });
 }
 
-function inventarioResumen(inventario, tiendas) {
+/**
+ * Inventario por tienda para gráficas.
+ * Usa precio de venta (igual que Inicio/Productos). Antes usaba solo costo de compra:
+ * si faltaba precio_compra, la barra de la tienda salía en $0 aunque hubiera piezas.
+ */
+export function inventarioResumen(inventario, tiendas) {
   return tiendas.map((suc, i) => {
     const items = inventarioParaSucursal(inventario, suc);
     const res = resumirValorInventario(items);
+    const valorVenta = Number(res.valorVenta) || 0;
+    const valorCosto = Number(res.valorCosto) || 0;
     return {
       id: suc,
       label: etiquetaTienda(suc),
-      total: res.valorCosto || 0,
-      skus: res.skus || items.length,
+      // Preferir venta; si no hay precios de venta, caer a costo (mejor que $0 silencioso).
+      total: valorVenta > 0 ? valorVenta : valorCosto,
+      valorVenta,
+      valorCosto,
+      unidades: res.unidades || 0,
+      skus: res.skusConStock || 0,
       color: COLORES_TIENDA[i % COLORES_TIENDA.length],
     };
   });

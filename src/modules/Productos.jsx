@@ -1177,8 +1177,16 @@ export default function Productos({
                 <>
                   {' · '}
                   <strong>{resumenInv.unidades.toLocaleString('es-MX')}</strong> u · {fmtMxn(resumenInv.valorVenta)}
-                  {resumenInv.skusConStock > 0 && (
+                  {resumenInv.skusConStock > 0 ? (
                     <span className="muted"> ({resumenInv.skusConStock} con stock)</span>
+                  ) : (
+                    <span className="muted"> (0 con stock positivo)</span>
+                  )}
+                  {negativosCount > 0 && (
+                    <span style={{ color: 'var(--brand-red)', fontWeight: 600 }}>
+                      {' '}
+                      · {negativosCount} negativo{negativosCount === 1 ? '' : 's'}
+                    </span>
                   )}
                 </>
               )}

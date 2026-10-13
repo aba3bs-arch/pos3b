@@ -1341,15 +1341,20 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
       {area === 'abarrotes' && (
         <div className="grid-2">
           <div className="card">
-            <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Inventario valorizado (costo)</h4>
+            <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Inventario valorizado (precio venta)</h4>
             <ParetoChart
               items={inv.map((x, i, arr) => {
                 const sum = arr.reduce((a, y) => a + y.total, 0) || 1;
                 let acum = 0;
                 for (let j = 0; j <= i; j++) acum += arr[j].total;
-                return { ...x, pct: (x.total / sum) * 100, acumPct: (acum / sum) * 100 };
+                return {
+                  ...x,
+                  label: x.unidades > 0 ? `${x.label} · ${Number(x.unidades).toLocaleString('es-MX')} u` : x.label,
+                  pct: (x.total / sum) * 100,
+                  acumPct: (acum / sum) * 100,
+                };
               })}
-              empty="Sin inventario cargado en esta sesión."
+              empty="Sin inventario con precio en esta sesión."
             />
           </div>
           <div className="card">
