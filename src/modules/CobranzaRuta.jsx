@@ -433,6 +433,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                     background: '#fff',
                   }}
                 >
+                  {/* Encabezado fijo: debajo de esta línea se ocultan los folios al scrollear */}
                   <button
                     type="button"
                     onClick={() => toggleGrupo(g.id)}
@@ -445,10 +446,13 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                       gap: '0.65rem',
                       padding: '0.75rem 0.9rem',
                       border: 'none',
+                      borderBottom: desplegado ? '1px solid var(--border, #e2e8f0)' : 'none',
                       background: desplegado ? 'rgba(15,118,110,0.08)' : '#fff',
                       cursor: 'pointer',
                       textAlign: 'left',
                       color: 'inherit',
+                      position: 'relative',
+                      zIndex: 2,
                     }}
                   >
                     {!soloTienda && (
@@ -474,11 +478,28 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                         {desplegado ? ' · toca para plegar' : ' · toca para desplegar'}
                       </span>
                     </span>
-                    <strong style={{ color: '#b45309', flexShrink: 0, fontSize: '1.05rem' }}>{fmtMonto(g.total)}</strong>
+                    <span style={{ flexShrink: 0, textAlign: 'right' }}>
+                      <span
+                        className="muted"
+                        style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.01em' }}
+                      >
+                        Balance antes del ingreso
+                      </span>
+                      <strong style={{ color: '#b45309', fontSize: '1.05rem' }}>{fmtMonto(g.total)}</strong>
+                    </span>
                   </button>
                   {desplegado && (
-                    <div style={{ padding: '0.15rem 0.65rem 0', borderTop: '1px solid var(--border, #e2e8f0)' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', margin: '0.35rem 0 0.5rem' }}>
+                    <div
+                      style={{
+                        maxHeight: 'min(48vh, 420px)',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        WebkitOverflowScrolling: 'touch',
+                        scrollbarGutter: 'stable',
+                        padding: '0.35rem 0.65rem 0.65rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                         <span className="muted" style={{ fontSize: '0.75rem' }}>
                           {foliosSel.size}/{g.items.length} folio(s) · {fmtMonto(totalFoliosSel)}
                         </span>
@@ -494,69 +515,52 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                           Quitar marcas
                         </button>
                       </div>
-                      {/* Lista con scroll: los folios se ocultan bajo la línea roja inferior */}
-                      <div
-                        style={{
-                          position: 'relative',
-                          maxHeight: 'min(42vh, 360px)',
-                          overflowY: 'auto',
-                          overflowX: 'hidden',
-                          borderBottom: '3px solid #dc2626',
-                          marginBottom: 0,
-                          WebkitOverflowScrolling: 'touch',
-                          scrollbarGutter: 'stable',
-                        }}
-                      >
-                        <table className="consultas-table" style={{ width: '100%', fontSize: '0.84rem', marginBottom: 0 }}>
-                          <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff' }}>
-                            <tr>
-                              <th style={{ width: 36, textAlign: 'center', background: '#fff' }} aria-label="Seleccionar" />
-                              <th style={{ textAlign: 'left', background: '#fff' }}>Folio</th>
-                              <th style={{ textAlign: 'left', background: '#fff' }}>Fecha</th>
-                              <th style={{ textAlign: 'right', background: '#fff' }}>Monto</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {g.items.map((m) => {
-                              const checked = foliosSel.has(String(m.id));
-                              return (
-                                <tr
-                                  key={m.id}
-                                  onClick={() => toggleFolio(m.id)}
-                                  style={{
-                                    cursor: 'pointer',
-                                    background: checked ? 'rgba(15,118,110,0.06)' : undefined,
-                                  }}
-                                >
-                                  <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() => toggleFolio(m.id)}
-                                      aria-label={`Seleccionar folio ${m.folio_venta || m.venta_id || m.id}`}
-                                    />
-                                  </td>
-                                  <td>
-                                    <strong>{m.folio_venta || m.venta_id || '—'}</strong>
-                                    {m.notas ? (
-                                      <div className="muted" style={{ fontSize: '0.72rem', maxWidth: 280 }}>
-                                        {String(m.notas).length > 72 ? `${String(m.notas).slice(0, 72)}…` : m.notas}
-                                      </div>
-                                    ) : null}
-                                  </td>
-                                  <td className="muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                                    {fmtFechaCorta(m.created_at)}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMonto(m.monto)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                      <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.72rem' }}>
-                        Desplaza la lista · los folios se ocultan bajo la línea roja
-                      </p>
+                      <table className="consultas-table" style={{ width: '100%', fontSize: '0.84rem', marginBottom: 0 }}>
+                        <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff' }}>
+                          <tr>
+                            <th style={{ width: 36, textAlign: 'center', background: '#fff' }} aria-label="Seleccionar" />
+                            <th style={{ textAlign: 'left', background: '#fff' }}>Folio</th>
+                            <th style={{ textAlign: 'left', background: '#fff' }}>Fecha</th>
+                            <th style={{ textAlign: 'right', background: '#fff' }}>Monto</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.items.map((m) => {
+                            const checked = foliosSel.has(String(m.id));
+                            return (
+                              <tr
+                                key={m.id}
+                                onClick={() => toggleFolio(m.id)}
+                                style={{
+                                  cursor: 'pointer',
+                                  background: checked ? 'rgba(15,118,110,0.06)' : undefined,
+                                }}
+                              >
+                                <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleFolio(m.id)}
+                                    aria-label={`Seleccionar folio ${m.folio_venta || m.venta_id || m.id}`}
+                                  />
+                                </td>
+                                <td>
+                                  <strong>{m.folio_venta || m.venta_id || '—'}</strong>
+                                  {m.notas ? (
+                                    <div className="muted" style={{ fontSize: '0.72rem', maxWidth: 280 }}>
+                                      {String(m.notas).length > 72 ? `${String(m.notas).slice(0, 72)}…` : m.notas}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                  {fmtFechaCorta(m.created_at)}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMonto(m.monto)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
