@@ -3,7 +3,14 @@ import Icon from './Icon.jsx';
 import HistorialProducto from './HistorialProducto.jsx';
 import ProductoThumb from './ProductoThumb.jsx';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
-import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisible } from '../lib/inventarioMultitienda.js';
+import {
+  esAlmacenCentral,
+  etiquetaCedisEmpresa,
+  etiquetaStockLista,
+  stockEnUbicacionReal,
+  stockVisible,
+  textoEtiquetaStock,
+} from '../lib/inventarioMultitienda.js';
 import { etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { tieneFoto } from '../lib/fotosCatalogo.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
@@ -61,7 +68,9 @@ export default function DetalleProducto({
   const precioSin = Number(producto.precio_venta_sin ?? (precioCon / (1 + impuesto / 100)));
   const favorito = productoEsFavorito(producto, sucursal);
   const stockVista = etiquetaStockLista(producto, sucursal, { verNegativos });
-  const stock = stockVista.primario;
+  const stockPisoReal = stockEnUbicacionReal(producto, sucursal, 'piso', sucursal);
+  const stockTabLabel = textoEtiquetaStock(producto, sucursal, { verNegativos });
+  const stockNegativo = verNegativos && Number(stockVista.primario) < 0;
   const sinFoto = !tieneFoto(producto);
 
   const copiarCodigo = async () => {
@@ -175,11 +184,19 @@ export default function DetalleProducto({
           <Icon name="refresh" size={16} />
           Historial
         </button>
-        <button type="button" className={tab === 'stock' ? 'activo' : ''} onClick={() => setTab('stock')}>
+        <button
+          type="button"
+          className={tab === 'stock' ? 'activo' : ''}
+          onClick={() => setTab('stock')}
+          style={stockNegativo ? { color: 'var(--brand-red)', fontWeight: 700, borderColor: 'rgba(220, 38, 38, 0.45)' } : undefined}
+          title={
+            stockNegativo
+              ? `Inventario teórico ${stockVista.primario}: se vendió sin existencias`
+              : `Inventario teórico · ${stockTabLabel}`
+          }
+        >
           <Icon name="package" size={16} />
-          {enCentral
-            ? `${stockVista.primario} ${stockVista.etiquetaPrimario}`
-            : `${stockVista.primario} PZA`}
+          <span>{stockTabLabel}</span>
         </button>
       </div>
 
@@ -292,12 +309,12 @@ export default function DetalleProducto({
             )}
             <div className="prod-stock-card">
               <span className="muted">Piso ({tiendaLabel})</span>
-              <strong style={verNegativos && Number(producto.stock) < 0 ? { color: 'var(--brand-red)' } : undefined}>
-                {stockVisible(producto.stock, verNegativos)}
+              <strong style={verNegativos && stockPisoReal < 0 ? { color: 'var(--brand-red)' } : undefined}>
+                {stockVisible(stockPisoReal, verNegativos)}
               </strong>
-              {verNegativos && Number(producto.stock) < 0 && (
-                <small className="muted" style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.72rem', color: 'var(--brand-red)' }}>
-                  Negativo: se vendió sin existencias
+              {verNegativos && stockPisoReal < 0 && (
+                <small style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.72rem', color: 'var(--brand-red)' }}>
+                  Negativo: se vendieron {Math.abs(stockPisoReal)} sin existencias. Revisa Historial (entradas vs ventas).
                 </small>
               )}
             </div>

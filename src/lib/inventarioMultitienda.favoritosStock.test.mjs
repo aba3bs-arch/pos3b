@@ -5,6 +5,8 @@ import {
   etiquetaStockLista,
   productoParaVistaTienda,
   asegurarMapaStock,
+  textoEtiquetaStock,
+  stockEnUbicacionReal,
 } from './inventarioMultitienda.js';
 
 assert.equal(claveStockSucursalCanon('10'), '3B10');
@@ -66,5 +68,21 @@ assert.equal(vistaCedis.secundario, 0);
 const limpio = asegurarMapaStock(cigarro, '3B10');
 assert.equal(limpio['3B10'].piso, 48);
 assert.equal(limpio['10'], undefined);
+
+// Negativos: lista y pestaña de detalle deben mostrar el mismo texto (con signo).
+const maruchan = {
+  id: '041789001956',
+  stock: 12, // legado engañoso
+  stock_sucursales: { '3B2': { piso: -12, cedis: 0 } },
+};
+const vistaNeg = productoParaVistaTienda(maruchan, '3B2');
+assert.equal(vistaNeg.stock, -12);
+assert.equal(stockEnUbicacionReal(vistaNeg, '3B2', 'piso', '3B2'), -12);
+assert.equal(etiquetaStockLista(vistaNeg, '3B2', { verNegativos: true }).primario, -12);
+assert.equal(textoEtiquetaStock(vistaNeg, '3B2', { verNegativos: true }), 'PZA -12');
+assert.equal(
+  textoEtiquetaStock(vistaNeg, '3B2', { verNegativos: true }),
+  `${etiquetaStockLista(vistaNeg, '3B2', { verNegativos: true }).etiquetaPrimario} ${etiquetaStockLista(vistaNeg, '3B2', { verNegativos: true }).primario}`,
+);
 
 console.log('inventarioMultitienda.favoritosStock.test.mjs: ok');

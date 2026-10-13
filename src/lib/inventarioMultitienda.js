@@ -202,7 +202,9 @@ export function stockEnUbicacionReal(producto, sucursal, ubicacion, sucursalCont
   const map = asegurarMapaStock(producto, sucursalContext || sucursal);
   const sucStock = sucursalParaUbicacion(sucursal, ubicacion);
   if (!sucStock) return 0;
-  return Math.floor(Number(map[sucStock]?.[ubicacion]) || 0);
+  const raw = Number(map[sucStock]?.[ubicacion]);
+  // No usar `|| 0`: aunque −N es truthy, Number.isFinite evita NaN/undefined con claridad.
+  return Number.isFinite(raw) ? Math.floor(raw) : 0;
 }
 
 /** Stock del almacén central (CEDIS · cedis). */
@@ -318,6 +320,17 @@ export function etiquetaStockLista(producto, sucursal, opts = {}) {
   }
   const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
   return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };
+}
+
+/**
+ * Misma etiqueta en lista y pestaña de detalle (evita “PZA −12” vs “12 PZA”).
+ * Siempre: `{etiqueta} {n}` — el signo va en el número (−12), nunca se oculta el −.
+ */
+export function textoEtiquetaStock(producto, sucursal, opts = {}) {
+  const v = etiquetaStockLista(producto, sucursal, opts);
+  const prim = `${v.etiquetaPrimario} ${v.primario}`;
+  if (v.secundario == null) return prim;
+  return `${prim} · ${v.etiquetaSecundario} ${v.secundario}`;
 }
 
 /** Ubicación por defecto para entradas: CEDIS en almacén, piso en tiendas. */
