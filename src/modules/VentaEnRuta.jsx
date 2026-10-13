@@ -2686,9 +2686,10 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
   const limpiarConsultas = async () => {
     if (!puedeLimpiar) return alert('Sin privilegio para limpiar consultas.');
     if (!confirm(
-      '¿Borrar toda la información de Consultas?\n\n'
+      '¿Borrar registros de prueba de Consultas / Ingresos?\n\n'
       + 'Se eliminan: Ingresos, Ventas, Cargas y Créditos (por tienda / cobrados).\n'
-      + 'No se borran camiones, clientes externos ni precios de ruta.\n\n'
+      + 'No se borran camiones, clientes externos ni precios de ruta.\n'
+      + 'RC Servicios / Tesorería se limpian en sus propias pestañas.\n\n'
       + 'Esta acción no se puede deshacer.',
     )) return;
     const frase = window.prompt('Escribe LIMPIAR CONSULTAS para confirmar:');
@@ -2699,7 +2700,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
     const r = await borrarDatosConsultasVentaRuta(supabase);
     setLimpiando(false);
     if (!r.ok) return alert(r.error || 'No se pudo limpiar.');
-    setAviso(r.detalle || 'Consultas limpiadas.');
+    setAviso(r.detalle || 'Consultas / ingresos de prueba limpiados.');
     setRows([]);
     setTick((t) => t + 1);
   };
@@ -2879,7 +2880,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
             onClick={() => void limpiarConsultas()}
             title="Borra ingresos, ventas, cargas y créditos. Privilegio: Limpiar consultas."
           >
-            {limpiando ? 'Limpiando…' : 'Limpiar consultas'}
+            {limpiando ? 'Limpiando…' : 'Limpiar ingresos / consultas'}
           </button>
         )}
       </div>

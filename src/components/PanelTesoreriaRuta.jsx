@@ -15,6 +15,8 @@ import {
   signoMovimientoRt,
 } from '../lib/rtCuentas.js';
 import { fmtMonto } from '../lib/consultasUi.js';
+import { borrarDatosPruebaFondoTesoreria } from '../lib/purgaVentaEnRuta.js';
+import { normalizarRol } from '../lib/roles.js';
 
 /**
  * RC/VentaRuta → Tesorería.
@@ -31,8 +33,10 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
   const [gastoMonto, setGastoMonto] = useState('');
   const [gastoDesc, setGastoDesc] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [limpiando, setLimpiando] = useState(false);
 
   const puedeAdmin = puedeAdministrarTesoreria(user);
+  const puedeLimpiarPrueba = normalizarRol(user?.rol) === 'Administrador' || puedeAdmin;
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -107,14 +111,50 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
     }
   };
 
+  const limpiarPrueba = async () => {
+    if (!puedeLimpiarPrueba) return alert('Solo administrador / gerente puede limpiar datos de prueba.');
+    if (!confirm(
+      '¿Borrar datos de prueba de RC Servicios y Tesorería?\n\n'
+      + 'Se eliminan movimientos del ledger RC Servicios y de las cuentas Servicios / Cheche.\n'
+      + 'No se toca mercancía (Francisco).\n\n'
+      + 'Esta acción no se puede deshacer.',
+    )) return;
+    const frase = window.prompt('Escribe LIMPIAR RC SERVICIOS para confirmar:');
+    if (String(frase || '').trim().toUpperCase() !== 'LIMPIAR RC SERVICIOS') {
+      return alert('Cancelado: debes escribir LIMPIAR RC SERVICIOS.');
+    }
+    setLimpiando(true);
+    try {
+      const r = await borrarDatosPruebaFondoTesoreria(supabase);
+      if (!r.ok) return alert(r.error || 'No se pudo limpiar.');
+      alert(r.detalle || 'Datos de prueba limpiados.');
+      await cargar();
+    } finally {
+      setLimpiando(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-        <strong>Tesorería</strong> · Tesorero: <strong>Cheche</strong>.
-        Solo recibe fondos de <strong>pagos de servicio</strong> desde la cuenta{' '}
-        <strong>Servicios</strong> (liquidaciones del Fondo en RC/VentaRuta).
-        No se mezcla con venta / mercancía (Francisco).
-      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <p className="muted" style={{ margin: 0, fontSize: '0.85rem', flex: '1 1 220px' }}>
+          <strong>Tesorería</strong> · Tesorero: <strong>Cheche</strong>.
+          Solo recibe fondos de <strong>pagos de servicio</strong> desde la cuenta{' '}
+          <strong>Servicios</strong> (liquidaciones de RC Servicios).
+          No se mezcla con venta / mercancía (Francisco).
+        </p>
+        {puedeLimpiarPrueba && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ color: '#b91c1c', borderColor: '#fecaca', fontSize: '0.8rem' }}
+            disabled={limpiando || guardando}
+            onClick={() => void limpiarPrueba()}
+          >
+            {limpiando ? 'Limpiando…' : 'Limpiar datos de prueba'}
+          </button>
+        )}
+      </div>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
       )}
