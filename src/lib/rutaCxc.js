@@ -326,7 +326,7 @@ export async function repararTiendaCargosCxcRecoleccion(supabase, { limit = 800 
  * - Reasigna a la tienda correcta
  * - Migra cargos locales (localStorage) que aún existan en tránsito
  */
-export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 800 } = {}) {
+export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', creados: 0, reabiertos: 0, omitidos: 0 };
   const { data, error } = await supabase
     .from('transito_efectivo')
@@ -422,7 +422,7 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 800 }
 }
 
 /** Alias: sincroniza Por Cobrar → CxC (usa restauración completa). */
-export async function sincronizarCreditosRecoleccionACxc(supabase, { limit = 800 } = {}) {
+export async function sincronizarCreditosRecoleccionACxc(supabase, { limit = 1500 } = {}) {
   return restaurarCreditosRecoleccionACxc(supabase, { limit });
 }
 
@@ -450,15 +450,16 @@ export async function marcarCxcPagadoDesdeCobroRecoleccion(supabase, credito, { 
 /** Créditos pendientes para el cajero (filtros folio / fecha / monto). */
 export async function listarCreditosPendientesRuta(supabase, { sucursalId, folio, fechaDesde, fechaHasta, montoMin, montoMax, limit = 200 } = {}) {
   // Trae a CxC todo crédito pendiente del módulo Recolecciones.
+  const limSync = Math.max(200, Math.min(2000, Number(limit) || 1500));
   let sync = null;
   if (supabase) {
     try {
-      sync = await sincronizarCreditosRecoleccionACxc(supabase);
+      sync = await sincronizarCreditosRecoleccionACxc(supabase, { limit: limSync });
     } catch (e) {
       sync = { ok: false, error: e?.message || String(e), creados: 0, omitidos: 0 };
     }
   }
-  const { data, error, aviso } = await listarMovimientosCxc(supabase, { soloPendientes: true, limit: 1000 });
+  const { data, error, aviso } = await listarMovimientosCxc(supabase, { soloPendientes: true, limit: limSync });
   if (error) return { data: [], error, aviso, sync };
   let rows = (data || []).filter(esCargoPendienteCxc);
   if (sucursalId) {
