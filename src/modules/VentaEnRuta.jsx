@@ -2330,6 +2330,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
               ) : null}
             </div>
             <div className="ruta-pos-ticket-body">
+              {/* Fila: input | cámara (cuadrado) | + (mismo tamaño que cámara). El resto = artículos. */}
               <div className="ruta-pos-ticket-scan">
                 <CampoCodigo
                   value={codigo}
@@ -2340,70 +2341,11 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
                   placeholder="Escanear o buscar…"
                   tituloCamara="Escanear producto del camión"
                 />
-              </div>
-              <div className="ruta-pos-ticket-main">
-                <div className="ruta-pos-ticket-lineas">
-                  {carrito.length === 0 ? (
-                    <div className="ruta-pos-ticket-vacio">
-                      <div className="ruta-pos-ticket-vacio-icon" aria-hidden="true">
-                        <Icon name="cart" size={52} />
-                      </div>
-                      <span>Toca un producto o escanea para agregar</span>
-                    </div>
-                  ) : null}
-                  {carrito.map((it) => {
-                    const editando = qtyEditId === it.productoId;
-                    return (
-                      <div key={it.productoId} className="ruta-pos-linea">
-                        <ProductoThumb producto={it} size={40} />
-                        <div className="ruta-pos-linea-info">
-                          <span className="ruta-pos-linea-nombre">{it.nombre}</span>
-                          <span className="ruta-pos-linea-unit">{fmtMonto(it.precio)} c/u</span>
-                          <div className={`ventas-qty${editando ? ' ventas-qty--open' : ''}`}>
-                            {editando ? (
-                              <>
-                                <button type="button" className="ventas-qty__btn" aria-label="Quitar uno" onClick={() => ajustarQty(it.productoId, -1)}>−</button>
-                                <input
-                                  className="ventas-qty__valor ventas-qty__valor--activo"
-                                  style={{ width: 42, textAlign: 'center', border: 'none', background: 'transparent' }}
-                                  value={it.cantidad}
-                                  onChange={(e) => setQtyManual(it.productoId, e.target.value)}
-                                  onBlur={() => setQtyEditId(null)}
-                                  inputMode="numeric"
-                                />
-                                <button type="button" className="ventas-qty__btn" aria-label="Agregar uno" onClick={() => ajustarQty(it.productoId, 1)}>+</button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                className="ventas-qty__valor"
-                                onClick={() => setQtyEditId(it.productoId)}
-                                title="Cambiar cantidad"
-                              >
-                                {it.cantidad}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="ruta-pos-linea-right">
-                          <b className="ruta-pos-linea-importe">{fmtMonto(it.precio * it.cantidad)}</b>
-                          <button
-                            type="button"
-                            className="btn btn-ghost ruta-pos-linea-quitar"
-                            onClick={() => setCarrito((p) => p.filter((x) => x.productoId !== it.productoId))}
-                          >
-                            Quitar
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
                 <button
                   type="button"
                   className="ruta-pos-ticket-add"
                   aria-label="Agregar producto"
-                  title={String(codigo || '').trim() ? 'Agregar código al carrito' : 'Ir al catálogo / escanear'}
+                  title={String(codigo || '').trim() ? 'Agregar código al carrito' : 'Ir al catálogo'}
                   onClick={() => {
                     if (String(codigo || '').trim()) {
                       scanAgregar();
@@ -2419,6 +2361,63 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
                 >
                   +
                 </button>
+              </div>
+              <div className="ruta-pos-ticket-lineas">
+                {carrito.length === 0 ? (
+                  <div className="ruta-pos-ticket-vacio">
+                    <div className="ruta-pos-ticket-vacio-icon" aria-hidden="true">
+                      <Icon name="cart" size={52} />
+                    </div>
+                    <span>Toca un producto o escanea para agregar</span>
+                  </div>
+                ) : null}
+                {carrito.map((it) => {
+                  const editando = qtyEditId === it.productoId;
+                  return (
+                    <div key={it.productoId} className="ruta-pos-linea">
+                      <ProductoThumb producto={it} size={40} />
+                      <div className="ruta-pos-linea-info">
+                        <span className="ruta-pos-linea-nombre">{it.nombre}</span>
+                        <span className="ruta-pos-linea-unit">{fmtMonto(it.precio)} c/u</span>
+                        <div className={`ventas-qty${editando ? ' ventas-qty--open' : ''}`}>
+                          {editando ? (
+                            <>
+                              <button type="button" className="ventas-qty__btn" aria-label="Quitar uno" onClick={() => ajustarQty(it.productoId, -1)}>−</button>
+                              <input
+                                className="ventas-qty__valor ventas-qty__valor--activo"
+                                style={{ width: 42, textAlign: 'center', border: 'none', background: 'transparent' }}
+                                value={it.cantidad}
+                                onChange={(e) => setQtyManual(it.productoId, e.target.value)}
+                                onBlur={() => setQtyEditId(null)}
+                                inputMode="numeric"
+                              />
+                              <button type="button" className="ventas-qty__btn" aria-label="Agregar uno" onClick={() => ajustarQty(it.productoId, 1)}>+</button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="ventas-qty__valor"
+                              onClick={() => setQtyEditId(it.productoId)}
+                              title="Cambiar cantidad"
+                            >
+                              {it.cantidad}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="ruta-pos-linea-right">
+                        <b className="ruta-pos-linea-importe">{fmtMonto(it.precio * it.cantidad)}</b>
+                        <button
+                          type="button"
+                          className="btn btn-ghost ruta-pos-linea-quitar"
+                          onClick={() => setCarrito((p) => p.filter((x) => x.productoId !== it.productoId))}
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="ruta-pos-ticket-foot">
                 <div className="ruta-pos-total">

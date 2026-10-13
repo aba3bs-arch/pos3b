@@ -528,8 +528,12 @@
   gap: 0.65rem;
 }
 
-/* Fila escanear (misma en PC y celular) */
+/*
+ * Fila: [input escáner flex] [cámara 44×44] [+ 44×44]
+ * Cámara y + son del mismo tamaño; el resto del carrito = artículos.
+ */
 .ruta-pos-ticket-scan {
+  --ruta-pos-scan-btn: 44px;
   flex: 0 0 auto;
   display: flex;
   align-items: stretch;
@@ -549,33 +553,31 @@
 .ruta-pos-ticket-scan .input {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 44px;
+  height: var(--ruta-pos-scan-btn);
+  min-height: var(--ruta-pos-scan-btn);
   border-radius: 12px;
   font-size: 16px;
 }
 
-.ruta-pos-ticket-scan .btn,
-.ruta-pos-ticket-scan button[type='button'] {
-  flex: 0 0 auto;
-  min-width: 44px;
-  min-height: 44px;
+/* Cámara (CampoCodigo) y botón + : mismo cuadrado */
+.ruta-pos-ticket-scan .btn-camera--icon,
+.ruta-pos-ticket-scan .ruta-pos-ticket-add {
+  flex: 0 0 var(--ruta-pos-scan-btn);
+  width: var(--ruta-pos-scan-btn);
+  height: var(--ruta-pos-scan-btn);
+  min-width: var(--ruta-pos-scan-btn);
+  min-height: var(--ruta-pos-scan-btn);
+  max-width: var(--ruta-pos-scan-btn);
+  max-height: var(--ruta-pos-scan-btn);
+  padding: 0 !important;
   border-radius: 12px !important;
-}
-
-/* Zona líneas + botón + vertical (proporción clave PC/móvil) */
-.ruta-pos-ticket-main {
-  flex: 1 1 auto;
-  min-height: 220px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 52px;
-  gap: 0.55rem;
-  align-items: stretch;
+  box-sizing: border-box;
 }
 
 .ruta-pos-ticket-lineas {
   flex: 1 1 auto;
   overflow: auto;
-  min-height: 0;
+  min-height: 220px;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -583,31 +585,28 @@
 }
 
 .ruta-pos-ticket-add {
-  flex: 0 0 auto;
-  align-self: stretch;
-  width: 52px;
-  min-height: 100%;
   margin: 0;
-  padding: 0;
   border: none;
-  border-radius: 16px;
   background: linear-gradient(180deg, #2563eb, #1d4ed8);
   color: #fff;
-  font-size: 1.85rem;
+  font-size: 1.45rem;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.32);
   transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
 }
 
 .ruta-pos-ticket-add:hover {
   filter: brightness(1.05);
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.42);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
 }
 
 .ruta-pos-ticket-add:active {
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 .ruta-pos-ticket-vacio {
@@ -832,7 +831,7 @@
     padding: 0.5rem 0.85rem;
   }
 
-  /* Carrito primero, mismas proporciones que en PC */
+  /* Carrito primero; fila scan = input + cámara 44 + 44; resto artículos */
   .ruta-pos-ticket {
     order: -1;
     max-height: none;
@@ -843,20 +842,13 @@
     min-height: 50vh;
   }
 
-  .ruta-pos-ticket-main {
-    min-height: 34vh;
-    grid-template-columns: minmax(0, 1fr) 56px;
-  }
-
-  .ruta-pos-ticket-add {
-    width: 56px;
-    border-radius: 18px;
-    font-size: 2rem;
+  .ruta-pos-ticket-scan {
+    --ruta-pos-scan-btn: 44px;
   }
 
   .ruta-pos-ticket-lineas {
     max-height: none;
-    min-height: 30vh;
+    min-height: 34vh;
   }
 
   .ruta-pos-ticket-vacio {
