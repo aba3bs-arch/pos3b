@@ -28,6 +28,7 @@ import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInvent
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import SelectorCalendario from './SelectorCalendario.jsx';
 import DetalleTiendasLiquidacion from './DetalleTiendasLiquidacion.jsx';
+import PanelFondoServicios from './PanelFondoServicios.jsx';
 
 function CheckIndeterminado({ checked, indeterminate, onChange, ...rest }) {
   const ref = useRef(null);
@@ -72,6 +73,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [cuentaRtServicios, setCuentaRtServicios] = useState('andres');
 
   const esHistorial = modoConsulta === 'historial';
+  const esFondo = modoConsulta === 'fondo';
   const diaDe = esHistorial ? 'liquidacion' : 'recoleccion';
   const fechaLiquidacion = useMemo(() => fmtFechaClave(fechaSellado), [fechaSellado]);
   const repNombre = useMemo(() => repartidores.find((r) => r.id === repLiq)?.nombre || '', [repartidores, repLiq]);
@@ -285,7 +287,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
         <button
           type="button"
-          className={`btn ${!esHistorial ? 'btn-primary' : 'btn-ghost'}`}
+          className={`btn ${modoConsulta === 'pendiente' ? 'btn-primary' : 'btn-ghost'}`}
           style={{ fontSize: '0.85rem' }}
           onClick={() => cambiarModoConsulta('pendiente')}
         >
@@ -299,11 +301,21 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         >
           Liquidaciones pasadas
         </button>
+        <button
+          type="button"
+          className={`btn ${esFondo ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.85rem' }}
+          onClick={() => cambiarModoConsulta('fondo')}
+        >
+          Fondo
+        </button>
       </div>
 
-      {error && <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem' }}>{error}</p>}
+      {esFondo && <PanelFondoServicios supabase={supabase} user={user} />}
 
-      {alertas.length > 0 && !esHistorial && (
+      {error && !esFondo && <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem' }}>{error}</p>}
+
+      {!esFondo && alertas.length > 0 && !esHistorial && (
         <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '10px', background: 'rgba(225,153,41,0.12)', border: '1px solid rgba(225,153,41,0.35)' }}>
           <strong>Alertas de recolección ({alertas.length})</strong>
           {alertas.map((a) => (
@@ -319,6 +331,8 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         </div>
       )}
 
+      {!esFondo && (
+      <>
       <div className="grid-2" style={{ gap: '0.75rem' }}>
         <label className="muted" style={{ display: 'block' }}>
           Recolector a liquidar
@@ -668,6 +682,8 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           </button>
           )}
         </>
+      )}
+      </>
       )}
     </>
   );

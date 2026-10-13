@@ -143,6 +143,7 @@ import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
+import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
 import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
 import ReleaseAvisoOverlay from './components/ReleaseAvisoOverlay.jsx';
@@ -2000,6 +2001,13 @@ function App() {
             user={user}
             sucursal={sucursal}
             onIrCubreTurnos={() => irAModulo('Checador', { pestana: 'cubre' })}
+          />
+        ) : null}
+        {user && !user.esCtMovil ? (
+          <AlertaFondoServicioOverlay
+            supabase={supabase}
+            user={user}
+            sucursal={sucursal}
           />
         ) : null}
         {user && !user.esCtMovil ? (
