@@ -131,9 +131,60 @@ export function esCargoDesdeRecoleccion(cargo) {
   return Boolean(transitoIdDesdeCargoRecoleccion(cargo));
 }
 
+/** ¿El tránsito sigue siendo crédito por cobrar en Recolecciones? */
+async function transitoSiguePorCobrar(supabase, transitoId) {
+  if (!supabase || !transitoId) return false;
+  const { data, error } = await supabase
+    .from('transito_efectivo')
+    .select('id, estatus, tipo_movimiento')
+    .eq('id', transitoId)
+    .maybeSingle();
+  if (error || !data) return false;
+  return data.estatus === 'Por Cobrar' && data.tipo_movimiento === 'Entrega Crédito';
+}
+
+/**
+ * Si el CxC quedó «pagado» pero el folio sigue Por Cobrar en Recolecciones, lo reabre.
+ * Así no se pierden créditos al sincronizar / restaurar.
+ */
+async function reabrirCargoCxcSiSiguePorCobrar(supabase, cargo, { transitoId, suc, monto } = {}) {
+  if (!supabase || !cargo?.id) return { reabierto: false, cargo };
+  const marcadoPagado = Boolean(cargo.pagado_at)
+    || String(cargo.estatus || '').toLowerCase() === 'pagado';
+  if (!marcadoPagado) return { reabierto: false, cargo };
+  const sigue = await transitoSiguePorCobrar(supabase, transitoId);
+  if (!sigue) return { reabierto: false, cargo, yaPagadoReal: true };
+
+  const nombreOk = etiquetaTienda(suc) || suc;
+  const patch = {
+    estatus: 'pendiente',
+    pagado_por: null,
+    pagado_at: null,
+    gasto_id: null,
+    cliente_tipo: 'sucursal',
+    cliente_id: suc || cargo.cliente_id,
+    cliente_nombre: nombreOk || cargo.cliente_nombre,
+  };
+  if (monto != null && Number(monto) > 0) patch.monto = round2(monto);
+
+  let { error } = await supabase.from('ruta_cxc_movimientos').update(patch).eq('id', cargo.id);
+  if (error && /estatus|pagado|gasto_id|cliente_/i.test(String(error.message || ''))) {
+    // Sin columnas nuevas: al menos quitar pagado_at si existe.
+    const slim = { cliente_tipo: 'sucursal', cliente_id: suc || cargo.cliente_id, cliente_nombre: nombreOk };
+    if (monto != null && Number(monto) > 0) slim.monto = round2(monto);
+    ({ error } = await supabase.from('ruta_cxc_movimientos').update(slim).eq('id', cargo.id));
+  }
+  if (error) return { reabierto: false, cargo, error: error.message };
+  return {
+    reabierto: true,
+    cargo: { ...cargo, ...patch, pagado_at: null, estatus: 'pendiente' },
+  };
+}
+
 /**
  * Crea (si falta) el cargo CxC de un crédito «Entrega Crédito / Por Cobrar» de Recolecciones.
  * Así todos esos créditos aparecen en Venta en Ruta → Créditos por pagar.
+ * Si el CxC estaba «pagado» pero el tránsito sigue Por Cobrar, lo restaura a pendiente.
  */
 export async function asegurarCargoCxcDesdeRecoleccion(supabase, credito) {
   if (!supabase || !credito?.id) return { ok: false, error: 'Crédito inválido.' };
@@ -143,9 +194,34 @@ export async function asegurarCargoCxcDesdeRecoleccion(supabase, credito) {
   const suc = normalizarCodigoTienda(credito.sucursal_origen) || String(credito.sucursal_origen || '').trim();
   if (!suc) return { ok: false, error: 'Tienda inválida.' };
 
+  const resolverExistente = async (hit) => {
+    if (!hit) return null;
+    await asegurarTiendaCargoCxc(supabase, hit, suc);
+    const reopen = await reabrirCargoCxcSiSiguePorCobrar(supabase, hit, {
+      transitoId,
+      suc,
+      monto: credito.monto,
+    });
+    if (reopen.yaPagadoReal) {
+      return { ok: true, data: reopen.cargo, yaExistia: true, yaPagado: true };
+    }
+    return {
+      ok: true,
+      data: {
+        ...reopen.cargo,
+        cliente_id: suc,
+        cliente_nombre: etiquetaTienda(suc) || suc,
+        estatus: 'pendiente',
+        pagado_at: null,
+      },
+      yaExistia: true,
+      reabierto: Boolean(reopen.reabierto),
+    };
+  };
+
   const { data: existentes, error: eEx } = await supabase
     .from('ruta_cxc_movimientos')
-    .select('id, estatus, tipo, carga_id')
+    .select('id, estatus, tipo, carga_id, pagado_at, cliente_id, cliente_nombre, monto')
     .eq('carga_id', cargaId)
     .eq('tipo', 'cargo')
     .limit(5);
@@ -154,36 +230,29 @@ export async function asegurarCargoCxcDesdeRecoleccion(supabase, credito) {
   if (eEx && (/carga_id/i.test(String(eEx.message || '')) || errorColumnaCxc(eEx))) {
     const { data: allPend, error: eAll } = await supabase
       .from('ruta_cxc_movimientos')
-      .select('id, notas, estatus, tipo, pagado_at')
+      .select('id, notas, estatus, tipo, pagado_at, cliente_id, cliente_nombre, monto')
       .eq('tipo', 'cargo')
-      .limit(1200);
+      .limit(2000);
     if (!eAll) {
       const hit = (allPend || []).find(
         (m) => String(m.notas || '').includes(`transito:${transitoId}`),
       );
-      if (hit) {
-        await asegurarTiendaCargoCxc(supabase, hit, suc);
-        const est = String(hit.estatus || (hit.pagado_at ? 'pagado' : 'pendiente'));
-        if (est === 'pagado' || hit.pagado_at) {
-          return { ok: true, data: { ...hit, cliente_id: suc }, yaExistia: true, yaPagado: true };
-        }
-        return { ok: true, data: { ...hit, cliente_id: suc, cliente_nombre: etiquetaTienda(suc) || suc }, yaExistia: true };
-      }
+      const res = await resolverExistente(hit);
+      if (res) return res;
     }
   } else if (eEx && faltaTabla(eEx)) {
     // Tabla realmente ausente: registrarCargo hará fallback local si aplica.
   } else if (eEx) {
     return { ok: false, error: eEx.message };
-  } else {
-    const pend = (existentes || []).find((m) => String(m.estatus || 'pendiente') === 'pendiente');
+  } else if (existentes?.length) {
+    const pend = existentes.find((m) => esCargoPendienteCxc(m));
     if (pend) {
-      await asegurarTiendaCargoCxc(supabase, pend, suc);
-      return { ok: true, data: { ...pend, cliente_id: suc, cliente_nombre: etiquetaTienda(suc) || suc }, yaExistia: true };
+      const res = await resolverExistente(pend);
+      if (res) return res;
     }
-    const cualquiera = (existentes || [])[0];
-    if (cualquiera && String(cualquiera.estatus || '') === 'pagado') {
-      return { ok: true, data: cualquiera, yaExistia: true, yaPagado: true };
-    }
+    const cualquiera = existentes[0];
+    const res = await resolverExistente(cualquiera);
+    if (res) return res;
   }
 
   // Siempre una cuenta CxC por tienda de origen (nunca mezclar sucursales).
@@ -250,37 +319,111 @@ export async function repararTiendaCargosCxcRecoleccion(supabase, { limit = 800 
   return { ok: true, corregidos };
 }
 
-/** Sincroniza todos los «Por Cobrar» de Recolecciones hacia CxC pendientes. */
-export async function sincronizarCreditosRecoleccionACxc(supabase, { limit = 400 } = {}) {
-  if (!supabase) return { ok: true, creados: 0, omitidos: 0, corregidos: 0 };
+/**
+ * Restaura / sincroniza todos los «Por Cobrar» de Recolecciones → CxC pendientes.
+ * - Crea cargos faltantes
+ * - Reabre cargos marcados pagado si el tránsito sigue Por Cobrar
+ * - Reasigna a la tienda correcta
+ * - Migra cargos locales (localStorage) que aún existan en tránsito
+ */
+export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 800 } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', creados: 0, reabiertos: 0, omitidos: 0 };
   const { data, error } = await supabase
     .from('transito_efectivo')
-    .select('id, num_traspaso, monto, cajero_nombre, fecha_hora, sucursal_origen, repartidor_id')
+    .select('id, num_traspaso, monto, cajero_nombre, fecha_hora, sucursal_origen, repartidor_id, estatus, tipo_movimiento')
     .eq('estatus', 'Por Cobrar')
     .eq('tipo_movimiento', 'Entrega Crédito')
     .order('fecha_hora', { ascending: true })
     .limit(limit);
   if (error) {
-    if (error.code === '42P01') return { ok: true, creados: 0, omitidos: 0, corregidos: 0 };
-    return { ok: false, error: error.message, creados: 0, omitidos: 0, corregidos: 0 };
+    if (error.code === '42P01') {
+      return { ok: false, error: 'Falta tabla transito_efectivo.', creados: 0, reabiertos: 0, omitidos: 0 };
+    }
+    return { ok: false, error: error.message, creados: 0, reabiertos: 0, omitidos: 0 };
   }
+
   let creados = 0;
+  let reabiertos = 0;
   let omitidos = 0;
+  const porTienda = {};
+  const errores = [];
+
   for (const row of data || []) {
     const r = await asegurarCargoCxcDesdeRecoleccion(supabase, row);
-    if (!r.ok) continue;
-    if (r.yaExistia || r.yaPagado) omitidos += 1;
+    if (!r.ok) {
+      errores.push(r.error || `Folio ${row.num_traspaso}`);
+      continue;
+    }
+    const suc = normalizarCodigoTienda(row.sucursal_origen) || String(row.sucursal_origen || '—');
+    if (!porTienda[suc]) porTienda[suc] = { tienda: suc, count: 0, monto: 0 };
+    porTienda[suc].count += 1;
+    porTienda[suc].monto = round2(porTienda[suc].monto + (Number(row.monto) || 0));
+
+    if (r.reabierto) reabiertos += 1;
+    else if (r.yaPagado) omitidos += 1;
+    else if (r.yaExistia) omitidos += 1;
     else creados += 1;
   }
-  // Reasigna por tienda cargos que hayan quedado mal (una sola cuenta).
+
+  // Migrar localStorage → DB si el tránsito sigue Por Cobrar.
+  let migradosLocal = 0;
+  try {
+    const locales = leerLocal().filter(
+      (m) => m.tipo === 'cargo' && esCargoPendienteCxc(m) && esCargoDesdeRecoleccion(m),
+    );
+    for (const loc of locales) {
+      const tid = transitoIdDesdeCargoRecoleccion(loc);
+      if (!tid) continue;
+      const sigue = await transitoSiguePorCobrar(supabase, tid);
+      if (!sigue) continue;
+      const { data: tr } = await supabase
+        .from('transito_efectivo')
+        .select('id, num_traspaso, monto, cajero_nombre, sucursal_origen, estatus, tipo_movimiento')
+        .eq('id', tid)
+        .maybeSingle();
+      if (!tr) continue;
+      const r = await asegurarCargoCxcDesdeRecoleccion(supabase, tr);
+      if (r.ok && !r.yaExistia && !r.yaPagado) {
+        migradosLocal += 1;
+        creados += 1;
+      } else if (r.ok && r.reabierto) {
+        migradosLocal += 1;
+        reabiertos += 1;
+      }
+    }
+    // Quitar del local los que ya están en DB (evita doble conteo en fallback).
+    if (locales.length) {
+      const idsLocal = new Set(locales.map((m) => String(m.id)));
+      guardarLocal(leerLocal().filter((m) => !idsLocal.has(String(m.id))));
+    }
+  } catch {
+    /* ignore */
+  }
+
   let corregidos = 0;
   try {
-    const rep = await repararTiendaCargosCxcRecoleccion(supabase);
+    const rep = await repararTiendaCargosCxcRecoleccion(supabase, { limit });
     corregidos = rep.corregidos || 0;
   } catch {
     /* no bloquear */
   }
-  return { ok: true, creados, omitidos, corregidos, revisados: (data || []).length };
+
+  return {
+    ok: true,
+    creados,
+    reabiertos,
+    omitidos,
+    migradosLocal,
+    corregidos,
+    revisados: (data || []).length,
+    porTienda: Object.values(porTienda).sort((a, b) => String(a.tienda).localeCompare(String(b.tienda), 'es')),
+    errores: errores.slice(0, 5),
+  };
+}
+
+/** Alias: sincroniza Por Cobrar → CxC (usa restauración completa). */
+export async function sincronizarCreditosRecoleccionACxc(supabase, { limit = 800 } = {}) {
+  return restaurarCreditosRecoleccionACxc(supabase, { limit });
 }
 
 /** Marca CxC pagado cuando el cobro se hizo desde Recolecciones (Cobrar crédito). */
