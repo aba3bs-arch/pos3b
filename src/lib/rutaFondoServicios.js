@@ -424,6 +424,7 @@ export async function liquidarFondoACuentaRt(supabase, {
       repartidorNombre: null,
       notas,
       movimientoIds: [],
+      tipoPartida: 'servicios',
     });
     if (!acred.ok) return acred;
 

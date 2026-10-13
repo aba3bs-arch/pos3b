@@ -22,7 +22,6 @@ import {
 import {
   CUENTA_RT_SERVICIOS_ID,
   CUENTAS_RT_LIQUIDACION,
-  CUENTAS_RT_LIQUIDACION_SERVICIOS,
   cuentaRtMercanciaPorDefecto,
   etiquetaCuentaRt,
 } from '../lib/rtCuentas.js';
@@ -73,7 +72,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [filtroHasta, setFiltroHasta] = useState('');
   const [fechaSellado, setFechaSellado] = useState(() => hoyClaveNogales());
   const [cuentaRtMercancia, setCuentaRtMercancia] = useState(() => cuentaRtMercanciaPorDefecto(user?.nombre));
-  const [cuentaRtServicios, setCuentaRtServicios] = useState(CUENTA_RT_SERVICIOS_ID);
+  const cuentaRtServicios = CUENTA_RT_SERVICIOS_ID;
 
   const esHistorial = modoConsulta === 'historial';
   const esFondo = modoConsulta === 'fondo';
@@ -392,16 +391,16 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               </span>
             </label>
             <label className="muted" style={{ display: 'block' }}>
-              Cuenta RT — Servicios (CFE, etc.)
-              <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtServicios} onChange={(e) => setCuentaRtServicios(e.target.value)}>
-                {CUENTAS_RT_LIQUIDACION_SERVICIOS.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre}
-                  </option>
-                ))}
-              </select>
+              Cuenta RT — Servicios (solo recolección CFE/etc.)
+              <input
+                className="input"
+                style={{ marginTop: '0.35rem' }}
+                value={etiquetaCuentaRt(CUENTA_RT_SERVICIOS_ID)}
+                readOnly
+                disabled
+              />
               <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
-                Cobros de servicios. Van a la cuenta Servicios; de ahí se transfieren a Tesorería.
+                Solo cobros de servicio. No se mezcla con mercancía. De aquí se transfieren a Tesorería (Cheche).
               </span>
             </label>
           </div>
