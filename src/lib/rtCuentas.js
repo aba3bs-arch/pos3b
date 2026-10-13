@@ -6,14 +6,21 @@ export const AVISO_FALTA_TABLA_RT_CUENTAS =
   'Ejecuta en Supabase: supabase/fix_rt_cuentas.sql para crear las cuentas RT.';
 
 export const CUENTAS_RT = [
-  { id: 'francisco', nombre: 'Francisco', patrones: ['francisco', 'fjbb'] },
+  { id: 'francisco', nombre: 'Francisco (FJBB)', patrones: ['francisco', 'fjbb'] },
   { id: 'andres', nombre: 'Andrés', patrones: ['andres', 'andrés', 'amr'] },
   { id: 'abb', nombre: 'ABB', patrones: ['abb', 'antonio'] },
   { id: 'jlbb', nombre: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
   { id: 'luis-enrique', nombre: 'Luis Enrique', patrones: ['luis enrique'] },
+  { id: 'cheche', nombre: 'Cheche (Tesorería)', patrones: ['cheche', 'tesoreria', 'tesorería'] },
 ];
 
 export const CUENTA_RT_ABB_ID = 'abb';
+
+/** Tesorería RC/VentaRuta: recibe fondos de servicios. Tesorero Cheche · admin JLBB. */
+export const CUENTA_TESORERIA_ID = 'cheche';
+export const ADMIN_TESORERIA_CUENTA_ID = 'jlbb';
+/** Cuentas que pueden enviar fondos de servicios a Tesorería. */
+export const CUENTAS_ORIGEN_TESORERIA = ['francisco', 'abb', 'jlbb'];
 
 export const PRESETS_RT_CUENTAS = [
   { id: 'hoy', label: 'Hoy' },
@@ -526,4 +533,91 @@ export function rangoDesdePresetRt(preset) {
   }
   if (preset === 'anual') return { desde: toYmd(new Date(hoy.getFullYear(), 0, 1)), hasta };
   return null;
+}
+
+/** Asegura que exista la cuenta Cheche (Tesorería) en rt_cuentas. */
+export async function asegurarCuentaTesoreria(supabase) {
+  if (!supabase) return { ok: true, cuentaId: CUENTA_TESORERIA_ID };
+  const { error } = await supabase.from('rt_cuentas').upsert(
+    { id: CUENTA_TESORERIA_ID, nombre: 'Cheche (Tesorería)', activo: true },
+    { onConflict: 'id' },
+  );
+  if (error) {
+    if (esErrorTablaRtCuentas(error)) return { ok: false, error: AVISO_FALTA_TABLA_RT_CUENTAS };
+    return { ok: false, error: error.message };
+  }
+  // También asegura origenes comunes por si faltan en BD.
+  for (const id of CUENTAS_ORIGEN_TESORERIA) {
+    const meta = CUENTAS_RT.find((c) => c.id === id);
+    if (!meta) continue;
+    await supabase.from('rt_cuentas').upsert(
+      { id, nombre: meta.nombre, activo: true },
+      { onConflict: 'id' },
+    );
+  }
+  return { ok: true, cuentaId: CUENTA_TESORERIA_ID };
+}
+
+export function puedeAdministrarTesoreria(user) {
+  const rol = String(user?.rol || '').toLowerCase();
+  if (rol.includes('admin') || rol.includes('gerente')) return true;
+  const cuenta = resolverCuentaRtPorNombre(user?.nombre);
+  return cuenta === ADMIN_TESORERIA_CUENTA_ID || cuenta === CUENTA_TESORERIA_ID;
+}
+
+/**
+ * Envía fondos de servicios desde ABB / JLBB / FJBB (Francisco) → Tesorería (Cheche).
+ * Separado de la liquidación de mercancía.
+ */
+export async function enviarFondosServiciosATesoreria(supabase, {
+  desdeId,
+  monto,
+  usuarioNombre = null,
+  notas = '',
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const origen = String(desdeId || '').trim();
+  if (!CUENTAS_ORIGEN_TESORERIA.includes(origen)) {
+    return { ok: false, error: 'Origen inválido. Solo ABB, JLBB o FJBB (Francisco).' };
+  }
+  const ensure = await asegurarCuentaTesoreria(supabase);
+  if (!ensure.ok) return ensure;
+
+  const detalle = String(notas || '').trim()
+    || `Fondos servicios → Tesorería Cheche (desde ${etiquetaCuentaRt(origen)})`;
+
+  return transferirEntreCuentasRt(supabase, {
+    desdeId: origen,
+    haciaId: CUENTA_TESORERIA_ID,
+    monto,
+    usuarioNombre,
+    notas: detalle,
+  });
+}
+
+export async function saldoTesoreria(supabase) {
+  const ensure = await asegurarCuentaTesoreria(supabase);
+  if (!ensure.ok) return { saldo: 0, error: ensure.error };
+  const { saldos, error } = await calcularSaldosRt(supabase);
+  if (error) return { saldo: 0, error };
+  return { saldo: Math.round((Number(saldos[CUENTA_TESORERIA_ID]) || 0) * 100) / 100 };
+}
+
+export async function listarMovimientosTesoreria(supabase, opts = {}) {
+  const ensure = await asegurarCuentaTesoreria(supabase);
+  if (!ensure.ok) return { data: [], error: ensure.error };
+  return listarMovimientosCuentaRt(supabase, CUENTA_TESORERIA_ID, opts);
+}
+
+/** Saldos disponibles en cuentas origen (ABB / JLBB / FJBB) para enviar a Tesorería. */
+export async function saldosOrigenTesoreria(supabase) {
+  const { saldos, error } = await calcularSaldosRt(supabase);
+  if (error) return { data: [], error };
+  return {
+    data: CUENTAS_ORIGEN_TESORERIA.map((id) => ({
+      id,
+      nombre: etiquetaCuentaRt(id),
+      saldo: Math.round((Number(saldos[id]) || 0) * 100) / 100,
+    })),
+  };
 }
