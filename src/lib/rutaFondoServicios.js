@@ -10,8 +10,9 @@ import { listarServiciosCobro } from './controlEfectivo.js';
 import { verificarPinCajero } from './rutaCxc.js';
 import {
   acreditarLiquidacionCuentaRt,
-  ADMIN_TESORERIA_CUENTA_ID,
-  CUENTAS_RT_LIQUIDACION,
+  asegurarCuentaServicios,
+  CUENTA_RT_SERVICIOS_ID,
+  CUENTAS_RT_LIQUIDACION_SERVICIOS,
   etiquetaCuentaRt,
 } from './rtCuentas.js';
 import {
@@ -20,9 +21,9 @@ import {
   TIPOS_NOTIF,
 } from './contabilidadNotificaciones.js';
 
-export { CUENTAS_RT_LIQUIDACION as CUENTAS_RT };
-/** Fondo de servicios liquida hacia JLBB (luego Tesorería Cheche). */
-export const CUENTA_RT_FONDO_DEFAULT = ADMIN_TESORERIA_CUENTA_ID;
+export { CUENTAS_RT_LIQUIDACION_SERVICIOS as CUENTAS_RT };
+/** Fondo de servicios liquida hacia la cuenta RT Servicios (luego → Tesorería Cheche). */
+export const CUENTA_RT_FONDO_DEFAULT = CUENTA_RT_SERVICIOS_ID;
 
 export const AVISO_FALTA_FONDO =
   'Faltan tablas de Fondo servicios. En Supabase ejecuta supabase/fix_ruta_fondo_servicios.sql';
@@ -361,9 +362,9 @@ export async function retirarFondoServicio(supabase, {
 }
 
 /**
- * Liquida saldo del Fondo (servicios) a una cuenta RT de administrador.
- * Separado de la liquidación de mercancía / venta en ruta.
- * Default: Francisco.
+ * Liquida saldo del Fondo (servicios) a la cuenta RT Servicios.
+ * Separado de la liquidación de mercancía (Francisco).
+ * Desde Servicios se transfieren fondos a Tesorería (Cheche).
  */
 export async function liquidarFondoACuentaRt(supabase, {
   servicioClave = null,
@@ -374,9 +375,11 @@ export async function liquidarFondoACuentaRt(supabase, {
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const cuentaId = String(cuentaRtId || CUENTA_RT_FONDO_DEFAULT).trim() || CUENTA_RT_FONDO_DEFAULT;
-  if (!CUENTAS_RT_LIQUIDACION.some((c) => c.id === cuentaId)) {
-    return { ok: false, error: 'Cuenta de administrador inválida.' };
+  if (!CUENTAS_RT_LIQUIDACION_SERVICIOS.some((c) => c.id === cuentaId)) {
+    return { ok: false, error: 'Las liquidaciones de servicios solo van a la cuenta Servicios.' };
   }
+  const ensure = await asegurarCuentaServicios(supabase);
+  if (!ensure.ok) return ensure;
 
   const movs = await listarMovimientosFondo(supabase, { limit: 2000 });
   if (movs.aviso) return { ok: false, error: movs.aviso, aviso: movs.aviso };

@@ -2,20 +2,26 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { listarServiciosCobroAdmin } from '../lib/controlEfectivo.js';
 import {
   CUENTA_RT_FONDO_DEFAULT,
-  CUENTAS_RT,
   liquidarFondoACuentaRt,
   listarMovimientosFondo,
   resumirFondoPorServicio,
   totalesFondo,
 } from '../lib/rutaFondoServicios.js';
-import { CUENTAS_RT_LIQUIDACION, etiquetaCuentaRt } from '../lib/rtCuentas.js';
+import {
+  CUENTA_RT_SERVICIOS_ID,
+  asegurarCuentaServicios,
+  enviarFondosServiciosATesoreria,
+  etiquetaCuentaRt,
+  puedeAdministrarTesoreria,
+  saldosOrigenTesoreria,
+} from '../lib/rtCuentas.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 /**
- * RC/VentaRuta → pestaña Fondo: cobros de servicio y liquidación a cuenta admin.
- * Separado de la liquidación de mercancía / venta.
- * Los egresos/pagos del proveedor se manejan en Tesorería (Cheche), no aquí.
+ * RC/VentaRuta → pestaña Fondo: cobros de servicio y liquidación a cuenta Servicios.
+ * Separado de la liquidación de mercancía / venta (Francisco).
+ * Desde Servicios se transfieren fondos a Tesorería (Cheche).
  */
 export default function PanelFondoServicios({ supabase, user }) {
   const [servicios, setServicios] = useState([]);
@@ -24,19 +30,30 @@ export default function PanelFondoServicios({ supabase, user }) {
   const [aviso, setAviso] = useState('');
   const [liqClave, setLiqClave] = useState(''); // '' = todos con saldo
   const [liqMonto, setLiqMonto] = useState('');
-  const [liqCuenta, setLiqCuenta] = useState(CUENTA_RT_FONDO_DEFAULT);
+  const [saldoServicios, setSaldoServicios] = useState(0);
+  const [montoTesoreria, setMontoTesoreria] = useState('');
+  const [notaTesoreria, setNotaTesoreria] = useState('');
   const [guardando, setGuardando] = useState(false);
+
+  const liqCuenta = CUENTA_RT_FONDO_DEFAULT;
+  const puedeTesoreria = puedeAdministrarTesoreria(user);
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
-    const [srvs, movs] = await Promise.all([
+    await asegurarCuentaServicios(supabase);
+    const [srvs, movs, origen] = await Promise.all([
       listarServiciosCobroAdmin(supabase),
       listarMovimientosFondo(supabase, { limit: 300 }),
+      saldosOrigenTesoreria(supabase),
     ]);
     setServicios(srvs || []);
     if (movs.aviso) setAviso(movs.aviso);
     if (movs.error) setAviso(movs.error);
     setMovimientos(movs.data || []);
+    const srv = (origen.data || []).find((x) => x.id === CUENTA_RT_SERVICIOS_ID);
+    const saldo = srv?.saldo || 0;
+    setSaldoServicios(saldo);
+    setMontoTesoreria(saldo > 0 ? String(saldo) : '');
   }, [supabase]);
 
   useEffect(() => {
@@ -78,9 +95,9 @@ export default function PanelFondoServicios({ supabase, user }) {
       ? `${liqClave} · ${fmtMonto(liqMonto)}`
       : `todos los servicios con saldo · ${fmtMonto(totales.saldo)}`;
     if (!confirm(
-      `¿Liquidar Fondo de servicios a la cuenta de ${cuentaNom}?\n\n`
+      `¿Liquidar Fondo de servicios a la cuenta ${cuentaNom}?\n\n`
       + `${dest}\n\n`
-      + 'Esto es independiente de la liquidación de mercancía / venta.',
+      + 'Independiente de la liquidación de mercancía. Luego puedes transferir a Tesorería.',
     )) return;
     setGuardando(true);
     try {
@@ -101,12 +118,36 @@ export default function PanelFondoServicios({ supabase, user }) {
     }
   };
 
+  const transferirTesoreria = async () => {
+    if (!puedeTesoreria) return alert('Solo administrador / gerente puede enviar a Tesorería.');
+    if (!(Number(montoTesoreria) > 0)) return alert('Ingresa un monto.');
+    if (!confirm(
+      `¿Transferir ${fmtMonto(montoTesoreria)} de Servicios → Tesorería (Cheche)?\n\n`
+      + 'Solo fondos de servicio.',
+    )) return;
+    setGuardando(true);
+    try {
+      const r = await enviarFondosServiciosATesoreria(supabase, {
+        desdeId: CUENTA_RT_SERVICIOS_ID,
+        monto: montoTesoreria,
+        usuarioNombre: user?.nombre || null,
+        notas: notaTesoreria || undefined,
+      });
+      if (!r.ok) return alert(r.error || 'No se pudo transferir.');
+      setNotaTesoreria('');
+      alert(`✅ Transferido ${fmtMonto(r.monto)} a Tesorería (Cheche).`);
+      await cargar();
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
         Registro de <strong>servicios</strong> recolectados (CFE y Panel RT → Servicios).
-        Separado de la venta / mercancía.
-        Ingresos = cobros aprobados · Liquidación = pasa a cuenta del administrador (JLBB → Tesorería).
+        Separado de la venta / mercancía (Francisco).
+        Ingresos = cobros aprobados · Liquidación = cuenta <strong>Servicios</strong> · luego → Tesorería (Cheche).
       </p>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
@@ -117,6 +158,7 @@ export default function PanelFondoServicios({ supabase, user }) {
           { label: 'Saldo Fondo', value: fmtMonto(totales.saldo), color: '#0f766e' },
           { label: 'Ingresos', value: fmtMonto(totales.ingresos) },
           { label: 'Liquidado / egresos', value: fmtMonto(totales.egresos), color: '#b45309' },
+          { label: 'Cuenta Servicios', value: fmtMonto(saldoServicios), color: '#0f766e' },
         ].map((k) => (
           <div
             key={k.label}
@@ -171,42 +213,29 @@ export default function PanelFondoServicios({ supabase, user }) {
           background: 'linear-gradient(180deg, #f0fdfa, #fff)',
         }}
       >
-        <h4 style={{ margin: '0 0 0.25rem', color: '#0f766e' }}>Liquidar Fondo → cuenta administrador</h4>
+        <h4 style={{ margin: '0 0 0.25rem', color: '#0f766e' }}>
+          Liquidar Fondo → {etiquetaCuentaRt(liqCuenta)}
+        </h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-          Pasa el efectivo de servicios a la cuenta RT del admin (por defecto JLBB, para Tesorería Cheche).
-          No se mezcla con la liquidación de mercancía.
+          Pasa el efectivo de servicios a la cuenta RT <strong>Servicios</strong>.
+          No se mezcla con la liquidación de mercancía (Francisco).
         </p>
-        <div className="grid-2" style={{ gap: '0.55rem' }}>
-          <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-            Cuenta administrador
-            <select
-              className="input"
-              style={{ marginTop: '0.3rem' }}
-              value={liqCuenta}
-              onChange={(e) => setLiqCuenta(e.target.value)}
-            >
-              {(CUENTAS_RT_LIQUIDACION.length ? CUENTAS_RT_LIQUIDACION : CUENTAS_RT).map((c) => (
-                <option key={c.id} value={c.id}>{c.nombre}</option>
-              ))}
-            </select>
-          </label>
-          <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-            Servicio
-            <select
-              className="input"
-              style={{ marginTop: '0.3rem' }}
-              value={liqClave}
-              onChange={(e) => setLiqClave(e.target.value)}
-            >
-              <option value="">Todos con saldo ({fmtMonto(totales.saldo)})</option>
-              {conSaldo.map((r) => (
-                <option key={r.clave} value={r.clave}>
-                  {r.nombre} · {fmtMonto(r.saldo)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
+          Servicio
+          <select
+            className="input"
+            style={{ marginTop: '0.3rem' }}
+            value={liqClave}
+            onChange={(e) => setLiqClave(e.target.value)}
+          >
+            <option value="">Todos con saldo ({fmtMonto(totales.saldo)})</option>
+            {conSaldo.map((r) => (
+              <option key={r.clave} value={r.clave}>
+                {r.nombre} · {fmtMonto(r.saldo)}
+              </option>
+            ))}
+          </select>
+        </label>
         {liqClave ? (
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginTop: '0.55rem' }}>
             Monto a liquidar
@@ -229,6 +258,58 @@ export default function PanelFondoServicios({ supabase, user }) {
           onClick={() => void liquidar()}
         >
           {guardando ? 'Liquidando…' : `Liquidar a ${etiquetaCuentaRt(liqCuenta)}`}
+        </button>
+      </div>
+
+      <div
+        style={{
+          padding: '0.85rem',
+          borderRadius: 12,
+          border: '1px solid rgba(13,148,136,0.35)',
+          background: 'linear-gradient(180deg, #ecfeff, #fff)',
+        }}
+      >
+        <h4 style={{ margin: '0 0 0.25rem', color: '#0f766e' }}>
+          Transferir a Tesorería · Servicios → Cheche
+        </h4>
+        <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
+          Disponible en cuenta Servicios: <strong>{fmtMonto(saldoServicios)}</strong>.
+          También puedes hacerlo desde la pestaña Tesorería.
+        </p>
+        <div className="grid-2" style={{ gap: '0.55rem' }}>
+          <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
+            Monto
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step="0.01"
+              style={{ marginTop: '0.3rem' }}
+              value={montoTesoreria}
+              onChange={(e) => setMontoTesoreria(e.target.value)}
+              disabled={!puedeTesoreria}
+            />
+          </label>
+          <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
+            Nota (opcional)
+            <input
+              className="input"
+              style={{ marginTop: '0.3rem' }}
+              value={notaTesoreria}
+              onChange={(e) => setNotaTesoreria(e.target.value)}
+              placeholder="Ej. CFE quincena…"
+              disabled={!puedeTesoreria}
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ marginTop: '0.65rem' }}
+          disabled={guardando || !puedeTesoreria || !(Number(montoTesoreria) > 0)}
+          onClick={() => void transferirTesoreria()}
+        >
+          {guardando ? 'Enviando…' : 'Enviar a Tesorería (Cheche)'}
         </button>
       </div>
 
