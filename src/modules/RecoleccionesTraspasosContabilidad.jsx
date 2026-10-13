@@ -16,6 +16,7 @@ import {
   crearRepartidor,
   crearServicioCobro,
   desactivarServicioCobro,
+  eliminarServicioCobro,
   eliminarMovimientoTransito,
   eliminarRepartidor,
   eliminarRepartidorPermanente,
@@ -344,6 +345,15 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     const val = window.prompt('Nuevo monto default:', srv.monto_default);
     if (val == null) return;
     const res = await actualizarServicioCobro(supabase, srv.id, { monto_default: val });
+    if (!res.ok) return alert(res.error);
+    cargarServicios();
+  };
+
+  const borrarServicio = async (srv) => {
+    if (!window.confirm(`¿Borrar permanentemente el servicio ${srv.clave} — ${srv.nombre}?\n\nEsto no elimina cobros ya registrados en el Fondo.`)) {
+      return;
+    }
+    const res = await eliminarServicioCobro(supabase, srv.id);
     if (!res.ok) return alert(res.error);
     cargarServicios();
   };
@@ -807,12 +817,20 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                     <strong>{s.clave}</strong> — {s.nombre} · {fmtMonto(s.monto_default)} · {s.frecuencia}
                     {!s.activo && <span className="badge" style={{ marginLeft: '0.35rem' }}>Inactivo</span>}
                   </span>
-                  <span style={{ display: 'flex', gap: '0.35rem' }}>
+                  <span style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                     <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={() => editarServicioMonto(s)}>
                       Editar monto
                     </button>
                     <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={() => toggleServicio(s)}>
                       {s.activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', color: 'var(--brand-red, #b91c1c)' }}
+                      onClick={() => void borrarServicio(s)}
+                    >
+                      Borrar
                     </button>
                   </span>
                 </div>

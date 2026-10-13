@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import {
+  CUENTA_RT_FONDO_DEFAULT,
+  CUENTAS_RT,
   resumirFondoPorServicio,
   totalesFondo,
 } from './rutaFondoServicios.js';
+
+assert.equal(CUENTA_RT_FONDO_DEFAULT, 'francisco');
+assert.ok(CUENTAS_RT.some((c) => c.id === 'francisco'));
 
 {
   const catalogo = [

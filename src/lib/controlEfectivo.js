@@ -459,6 +459,23 @@ export async function desactivarServicioCobro(supabase, id) {
   return actualizarServicioCobro(supabase, id, { activo: false });
 }
 
+/** Borra el servicio del catálogo (Panel RT). No toca movimientos del Fondo ya registrados. */
+export async function eliminarServicioCobro(supabase, id) {
+  if (!supabase || !id) return { ok: false, error: 'Servicio inválido.' };
+  const { error } = await supabase.from('servicios_cobro').delete().eq('id', id);
+  if (error) {
+    const msg = String(error.message || '');
+    if (/foreign key|violates|restrict/i.test(msg)) {
+      return {
+        ok: false,
+        error: 'No se puede borrar: hay registros ligados. Desactívalo en su lugar.',
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
 function servicioEnVigencia(srv, fechaClave) {
   const hoy = fechaClave || new Date().toLocaleDateString('en-CA', { timeZone: TZ });
   const ini = srv.vigencia_inicio ? String(srv.vigencia_inicio).slice(0, 10) : null;
