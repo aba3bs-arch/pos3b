@@ -63,7 +63,7 @@ import {
   slugCodigoCamion,
 } from '../lib/rutaCamiones.js';
 import { listarCreditosCobradosRuta, listarCreditosPendientesRuta } from '../lib/rutaCxc.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
@@ -2579,17 +2579,19 @@ function CreditosPendientesPorTienda({ rows, expandido, setExpandido, fmtFecha }
     for (const r of rows || []) {
       const esSuc = String(r.cliente_tipo || 'sucursal') === 'sucursal';
       const id = esSuc
-        ? String(r.cliente_id || r.cliente_nombre || '—').toUpperCase()
+        ? (normalizarCodigoTienda(r.cliente_id) || String(r.cliente_id || r.cliente_nombre || '—').toUpperCase())
         : `ext:${r.cliente_id || r.cliente_nombre || '—'}`;
       const label = esSuc
-        ? etiquetaTienda(r.cliente_id) || r.cliente_nombre || id
+        ? `${id} · ${etiquetaTienda(id) || r.cliente_nombre || id}`
         : (r.cliente_nombre || 'Cliente externo');
       if (!map.has(id)) map.set(id, { id, label, items: [], total: 0 });
       const g = map.get(id);
       g.items.push(r);
       g.total += Number(r.monto) || 0;
     }
-    return [...map.values()].sort((a, b) => String(a.label).localeCompare(String(b.label), 'es'));
+    return [...map.values()]
+      .map((g) => ({ ...g, total: Math.round(g.total * 100) / 100 }))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id), 'es'));
   }, [rows]);
 
   if (!grupos.length) {
