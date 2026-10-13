@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ADMIN_TESORERIA_CUENTA_ID,
+  CUENTA_RT_SERVICIOS_ID,
   CUENTA_TESORERIA_ID,
   asegurarCuentaTesoreria,
   enviarFondosServiciosATesoreria,
@@ -17,12 +18,12 @@ import { fmtMonto } from '../lib/consultasUi.js';
 
 /**
  * RC/VentaRuta → Tesorería.
- * Solo JLBB → Cheche con fondos de pagos de servicio.
- * Administrada por JLBB. Sin ABB / FJBB.
+ * Cuenta Servicios → Cheche con fondos de pagos de servicio.
+ * Separado de mercancía (Francisco).
  */
 export default function PanelTesoreriaRuta({ supabase, user }) {
   const [saldo, setSaldo] = useState(0);
-  const [saldoJlbb, setSaldoJlbb] = useState(0);
+  const [saldoServicios, setSaldoServicios] = useState(0);
   const [movimientos, setMovimientos] = useState([]);
   const [aviso, setAviso] = useState('');
   const [monto, setMonto] = useState('');
@@ -49,10 +50,10 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
     if (o.error) setAviso(o.error);
     if (m.error) setAviso(m.error?.message || String(m.error));
     setSaldo(s.saldo || 0);
-    const jlbb = (o.data || []).find((x) => x.id === ADMIN_TESORERIA_CUENTA_ID);
-    setSaldoJlbb(jlbb?.saldo || 0);
+    const srv = (o.data || []).find((x) => x.id === CUENTA_RT_SERVICIOS_ID || x.id === ADMIN_TESORERIA_CUENTA_ID);
+    setSaldoServicios(srv?.saldo || 0);
     setMovimientos(m.data || []);
-    if (jlbb?.saldo > 0) setMonto(String(jlbb.saldo));
+    if (srv?.saldo > 0) setMonto(String(srv.saldo));
     else setMonto('');
   }, [supabase]);
 
@@ -61,16 +62,16 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
   }, [cargar]);
 
   const recibir = async () => {
-    if (!puedeAdmin) return alert('Tesorería la administra JLBB (o admin/gerente).');
+    if (!puedeAdmin) return alert('Tesorería la administra un administrador / gerente (o Francisco / Cheche).');
     if (!confirm(
       `¿Enviar ${fmtMonto(monto)} de fondos de pagos de servicio\n`
-      + `desde JLBB → Cheche (Tesorería)?\n\n`
+      + `desde Servicios → Cheche (Tesorería)?\n\n`
       + 'Solo servicios. No es mercancía ni venta.',
     )) return;
     setGuardando(true);
     try {
       const r = await enviarFondosServiciosATesoreria(supabase, {
-        desdeId: ADMIN_TESORERIA_CUENTA_ID,
+        desdeId: CUENTA_RT_SERVICIOS_ID,
         monto,
         usuarioNombre: user?.nombre || null,
         notas: notas || undefined,
@@ -84,7 +85,7 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
   };
 
   const registrarGasto = async () => {
-    if (!puedeAdmin) return alert('Tesorería la administra JLBB (o admin/gerente).');
+    if (!puedeAdmin) return alert('Tesorería la administra un administrador / gerente (o Francisco / Cheche).');
     if (!confirm(`¿Registrar egreso de Tesorería por ${fmtMonto(gastoMonto)}?`)) return;
     setGuardando(true);
     try {
@@ -109,17 +110,17 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-        <strong>Tesorería</strong> · Tesorero: <strong>Cheche</strong> · Administrada por{' '}
-        <strong>JLBB</strong>.
-        Solo recibe fondos de <strong>pagos de servicio</strong> desde la cuenta JLBB.
-        No aparecen ABB ni FJBB. No se mezcla con venta / mercancía.
+        <strong>Tesorería</strong> · Tesorero: <strong>Cheche</strong>.
+        Solo recibe fondos de <strong>pagos de servicio</strong> desde la cuenta{' '}
+        <strong>Servicios</strong> (liquidaciones del Fondo en RC/VentaRuta).
+        No se mezcla con venta / mercancía (Francisco).
       </p>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
       )}
       {!puedeAdmin && (
         <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
-          Solo consulta. Las operaciones las administra JLBB (o un administrador).
+          Solo consulta. Las operaciones las administra un administrador o gerente.
         </p>
       )}
 
@@ -145,8 +146,8 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
             background: '#fff',
           }}
         >
-          <div className="muted" style={{ fontSize: '0.7rem' }}>JLBB (origen servicios)</div>
-          <strong style={{ fontSize: '1rem' }}>{fmtMonto(saldoJlbb)}</strong>
+          <div className="muted" style={{ fontSize: '0.7rem' }}>Servicios (origen)</div>
+          <strong style={{ fontSize: '1rem' }}>{fmtMonto(saldoServicios)}</strong>
         </div>
       </div>
 
@@ -159,10 +160,10 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
         }}
       >
         <h4 style={{ margin: '0 0 0.35rem', color: '#0f766e' }}>
-          Recibir fondos de servicios · JLBB → Cheche
+          Transferir a Tesorería · Servicios → Cheche
         </h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-          Primero liquida el Fondo de servicios a JLBB; luego envía ese saldo aquí a Tesorería.
+          Primero liquida el Fondo de servicios a la cuenta Servicios; luego envía ese saldo aquí a Tesorería.
         </p>
         <div className="grid-2" style={{ gap: '0.55rem' }}>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
@@ -170,7 +171,7 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
             <input
               className="input"
               style={{ marginTop: '0.3rem' }}
-              value={`JLBB · disp. ${fmtMonto(saldoJlbb)}`}
+              value={`Servicios · disp. ${fmtMonto(saldoServicios)}`}
               readOnly
               disabled
             />
@@ -225,7 +226,7 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
       >
         <h4 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Egreso desde Tesorería</h4>
         <p className="muted" style={{ margin: '0 0 0.55rem', fontSize: '0.78rem' }}>
-          Cuando Cheche/JLBB usa efectivo de Tesorería (pago del servicio u otro egreso).
+          Cuando Cheche usa efectivo de Tesorería (pago del servicio u otro egreso).
         </p>
         <div className="grid-2" style={{ gap: '0.55rem' }}>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>

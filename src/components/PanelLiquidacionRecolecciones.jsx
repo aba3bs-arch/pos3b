@@ -20,9 +20,11 @@ import {
   armarAcreditacionesLiquidacion,
 } from '../lib/controlEfectivo.js';
 import {
+  CUENTA_RT_SERVICIOS_ID,
   CUENTAS_RT_LIQUIDACION,
+  CUENTAS_RT_LIQUIDACION_SERVICIOS,
+  cuentaRtMercanciaPorDefecto,
   etiquetaCuentaRt,
-  resolverCuentaRtPorNombre,
 } from '../lib/rtCuentas.js';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
@@ -70,8 +72,8 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [fechaSellado, setFechaSellado] = useState(() => hoyClaveNogales());
-  const [cuentaRtMercancia, setCuentaRtMercancia] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || 'francisco');
-  const [cuentaRtServicios, setCuentaRtServicios] = useState('jlbb');
+  const [cuentaRtMercancia, setCuentaRtMercancia] = useState(() => cuentaRtMercanciaPorDefecto(user?.nombre));
+  const [cuentaRtServicios, setCuentaRtServicios] = useState(CUENTA_RT_SERVICIOS_ID);
 
   const esHistorial = modoConsulta === 'historial';
   const esFondo = modoConsulta === 'fondo';
@@ -393,14 +395,14 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             <label className="muted" style={{ display: 'block' }}>
               Cuenta RT — Servicios (CFE, etc.)
               <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtServicios} onChange={(e) => setCuentaRtServicios(e.target.value)}>
-                {CUENTAS_RT_LIQUIDACION.map((c) => (
+                {CUENTAS_RT_LIQUIDACION_SERVICIOS.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nombre}
                   </option>
                 ))}
               </select>
               <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
-                Cobros de servicios obligatorios. Van en cuenta separada de la mercancía.
+                Cobros de servicios. Van a la cuenta Servicios; de ahí se transfieren a Tesorería.
               </span>
             </label>
           </div>
