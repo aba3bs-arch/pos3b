@@ -9,7 +9,7 @@ import {
   retirarFondoServicio,
   totalesFondo,
 } from '../lib/rutaFondoServicios.js';
-import { etiquetaCuentaRt } from '../lib/rtCuentas.js';
+import { CUENTAS_RT_LIQUIDACION, etiquetaCuentaRt } from '../lib/rtCuentas.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
@@ -200,8 +200,8 @@ export default function PanelFondoServicios({ supabase, user }) {
       >
         <h4 style={{ margin: '0 0 0.25rem', color: '#0f766e' }}>Liquidar Fondo → cuenta administrador</h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-          Pasa el efectivo de servicios a la cuenta RT del admin (por defecto Francisco).
-          No se mezcla con la liquidación de mercancía.
+          Pasa el efectivo de servicios a la cuenta RT del admin (por defecto JLBB, para Tesorería Cheche).
+          No se mezcla con la liquidación de mercancía. Luis Enrique no aparece (solo repartidor).
         </p>
         <div className="grid-2" style={{ gap: '0.55rem' }}>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
@@ -212,7 +212,7 @@ export default function PanelFondoServicios({ supabase, user }) {
               value={liqCuenta}
               onChange={(e) => setLiqCuenta(e.target.value)}
             >
-              {CUENTAS_RT.map((c) => (
+              {(CUENTAS_RT_LIQUIDACION.length ? CUENTAS_RT_LIQUIDACION : CUENTAS_RT).map((c) => (
                 <option key={c.id} value={c.id}>{c.nombre}</option>
               ))}
             </select>

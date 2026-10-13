@@ -10,7 +10,8 @@ import { listarServiciosCobro } from './controlEfectivo.js';
 import { verificarPinCajero } from './rutaCxc.js';
 import {
   acreditarLiquidacionCuentaRt,
-  CUENTAS_RT,
+  ADMIN_TESORERIA_CUENTA_ID,
+  CUENTAS_RT_LIQUIDACION,
   etiquetaCuentaRt,
 } from './rtCuentas.js';
 import {
@@ -19,8 +20,9 @@ import {
   TIPOS_NOTIF,
 } from './contabilidadNotificaciones.js';
 
-export { CUENTAS_RT };
-export const CUENTA_RT_FONDO_DEFAULT = 'francisco';
+export { CUENTAS_RT_LIQUIDACION as CUENTAS_RT };
+/** Fondo de servicios liquida hacia JLBB (luego Tesorería Cheche). */
+export const CUENTA_RT_FONDO_DEFAULT = ADMIN_TESORERIA_CUENTA_ID;
 
 export const AVISO_FALTA_FONDO =
   'Faltan tablas de Fondo servicios. En Supabase ejecuta supabase/fix_ruta_fondo_servicios.sql';
@@ -372,7 +374,7 @@ export async function liquidarFondoACuentaRt(supabase, {
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const cuentaId = String(cuentaRtId || CUENTA_RT_FONDO_DEFAULT).trim() || CUENTA_RT_FONDO_DEFAULT;
-  if (!CUENTAS_RT.some((c) => c.id === cuentaId)) {
+  if (!CUENTAS_RT_LIQUIDACION.some((c) => c.id === cuentaId)) {
     return { ok: false, error: 'Cuenta de administrador inválida.' };
   }
 
