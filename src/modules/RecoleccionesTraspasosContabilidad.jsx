@@ -48,6 +48,7 @@ import {
 } from '../lib/controlEfectivo.js';
 import {
   CUENTAS_RT,
+  CUENTAS_RT_LIQUIDACION,
   calcularSaldosRt,
   etiquetaCuentaRt,
   etiquetaTipoMovimientoRt,
@@ -116,7 +117,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [saldoRep, setSaldoRep] = useState(null);
   const [gastosPendientes, setGastosPendientes] = useState([]);
   const [cuentaRtLiberarMerc, setCuentaRtLiberarMerc] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || 'francisco');
-  const [cuentaRtLiberarSrv, setCuentaRtLiberarSrv] = useState('andres');
+  const [cuentaRtLiberarSrv, setCuentaRtLiberarSrv] = useState('jlbb');
 
   const [saldosRt, setSaldosRt] = useState({});
   const [desgloseRt, setDesgloseRt] = useState({});
@@ -127,13 +128,13 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [transHacia, setTransHacia] = useState('andres');
   const [transMonto, setTransMonto] = useState('');
   const [transNotas, setTransNotas] = useState('');
-  const [gastoRtCuenta, setGastoRtCuenta] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
+  const [gastoRtCuenta, setGastoRtCuenta] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT_LIQUIDACION[0]?.id || '');
   const [gastoRtMonto, setGastoRtMonto] = useState('');
   const [gastoRtModoMonto, setGastoRtModoMonto] = useState('fijo');
   const [gastoRtDesc, setGastoRtDesc] = useState('');
   const [gastoRtTienda, setGastoRtTienda] = useState('');
   const [resumenHistRt, setResumenHistRt] = useState(null);
-  const [cuentaFallbackHist, setCuentaFallbackHist] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
+  const [cuentaFallbackHist, setCuentaFallbackHist] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT_LIQUIDACION[0]?.id || '');
   const [transitoRt, setTransitoRt] = useState([]);
   const [gastosRt, setGastosRt] = useState([]);
 
@@ -1113,7 +1114,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <label className="muted" style={{ display: 'block' }}>
                 Cuenta RT — Mercancía
                 <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtLiberarMerc} onChange={(e) => setCuentaRtLiberarMerc(e.target.value)}>
-                  {CUENTAS_RT.map((c) => (
+                  {CUENTAS_RT_LIQUIDACION.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nombre}
                     </option>
@@ -1123,7 +1124,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <label className="muted" style={{ display: 'block' }}>
                 Cuenta RT — Servicios
                 <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtLiberarSrv} onChange={(e) => setCuentaRtLiberarSrv(e.target.value)}>
-                  {CUENTAS_RT.map((c) => (
+                  {CUENTAS_RT_LIQUIDACION.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nombre}
                     </option>
@@ -1243,7 +1244,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
                 Cuenta respaldo (si el nombre no identifica a Francisco o Andrés)
                 <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaFallbackHist} onChange={(e) => setCuentaFallbackHist(e.target.value)}>
-                  {CUENTAS_RT.map((c) => (
+                  {CUENTAS_RT_LIQUIDACION.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nombre}
                     </option>
@@ -1270,7 +1271,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <label className="muted">
                 Cuenta
                 <select className="select" style={{ marginTop: '0.35rem' }} value={gastoRtCuenta} onChange={(e) => setGastoRtCuenta(e.target.value)}>
-                  {CUENTAS_RT.map((c) => (
+                  {CUENTAS_RT_LIQUIDACION.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nombre} ({fmtMonto(saldosRt[c.id] || 0)})
                     </option>
