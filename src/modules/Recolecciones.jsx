@@ -217,6 +217,13 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const cargarPendientes = useCallback(async () => {
     if (!supabase || !tiendaCobro) return;
     try {
+      // Empuja Por Cobrar → CxC para que aparezcan en Venta en Ruta → Créditos por pagar.
+      try {
+        const { sincronizarCreditosRecoleccionACxc } = await import('../lib/rutaCxc.js');
+        await sincronizarCreditosRecoleccionACxc(supabase);
+      } catch {
+        /* listado local igual se muestra */
+      }
       const data = await listarCreditosPendientes(supabase, tiendaCobro);
       setPendientes(data);
       const init = {};
@@ -327,9 +334,12 @@ export default function Recolecciones({ supabase, sucursal, user }) {
       if (esEfectivo) {
         alert(`✅ ${res.count} traspaso(s) registrado(s) en tránsito.`);
       } else {
+        const cxcOk = (res.cxcCreados || 0) > 0 || !res.cxcError;
         alert(
           `✅ ${res.count} crédito(s) registrado(s).\n`
-          + 'Pasaron a Venta en Ruta → Créditos por pagar para que el cajero los liquide con PIN.',
+          + (cxcOk
+            ? `Pasaron a Venta en Ruta → Créditos por pagar (${res.cxcCreados || res.count} cargo(s)).`
+            : `⚠ Tránsito OK, pero CxC falló: ${res.cxcError}. Ábrelos en Créditos por pagar para reintentar la sync.`)
         );
       }
       setFilas([{ folio: '', monto: '' }]);

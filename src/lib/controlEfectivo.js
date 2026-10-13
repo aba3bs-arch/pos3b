@@ -741,15 +741,17 @@ export async function registrarTraspasos(supabase, filas, opts) {
 
   // Créditos de Recolecciones → Venta en Ruta → Créditos por pagar (CxC).
   let cxcCreados = 0;
+  let cxcError = null;
   if (!esEfectivo && inserted?.length) {
     try {
       const { asegurarCargoCxcDesdeRecoleccion } = await import('./rutaCxc.js');
       for (const row of inserted) {
         const r = await asegurarCargoCxcDesdeRecoleccion(supabase, row);
         if (r.ok && !r.yaExistia && !r.yaPagado) cxcCreados += 1;
+        else if (!r.ok && !cxcError) cxcError = r.error || 'No se pudo crear CxC';
       }
-    } catch {
-      /* el tránsito ya quedó; CxC se sincroniza al abrir Créditos por pagar */
+    } catch (e) {
+      cxcError = e?.message || String(e);
     }
   }
 
@@ -788,7 +790,7 @@ export async function registrarTraspasos(supabase, filas, opts) {
     });
   }
 
-  return { ok: true, count: registros.length, cxcCreados };
+  return { ok: true, count: registros.length, cxcCreados, cxcError };
 }
 
 export async function listarCreditosPendientes(supabase, tienda) {
