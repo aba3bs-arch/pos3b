@@ -729,12 +729,29 @@ export async function registrarTraspasos(supabase, filas, opts) {
     }),
   );
 
-  const { data: inserted, error } = await supabase.from('transito_efectivo').insert(registros).select('id, monto');
+  const { data: inserted, error } = await supabase
+    .from('transito_efectivo')
+    .insert(registros)
+    .select('id, monto, num_traspaso, sucursal_origen, cajero_nombre, repartidor_id');
   if (error) return { ok: false, error: error.message };
 
   const total = (inserted || registros).reduce((a, r) => a + Number(r.monto || 0), 0);
   const nRegs = (inserted || registros).length;
   const refId = inserted?.[0]?.id;
+
+  // Créditos de Recolecciones → Venta en Ruta → Créditos por pagar (CxC).
+  let cxcCreados = 0;
+  if (!esEfectivo && inserted?.length) {
+    try {
+      const { asegurarCargoCxcDesdeRecoleccion } = await import('./rutaCxc.js');
+      for (const row of inserted) {
+        const r = await asegurarCargoCxcDesdeRecoleccion(supabase, row);
+        if (r.ok && !r.yaExistia && !r.yaPagado) cxcCreados += 1;
+      }
+    } catch {
+      /* el tránsito ya quedó; CxC se sincroniza al abrir Créditos por pagar */
+    }
+  }
 
   // Toda recolección/traspaso del repartidor → buzón Abarrotes
   if (refId) {
@@ -752,7 +769,8 @@ export async function registrarTraspasos(supabase, filas, opts) {
         ref_tabla: 'transito_efectivo',
         ref_id: refId,
         titulo: esEfectivo ? 'Recolección en efectivo' : 'Traspaso / entrega crédito',
-        mensaje: `${repNombre} · ${tienda} · ${nRegs} folio(s) · $${Number(total).toFixed(2)} · cajero ${cajero}`,
+        mensaje: `${repNombre} · ${tienda} · ${nRegs} folio(s) · $${Number(total).toFixed(2)} · cajero ${cajero}`
+          + (esEfectivo ? '' : ' · pasa a Créditos por pagar (Venta en Ruta)'),
         area_buzon: 'abarrotes',
       });
     } catch {
@@ -770,7 +788,7 @@ export async function registrarTraspasos(supabase, filas, opts) {
     });
   }
 
-  return { ok: true, count: registros.length };
+  return { ok: true, count: registros.length, cxcCreados };
 }
 
 export async function listarCreditosPendientes(supabase, tienda) {
@@ -878,6 +896,17 @@ export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId,
       };
     }
     if (gastoRes.gastoId) gastosIds.push(gastoRes.gastoId);
+
+    // Marca el CxC en Créditos por pagar (evita que quede pendiente en Venta en Ruta).
+    try {
+      const { marcarCxcPagadoDesdeCobroRecoleccion } = await import('./rutaCxc.js');
+      await marcarCxcPagadoDesdeCobroRecoleccion(supabase, p, {
+        cajeroNombre: cajero.trim(),
+        gastoId: gastoRes.gastoId || null,
+      });
+    } catch {
+      /* no bloquear cobro */
+    }
   }
 
   const total = sel.reduce((a, p) => a + Number(p.monto || 0), 0);

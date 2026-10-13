@@ -12,11 +12,12 @@ import { esCentralAdmin, etiquetaTienda } from '../constants/sucursales.js';
 
 /**
  * Contabilidad → Cobranza / Venta en Ruta → Créditos por pagar.
+ * Incluye créditos de venta en ruta y de Recolecciones (Entrega Crédito).
  * - PIN del cajero al abrir el módulo.
  * - Solo total acumulado por tienda (sin folios); el detalle está en Consultas.
  * - Se puede pagar un monto parcial (liquidez para otros proveedores).
  * - Administrador puede eliminar créditos por error.
- * - Al pagar: gasto abarrotes «credito liquidado» + efectivo a tránsito.
+ * - Al pagar: gasto abarrotes + efectivo a tránsito (recolección reusa la ficha).
  */
 export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo }) {
   const [aviso, setAviso] = useState('');
@@ -195,7 +196,8 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
             <h2 style={{ margin: 0, color: '#0f766e' }}>{heading}</h2>
           )}
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Ingresa el <strong>PIN del cajero</strong> para abrir créditos por pagar.
+            Ingresa el <strong>PIN del cajero</strong> para abrir créditos por pagar
+            (venta en ruta y créditos del módulo Recolecciones).
             Luego verás el total acumulado por tienda y podrás pagar el monto que necesites.
           </p>
         </div>
@@ -236,8 +238,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
         )}
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           Cajero: <strong>{cajero.nombre || '—'}</strong>.
+          {' '}Incluye créditos de <strong>Recolecciones</strong> y de venta en ruta.
           {' '}Total acumulado por tienda (sin folios).
-          {' '}Puedes pagar solo la cantidad que necesites y dejar el resto pendiente (liquidez para otros proveedores).
+          {' '}Puedes pagar solo la cantidad que necesites y dejar el resto pendiente.
           {' '}Detalle de folios en <strong>Consultas → Créditos por tienda</strong>.
           {puedeEliminar ? ' · Admin: puedes eliminar créditos por error.' : ''}
         </p>
