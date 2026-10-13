@@ -1,7 +1,7 @@
 /**
  * Crédito por cobrar de Venta en Ruta.
  * Cargos por venta a crédito + créditos de Recolecciones (Entrega Crédito).
- * El cajero paga con PIN → gasto abarrotes + efectivo en tránsito.
+ * El cajero paga con PIN → gasto abarrotes + efectivo a RC/VentaRuta (tránsito).
  */
 
 import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';

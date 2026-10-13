@@ -50,7 +50,7 @@ const DESCRIPCIONES = {
   },
   'RC Abarrotes': {
     desc: 'Custodia Abarrotes → cuenta admin → FJBB / CEDIS',
-    ayuda: 'Recibe recolecciones de Corte Abarrotes a tu cuenta y entrégalas a FJBB. Al recibir FJBB pasan a IE ABARROTES (cuenta CEDIS / Francisco).',
+    ayuda: 'Solo recolecciones de Corte Abarrotes de tienda → FJBB → IE ABARROTES. El efectivo del camión (Venta en Ruta) va a RC/VentaRuta, no aquí.',
   },
   'IE VIRTUAL': {
     desc: 'Antonio · Virtual + Garage + Socio 3B',
@@ -70,7 +70,7 @@ const DESCRIPCIONES = {
   },
   Cobranza: {
     desc: 'Pagar créditos de ruta (cajero + PIN)',
-    ayuda: 'También en Venta en Ruta → Créditos por pagar. Selecciona créditos, ingresa PIN. Gasto abarrotes «credito liquidado» + efectivo a tránsito.',
+    ayuda: 'También en Venta en Ruta → Créditos por pagar. Selecciona créditos, ingresa PIN. Gasto abarrotes «credito liquidado» + efectivo a RC/VentaRuta (tránsito).',
   },
   'RH ABA3B': {
     desc: 'Altas, bajas y expediente de personal',

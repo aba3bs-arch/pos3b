@@ -1,7 +1,11 @@
 /**
  * Venta en Ruta POS v2
- * MAIN (CEDIS) → carga camión → POS móvil → efectivo a RC Abarrotes (recolector) / crédito CxC
+ * MAIN (CEDIS) → carga camión → POS móvil → efectivo a RC/VentaRuta (tránsito) / crédito CxC
  * → pedido en Compras (el cajero verifica y recibe en la tienda).
+ *
+ * El efectivo de mercancía NO va a RC Abarrotes: se registra en transito_efectivo
+ * (tipo «Venta Ruta») y se liquida en RC/VentaRuta → Pendientes, igual que el control
+ * de cobros de servicio en RC Servicios.
  */
 
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda, ALMACEN_CENTRAL } from '../constants/sucursales.js';
@@ -13,13 +17,13 @@ import { stockAlmacenCentral, asegurarMapaStock, buildPatchStock } from './inven
 import { esRolRepartidor, normalizarRol } from './roles.js';
 import { registrarCargoCreditoRuta } from './rutaCxc.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
-import { registrarRecoleccionRcAbarrotesDesdeVentaRuta } from './rutaRcAbarrotes.js';
 import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { listarRepartidores } from './controlEfectivo.js';
 import { conImpuesto, gananciaDesdePrecios } from './productoForm.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
+/** @deprecated El efectivo de venta en ruta ya no entra a RC Abarrotes. */
 export { registrarRecoleccionRcAbarrotesDesdeVentaRuta } from './rutaRcAbarrotes.js';
 
 function normNombrePersona(s) {
@@ -2132,7 +2136,6 @@ export async function registrarVentaRuta(supabase, {
   let traspasoId = null;
   let traspasoFolio = null;
   let transitoId = null;
-  let rcAbarrotesCierreId = null;
   const avisos = [];
 
   async function enlazarVenta(extra = {}) {
@@ -2178,62 +2181,41 @@ export async function registrarVentaRuta(supabase, {
   }
 
   if (montoEfe > 0) {
-    // Efectivo → RC Abarrotes bajo el nombre del recolector (vendedor ruta).
-    // Si falla el cierre RC (tabla/SQL), se cae a tránsito como respaldo.
-    const rc = await registrarRecoleccionRcAbarrotesDesdeVentaRuta(supabase, {
-      monto: montoEfe,
-      vendedorNombre,
-      vendedorId,
-      sucursalId: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
-      folioVenta: folio,
-      clienteNombre: clienteNombre || String(clienteId),
-      clienteTipo: tipoCli,
-      ventaId: venta.id,
-      metodoPago: mp,
-    });
-    if (rc.ok) {
-      rcAbarrotesCierreId = rc.cierreId || null;
-      if (rc.pendienteIe) {
-        avisos.push(`Efectivo ${montoEfe.toFixed(2)} en RC Abarrotes (${rc.recolector}) · pendiente FJBB.`);
-      } else {
-        avisos.push(`Efectivo ${montoEfe.toFixed(2)} en RC Abarrotes bajo ${rc.recolector}.`);
-      }
-    } else {
-      // Preferir repartidor Panel RT (FK de transito_efectivo); no mandar UUID suelto.
-      let ridTransito = repartidorId ? String(repartidorId) : '';
-      if (!ridTransito) {
-        for (const c of cargasList) {
-          const vid = String(c?.vendedor_id || '').trim();
-          if (vid && !/^[0-9a-f-]{36}$/i.test(vid) && !vid.startsWith('rt:')) {
-            ridTransito = vid;
-            break;
-          }
+    // Efectivo → RC/VentaRuta (transito_efectivo tipo «Venta Ruta»).
+    // Aparece en Pendientes por liquidar; NO va a RC Abarrotes (ese es corte de tienda).
+    let ridTransito = repartidorId ? String(repartidorId) : '';
+    if (!ridTransito) {
+      for (const c of cargasList) {
+        const vid = String(c?.vendedor_id || '').trim();
+        if (vid && !/^[0-9a-f-]{36}$/i.test(vid) && !vid.startsWith('rt:')) {
+          ridTransito = vid;
+          break;
         }
       }
-      const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
-        sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
-        monto: montoEfe,
-        folioVenta: folio,
-        vendedorId,
-        vendedorNombre,
-        repartidorId: ridTransito || undefined,
-        nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
-      });
-      if (!tr.ok) {
-        await enlazarVenta();
-        return {
-          ok: false,
-          error: tr.error || rc.error || 'No se registró el efectivo (RC Abarrotes / tránsito).',
-          compraId,
-          traspasoId,
-          traspasoFolio,
-          venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId },
-          avisos: avisos.length ? avisos : undefined,
-        };
-      }
-      transitoId = tr.id;
-      avisos.push(`RC Abarrotes no disponible (${rc.error}); efectivo en tránsito.`);
     }
+    const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
+      sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
+      monto: montoEfe,
+      folioVenta: folio,
+      vendedorId,
+      vendedorNombre,
+      repartidorId: ridTransito || undefined,
+      nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
+    });
+    if (!tr.ok) {
+      await enlazarVenta();
+      return {
+        ok: false,
+        error: tr.error || 'No se registró el efectivo en RC/VentaRuta (tránsito).',
+        compraId,
+        traspasoId,
+        traspasoFolio,
+        venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId },
+        avisos: avisos.length ? avisos : undefined,
+      };
+    }
+    transitoId = tr.id;
+    avisos.push(`Efectivo ${montoEfe.toFixed(2)} en RC/VentaRuta · ${vendedorNombre || 'recolector'} (Pendientes).`);
   }
 
   if (montoCre > 0) {
@@ -2273,14 +2255,12 @@ export async function registrarVentaRuta(supabase, {
       compra_id: compraId,
       traspaso_id: traspasoId,
       transito_id: transitoId,
-      rc_abarrotes_cierre_id: rcAbarrotesCierreId,
     },
     cuenta: mp === 'mixto' ? 'mixto' : mp === 'credito' ? 'credito' : 'efectivo',
     compraId,
     traspasoId,
     traspasoFolio,
     transitoId,
-    rcAbarrotesCierreId,
     montoEfectivo: montoEfe,
     montoCredito: montoCre,
     cargaId: primaryCargaId,

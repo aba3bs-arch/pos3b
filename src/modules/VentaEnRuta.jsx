@@ -241,7 +241,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         </div>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {NOMBRE_ALMACEN_RUTA} → camión (una carga abierta) → POS con toda la mercancía del camión ·
-          Efectivo a RC Abarrotes · Crédito lo paga el cajero con PIN ·
+          Efectivo a RC/VentaRuta · Crédito lo paga el cajero con PIN ·
           mercancía a la tienda por <strong>Compras</strong>.
         </p>
       </div>
@@ -430,8 +430,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
           <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>RC/VentaRuta</h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-            Recibe del repartidor el efectivo en tránsito / RC generado por ventas del camión.
-            Para cerrar la carga del camión (estado liquidada) usa Consultas → Cargas → Liquidar, o el corte de caja.
+            Recibe del repartidor el efectivo en tránsito de ventas del camión y créditos cobrados
+            (Pendientes por liquidar). Los cobros de servicio van en la pestaña RC Servicios.
+            Para cerrar la carga del camión usa Consultas → Cargas → Liquidar, o el corte de caja.
           </p>
           <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
         </div>
@@ -2129,8 +2130,8 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
         ? `Mixto · efe ${fmtMonto(r.montoEfectivo)} · créd ${fmtMonto(r.montoCredito)}`
         : r.cuenta === 'credito'
           ? 'Crédito pendiente (cajero paga con PIN)'
-          : (r.rcAbarrotesCierreId
-            ? `Efectivo en RC Abarrotes · ${vendedorNombre || 'recolector'}`
+          : (r.transitoId
+            ? `Efectivo en RC/VentaRuta · ${vendedorNombre || 'recolector'}`
             : 'Efectivo en tránsito'),
       r.compraId ? 'Pedido en Compras listo para verificar y recibir en la tienda' : null,
     ].filter(Boolean).join(' · ');
