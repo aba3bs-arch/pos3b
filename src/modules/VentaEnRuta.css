@@ -533,7 +533,8 @@
  * Cámara y + son del mismo tamaño; el resto del carrito = artículos.
  */
 .ruta-pos-ticket-scan {
-  --ruta-pos-scan-btn: 44px;
+  /* Mismo tamaño que .btn-camera--icon (cámara) */
+  --ruta-pos-scan-btn: 42px;
   flex: 0 0 auto;
   display: flex;
   align-items: stretch;
@@ -843,7 +844,7 @@
   }
 
   .ruta-pos-ticket-scan {
-    --ruta-pos-scan-btn: 44px;
+    --ruta-pos-scan-btn: 42px;
   }
 
   .ruta-pos-ticket-lineas {
