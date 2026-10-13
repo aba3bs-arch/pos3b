@@ -277,6 +277,27 @@ function esRecoleccionParaIe(row) {
   return true;
 }
 
+/** Evita N+1 de backfill en cada apertura de IE (vales / CUBRE legado). */
+const IE_SYNC_TTL_MS = 10 * 60 * 1000;
+const ieSyncLastAt = { virtual: 0, abarrotes: 0 };
+
+/**
+ * Backfill en segundo plano: no bloquea la primera pintura del panel.
+ * Cuello de botella histórico: sincronizarVales + CUBRE hacían 1 insert/check por fila
+ * antes de leer cierres/gastos.
+ */
+function dispararSyncIeFondo(supabase, panel) {
+  if (!supabase) return;
+  const key = panel === 'abarrotes' ? 'abarrotes' : 'virtual';
+  const now = Date.now();
+  if (now - (ieSyncLastAt[key] || 0) < IE_SYNC_TTL_MS) return;
+  ieSyncLastAt[key] = now;
+  const tareas = key === 'abarrotes'
+    ? [sincronizarGastosCubreTaxiContVirtual(supabase)]
+    : [sincronizarValesContVirtual(supabase), sincronizarGastosCubreTaxiContVirtual(supabase)];
+  void Promise.all(tareas).catch(() => {});
+}
+
 /**
  * Panel IE VIRTUAL: ingresos/egresos de Virtual + Garage (cuentas separadas).
  * Incluye cierres de turno y recolecciones.
@@ -291,10 +312,8 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
 
   const { desdeIso, hastaIso } = rangoIsoNogales(desde, hasta);
 
-  await Promise.all([
-    sincronizarValesContVirtual(supabase),
-    sincronizarGastosCubreTaxiContVirtual(supabase),
-  ]);
+  // Sync legado en fondo (antes bloqueaba 5–30s con N+1 por vale/gasto).
+  dispararSyncIeFondo(supabase, 'virtual');
 
   let qCierres = supabase
     .from('cortes_contabilidad_cierres')
@@ -351,8 +370,8 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   const recolecciones = recoleccionesTodas.filter((c) => recoleccionAprobadaParaIe(c));
   const idsGastosLiberados = idsGastosLiberadosPorRecolecciones(recoleccionesTodas);
   const gastosRaw = gastosRes.data || [];
-  // Históricos RT Francisco mal etiquetados como virtual → no deben verse en IE VIRTUAL
-  await reclasificarGastosRtFranciscoAAbarrotes(supabase, gastosRaw);
+  // Históricos RT Francisco mal etiquetados como virtual → se filtran ya; write en fondo.
+  void reclasificarGastosRtFranciscoAAbarrotes(supabase, gastosRaw);
 
   const gastos = gastosRaw.filter((g) => {
     if (sucursal && g.sucursal_id !== sucursal) return false;
@@ -698,7 +717,8 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   const tiendasFiltro = sucFiltro ? [sucFiltro] : tiendas;
   const { desdeIso, hastaIso } = rangoIsoNogales(desde, hasta);
 
-  await sincronizarGastosCubreTaxiContVirtual(supabase);
+  // Sync CUBRE legado en fondo (no bloquear lectura del panel).
+  dispararSyncIeFondo(supabase, 'abarrotes');
 
   let qCierres = supabase
     .from('cortes_contabilidad_cierres')
@@ -751,7 +771,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   }
 
   const legacyFrancisco = (gastosLegacyRes.error ? [] : gastosLegacyRes.data || []).filter(gastoEsCuentaRtFrancisco);
-  await reclasificarGastosRtFranciscoAAbarrotes(supabase, legacyFrancisco);
+  void reclasificarGastosRtFranciscoAAbarrotes(supabase, legacyFrancisco);
 
   // Soft-delete: no contar cierres en papelera (si la columna no existe, deleted_at viene undefined).
   const todosCierres = (cierresRes.data || []).filter((c) => {
