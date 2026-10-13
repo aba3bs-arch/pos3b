@@ -6,7 +6,6 @@ import {
   liquidarFondoACuentaRt,
   listarMovimientosFondo,
   resumirFondoPorServicio,
-  retirarFondoServicio,
   totalesFondo,
 } from '../lib/rutaFondoServicios.js';
 import { CUENTAS_RT_LIQUIDACION, etiquetaCuentaRt } from '../lib/rtCuentas.js';
@@ -14,17 +13,15 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 /**
- * RC/VentaRuta → pestaña Fondo: ingresos/egresos por servicio (Panel RT).
+ * RC/VentaRuta → pestaña Fondo: cobros de servicio y liquidación a cuenta admin.
  * Separado de la liquidación de mercancía / venta.
+ * Los egresos/pagos del proveedor se manejan en Tesorería (Cheche), no aquí.
  */
 export default function PanelFondoServicios({ supabase, user }) {
   const [servicios, setServicios] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
   const [filtroSrv, setFiltroSrv] = useState('');
   const [aviso, setAviso] = useState('');
-  const [retiroClave, setRetiroClave] = useState('');
-  const [retiroMonto, setRetiroMonto] = useState('');
-  const [retiroConcepto, setRetiroConcepto] = useState('');
   const [liqClave, setLiqClave] = useState(''); // '' = todos con saldo
   const [liqMonto, setLiqMonto] = useState('');
   const [liqCuenta, setLiqCuenta] = useState(CUENTA_RT_FONDO_DEFAULT);
@@ -40,8 +37,7 @@ export default function PanelFondoServicios({ supabase, user }) {
     if (movs.aviso) setAviso(movs.aviso);
     if (movs.error) setAviso(movs.error);
     setMovimientos(movs.data || []);
-    if (!retiroClave && srvs?.[0]?.clave) setRetiroClave(srvs[0].clave);
-  }, [supabase, retiroClave]);
+  }, [supabase]);
 
   useEffect(() => {
     void cargar();
@@ -72,28 +68,6 @@ export default function PanelFondoServicios({ supabase, user }) {
     if (m.tipo === 'ingreso') return 'Ingreso';
     if (m.meta?.origen === 'liquidacion_cuenta_rt') return 'Liquidación';
     return 'Egreso';
-  };
-
-  const retirar = async () => {
-    if (!retiroClave) return alert('Selecciona el servicio.');
-    if (!confirm(`¿Retirar ${fmtMonto(retiroMonto)} de ${retiroClave} para pago de servicio?`)) return;
-    setGuardando(true);
-    try {
-      const srv = servicios.find((s) => String(s.clave).toUpperCase() === String(retiroClave).toUpperCase());
-      const r = await retirarFondoServicio(supabase, {
-        servicioClave: retiroClave,
-        servicioNombre: srv?.nombre,
-        monto: retiroMonto,
-        concepto: retiroConcepto || `Retiro pago ${srv?.nombre || retiroClave}`,
-        usuarioNombre: user?.nombre || null,
-      });
-      if (!r.ok) return alert(r.error || 'No se pudo retirar.');
-      setRetiroMonto('');
-      setRetiroConcepto('');
-      await cargar();
-    } finally {
-      setGuardando(false);
-    }
   };
 
   const liquidar = async () => {
@@ -132,7 +106,7 @@ export default function PanelFondoServicios({ supabase, user }) {
       <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
         Registro de <strong>servicios</strong> recolectados (CFE y Panel RT → Servicios).
         Separado de la venta / mercancía.
-        Ingresos = cobros aprobados · Retiros = pago al proveedor · Liquidación = pasa a cuenta del administrador.
+        Ingresos = cobros aprobados · Liquidación = pasa a cuenta del administrador (JLBB → Tesorería).
       </p>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
@@ -142,7 +116,7 @@ export default function PanelFondoServicios({ supabase, user }) {
         {[
           { label: 'Saldo Fondo', value: fmtMonto(totales.saldo), color: '#0f766e' },
           { label: 'Ingresos', value: fmtMonto(totales.ingresos) },
-          { label: 'Egresos / retiros', value: fmtMonto(totales.egresos), color: '#b45309' },
+          { label: 'Liquidado / egresos', value: fmtMonto(totales.egresos), color: '#b45309' },
         ].map((k) => (
           <div
             key={k.label}
@@ -189,7 +163,6 @@ export default function PanelFondoServicios({ supabase, user }) {
         </table>
       </div>
 
-      {/* Liquidar a cuenta admin — separado de venta */}
       <div
         style={{
           padding: '0.85rem',
@@ -201,7 +174,7 @@ export default function PanelFondoServicios({ supabase, user }) {
         <h4 style={{ margin: '0 0 0.25rem', color: '#0f766e' }}>Liquidar Fondo → cuenta administrador</h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
           Pasa el efectivo de servicios a la cuenta RT del admin (por defecto JLBB, para Tesorería Cheche).
-          No se mezcla con la liquidación de mercancía. Luis Enrique no aparece (solo repartidor).
+          No se mezcla con la liquidación de mercancía.
         </p>
         <div className="grid-2" style={{ gap: '0.55rem' }}>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
@@ -256,68 +229,6 @@ export default function PanelFondoServicios({ supabase, user }) {
           onClick={() => void liquidar()}
         >
           {guardando ? 'Liquidando…' : `Liquidar a ${etiquetaCuentaRt(liqCuenta)}`}
-        </button>
-      </div>
-
-      <div
-        style={{
-          padding: '0.85rem',
-          borderRadius: 12,
-          border: '1px solid rgba(15,118,110,0.2)',
-          background: 'rgba(15,118,110,0.04)',
-        }}
-      >
-        <h4 style={{ margin: '0 0 0.5rem', color: '#0f766e' }}>Retirar para pago de servicio</h4>
-        <p className="muted" style={{ margin: '0 0 0.55rem', fontSize: '0.78rem' }}>
-          Usa esto cuando pagas CFE/proveedor (egreso del Fondo, sin pasar por cuenta admin).
-        </p>
-        <div className="grid-2" style={{ gap: '0.55rem' }}>
-          <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-            Servicio
-            <select
-              className="input"
-              style={{ marginTop: '0.3rem' }}
-              value={retiroClave}
-              onChange={(e) => setRetiroClave(e.target.value)}
-            >
-              {(servicios.length ? servicios : resumen).map((s) => (
-                <option key={s.clave || s.id} value={s.clave}>
-                  {s.nombre || s.clave}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-            Monto a retirar
-            <input
-              className="input"
-              type="number"
-              min={0}
-              step="0.01"
-              style={{ marginTop: '0.3rem' }}
-              value={retiroMonto}
-              onChange={(e) => setRetiroMonto(e.target.value)}
-            />
-          </label>
-        </div>
-        <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginTop: '0.55rem' }}>
-          Concepto
-          <input
-            className="input"
-            style={{ marginTop: '0.3rem' }}
-            value={retiroConcepto}
-            onChange={(e) => setRetiroConcepto(e.target.value)}
-            placeholder="Ej. Pago CFE quincena…"
-          />
-        </label>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          style={{ marginTop: '0.65rem' }}
-          disabled={guardando || !retiroMonto}
-          onClick={() => void retirar()}
-        >
-          {guardando ? 'Guardando…' : 'Registrar retiro'}
         </button>
       </div>
 
