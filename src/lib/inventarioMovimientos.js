@@ -63,16 +63,22 @@ function faltaRpcDeltaStock(error) {
 export const AVISO_FALTA_RPC_STOCK =
   'Falta la función atómica de stock. En Supabase → SQL Editor ejecuta: supabase/fix_stock_delta_atomico.sql (obligatorio para no regenerar inventario entre cajas).';
 
+function enteroStockRpc(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.floor(n) : 0;
+}
+
 function resultadoRpcStock(data, id) {
   const row = data && typeof data === 'object' ? data : {};
   return {
     ok: true,
-    antes: Number(row.antes) || 0,
-    despues: Number(row.despues) || 0,
+    // Number.isFinite: no convertir −12 en 0 con `||`.
+    antes: enteroStockRpc(row.antes),
+    despues: enteroStockRpc(row.despues),
     patch: {
       stock_sucursales: row.stock_sucursales,
-      stock: row.stock != null ? Number(row.stock) : undefined,
-      stock_cedis: row.stock_cedis != null ? Number(row.stock_cedis) : undefined,
+      stock: row.stock != null ? enteroStockRpc(row.stock) : undefined,
+      stock_cedis: row.stock_cedis != null ? enteroStockRpc(row.stock_cedis) : undefined,
     },
     producto: {
       id,

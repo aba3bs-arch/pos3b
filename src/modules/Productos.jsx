@@ -55,7 +55,7 @@ import Preinventario from './Preinventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
 import ConsolidarVentasInventario from '../components/ConsolidarVentasInventario.jsx';
 import { etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
-import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisible } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisible, textoEtiquetaStock } from '../lib/inventarioMultitienda.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
 import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
@@ -1177,8 +1177,16 @@ export default function Productos({
                 <>
                   {' · '}
                   <strong>{resumenInv.unidades.toLocaleString('es-MX')}</strong> u · {fmtMxn(resumenInv.valorVenta)}
-                  {resumenInv.skusConStock > 0 && (
+                  {resumenInv.skusConStock > 0 ? (
                     <span className="muted"> ({resumenInv.skusConStock} con stock)</span>
+                  ) : (
+                    <span className="muted"> (0 con stock positivo)</span>
+                  )}
+                  {negativosCount > 0 && (
+                    <span style={{ color: 'var(--brand-red)', fontWeight: 600 }}>
+                      {' '}
+                      · {negativosCount} negativo{negativosCount === 1 ? '' : 's'}
+                    </span>
                   )}
                 </>
               )}
@@ -1572,7 +1580,10 @@ export default function Productos({
                 rows.map((p) => {
                   const activo = productoSeleccionado?.id === p.id;
                   const stockVista = etiquetaStockLista(p, sucursal, { verNegativos });
-                  const stockNeg = verNegativos && (Number(p.stock) < 0 || (enCentral && Number(p.stock_cedis) < 0));
+                  const stockNeg =
+                    verNegativos &&
+                    (Number(stockVista.primario) < 0 ||
+                      (enCentral && stockVista.secundario != null && Number(stockVista.secundario) < 0));
                   const esFav = !enCentral && productoEsFavorito(p, sucursal);
                   return (
                     <div
@@ -1608,13 +1619,16 @@ export default function Productos({
                         <div className="prod-lista-meta">
                           <div className="prod-lista-codigo">{p.id}</div>
                           <div className="prod-lista-nombre">{p.nombre}</div>
-                          <div className="prod-lista-stock" style={stockNeg ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}>
-                            <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
-                            {stockVista.secundario != null ? (
-                              <>
-                                <span className="muted"> · {stockVista.etiquetaSecundario}</span> {stockVista.secundario}
-                              </>
-                            ) : null}
+                          <div
+                            className="prod-lista-stock"
+                            style={stockNeg ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}
+                            title={
+                              stockNeg
+                                ? `Inventario teórico ${stockVista.primario}: se vendió sin existencias`
+                                : undefined
+                            }
+                          >
+                            {textoEtiquetaStock(p, sucursal, { verNegativos })}
                           </div>
                         </div>
                         <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>
