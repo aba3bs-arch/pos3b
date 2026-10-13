@@ -433,6 +433,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                     background: '#fff',
                   }}
                 >
+                  {/* Encabezado fijo: debajo de esta línea se ocultan los folios al scrollear */}
                   <button
                     type="button"
                     onClick={() => toggleGrupo(g.id)}
@@ -445,10 +446,13 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                       gap: '0.65rem',
                       padding: '0.75rem 0.9rem',
                       border: 'none',
+                      borderBottom: desplegado ? '1px solid var(--border, #e2e8f0)' : 'none',
                       background: desplegado ? 'rgba(15,118,110,0.08)' : '#fff',
                       cursor: 'pointer',
                       textAlign: 'left',
                       color: 'inherit',
+                      position: 'relative',
+                      zIndex: 2,
                     }}
                   >
                     {!soloTienda && (
@@ -474,11 +478,28 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                         {desplegado ? ' · toca para plegar' : ' · toca para desplegar'}
                       </span>
                     </span>
-                    <strong style={{ color: '#b45309', flexShrink: 0, fontSize: '1.05rem' }}>{fmtMonto(g.total)}</strong>
+                    <span style={{ flexShrink: 0, textAlign: 'right' }}>
+                      <span
+                        className="muted"
+                        style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.01em' }}
+                      >
+                        Balance antes del ingreso
+                      </span>
+                      <strong style={{ color: '#b45309', fontSize: '1.05rem' }}>{fmtMonto(g.total)}</strong>
+                    </span>
                   </button>
                   {desplegado && (
-                    <div style={{ padding: '0.15rem 0.65rem 0.75rem', borderTop: '1px solid var(--border, #e2e8f0)' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', margin: '0.35rem 0 0.5rem' }}>
+                    <div
+                      style={{
+                        maxHeight: 'min(48vh, 420px)',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        WebkitOverflowScrolling: 'touch',
+                        scrollbarGutter: 'stable',
+                        padding: '0.35rem 0.65rem 0.65rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                         <span className="muted" style={{ fontSize: '0.75rem' }}>
                           {foliosSel.size}/{g.items.length} folio(s) · {fmtMonto(totalFoliosSel)}
                         </span>
@@ -494,13 +515,13 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                           Quitar marcas
                         </button>
                       </div>
-                      <table className="consultas-table" style={{ width: '100%', fontSize: '0.84rem' }}>
-                        <thead>
+                      <table className="consultas-table" style={{ width: '100%', fontSize: '0.84rem', marginBottom: 0 }}>
+                        <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff' }}>
                           <tr>
-                            <th style={{ width: 36, textAlign: 'center' }} aria-label="Seleccionar" />
-                            <th style={{ textAlign: 'left' }}>Folio</th>
-                            <th style={{ textAlign: 'left' }}>Fecha</th>
-                            <th style={{ textAlign: 'right' }}>Monto</th>
+                            <th style={{ width: 36, textAlign: 'center', background: '#fff' }} aria-label="Seleccionar" />
+                            <th style={{ textAlign: 'left', background: '#fff' }}>Folio</th>
+                            <th style={{ textAlign: 'left', background: '#fff' }}>Fecha</th>
+                            <th style={{ textAlign: 'right', background: '#fff' }}>Monto</th>
                           </tr>
                         </thead>
                         <tbody>
