@@ -9,6 +9,8 @@ import {
   solicitarCobroServicioRuta,
 } from '../lib/rutaFondoServicios.js';
 import { fmtMonto } from '../lib/consultasUi.js';
+import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
+import { TUTORIAL_COBRO_SERVICIOS } from '../content/tutorialCobroServicios.js';
 import './VentaEnRuta.css';
 
 /**
@@ -31,6 +33,7 @@ export default function CobroServiciosRuta({
   const [nota, setNota] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [cargando, setCargando] = useState(true);
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
 
   const tiendas = useMemo(() => listarSucursalesOperativas().filter((s) => s !== 'MAIN' && s !== 'CEDIS'), []);
 
@@ -111,11 +114,21 @@ export default function CobroServiciosRuta({
             y el monto entra al Fondo en RC/VentaRuta.
           </p>
         </div>
-        {onVolver && (
-          <button type="button" className="btn btn-ghost ruta-invop-volver" onClick={onVolver}>
-            Volver
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.8rem' }}
+            onClick={() => setTutorialAbierto(true)}
+          >
+            Ver tutorial
           </button>
-        )}
+          {onVolver && (
+            <button type="button" className="btn btn-ghost ruta-invop-volver" onClick={onVolver}>
+              Volver
+            </button>
+          )}
+        </div>
       </header>
 
       <section className="ruta-invop-panel">
@@ -234,6 +247,12 @@ export default function CobroServiciosRuta({
           </div>
         </section>
       )}
+
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_COBRO_SERVICIOS}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }

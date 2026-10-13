@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">2. Catálogo · Panel RT → Servicios</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Define CFE y otros servicios antes de cobrar en ruta</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="864" height="320" rx="16" fill="#fff"/>
+    <rect x="48" y="110" width="864" height="52" fill="#e6f4f1"/>
+    <text x="72" y="142" font-size="15" font-weight="700" fill="#0f766e">Contabilidad · Panel RT · Servicios</text>
+    <text x="780" y="142" font-size="13" fill="#0f766e" font-weight="600">+ Nuevo</text>
+    <text x="80" y="190" font-size="13" font-weight="700" fill="#64748b">CLAVE</text>
+    <text x="220" y="190" font-size="13" font-weight="700" fill="#64748b">NOMBRE</text>
+    <text x="480" y="190" font-size="13" font-weight="700" fill="#64748b">MONTO</text>
+    <text x="640" y="190" font-size="13" font-weight="700" fill="#64748b">OBLIGATORIO</text>
+    <line x1="72" y1="205" x2="880" y2="205" stroke="#e2e8f0"/>
+    <text x="80" y="240" font-size="15" font-weight="700" fill="#0f172a">CFE</text>
+    <text x="220" y="240" font-size="15" fill="#334155">CFE / Luz</text>
+    <text x="480" y="240" font-size="15" font-weight="700" fill="#0f766e">$350.00</text>
+    <rect x="640" y="222" width="70" height="26" rx="8" fill="#dcfce7"/><text x="675" y="240" text-anchor="middle" font-size="12" font-weight="700" fill="#166534">Sí</text>
+    <text x="80" y="285" font-size="15" font-weight="700" fill="#0f172a">AGUA</text>
+    <text x="220" y="285" font-size="15" fill="#334155">Agua municipal</text>
+    <text x="480" y="285" font-size="15" font-weight="700" fill="#0f766e">$180.00</text>
+    <rect x="640" y="267" width="70" height="26" rx="8" fill="#f1f5f9"/><text x="675" y="285" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b">No</text>
+    <text x="80" y="330" font-size="15" font-weight="700" fill="#0f172a">GAS</text>
+    <text x="220" y="330" font-size="15" fill="#334155">Gas LP</text>
+    <text x="480" y="330" font-size="15" font-weight="700" fill="#0f766e">$420.00</text>
+    <rect x="640" y="312" width="70" height="26" rx="8" fill="#f1f5f9"/><text x="675" y="330" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b">No</text>
+    <text x="72" y="390" font-size="14" fill="#546e7a">Sin este catálogo el recolector no puede solicitar cobros en el celular.</text>
+  </g>
+
+</svg>

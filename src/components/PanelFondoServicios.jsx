@@ -26,6 +26,8 @@ import {
 import { fmtMonto } from '../lib/consultasUi.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
+import VisorTutorialModal from './VisorTutorialModal.jsx';
+import { TUTORIAL_COBRO_SERVICIOS } from '../content/tutorialCobroServicios.js';
 
 /**
  * RC/VentaRuta → pestaña RC Servicios: cobros de servicio y liquidación a cuenta Servicios.
@@ -49,6 +51,7 @@ export default function PanelFondoServicios({ supabase, user }) {
   const [cobrosTransito, setCobrosTransito] = useState([]);
   const [selCobros, setSelCobros] = useState({});
   const [liquidandoCobros, setLiquidandoCobros] = useState(false);
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
 
   const liqCuenta = CUENTA_RT_FONDO_DEFAULT;
   const puedeTesoreria = puedeAdministrarTesoreria(user);
@@ -278,6 +281,14 @@ export default function PanelFondoServicios({ supabase, user }) {
           Ingresos = cobros · Liquidación = cuenta <strong>Servicios</strong> · luego → Tesorería (Cheche).
           {puedeBorrarServicio ? ' Puedes borrar servicios individuales del catálogo.' : ''}
         </p>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ fontSize: '0.8rem' }}
+          onClick={() => setTutorialAbierto(true)}
+        >
+          Ver tutorial
+        </button>
       </div>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
@@ -673,6 +684,12 @@ export default function PanelFondoServicios({ supabase, user }) {
           </table>
         </div>
       </div>
+
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_COBRO_SERVICIOS}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }

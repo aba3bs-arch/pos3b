@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">6. RC Servicios · cobros pendientes</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">RC/VentaRuta → RC Servicios · agrupa por tienda · liquida a Servicios</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="105" width="864" height="330" rx="16" fill="#fff"/>
+    <rect x="48" y="105" width="864" height="48" fill="#e6f4f1"/>
+    <text x="72" y="135" font-size="15" font-weight="700" fill="#0f766e">Cobros de servicio pendientes</text>
+    <text x="72" y="175" font-size="13" fill="#64748b">En tránsito: $1,420.00 · 4 mov. · 3 tiendas</text>
+    <text x="72" y="210" font-size="12" font-weight="700" fill="#94a3b8">TIENDA</text>
+    <text x="320" y="210" font-size="12" font-weight="700" fill="#94a3b8">RECOLECTÓ</text>
+    <text x="560" y="210" font-size="12" font-weight="700" fill="#94a3b8">DETALLE</text>
+    <text x="820" y="210" text-anchor="end" font-size="12" font-weight="700" fill="#94a3b8">TOTAL</text>
+    <line x1="72" y1="222" x2="880" y2="222" stroke="#e2e8f0"/>
+    <text x="72" y="250" font-size="14" font-weight="700" fill="#0f172a">☑ 3B10 El Mezquite</text>
+    <text x="320" y="250" font-size="13" fill="#334155">Luis</text>
+    <text x="560" y="250" font-size="12" fill="#64748b">CFE $350 · CFE $280</text>
+    <text x="880" y="250" text-anchor="end" font-size="14" font-weight="700" fill="#0f766e">$630.00</text>
+    <text x="72" y="285" font-size="14" font-weight="700" fill="#0f172a">☑ 3B5</text>
+    <text x="320" y="285" font-size="13" fill="#334155">Luis</text>
+    <text x="560" y="285" font-size="12" fill="#64748b">CFE $350</text>
+    <text x="880" y="285" text-anchor="end" font-size="14" font-weight="700" fill="#0f766e">$350.00</text>
+    <text x="72" y="320" font-size="14" font-weight="700" fill="#0f172a">☑ Fusión</text>
+    <text x="320" y="320" font-size="13" fill="#334155">Ana</text>
+    <text x="560" y="320" font-size="12" fill="#64748b">CFE $440</text>
+    <text x="880" y="320" text-anchor="end" font-size="14" font-weight="700" fill="#0f766e">$440.00</text>
+    <rect x="72" y="350" width="380" height="48" rx="12" fill="url(#brand)"/>
+    <text x="262" y="380" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">Liquidar cobros · $1,420.00 → Servicios</text>
+  </g>
+
+</svg>
