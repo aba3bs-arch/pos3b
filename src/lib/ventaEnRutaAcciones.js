@@ -27,7 +27,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_auditorias', vista: 'auditorias', label: 'Inv-op / Auditorías', desc: 'Recolector → departamentos · faltantes costo/público', icon: 'search', grupo: 'admin' },
   { id: 'ruta_creditos', vista: 'creditos', label: 'Créditos por pagar', desc: 'Ruta + Recolecciones · cajero con PIN', icon: 'register', grupo: 'oper' },
   { id: 'ruta_servicios', vista: 'servicios', label: 'Cobro servicios', desc: 'CFE y servicios · solicitud móvil · PIN cajero', icon: 'dollar', grupo: 'oper' },
-  { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · pestaña Fondo servicios', icon: 'register', grupo: 'admin' },
+  { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios / Tesorería', icon: 'register', grupo: 'admin' },
 ];
 
 /** Defaults por rol cuando no hay checkbox en Configuración. */

@@ -223,9 +223,66 @@ export async function borrarDatosConsultasVentaRuta(supabase) {
   return {
     ok: errores.length === 0,
     detalle:
-      `Consultas limpiadas: ${hechos.join(', ') || 'sin filas'}.`
+      `Consultas / ingresos de prueba limpiados: ${hechos.join(', ') || 'sin filas'}.`
       + (errores.length ? ` Avisos: ${errores.join(' · ')}` : '')
       + ' Camiones, clientes y precios de ruta se conservan.',
+    errores,
+  };
+}
+
+/** Ledger RC Servicios (antes Fondo). */
+export const TABLAS_FONDO_SERVICIOS_PURGA = [
+  'ruta_fondo_movimientos',
+  'ruta_fondo_solicitudes',
+];
+
+/** Cuentas RT exclusivas de servicios / Tesorería (no Francisco). */
+export const CUENTAS_RT_PURGA_SERVICIOS = ['servicios', 'cheche'];
+
+async function borrarMovimientosCuentaRt(supabase, cuentaIds) {
+  const ids = (cuentaIds || []).map(String).filter(Boolean);
+  if (!ids.length) return { ok: true, borrada: false };
+  const { error } = await supabase
+    .from('rt_movimientos_cuenta')
+    .delete()
+    .in('cuenta_id', ids);
+  if (!error) return { ok: true, borrada: true };
+  if (faltaTabla(error)) return { ok: true, omitida: true };
+  return { ok: false, error: error.message };
+}
+
+/**
+ * Limpia datos de prueba de RC Servicios (Fondo) y Tesorería (Cheche).
+ * No toca mercancía (Francisco) ni catálogo de servicios cobro.
+ */
+export async function borrarDatosPruebaFondoTesoreria(supabase) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+
+  const hechos = [];
+  const errores = [];
+
+  for (const tabla of TABLAS_FONDO_SERVICIOS_PURGA) {
+    const r = await vaciarTabla(supabase, tabla);
+    if (!r.ok) errores.push(`${tabla}: ${r.error}`);
+    else if (r.borrada) hechos.push(tabla);
+    else if (r.omitida) hechos.push(`${tabla} (ausente)`);
+  }
+
+  const rt = await borrarMovimientosCuentaRt(supabase, CUENTAS_RT_PURGA_SERVICIOS);
+  if (!rt.ok) errores.push(`rt_movimientos_cuenta: ${rt.error}`);
+  else if (rt.borrada) hechos.push('movimientos RT Servicios + Tesorería (Cheche)');
+  else if (rt.omitida) hechos.push('rt_movimientos_cuenta (ausente)');
+
+  if (!hechos.length && errores.length) {
+    return { ok: false, error: errores.join('\n'), errores };
+  }
+
+  return {
+    ok: errores.length === 0,
+    detalle:
+      `RC Servicios / Tesorería limpiados: ${hechos.join(', ') || 'sin filas'}.`
+      + (errores.length ? ` Avisos: ${errores.join(' · ')}` : '')
+      + ' Francisco (mercancía) y catálogo de servicios se conservan.',
     errores,
   };
 }

@@ -15,11 +15,13 @@ import {
   puedeAdministrarTesoreria,
   saldosOrigenTesoreria,
 } from '../lib/rtCuentas.js';
+import { borrarDatosPruebaFondoTesoreria } from '../lib/purgaVentaEnRuta.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
+import { normalizarRol } from '../lib/roles.js';
 
 /**
- * RC/VentaRuta → pestaña Fondo: cobros de servicio y liquidación a cuenta Servicios.
+ * RC/VentaRuta → pestaña RC Servicios: cobros de servicio y liquidación a cuenta Servicios.
  * Separado de la liquidación de mercancía / venta (Francisco).
  * Desde Servicios se transfieren fondos a Tesorería (Cheche).
  */
@@ -34,9 +36,11 @@ export default function PanelFondoServicios({ supabase, user }) {
   const [montoTesoreria, setMontoTesoreria] = useState('');
   const [notaTesoreria, setNotaTesoreria] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [limpiando, setLimpiando] = useState(false);
 
   const liqCuenta = CUENTA_RT_FONDO_DEFAULT;
   const puedeTesoreria = puedeAdministrarTesoreria(user);
+  const puedeLimpiarPrueba = normalizarRol(user?.rol) === 'Administrador' || puedeTesoreria;
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -89,13 +93,13 @@ export default function PanelFondoServicios({ supabase, user }) {
 
   const liquidar = async () => {
     if (!(Number(liqMonto) > 0) && liqClave) return alert('Ingresa un monto.');
-    if (!conSaldo.length) return alert('El Fondo no tiene saldo.');
+    if (!conSaldo.length) return alert('RC Servicios no tiene saldo.');
     const cuentaNom = etiquetaCuentaRt(liqCuenta);
     const dest = liqClave
       ? `${liqClave} · ${fmtMonto(liqMonto)}`
       : `todos los servicios con saldo · ${fmtMonto(totales.saldo)}`;
     if (!confirm(
-      `¿Liquidar Fondo de servicios a la cuenta ${cuentaNom}?\n\n`
+      `¿Liquidar RC Servicios a la cuenta ${cuentaNom}?\n\n`
       + `${dest}\n\n`
       + 'Independiente de la liquidación de mercancía. Luego puedes transferir a Tesorería.',
     )) return;
@@ -109,7 +113,7 @@ export default function PanelFondoServicios({ supabase, user }) {
       });
       if (!r.ok) return alert(r.error || 'No se pudo liquidar.');
       alert(
-        `✅ Fondo liquidado · ${fmtMonto(r.data.total)} → ${r.data.cuentaNombre}`
+        `✅ RC Servicios liquidado · ${fmtMonto(r.data.total)} → ${r.data.cuentaNombre}`
         + ` (${r.data.items.length} servicio(s)). Separado de la venta.`,
       );
       await cargar();
@@ -142,20 +146,56 @@ export default function PanelFondoServicios({ supabase, user }) {
     }
   };
 
+  const limpiarPrueba = async () => {
+    if (!puedeLimpiarPrueba) return alert('Solo administrador / gerente puede limpiar datos de prueba.');
+    if (!confirm(
+      '¿Borrar datos de prueba de RC Servicios y Tesorería?\n\n'
+      + 'Se eliminan movimientos del ledger RC Servicios y de las cuentas Servicios / Cheche.\n'
+      + 'No se toca mercancía (Francisco) ni el catálogo de servicios.\n\n'
+      + 'Esta acción no se puede deshacer.',
+    )) return;
+    const frase = window.prompt('Escribe LIMPIAR RC SERVICIOS para confirmar:');
+    if (String(frase || '').trim().toUpperCase() !== 'LIMPIAR RC SERVICIOS') {
+      return alert('Cancelado: debes escribir LIMPIAR RC SERVICIOS.');
+    }
+    setLimpiando(true);
+    try {
+      const r = await borrarDatosPruebaFondoTesoreria(supabase);
+      if (!r.ok) return alert(r.error || 'No se pudo limpiar.');
+      alert(r.detalle || 'Datos de prueba limpiados.');
+      await cargar();
+    } finally {
+      setLimpiando(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-        Solo <strong>recolección de servicios</strong> (CFE y Panel RT → Servicios).
-        No se mezcla con mercancía (Francisco).
-        Ingresos = cobros · Liquidación = cuenta <strong>Servicios</strong> · luego → Tesorería (Cheche).
-      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <p className="muted" style={{ margin: 0, fontSize: '0.85rem', flex: '1 1 220px' }}>
+          <strong>RC Servicios</strong> · solo <strong>recolección de servicios</strong> (CFE y Panel RT).
+          No se mezcla con mercancía (Francisco).
+          Ingresos = cobros · Liquidación = cuenta <strong>Servicios</strong> · luego → Tesorería (Cheche).
+        </p>
+        {puedeLimpiarPrueba && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ color: '#b91c1c', borderColor: '#fecaca', fontSize: '0.8rem' }}
+            disabled={limpiando || guardando}
+            onClick={() => void limpiarPrueba()}
+          >
+            {limpiando ? 'Limpiando…' : 'Limpiar datos de prueba'}
+          </button>
+        )}
+      </div>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
       )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         {[
-          { label: 'Saldo Fondo', value: fmtMonto(totales.saldo), color: '#0f766e' },
+          { label: 'Saldo RC Servicios', value: fmtMonto(totales.saldo), color: '#0f766e' },
           { label: 'Ingresos', value: fmtMonto(totales.ingresos) },
           { label: 'Liquidado / egresos', value: fmtMonto(totales.egresos), color: '#b45309' },
           { label: 'Cuenta Servicios', value: fmtMonto(saldoServicios), color: '#0f766e' },
@@ -214,7 +254,7 @@ export default function PanelFondoServicios({ supabase, user }) {
         }}
       >
         <h4 style={{ margin: '0 0 0.25rem', color: '#0f766e' }}>
-          Liquidar Fondo → {etiquetaCuentaRt(liqCuenta)}
+          Liquidar RC Servicios → {etiquetaCuentaRt(liqCuenta)}
         </h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
           Pasa el efectivo de servicios a la cuenta RT <strong>Servicios</strong>.

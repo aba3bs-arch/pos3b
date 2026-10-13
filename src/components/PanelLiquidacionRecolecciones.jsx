@@ -310,7 +310,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           style={{ fontSize: '0.85rem' }}
           onClick={() => cambiarModoConsulta('fondo')}
         >
-          Fondo
+          RC Servicios
         </button>
         <button
           type="button"
