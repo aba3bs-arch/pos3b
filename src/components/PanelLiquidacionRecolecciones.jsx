@@ -9,7 +9,7 @@ import {
   inicializarSeleccionLiquidacion,
   liquidarMovimientos,
   listarAlertasRecoleccion,
-  listarEnTransitoPorRepartidor,
+  listarMercanciaEnTransitoPorRepartidor,
   listarGastosActivosParaLiquidacion,
   listarLiquidacionesRepartidor,
   listarRepartidores,
@@ -18,9 +18,9 @@ import {
   resumenTotalesPorTipo,
   calcularNetosLiquidacion,
   armarAcreditacionesLiquidacion,
+  movimientosMercancia,
 } from '../lib/controlEfectivo.js';
 import {
-  CUENTA_RT_SERVICIOS_ID,
   CUENTAS_RT_LIQUIDACION,
   cuentaRtMercanciaPorDefecto,
   etiquetaCuentaRt,
@@ -72,7 +72,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [filtroHasta, setFiltroHasta] = useState('');
   const [fechaSellado, setFechaSellado] = useState(() => hoyClaveNogales());
   const [cuentaRtMercancia, setCuentaRtMercancia] = useState(() => cuentaRtMercanciaPorDefecto(user?.nombre));
-  const cuentaRtServicios = CUENTA_RT_SERVICIOS_ID;
 
   const esHistorial = modoConsulta === 'historial';
   const esFondo = modoConsulta === 'fondo';
@@ -126,8 +125,11 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
       const [movs, alr, gastos] = await Promise.all([
         esHistorial
-          ? listarLiquidacionesRepartidor(supabase, repId, { desde, hasta })
-          : listarEnTransitoPorRepartidor(supabase, repId).then((rows) =>
+          ? listarLiquidacionesRepartidor(supabase, repId, { desde, hasta }).then((rows) =>
+              // Historial: se muestran merchandise + créditos; servicios van en RC Servicios.
+              movimientosMercancia(rows),
+            )
+          : listarMercanciaEnTransitoPorRepartidor(supabase, repId).then((rows) =>
               filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
             ),
         esHistorial ? Promise.resolve([]) : listarAlertasRecoleccion(supabase),
@@ -226,29 +228,29 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       if (!cuentaRtMercancia && netosLiquidacion.netoMercancia > 0) {
         return alert('Selecciona la cuenta RT para mercancía.');
       }
-      if (!cuentaRtServicios && netosLiquidacion.netoServicios > 0) {
-        return alert('Selecciona la cuenta RT para servicios.');
-      }
       const { acreditaciones } = armarAcreditacionesLiquidacion({
         seleccionados,
         totalGastos: totalGastosActivos,
         cuentaRtMercancia,
-        cuentaRtServicios,
+        cuentaRtServicios: null,
         repartidorNombre: repNombre,
       });
-      if (!acreditaciones.length) return alert('No hay monto neto para acreditar.');
+      // Solo mercancía aquí; cobros de servicio se liquidan en RC Servicios.
+      const acredMerc = acreditaciones.filter((a) => a.tipoPartida === 'mercancia');
+      if (!acredMerc.length) return alert('No hay monto neto de mercancía para acreditar. Los servicios van en RC Servicios.');
       const diasTxt = diasSeleccionados.map((d) => d.etiqueta).join(', ');
-      const lineasCuentas = acreditaciones
+      const lineasCuentas = acredMerc
         .map((a) => `${etiquetaCuentaRt(a.cuentaRtId)}: ${fmtMonto(a.monto)}`)
         .join('\n');
       if (
         !window.confirm(
-          `¿Sellar liquidación del ${fechaLiquidacion}?\n\n` +
+          `¿Sellar liquidación de mercancía del ${fechaLiquidacion}?\n\n` +
             `Días: ${diasTxt || '—'}\n` +
-            `Mercancía bruta: ${fmtMonto(netosLiquidacion.brutoMerc)} · Servicios: ${fmtMonto(netosLiquidacion.brutoSrv)}\n` +
-            `Gastos aceptados: −${fmtMonto(totalGastosActivos)} (solo mercancía)\n\n` +
+            `Mercancía bruta: ${fmtMonto(netosLiquidacion.brutoMerc)}\n` +
+            `Gastos aceptados: −${fmtMonto(totalGastosActivos)}\n\n` +
             `Acreditar:\n${lineasCuentas}\n\n` +
-            `Total neto: ${fmtMonto(totalARecolectar)} (${ids.length} movimiento(s))`,
+            `Total neto: ${fmtMonto(netosLiquidacion.netoMercancia)} (${ids.length} movimiento(s))\n\n` +
+            'Los cobros de servicio (CFE) se liquidan en la pestaña RC Servicios.',
         )
       )
         return;
@@ -256,12 +258,12 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         ids,
         adminNombre: user?.nombre || rol,
         repartidorNombre: repNombre,
-        acreditaciones,
-        montoLiquidacion: totalARecolectar,
+        acreditaciones: acredMerc,
+        montoLiquidacion: netosLiquidacion.netoMercancia,
       });
       if (!res.ok) return alert(res.error);
       alert(
-        `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalARecolectar)} acreditados` +
+        `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || netosLiquidacion.netoMercancia)} acreditados` +
           (acreditaciones.length > 1
             ? ` (${acreditaciones.map((a) => `${etiquetaCuentaRt(a.cuentaRtId)} ${fmtMonto(a.monto)}`).join(' · ')})`
             : ` a ${etiquetaCuentaRt(acreditaciones[0]?.cuentaRtId)}`) +
@@ -376,10 +378,10 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           </div>
         )}
         {!esHistorial && (
-          <div className="grid-2" style={{ gap: '0.75rem', gridColumn: '1 / -1' }}>
+          <div style={{ gridColumn: '1 / -1' }}>
             <label className="muted" style={{ display: 'block' }}>
               Cuenta RT — Mercancía (traspasos, crédito cobrado)
-              <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtMercancia} onChange={(e) => setCuentaRtMercancia(e.target.value)}>
+              <select className="select" style={{ marginTop: '0.35rem', maxWidth: 360 }} value={cuentaRtMercancia} onChange={(e) => setCuentaRtMercancia(e.target.value)}>
                 {CUENTAS_RT_LIQUIDACION.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nombre}
@@ -387,20 +389,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                 ))}
               </select>
               <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
-                Recolecciones y créditos. Los gastos aceptados se descuentan solo de esta partida.
-              </span>
-            </label>
-            <label className="muted" style={{ display: 'block' }}>
-              Cuenta RT — Servicios (solo recolección CFE/etc.)
-              <input
-                className="input"
-                style={{ marginTop: '0.35rem' }}
-                value={etiquetaCuentaRt(CUENTA_RT_SERVICIOS_ID)}
-                readOnly
-                disabled
-              />
-              <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
-                Solo cobros de servicio. No se mezcla con mercancía. De aquí se transfieren a Tesorería (Cheche).
+                Solo mercancía / créditos. Los cobros de servicio (CFE) se liquidan en la pestaña <strong>RC Servicios</strong>.
               </span>
             </label>
           </div>
@@ -640,7 +629,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             }}
           >
             <p className="muted" style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
-              Efectivo neto a acreditar (dos cuentas)
+              Efectivo neto a acreditar (mercancía)
             </p>
             <div style={{ marginTop: '0.55rem', fontSize: '0.95rem', lineHeight: 1.55 }}>
               <div>
@@ -652,10 +641,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                 <strong>{fmtMonto(netosLiquidacion.netoMercancia)}</strong>
                 <span className="muted" style={{ fontSize: '0.82rem' }}> ({etiquetaCuentaRt(cuentaRtMercancia)})</span>
               </div>
-              <div>
-                Servicios: <strong>{fmtMonto(netosLiquidacion.netoServicios)}</strong>
-                <span className="muted" style={{ fontSize: '0.82rem' }}> ({etiquetaCuentaRt(cuentaRtServicios)})</span>
-              </div>
               <div
                 style={{
                   marginTop: '0.45rem',
@@ -666,15 +651,14 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                   color: 'var(--brand-blue)',
                 }}
               >
-                = {fmtMonto(totalARecolectar)} total
+                = {fmtMonto(netosLiquidacion.netoMercancia)} total
               </div>
             </div>
             <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.82rem' }}>
-              Los gastos del recolector solo restan de mercancía. Servicios (CFE) van íntegros a su cuenta.
+              Cobros de servicio (CFE) no aparecen aquí: liquídalos en <strong>RC Servicios</strong>.
             </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
-              {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Merc. {fmtMonto(resumenSel.mercancia)} · Serv.{' '}
-              {fmtMonto(resumenSel.servicios)}
+              {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Merc. {fmtMonto(resumenSel.mercancia)}
             </p>
           </div>
           )}
@@ -690,7 +674,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} disabled={guardando || seleccionados.length === 0} onClick={confirmarLiquidacion}>
             {guardando
               ? 'Sellando…'
-              : `Sellar y acreditar neto · ${fmtMonto(totalARecolectar)}`}
+              : `Sellar y acreditar neto · ${fmtMonto(netosLiquidacion.netoMercancia)}`}
           </button>
           )}
         </>

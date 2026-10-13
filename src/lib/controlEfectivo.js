@@ -934,6 +934,64 @@ export async function listarEnTransitoPorRepartidor(supabase, repartidorId) {
   return (data || []).filter((m) => m.tipo_movimiento !== 'Gasto');
 }
 
+/** Solo mercancía en tránsito (sin Cobro Servicio). Para Pendientes por liquidar. */
+export async function listarMercanciaEnTransitoPorRepartidor(supabase, repartidorId) {
+  const rows = await listarEnTransitoPorRepartidor(supabase, repartidorId);
+  return movimientosMercancia(rows);
+}
+
+/**
+ * Cobros de servicio (CFE/etc.) en tránsito — van a RC Servicios, no a Pendientes mercancía.
+ * @param {{ repartidorId?: string|null }} opts
+ */
+export async function listarCobrosServicioEnTransito(supabase, { repartidorId = null } = {}) {
+  if (!supabase) return [];
+  let q = supabase
+    .from('transito_efectivo')
+    .select(
+      'id, sucursal_origen, cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, repartidor_id, repartidores(nombre)',
+    )
+    .eq('estatus', 'En Tránsito')
+    .eq('tipo_movimiento', 'Cobro Servicio')
+    .order('fecha_hora', { ascending: true })
+    .limit(500);
+  if (repartidorId) q = q.eq('repartidor_id', repartidorId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+/** Agrupa cobros de servicio por tienda (totales juntos) y lista repartidores presentes. */
+export function agruparCobrosServicioPorTienda(movimientos = []) {
+  const porTienda = new Map();
+  const reps = new Map();
+  let total = 0;
+  for (const m of movimientos || []) {
+    const tienda = String(m.sucursal_origen || '—');
+    if (!porTienda.has(tienda)) {
+      porTienda.set(tienda, { tienda, items: [], total: 0, count: 0 });
+    }
+    const g = porTienda.get(tienda);
+    g.items.push(m);
+    g.total = Math.round((g.total + (Number(m.monto) || 0)) * 100) / 100;
+    g.count += 1;
+    total = Math.round((total + (Number(m.monto) || 0)) * 100) / 100;
+    const rid = String(m.repartidor_id || '');
+    if (rid && !reps.has(rid)) {
+      reps.set(rid, {
+        id: rid,
+        nombre: m.repartidores?.nombre || m.repartidor_nombre || rid,
+      });
+    }
+  }
+  return {
+    grupos: [...porTienda.values()].sort((a, b) => String(a.tienda).localeCompare(String(b.tienda), 'es')),
+    repartidores: [...reps.values()].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es')),
+    total,
+    count: (movimientos || []).length,
+  };
+}
+
 /** Todo el efectivo en tránsito (todas las tiendas / recolectores). */
 export async function listarTodoEnTransito(supabase, { repartidorId } = {}) {
   if (!supabase) return [];
@@ -1245,6 +1303,69 @@ export function armarAcreditacionesLiquidacion({
   return { acreditaciones, netos };
 }
 
+/**
+ * Liquida cobros de servicio en tránsito → cuenta RT Servicios (RC Servicios).
+ * No mezcla mercancía ni aplica gastos del recolector.
+ */
+export async function liquidarCobrosServicioEnTransito(supabase, {
+  ids,
+  adminNombre,
+  movimientos = null,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const idSet = new Set((ids || []).map(String).filter(Boolean));
+  if (!idSet.size) return { ok: false, error: 'Selecciona al menos un cobro de servicio.' };
+
+  let rows = movimientos || [];
+  if (!rows.length) {
+    const { data, error } = await supabase
+      .from('transito_efectivo')
+      .select(
+        'id, sucursal_origen, cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, repartidor_id, repartidores(nombre)',
+      )
+      .in('id', [...idSet])
+      .eq('estatus', 'En Tránsito')
+      .eq('tipo_movimiento', 'Cobro Servicio');
+    if (error) return { ok: false, error: error.message };
+    rows = data || [];
+  } else {
+    rows = rows.filter(
+      (m) => idSet.has(String(m.id)) && m.tipo_movimiento === 'Cobro Servicio',
+    );
+  }
+  if (!rows.length) return { ok: false, error: 'No hay cobros de servicio pendientes en la selección.' };
+
+  const reps = [...new Set(rows.map((m) => m.repartidores?.nombre || m.repartidor_id).filter(Boolean))];
+  const { acreditaciones, netos } = armarAcreditacionesLiquidacion({
+    seleccionados: rows,
+    totalGastos: 0,
+    cuentaRtMercancia: CUENTA_RT_MERCANCIA_FIJA,
+    cuentaRtServicios: CUENTA_RT_SERVICIOS_FIJA,
+    repartidorNombre: reps.join(', ') || 'recolector',
+  });
+  if (!acreditaciones.length || !(netos.netoServicios > 0)) {
+    return { ok: false, error: 'Sin monto de servicios para liquidar.' };
+  }
+
+  const res = await liquidarMovimientos(supabase, {
+    ids: rows.map((m) => m.id),
+    adminNombre: adminNombre || 'RC Servicios',
+    repartidorNombre: reps.join(', ') || null,
+    acreditaciones,
+    montoLiquidacion: netos.netoServicios,
+    // Gastos del recolector solo se descuentan en liquidación de mercancía.
+    omitirGastos: true,
+  });
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    count: res.count,
+    montoTotal: res.montoTotal || netos.netoServicios,
+    tiendas: [...new Set(rows.map((m) => m.sucursal_origen).filter(Boolean))],
+    repartidores: reps,
+  };
+}
+
 export async function liquidarMovimientos(supabase, {
   ids,
   adminNombre,
@@ -1252,6 +1373,7 @@ export async function liquidarMovimientos(supabase, {
   cuentaRtId,
   montoLiquidacion,
   acreditaciones = null,
+  omitirGastos = false,
 }) {
   if (!ids?.length) return { ok: false, error: 'No hay movimientos para liquidar.' };
   const tLiq = ahoraIsoNogales();
@@ -1267,10 +1389,13 @@ export async function liquidarMovimientos(supabase, {
   const repartidorIds = [...new Set((rowsPrev || []).map((r) => r.repartidor_id).filter(Boolean))];
 
   // Snapshot de gastos activos ANTES de sellar recolecciones (luego lastLiq cambia).
+  // omitirGastos: liquidación solo de Cobro Servicio (RC Servicios) no cierra gastos.
   const gastosACerrar = [];
-  for (const rid of repartidorIds) {
-    const activos = await listarGastosActivosParaLiquidacion(supabase, rid);
-    for (const g of activos) gastosACerrar.push(g);
+  if (!omitirGastos) {
+    for (const rid of repartidorIds) {
+      const activos = await listarGastosActivosParaLiquidacion(supabase, rid);
+      for (const g of activos) gastosACerrar.push(g);
+    }
   }
 
   for (const id of ids) {
