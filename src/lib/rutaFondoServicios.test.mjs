@@ -6,8 +6,9 @@ import {
   totalesFondo,
 } from './rutaFondoServicios.js';
 
-assert.equal(CUENTA_RT_FONDO_DEFAULT, 'francisco');
-assert.ok(CUENTAS_RT.some((c) => c.id === 'francisco'));
+assert.equal(CUENTA_RT_FONDO_DEFAULT, 'jlbb');
+assert.ok(CUENTAS_RT.some((c) => c.id === 'jlbb'));
+assert.ok(!CUENTAS_RT.some((c) => c.id === 'luis-enrique' || c.id === 'cheche'));
 
 {
   const catalogo = [

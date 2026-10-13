@@ -10,17 +10,24 @@ export const CUENTAS_RT = [
   { id: 'andres', nombre: 'Andrés', patrones: ['andres', 'andrés', 'amr'] },
   { id: 'abb', nombre: 'ABB', patrones: ['abb', 'antonio'] },
   { id: 'jlbb', nombre: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
-  { id: 'luis-enrique', nombre: 'Luis Enrique', patrones: ['luis enrique'] },
   { id: 'cheche', nombre: 'Cheche (Tesorería)', patrones: ['cheche', 'tesoreria', 'tesorería'] },
 ];
 
 export const CUENTA_RT_ABB_ID = 'abb';
 
-/** Tesorería RC/VentaRuta: recibe fondos de servicios. Tesorero Cheche · admin JLBB. */
+/**
+ * Cuentas admin para liquidar mercancía / Fondo (no repartidores, no Tesorería).
+ * Luis Enrique es solo repartidor: no aparece aquí.
+ */
+export const CUENTAS_RT_LIQUIDACION = CUENTAS_RT.filter(
+  (c) => c.id !== 'cheche',
+);
+
+/** Tesorería RC/VentaRuta: recibe solo fondos de servicios. Tesorero Cheche · admin JLBB. */
 export const CUENTA_TESORERIA_ID = 'cheche';
 export const ADMIN_TESORERIA_CUENTA_ID = 'jlbb';
-/** Cuentas que pueden enviar fondos de servicios a Tesorería. */
-export const CUENTAS_ORIGEN_TESORERIA = ['francisco', 'abb', 'jlbb'];
+/** Solo JLBB envía fondos de servicios a Tesorería (Cheche). */
+export const CUENTAS_ORIGEN_TESORERIA = ['jlbb'];
 
 export const PRESETS_RT_CUENTAS = [
   { id: 'hoy', label: 'Hoy' },
@@ -578,7 +585,7 @@ export async function enviarFondosServiciosATesoreria(supabase, {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const origen = String(desdeId || '').trim();
   if (!CUENTAS_ORIGEN_TESORERIA.includes(origen)) {
-    return { ok: false, error: 'Origen inválido. Solo ABB, JLBB o FJBB (Francisco).' };
+    return { ok: false, error: 'Origen inválido. Tesorería solo recibe desde JLBB (fondos de servicio).' };
   }
   const ensure = await asegurarCuentaTesoreria(supabase);
   if (!ensure.ok) return ensure;

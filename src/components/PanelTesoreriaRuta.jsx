@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ADMIN_TESORERIA_CUENTA_ID,
   CUENTA_TESORERIA_ID,
-  CUENTAS_ORIGEN_TESORERIA,
   asegurarCuentaTesoreria,
   enviarFondosServiciosATesoreria,
   etiquetaCuentaRt,
@@ -18,15 +17,14 @@ import { fmtMonto } from '../lib/consultasUi.js';
 
 /**
  * RC/VentaRuta → Tesorería.
- * Tesorero: Cheche. Recibe fondos de servicios desde ABB / JLBB / FJBB.
- * Administrada por JLBB.
+ * Solo JLBB → Cheche con fondos de pagos de servicio.
+ * Administrada por JLBB. Sin ABB / FJBB.
  */
 export default function PanelTesoreriaRuta({ supabase, user }) {
   const [saldo, setSaldo] = useState(0);
-  const [origenes, setOrigenes] = useState([]);
+  const [saldoJlbb, setSaldoJlbb] = useState(0);
   const [movimientos, setMovimientos] = useState([]);
   const [aviso, setAviso] = useState('');
-  const [desdeId, setDesdeId] = useState('francisco');
   const [monto, setMonto] = useState('');
   const [notas, setNotas] = useState('');
   const [gastoMonto, setGastoMonto] = useState('');
@@ -51,41 +49,28 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
     if (o.error) setAviso(o.error);
     if (m.error) setAviso(m.error?.message || String(m.error));
     setSaldo(s.saldo || 0);
-    setOrigenes(o.data || []);
+    const jlbb = (o.data || []).find((x) => x.id === ADMIN_TESORERIA_CUENTA_ID);
+    setSaldoJlbb(jlbb?.saldo || 0);
     setMovimientos(m.data || []);
-    const conSaldo = (o.data || []).find((x) => x.saldo > 0);
-    if (conSaldo) {
-      setDesdeId((prev) => {
-        const actual = (o.data || []).find((x) => x.id === prev);
-        if (actual && actual.saldo > 0) return prev;
-        return conSaldo.id;
-      });
-    }
+    if (jlbb?.saldo > 0) setMonto(String(jlbb.saldo));
+    else setMonto('');
   }, [supabase]);
 
   useEffect(() => {
     void cargar();
   }, [cargar]);
 
-  const origenSel = origenes.find((o) => o.id === desdeId);
-
-  useEffect(() => {
-    if (origenSel?.saldo > 0) setMonto(String(origenSel.saldo));
-    else setMonto('');
-  }, [desdeId, origenSel?.saldo]);
-
   const recibir = async () => {
     if (!puedeAdmin) return alert('Tesorería la administra JLBB (o admin/gerente).');
-    if (!desdeId) return alert('Selecciona la cuenta origen (ABB, JLBB o FJBB).');
     if (!confirm(
-      `¿Enviar ${fmtMonto(monto)} de fondos de servicios\n`
-      + `desde ${etiquetaCuentaRt(desdeId)} → Cheche (Tesorería)?\n\n`
-      + 'Separado de la liquidación de mercancía.',
+      `¿Enviar ${fmtMonto(monto)} de fondos de pagos de servicio\n`
+      + `desde JLBB → Cheche (Tesorería)?\n\n`
+      + 'Solo servicios. No es mercancía ni venta.',
     )) return;
     setGuardando(true);
     try {
       const r = await enviarFondosServiciosATesoreria(supabase, {
-        desdeId,
+        desdeId: ADMIN_TESORERIA_CUENTA_ID,
         monto,
         usuarioNombre: user?.nombre || null,
         notas: notas || undefined,
@@ -125,9 +110,9 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
         <strong>Tesorería</strong> · Tesorero: <strong>Cheche</strong> · Administrada por{' '}
-        <strong>{etiquetaCuentaRt(ADMIN_TESORERIA_CUENTA_ID)}</strong>.
-        Recibe fondos de <strong>servicios</strong> desde ABB, JLBB o FJBB (Francisco).
-        No se mezcla con la venta / mercancía.
+        <strong>JLBB</strong>.
+        Solo recibe fondos de <strong>pagos de servicio</strong> desde la cuenta JLBB.
+        No aparecen ABB ni FJBB. No se mezcla con venta / mercancía.
       </p>
       {aviso && (
         <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', margin: 0 }}>{aviso}</p>
@@ -151,21 +136,18 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
           <div className="muted" style={{ fontSize: '0.72rem' }}>Saldo Tesorería (Cheche)</div>
           <strong style={{ fontSize: '1.35rem', color: '#0f766e' }}>{fmtMonto(saldo)}</strong>
         </div>
-        {origenes.map((o) => (
-          <div
-            key={o.id}
-            style={{
-              flex: '1 1 120px',
-              padding: '0.65rem 0.75rem',
-              borderRadius: 10,
-              border: '1px solid var(--border, #e2e8f0)',
-              background: '#fff',
-            }}
-          >
-            <div className="muted" style={{ fontSize: '0.7rem' }}>{o.nombre}</div>
-            <strong style={{ fontSize: '1rem' }}>{fmtMonto(o.saldo)}</strong>
-          </div>
-        ))}
+        <div
+          style={{
+            flex: '1 1 140px',
+            padding: '0.65rem 0.75rem',
+            borderRadius: 10,
+            border: '1px solid var(--border, #e2e8f0)',
+            background: '#fff',
+          }}
+        >
+          <div className="muted" style={{ fontSize: '0.7rem' }}>JLBB (origen servicios)</div>
+          <strong style={{ fontSize: '1rem' }}>{fmtMonto(saldoJlbb)}</strong>
+        </div>
       </div>
 
       <div
@@ -177,33 +159,24 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
         }}
       >
         <h4 style={{ margin: '0 0 0.35rem', color: '#0f766e' }}>
-          Recibir fondos de servicios → Cheche
+          Recibir fondos de servicios · JLBB → Cheche
         </h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-          Transfiere desde la cuenta del admin que ya liquidó el Fondo (ABB, JLBB o FJBB).
+          Primero liquida el Fondo de servicios a JLBB; luego envía ese saldo aquí a Tesorería.
         </p>
         <div className="grid-2" style={{ gap: '0.55rem' }}>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
             Cuenta origen
-            <select
+            <input
               className="input"
               style={{ marginTop: '0.3rem' }}
-              value={desdeId}
-              onChange={(e) => setDesdeId(e.target.value)}
-              disabled={!puedeAdmin}
-            >
-              {CUENTAS_ORIGEN_TESORERIA.map((id) => {
-                const o = origenes.find((x) => x.id === id);
-                return (
-                  <option key={id} value={id}>
-                    {etiquetaCuentaRt(id)} · disp. {fmtMonto(o?.saldo || 0)}
-                  </option>
-                );
-              })}
-            </select>
+              value={`JLBB · disp. ${fmtMonto(saldoJlbb)}`}
+              readOnly
+              disabled
+            />
           </label>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-            Monto
+            Monto (fondos de servicio)
             <input
               className="input"
               type="number"
@@ -252,7 +225,7 @@ export default function PanelTesoreriaRuta({ supabase, user }) {
       >
         <h4 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Egreso desde Tesorería</h4>
         <p className="muted" style={{ margin: '0 0 0.55rem', fontSize: '0.78rem' }}>
-          Cuando Cheche/JLBB usa efectivo de Tesorería (pago u otro egreso).
+          Cuando Cheche/JLBB usa efectivo de Tesorería (pago del servicio u otro egreso).
         </p>
         <div className="grid-2" style={{ gap: '0.55rem' }}>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
