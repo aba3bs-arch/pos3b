@@ -87,8 +87,13 @@ export default function CobroServiciosRuta({
       if (!r.ok) return alert(r.error || 'No se pudo solicitar.');
       setAviso?.(
         `Solicitud enviada · ${servicioSel.nombre} ${fmtMonto(monto)} · ${etiquetaTienda(tienda)}. `
-        + 'El cajero debe aprobar con PIN en su caja.',
+        + (r.notificacionId
+          ? 'La caja de la tienda debe ver la alerta para aprobar con PIN.'
+          : (r.aviso || 'Avisa al cajero: en su PC debe aparecer el cobro (o Actualizar).')),
       );
+      if (r.aviso && !r.notificacionId) {
+        alert(r.aviso);
+      }
       setNota('');
       await cargar();
     } finally {

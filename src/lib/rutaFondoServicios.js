@@ -4,7 +4,7 @@
  * (ingresos / egresos por servicio en RC/VentaRuta → pestaña Fondo).
  */
 
-import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
+import { normalizarCodigoTienda, etiquetaTienda, equivalentesCodigoTienda } from '../constants/sucursales.js';
 import { MODULOS_CORTE, etiquetaModuloCorte } from './corteContabilidad/store.js';
 import { listarServiciosCobro } from './controlEfectivo.js';
 import { verificarPinCajero } from './rutaCxc.js';
@@ -93,19 +93,39 @@ export async function solicitarCobroServicioRuta(supabase, {
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_FONDO, aviso: AVISO_FALTA_FONDO };
   if (error) return { ok: false, error: error.message };
 
-  const notif = await crearNotificacion(supabase, {
-    sucursal_id: suc,
-    tipo: TIPOS_NOTIF.FONDO_SERVICIO_PIN,
-    ref_tabla: 'ruta_fondo_solicitudes',
-    ref_id: data.id,
-    titulo: `Cobro ${row.servicio_nombre} · $${m.toFixed(2)}`,
-    mensaje:
-      `${repartidorNombre || 'Recolector'} solicita cobrar ${row.servicio_nombre} `
-      + `en ${etiquetaTienda(suc)} · corte ${etiquetaModuloCorteFondo(mod)}.\n`
-      + 'Aprueba con tu PIN de cajero para cargar el gasto y registrar el Fondo.',
-  });
+  // silenciosoLocal: no dispara banner en el celular del recolector;
+  // la caja de la tienda lo ve por Realtime / poll del overlay.
+  const notif = await crearNotificacion(
+    supabase,
+    {
+      sucursal_id: suc,
+      tipo: TIPOS_NOTIF.FONDO_SERVICIO_PIN,
+      ref_tabla: 'ruta_fondo_solicitudes',
+      ref_id: data.id,
+      titulo: `Cobro ${row.servicio_nombre} · $${m.toFixed(2)}`,
+      mensaje:
+        `${repartidorNombre || 'Recolector'} solicita cobrar ${row.servicio_nombre} `
+        + `en ${etiquetaTienda(suc)} · corte ${etiquetaModuloCorteFondo(mod)}.\n`
+        + 'Aprueba con tu PIN de cajero para cargar el gasto y registrar el Fondo.',
+    },
+    { silenciosoLocal: true, skipPush: true },
+  );
 
-  return { ok: true, data, notificacionId: notif?.id || null, aviso: notif?.aviso || null };
+  if (!notif?.ok) {
+    return {
+      ok: true,
+      data,
+      notificacionId: null,
+      aviso: notif?.error || notif?.aviso || 'Solicitud creada, pero no se pudo avisar a la caja. Pide al cajero Actualizar.',
+    };
+  }
+
+  return {
+    ok: true,
+    data,
+    notificacionId: notif?.id || null,
+    aviso: notif?.aviso || null,
+  };
 }
 
 export async function listarSolicitudesFondoPendientes(supabase, { sucursalId = null, limit = 40 } = {}) {
@@ -116,7 +136,11 @@ export async function listarSolicitudesFondoPendientes(supabase, { sucursalId = 
     .eq('estado', 'pendiente')
     .order('created_at', { ascending: false })
     .limit(limit);
-  if (sucursalId) q = q.eq('sucursal_id', normalizarCodigoTienda(sucursalId) || sucursalId);
+  if (sucursalId) {
+    const eqs = equivalentesCodigoTienda(sucursalId);
+    if (eqs.length > 1) q = q.in('sucursal_id', eqs);
+    else q = q.eq('sucursal_id', normalizarCodigoTienda(sucursalId) || sucursalId);
+  }
   const { data, error } = await q;
   if (error && faltaTabla(error)) return { data: [], aviso: AVISO_FALTA_FONDO };
   if (error) return { data: [], error: error.message };

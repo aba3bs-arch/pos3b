@@ -63,3 +63,19 @@ CREATE POLICY "ruta_fondo_sol_anon" ON ruta_fondo_solicitudes FOR ALL TO anon US
 CREATE POLICY "ruta_fondo_sol_auth" ON ruta_fondo_solicitudes FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "ruta_fondo_mov_anon" ON ruta_fondo_movimientos FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "ruta_fondo_mov_auth" ON ruta_fondo_movimientos FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Realtime: la caja de sucursal escucha solicitudes nuevas (alerta PIN cajero).
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemename = 'public'
+      and tablename = 'ruta_fondo_solicitudes'
+  ) then
+    alter publication supabase_realtime add table public.ruta_fondo_solicitudes;
+  end if;
+exception
+  when others then
+    raise notice 'No se pudo agregar ruta_fondo_solicitudes a realtime: %', sqlerrm;
+end $$;
