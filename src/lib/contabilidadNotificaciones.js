@@ -185,6 +185,7 @@ export const TIPOS_NOTIF = {
   CT_EVALUACION_ALERTA: 'ct_evaluacion_alerta',
   CONTRATACION: 'contratacion_aspirante',
   ASALTO: 'asalto_en_proceso',
+  FONDO_SERVICIO_PIN: 'fondo_servicio_pin',
 };
 
 /** Alertas CT que el cajero debe ver flotantes hasta atenderlas. */
@@ -192,6 +193,11 @@ export const TIPOS_ALERTA_CT_CAJERO = [
   TIPOS_NOTIF.CT_RECHAZADA,
   TIPOS_NOTIF.CT_ACEPTADA,
   TIPOS_NOTIF.CT_EVALUACION_ALERTA,
+];
+
+/** Cobro de servicios (Fondo) pendiente de PIN del cajero en caja. */
+export const TIPOS_ALERTA_FONDO_CAJERO = [
+  TIPOS_NOTIF.FONDO_SERVICIO_PIN,
 ];
 
 export function esAlertaCtCajero(n) {
@@ -251,6 +257,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Postulación / contratación';
     case TIPOS_NOTIF.ASALTO:
       return 'ASALTO EN PROCESO';
+    case TIPOS_NOTIF.FONDO_SERVICIO_PIN:
+      return 'Cobro servicio · aprobar PIN';
     default:
       return tipo || 'Notificación';
   }

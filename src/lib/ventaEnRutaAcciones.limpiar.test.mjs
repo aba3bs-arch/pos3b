@@ -13,5 +13,10 @@ assert.ok(!(ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Gerente || []).includes('ruta_li
 const hub = subcomandosVentaRutaVisibles('Administrador', '1');
 assert.ok(!hub.some((s) => s.id === 'ruta_limpiar_consultas'), 'no debe aparecer en el hub');
 assert.ok(hub.some((s) => s.id === 'ruta_consultas'));
+assert.ok(hub.some((s) => s.id === 'ruta_servicios'), 'admin ve cobro servicios');
+assert.ok(
+  (ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Repartidor || []).includes('ruta_servicios'),
+  'repartidor tiene cobro servicios por defecto',
+);
 
 console.log('ventaEnRutaAcciones.limpiar.test.mjs ok');

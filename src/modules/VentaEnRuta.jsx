@@ -85,6 +85,7 @@ import CorteRuta from './CorteRuta.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
 import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
+import CobroServiciosRuta from './CobroServiciosRuta.jsx';
 import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
@@ -405,6 +406,26 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           embedded
           titulo="Créditos por pagar"
         />
+      )}
+      {vista === 'servicios' && puede('ruta_servicios') && (
+        !vendedorSesion ? (
+          <PanelSesionVendedorRuta
+            supabase={supabase}
+            user={user}
+            sucursal={sucursal}
+            titulo="Login recolector · Cobro servicios"
+            onSesion={onSesionVendedorOk}
+            setAviso={setAviso}
+          />
+        ) : (
+          <CobroServiciosRuta
+            supabase={supabase}
+            user={user}
+            vendedorSesion={vendedorSesion}
+            setAviso={setAviso}
+            onVolver={() => ir('hub')}
+          />
+        )
       )}
       {vista === 'liquidacion' && puede('ruta_liquidacion') && (
         <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
