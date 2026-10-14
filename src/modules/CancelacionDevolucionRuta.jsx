@@ -3,6 +3,7 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import {
   AVISO_FALTA_CANCELACIONES,
   listarCancelacionesPendientes,
+  repararTransitosCancelacionesAprobadas,
   solicitarCancelacionVentaRuta,
 } from '../lib/rutaCancelaciones.js';
 import { listarVentasRuta } from '../lib/ventaEnRuta.js';
@@ -31,6 +32,12 @@ export default function CancelacionDevolucionRuta({
     if (!supabase) return;
     setCargando(true);
     try {
+      // Repara cancelaciones aprobadas que no limpiaron venta/crédito/RC/inventario.
+      try {
+        await repararTransitosCancelacionesAprobadas(supabase, { limit: 80 });
+      } catch {
+        /* no bloquear la pantalla */
+      }
       const [v, p] = await Promise.all([
         listarVentasRuta(supabase, { limit: 80 }),
         listarCancelacionesPendientes(supabase, { limit: 40 }),
@@ -38,7 +45,8 @@ export default function CancelacionDevolucionRuta({
       if (v.aviso || v.error) setAviso?.(v.aviso || v.error);
       if (p.aviso) setAviso?.(p.aviso);
       const activas = (v.data || []).filter(
-        (x) => String(x.estado || '').toLowerCase() !== 'cancelada',
+        (x) => String(x.estado || '').toLowerCase() !== 'cancelada'
+          && !(Array.isArray(x.articulos) && x.articulos.some((a) => a && a._cancelada)),
       );
       setVentas(activas);
       setPendientes(p.data || []);
@@ -59,7 +67,7 @@ export default function CancelacionDevolucionRuta({
     if (!confirm(
       `¿Solicitar cancelación de ${ventaSel?.folio || ventaId}?\n`
       + 'Un administrador debe aprobar con PIN.\n'
-      + 'Se revertirá camión, créditos, RC/VentaRuta y compra (si aún es pedido).',
+      + 'Se devolverá inventario y se eliminará la venta, crédito/efectivo y compra en todos lados.',
     )) return;
     setEnviando(true);
     try {
@@ -99,9 +107,9 @@ export default function CancelacionDevolucionRuta({
           <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Cancelación / Devolución</h3>
           <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
             Si una venta (efectivo, crédito o mixto) se hizo por error, solicita cancelarla.
-            Un <strong>administrador</strong> aprueba con PIN: descuenta inventario de la tienda
-            (si ya se recibió), regresa mercancía al camión, quita créditos, efectivo en RC/VentaRuta
-            y cancela el pedido/compra.
+            Un <strong>administrador</strong> aprueba con PIN y se elimina en todos lados:
+            primero devuelve inventario al camión (y descuenta piso si ya se recibió), luego
+            borra crédito y/o efectivo, la compra y el registro de la venta.
           </p>
         </div>
         {onVolver ? (

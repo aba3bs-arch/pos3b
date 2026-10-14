@@ -57,9 +57,15 @@ function montosDeVenta(venta) {
 /** Plan para devolver qty_vendida al camión (por producto, líneas con vendido). */
 async function planRevertirCamion(supabase, venta) {
   const arts = artsDeVenta(venta);
-  if (!arts.length) return { ok: true, plan: [] };
+  if (!arts.length) return { ok: true, plan: [], avisos: [] };
   const cargaId = String(venta.carga_id || '').trim();
-  if (!cargaId) return { ok: false, error: 'La venta no tiene carga asociada.' };
+  if (!cargaId) {
+    return {
+      ok: true,
+      plan: [],
+      avisos: ['La venta no tiene carga asociada; no se pudo devolver al camión.'],
+    };
+  }
 
   const linRes = await lineasDeCarga(supabase, cargaId);
   if (linRes.error) return { ok: false, error: linRes.error };
@@ -73,6 +79,7 @@ async function planRevertirCamion(supabase, venta) {
   }
 
   const plan = [];
+  const avisos = [];
   for (const a of arts) {
     const pid = String(a.producto_id || a.productoId || '');
     let restante = round3(a.cantidad ?? a.qty ?? 0);
@@ -92,67 +99,129 @@ async function planRevertirCamion(supabase, venta) {
         qtyRestar: take,
         qtyAntes: vendida,
       });
-      // Actualiza copia local para siguientes productos
       lin.qty_vendida = round3(vendida - take);
       restante = round3(restante - take);
     }
     if (restante > 0.001) {
-      return {
-        ok: false,
-        error: `No se puede devolver ${a.nombre || pid}: faltan ${restante} en qty_vendida del camión.`,
-      };
+      avisos.push(
+        `${a.nombre || pid}: faltan ${restante} en qty_vendida del camión (se devuelve lo posible).`,
+      );
     }
   }
-  return { ok: true, plan };
+  return { ok: true, plan, avisos };
 }
 
 async function aplicarRevertirCamion(supabase, plan) {
   const hechos = [];
   for (const p of plan || []) {
-    const nueva = round3(Math.max(0, (Number(p.qtyAntes) || 0) - (Number(p.qtyRestar) || 0)));
-    const { error } = await supabase
+    const qtyRestar = round3(p.qtyRestar);
+    if (!(qtyRestar > 0) || !p.lineaId) continue;
+
+    // 1) Intento con candado optimista
+    let nueva = round3(Math.max(0, (Number(p.qtyAntes) || 0) - qtyRestar));
+    let { data, error } = await supabase
       .from('ruta_carga_lineas')
       .update({ qty_vendida: nueva })
       .eq('id', p.lineaId)
-      .eq('qty_vendida', p.qtyAntes);
+      .eq('qty_vendida', p.qtyAntes)
+      .select('id, qty_vendida');
     if (error) {
       return { ok: false, error: `Camión ${p.nombre || p.lineaId}: ${error.message}`, hechos };
     }
-    hechos.push({ ...p, qtyDespues: nueva });
+
+    // 2) Si el candado no pegó (qty cambió), relee y fuerza resta
+    if (!data?.length) {
+      const { data: lin, error: eR } = await supabase
+        .from('ruta_carga_lineas')
+        .select('id, qty_vendida')
+        .eq('id', p.lineaId)
+        .maybeSingle();
+      if (eR) return { ok: false, error: `Camión ${p.nombre || p.lineaId}: ${eR.message}`, hechos };
+      const actual = Number(lin?.qty_vendida) || 0;
+      nueva = round3(Math.max(0, actual - qtyRestar));
+      ({ data, error } = await supabase
+        .from('ruta_carga_lineas')
+        .update({ qty_vendida: nueva })
+        .eq('id', p.lineaId)
+        .select('id, qty_vendida'));
+      if (error) {
+        return { ok: false, error: `Camión ${p.nombre || p.lineaId}: ${error.message}`, hechos };
+      }
+      if (!data?.length) {
+        return {
+          ok: false,
+          error: `Camión ${p.nombre || p.lineaId}: no se actualizó qty_vendida.`,
+          hechos,
+        };
+      }
+    }
+    hechos.push({ ...p, qtyDespues: Number(data[0]?.qty_vendida ?? nueva) });
   }
   return { ok: true, hechos };
 }
 
-async function eliminarCreditosDeVenta(supabase, ventaId) {
-  if (!ventaId) return { ok: true, eliminados: 0, ids: [] };
-  const { data, error } = await supabase
-    .from('ruta_cxc_movimientos')
-    .select('id, tipo, estatus, monto, pagado_at')
-    .eq('venta_id', ventaId);
-  if (error) {
-    if (faltaTabla(error) || /ruta_cxc/i.test(String(error.message || ''))) {
-      return { ok: true, eliminados: 0, ids: [], aviso: error.message };
+/**
+ * Borra cargos/abonos de CxC de la venta (crédito o parte crédito del mixto).
+ * Busca por venta_id y por folio VR.
+ */
+async function eliminarCreditosDeVenta(supabase, { ventaId = null, folioVenta = null } = {}) {
+  if (!ventaId && !folioVenta) return { ok: true, eliminados: 0, ids: [] };
+
+  const byId = new Map();
+  if (ventaId) {
+    const { data, error } = await supabase
+      .from('ruta_cxc_movimientos')
+      .select('id, tipo, estatus, monto, pagado_at, transito_id, folio_venta, venta_id')
+      .eq('venta_id', ventaId);
+    if (error) {
+      if (faltaTabla(error) || /ruta_cxc/i.test(String(error.message || ''))) {
+        return { ok: true, eliminados: 0, ids: [], aviso: error.message };
+      }
+      return { ok: false, error: error.message };
     }
-    return { ok: false, error: error.message };
+    for (const m of data || []) byId.set(String(m.id), m);
   }
-  const cargos = data || [];
-  const pagados = cargos.filter(
-    (m) => m.tipo === 'cargo' && (m.pagado_at || String(m.estatus || '').toLowerCase() === 'pagado'),
-  );
-  if (pagados.length) {
-    return {
-      ok: false,
-      error: 'Hay crédito ya cobrado en Créditos por pagar. No se puede cancelar automáticamente.',
-    };
+
+  const folio = String(folioVenta || '').trim();
+  if (folio) {
+    const { data, error } = await supabase
+      .from('ruta_cxc_movimientos')
+      .select('id, tipo, estatus, monto, pagado_at, transito_id, folio_venta, venta_id')
+      .eq('folio_venta', folio);
+    if (error && !/folio_venta|column|schema cache/i.test(String(error.message || ''))) {
+      if (faltaTabla(error) || /ruta_cxc/i.test(String(error.message || ''))) {
+        return { ok: true, eliminados: byId.size, ids: [...byId.keys()], aviso: error.message };
+      }
+      return { ok: false, error: error.message };
+    }
+    for (const m of data || []) byId.set(String(m.id), m);
   }
-  const pendientes = cargos.filter(
-    (m) => m.tipo === 'cargo' && String(m.estatus || 'pendiente') === 'pendiente',
-  );
-  const abonos = cargos.filter((m) => m.tipo === 'abono');
-  const ids = [...pendientes, ...abonos].map((m) => String(m.id));
-  if (!ids.length) return { ok: true, eliminados: 0, ids: [] };
+
+  const movimientos = [...byId.values()];
+  if (!movimientos.length) return { ok: true, eliminados: 0, ids: [] };
+
+  // Si hubo cobro de crédito, quitar también su tránsito En Tránsito
+  for (const m of movimientos) {
+    if (m.transito_id) {
+      await revertirTransito(supabase, { transitoId: m.transito_id, folioVenta: folio || null });
+    }
+  }
+
+  const ids = movimientos.map((m) => String(m.id));
   const { error: eDel } = await supabase.from('ruta_cxc_movimientos').delete().in('id', ids);
   if (eDel) return { ok: false, error: eDel.message };
+
+  // Confirma
+  const { data: still } = await supabase
+    .from('ruta_cxc_movimientos')
+    .select('id')
+    .in('id', ids);
+  if ((still || []).length) {
+    return {
+      ok: false,
+      error: `No se pudieron borrar ${(still || []).length} movimiento(s) de crédito.`,
+    };
+  }
   return { ok: true, eliminados: ids.length, ids };
 }
 
@@ -251,52 +320,86 @@ async function revertirTransito(supabase, { transitoId = null, folioVenta = null
 }
 
 /**
- * Limpia tránsito huérfano de cancelaciones ya aprobadas / ventas canceladas
- * (p. ej. sin transito_id en la venta). Se llama al abrir Pendientes RC/VentaRuta.
+ * Repara cancelaciones ya aprobadas que no revirtieron del todo:
+ * inventario (si la venta aún existe), crédito, RC/VentaRuta, compra y borra la venta.
  */
 export async function repararTransitosCancelacionesAprobadas(supabase, { limit = 80 } = {}) {
-  if (!supabase) return { ok: true, limpiados: 0 };
+  if (!supabase) return { ok: true, limpiados: 0, reparadas: 0 };
 
   let limpiados = 0;
+  let reparadas = 0;
   const folios = [];
-  const vistos = new Set();
-
-  async function limpiarUno(tid, folio) {
-    const key = `${tid || ''}|${folio || ''}`;
-    if (vistos.has(key) || (!tid && !folio)) return;
-    vistos.add(key);
-    const r = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
-    if (r.ok && r.eliminado) {
-      limpiados += (r.eliminados || [r]).length;
-      if (folio) folios.push(folio);
-    }
-  }
 
   const { data, error, aviso } = await listarCancelacionesRuta(supabase, {
     estado: 'aprobado',
     limit,
   });
-  if (error) return { ok: false, error, limpiados: 0 };
+  if (error) return { ok: false, error, limpiados: 0, reparadas: 0 };
+
   for (const sol of data || []) {
-    await limpiarUno(sol.transito_id || null, sol.folio_venta || null);
-  }
-
-  // Ventas ya marcadas canceladas que aún tengan VR- en tránsito
-  try {
-    const { data: ventasCanc } = await supabase
-      .from('ruta_ventas')
-      .select('id, folio, transito_id, estado')
-      .eq('estado', 'cancelada')
-      .order('created_at', { ascending: false })
-      .limit(limit);
-    for (const v of ventasCanc || []) {
-      await limpiarUno(v.transito_id || null, v.folio || null);
+    const folio = sol.folio_venta || null;
+    let venta = null;
+    if (sol.venta_id) {
+      const { data: v } = await supabase
+        .from('ruta_ventas')
+        .select('*')
+        .eq('id', sol.venta_id)
+        .maybeSingle();
+      venta = v || null;
     }
-  } catch {
-    /* columna estado opcional */
+    if (!venta && folio) {
+      const { data: v2 } = await supabase
+        .from('ruta_ventas')
+        .select('*')
+        .eq('folio', folio)
+        .limit(1)
+        .maybeSingle();
+      venta = v2 || null;
+    }
+
+    if (venta) {
+      const exec = await ejecutarCancelacionVentaRuta(supabase, {
+        venta: {
+          ...venta,
+          folio: venta.folio || folio,
+          articulos: venta.articulos?.length ? venta.articulos : (sol.articulos || []),
+          carga_id: venta.carga_id || sol.carga_id,
+          compra_id: venta.compra_id || sol.compra_id,
+          transito_id: venta.transito_id || sol.transito_id,
+          cliente_tipo: venta.cliente_tipo || sol.cliente_tipo,
+          cliente_id: venta.cliente_id || sol.cliente_id,
+        },
+        adminNombre: sol.admin_nombre || 'reparacion',
+        transitoIdFallback: sol.transito_id || null,
+      });
+      if (exec.ok) {
+        reparadas += 1;
+        if (folio) folios.push(folio);
+        if (exec.transito?.eliminado) limpiados += 1;
+      }
+      continue;
+    }
+
+    // Venta ya no existe: limpia residuales por folio/ids de la solicitud
+    const cxc = await eliminarCreditosDeVenta(supabase, {
+      ventaId: sol.venta_id,
+      folioVenta: folio,
+    });
+    const tr = await revertirTransito(supabase, {
+      transitoId: sol.transito_id,
+      folioVenta: folio,
+    });
+    if (sol.compra_id) {
+      await cancelarCompraPedido(supabase, sol.compra_id, { yaDescontoTienda: true });
+    }
+    if ((cxc.ok && cxc.eliminados) || (tr.ok && tr.eliminado)) {
+      reparadas += 1;
+      if (tr.eliminado) limpiados += (tr.eliminados || [tr]).length;
+      if (folio) folios.push(folio);
+    }
   }
 
-  return { ok: true, limpiados, folios, aviso };
+  return { ok: true, limpiados, reparadas, folios, aviso };
 }
 
 function compraYaRecibida(compra) {
@@ -473,6 +576,12 @@ async function cancelarCompraPedido(supabase, compraId, { yaDescontoTienda = fal
       compra: c,
     };
   }
+
+  // Preferir borrar el registro (desaparece de Compras / Por recibir).
+  const { error: eDel } = await supabase.from('compras').delete().eq('id', c.id);
+  if (!eDel) return { ok: true, eliminada: true, id: c.id, recibida, compra: c };
+
+  // Fallback: marcar cancelada si hay FK que impide borrar
   const { error: eUp } = await supabase
     .from('compras')
     .update({
@@ -480,43 +589,48 @@ async function cancelarCompraPedido(supabase, compraId, { yaDescontoTienda = fal
       notas: `${c.notas || ''} · Cancelada por devolución venta en ruta`.trim(),
     })
     .eq('id', c.id);
-  if (eUp) {
-    // Pedido sin columna estado cancelada: borrar solo si no estaba recibida
-    if (!recibida) {
-      const { error: eDel } = await supabase.from('compras').delete().eq('id', c.id);
-      if (eDel) return { ok: false, error: eUp.message };
-      return { ok: true, eliminada: true, id: c.id, compra: c };
-    }
-    return { ok: false, error: eUp.message, compra: c };
-  }
-  return { ok: true, cancelada: true, id: c.id, recibida, compra: c };
+  if (eUp) return { ok: false, error: eDel.message || eUp.message, compra: c };
+  return { ok: true, cancelada: true, id: c.id, recibida, compra: c, aviso: eDel.message };
 }
 
-async function marcarVentaCancelada(supabase, venta, adminNombre) {
-  const patch = {
-    estado: 'cancelada',
-    estado_credito: venta.estado_credito ? 'anulado' : null,
-  };
-  let { error } = await supabase.from('ruta_ventas').update(patch).eq('id', venta.id);
-  if (error && /estado[^_]|column|schema cache/i.test(String(error.message || ''))) {
-    const slim = { estado_credito: 'anulado' };
-    ({ error } = await supabase.from('ruta_ventas').update(slim).eq('id', venta.id));
+async function cancelarTraspasoVenta(supabase, venta, adminNombre) {
+  const tid = venta?.traspaso_id;
+  if (!tid) return { ok: true, omitido: true };
+  try {
+    const { cancelarTraspasoAdmin, eliminarTraspasoAdmin } = await import('./traspasosInventario.js');
+    const elim = await eliminarTraspasoAdmin(supabase, {
+      traspasoId: tid,
+      usuario: adminNombre || 'Admin ruta',
+    });
+    if (elim?.ok) return { ok: true, eliminado: true, id: tid };
+    const can = await cancelarTraspasoAdmin(supabase, {
+      traspasoId: tid,
+      usuario: adminNombre || 'Admin ruta',
+    });
+    if (can?.ok) return { ok: true, cancelado: true, id: tid };
+    return { ok: true, omitido: true, aviso: elim?.error || can?.error };
+  } catch (e) {
+    return { ok: true, omitido: true, aviso: e?.message || String(e) };
   }
-  if (error && /estado_credito|column|schema cache/i.test(String(error.message || ''))) {
-    // Último recurso: dejar nota en articulos
-    const arts = [...(venta.articulos || []), {
-      _cancelada: true,
-      cancelada_por: adminNombre || 'admin',
-      cancelada_at: new Date().toISOString(),
-    }];
-    ({ error } = await supabase.from('ruta_ventas').update({ articulos: arts }).eq('id', venta.id));
-  }
+}
+
+/** Elimina el registro de venta (no solo lo marca). El historial queda en ruta_cancelaciones. */
+async function eliminarRegistroVenta(supabase, venta) {
+  if (!venta?.id) return { ok: false, error: 'Venta inválida.' };
+  const { error } = await supabase.from('ruta_ventas').delete().eq('id', venta.id);
   if (error) return { ok: false, error: error.message };
-  return { ok: true };
+  const { data: still } = await supabase
+    .from('ruta_ventas')
+    .select('id')
+    .eq('id', venta.id)
+    .maybeSingle();
+  if (still) return { ok: false, error: 'No se pudo eliminar el registro de la venta.' };
+  return { ok: true, eliminada: true, id: venta.id, folio: venta.folio };
 }
 
 /**
  * Ejecuta la reversión completa de una venta (tras PIN admin).
+ * Orden: 1) inventario camión 2) inventario tienda 3) crédito/efectivo/compra/traspaso 4) borrar venta.
  */
 export async function ejecutarCancelacionVentaRuta(supabase, {
   venta,
@@ -525,35 +639,16 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
   soloLimpiarTransito = false,
 } = {}) {
   if (!supabase || !venta?.id) return { ok: false, error: 'Venta inválida.' };
-  const yaCancelada = String(venta.estado || '').toLowerCase() === 'cancelada';
   const folio = venta.folio || null;
   const tid = venta.transito_id || transitoIdFallback || null;
+  const artsFlag = (venta.articulos || []).some((a) => a && a._cancelada);
+  const yaCancelada = String(venta.estado || '').toLowerCase() === 'cancelada' || artsFlag;
 
-  if (yaCancelada || soloLimpiarTransito) {
-    // Idempotente: si ya se canceló pero quedó efectivo en Pendientes, solo limpia RC.
-    const trOrphan = await revertirTransito(supabase, {
-      transitoId: tid,
-      folioVenta: folio,
-    });
+  if (soloLimpiarTransito) {
+    const trOrphan = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
     if (!trOrphan.ok) return trOrphan;
-    if (trOrphan.eliminado) {
-      return {
-        ok: true,
-        yaCancelada: true,
-        soloTransito: true,
-        transito: trOrphan,
-        ventaId: venta.id,
-        folio,
-      };
-    }
-    if (soloLimpiarTransito) {
-      return { ok: true, omitido: true, transito: trOrphan, ventaId: venta.id, folio };
-    }
-    return { ok: false, error: 'La venta ya está cancelada.' };
+    return { ok: true, soloTransito: true, transito: trOrphan, ventaId: venta.id, folio };
   }
-
-  const planCamion = await planRevertirCamion(supabase, venta);
-  if (!planCamion.ok) return planCamion;
 
   // Carga compra (si existe) para saber si hay que descontar piso de tienda.
   let compraRow = null;
@@ -566,7 +661,13 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
     compraRow = c || null;
   }
 
-  // 1) Si ya se recibió en Petroleos/tienda → descontar inventario de piso.
+  // 1) PRIMERO: devolver inventario al camión (baja qty_vendida → vuelve disponible).
+  const planCamion = await planRevertirCamion(supabase, venta);
+  if (!planCamion.ok) return planCamion;
+  const cam = await aplicarRevertirCamion(supabase, planCamion.plan);
+  if (!cam.ok) return cam;
+
+  // 2) Si ya se recibió en Petroleos/tienda → descontar inventario de piso.
   const invTienda = await descontarInventarioTienda(supabase, {
     venta,
     compra: compraRow,
@@ -574,40 +675,52 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
   });
   if (!invTienda.ok) return invTienda;
 
-  // 2) Anular gasto de corte ligado a esa recepción (si hubo).
+  // 3) Anular gasto de corte ligado a esa recepción (si hubo).
   const gasto = compraRow && compraYaRecibida(compraRow)
     ? await anularGastoCompraCorte(supabase, compraRow, venta)
     : { ok: true, omitido: true };
 
-  // 3) Quitar efectivo de RC/VentaRuta Pendientes (por id o folio VR).
+  // 4) Eliminar crédito (crédito o parte crédito del mixto) en CxC.
+  const cxc = await eliminarCreditosDeVenta(supabase, {
+    ventaId: venta.id,
+    folioVenta: folio,
+  });
+  if (!cxc.ok) return cxc;
+
+  // 5) Quitar efectivo de RC/VentaRuta Pendientes (efectivo o parte efectivo del mixto).
   const tr = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
   if (!tr.ok) return tr;
 
-  const cxc = await eliminarCreditosDeVenta(supabase, venta.id);
-  if (!cxc.ok) return cxc;
-
+  // 6) Eliminar compra / pedido en Compras.
   const compra = await cancelarCompraPedido(supabase, venta.compra_id, {
     yaDescontoTienda: !compraYaRecibida(compraRow) || (Number(invTienda.aplicados) || 0) > 0,
   });
   if (!compra.ok) return compra;
 
-  // 4) Devolver mercancía al camión (baja qty_vendida).
-  const cam = await aplicarRevertirCamion(supabase, planCamion.plan);
-  if (!cam.ok) return cam;
+  // 7) Traspaso ligado (si existe).
+  const traspaso = await cancelarTraspasoVenta(supabase, venta, adminNombre);
 
-  const mv = await marcarVentaCancelada(supabase, venta, adminNombre);
-  if (!mv.ok) return mv;
+  // 8) Eliminar registro de la venta en todos lados.
+  const mv = await eliminarRegistroVenta(supabase, venta);
+  if (!mv.ok) {
+    // Si ya no existe (reintento), ok; si falló por otra razón, error.
+    if (!yaCancelada) return mv;
+  }
 
   return {
     ok: true,
     camion: cam.hechos,
+    camionAvisos: planCamion.avisos,
     inventarioTienda: invTienda,
     gastoCorte: gasto,
     transito: tr,
     creditos: cxc,
     compra,
+    traspaso,
+    venta: mv.ok ? mv : { ok: true, yaEliminada: true, id: venta.id },
     ventaId: venta.id,
     folio: venta.folio,
+    yaCancelada,
   };
 }
 
@@ -666,19 +779,7 @@ export async function solicitarCancelacionVentaRuta(supabase, {
     || (locTr.rows || [])[0]?.id
     || null;
 
-  const { data: cxcRows } = await supabase
-    .from('ruta_cxc_movimientos')
-    .select('id, tipo, estatus, pagado_at')
-    .eq('venta_id', venta.id)
-    .eq('tipo', 'cargo');
-  if ((cxcRows || []).some((m) => m.pagado_at || String(m.estatus || '').toLowerCase() === 'pagado')) {
-    return {
-      ok: false,
-      error: 'Hay crédito ya cobrado. No se puede solicitar cancelación automática.',
-    };
-  }
-
-  // Compra recibida: se permite; al aprobar se descuenta inventario de la tienda.
+  // Compra recibida / crédito cobrado: se permite; al aprobar se elimina en todos lados.
 
   const montos = montosDeVenta(venta);
   const suc =
@@ -730,7 +831,8 @@ export async function solicitarCancelacionVentaRuta(supabase, {
       + `(${row.metodo_pago || '—'} · ${row.cliente_nombre || row.cliente_id || 'cliente'}`
       + `${suc !== 'MAIN' ? ` · ${etiquetaTienda(suc)}` : ''}).\n`
       + (row.motivo ? `Motivo: ${row.motivo}\n` : '')
-      + 'Aprueba con PIN de administrador para revertir camión, créditos y RC/VentaRuta.',
+      + 'Aprueba con PIN: devuelve inventario, elimina venta, crédito/efectivo (o ambos si es mixto), '
+      + 'RC/VentaRuta y compra.',
   });
 
   return {
@@ -799,22 +901,48 @@ export async function aprobarCancelacionVentaConPin(supabase, {
   if (!sol) return { ok: false, error: 'Solicitud no encontrada.' };
   if (sol.estado !== 'pendiente') return { ok: false, error: `La solicitud ya está ${sol.estado}.` };
 
-  const { data: venta, error: eV } = await supabase
+  const { data: ventaDb, error: eV } = await supabase
     .from('ruta_ventas')
     .select('*')
     .eq('id', sol.venta_id)
     .maybeSingle();
   if (eV) return { ok: false, error: eV.message };
-  if (!venta) return { ok: false, error: 'La venta ya no existe.' };
+
+  // Snapshot de la solicitud por si la venta ya no está o faltan campos.
+  const venta = ventaDb || {
+    id: sol.venta_id,
+    folio: sol.folio_venta,
+    articulos: sol.articulos || [],
+    carga_id: sol.carga_id,
+    compra_id: sol.compra_id,
+    transito_id: sol.transito_id,
+    cliente_tipo: sol.cliente_tipo,
+    cliente_id: sol.cliente_id,
+    cliente_nombre: sol.cliente_nombre,
+    metodo_pago: sol.metodo_pago,
+    total: sol.total,
+    vendedor_nombre: sol.vendedor_nombre,
+  };
 
   const exec = await ejecutarCancelacionVentaRuta(supabase, {
-    venta: { ...venta, folio: venta.folio || sol.folio_venta },
+    venta: {
+      ...venta,
+      folio: venta.folio || sol.folio_venta,
+      articulos: (venta.articulos && venta.articulos.length) ? venta.articulos : (sol.articulos || []),
+      carga_id: venta.carga_id || sol.carga_id,
+      compra_id: venta.compra_id || sol.compra_id,
+      transito_id: venta.transito_id || sol.transito_id,
+    },
     adminNombre: auth.user?.nombre || auth.nombre,
     transitoIdFallback: sol.transito_id || null,
   });
   if (!exec.ok) return exec;
 
-  // Doble check: si quedó algo En Tránsito con ese folio, bórralo.
+  // Doble check residuales por folio
+  await eliminarCreditosDeVenta(supabase, {
+    ventaId: sol.venta_id || venta.id,
+    folioVenta: sol.folio_venta || venta.folio,
+  });
   const trExtra = await revertirTransito(supabase, {
     transitoId: sol.transito_id || venta.transito_id,
     folioVenta: sol.folio_venta || venta.folio,
