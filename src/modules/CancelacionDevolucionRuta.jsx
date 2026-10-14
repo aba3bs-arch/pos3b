@@ -99,8 +99,9 @@ export default function CancelacionDevolucionRuta({
           <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Cancelación / Devolución</h3>
           <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
             Si una venta (efectivo, crédito o mixto) se hizo por error, solicita cancelarla.
-            Un <strong>administrador</strong> aprueba con PIN: se revierte inventario del camión,
-            créditos por pagar, efectivo en RC/VentaRuta y el pedido en Compras.
+            Un <strong>administrador</strong> aprueba con PIN: descuenta inventario de la tienda
+            (si ya se recibió), regresa mercancía al camión, quita créditos, efectivo en RC/VentaRuta
+            y cancela el pedido/compra.
           </p>
         </div>
         {onVolver ? (
