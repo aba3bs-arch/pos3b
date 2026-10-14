@@ -2156,6 +2156,14 @@ export async function registrarVentaRuta(supabase, {
         avisos.push('Ejecuta supabase/fix_ruta_ventas_traspaso.sql para guardar traspaso_id en la venta.');
       } else {
         avisos.push(`enlace venta: ${eLink.message}`);
+        // Asegurar transito_id aunque falle el patch combinado (evita huérfanos en Pendientes).
+        if (transitoId) {
+          const r3 = await supabase
+            .from('ruta_ventas')
+            .update({ transito_id: String(transitoId) })
+            .eq('id', venta.id);
+          if (r3.error) avisos.push(`enlace transito_id: ${r3.error.message}`);
+        }
       }
     }
   }
