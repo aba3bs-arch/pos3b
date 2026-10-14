@@ -42,6 +42,7 @@ export const TABLAS_VENTA_RUTA_PURGA = [
  * No borra camiones, clientes ni precios del catálogo.
  */
 export const TABLAS_CONSULTAS_VENTA_RUTA = [
+  'ruta_cancelaciones',
   'ruta_cxc_movimientos',
   'ruta_liquidaciones',
   'ruta_ventas',

@@ -7,6 +7,8 @@ import CampoCodigo from '../components/CampoCodigo.jsx';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 import InputPin from '../components/InputPin.jsx';
 import PanelPurgaVentaEnRuta from '../components/PanelPurgaVentaEnRuta.jsx';
+import CancelacionDevolucionRuta from './CancelacionDevolucionRuta.jsx';
+import { listarCancelacionesRuta } from '../lib/rutaCancelaciones.js';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
@@ -425,6 +427,14 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
             onVolver={() => ir('hub')}
           />
         )
+      )}
+      {vista === 'cancelacion' && puede('ruta_cancelacion') && (
+        <CancelacionDevolucionRuta
+          supabase={supabase}
+          user={user}
+          setAviso={setAviso}
+          onVolver={() => ir('hub')}
+        />
       )}
       {vista === 'liquidacion' && puede('ruta_liquidacion') && (
         <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
@@ -2738,6 +2748,12 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
           setRows(r.data || []);
+        } else if (tab === 'cancelaciones') {
+          const r = await listarCancelacionesRuta(supabase, { limit: 150 });
+          if (cancel) return;
+          if (r.aviso) setAviso(r.aviso);
+          if (r.error) setAviso(r.error);
+          setRows(r.data || []);
         } else {
           const r = await listarVentasRuta(supabase, { limit: 100 });
           if (cancel) return;
@@ -2902,6 +2918,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
           Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta, para aclaraciones).
           En cada línea de Ingresos puedes eliminar el ticket. En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
+          Cancelaciones = solicitudes y devoluciones de ventas aprobadas con PIN de administrador.
         </p>
       </div>
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
@@ -2911,6 +2928,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
           { id: 'cargas', label: 'Cargas' },
           { id: 'creditos_tienda', label: 'Créditos por tienda' },
           { id: 'creditos', label: 'Créditos cobrados' },
+          { id: 'cancelaciones', label: 'Cancelaciones' },
         ].map((t) => (
           <button
             key={t.id}
@@ -3127,6 +3145,43 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
             </tbody>
           </table>
         </div>
+      ) : tab === 'cancelaciones' ? (
+        <div className="table-wrap">
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Cliente</th>
+                <th>Pago</th>
+                <th>Total</th>
+                <th>Estado</th>
+                <th>Solicitó / Admin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.id}>
+                  <td><strong>{c.folio_venta || '—'}</strong></td>
+                  <td className="muted" style={{ fontSize: '0.8rem' }}>{fmtFecha(c.aprobado_at || c.created_at)}</td>
+                  <td>{c.cliente_nombre || c.cliente_id || '—'}</td>
+                  <td>{c.metodo_pago || '—'}</td>
+                  <td>{fmtMonto(c.total)}</td>
+                  <td>{badgeEstado(c.estado)}</td>
+                  <td className="muted" style={{ fontSize: '0.78rem' }}>
+                    {c.solicitado_por || '—'}
+                    {c.admin_nombre ? ` → ${c.admin_nombre}` : ''}
+                    {c.motivo ? (
+                      <div style={{ maxWidth: 220 }}>
+                        {String(c.motivo).length > 60 ? `${String(c.motivo).slice(0, 60)}…` : c.motivo}
+                      </div>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="table-wrap">
           <table className="consultas-table">
@@ -3149,7 +3204,11 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
                     {v.cliente_nombre || v.cliente_id || '—'}
                     {v.cliente_tipo ? <span className="muted" style={{ fontSize: '0.72rem' }}> · {v.cliente_tipo}</span> : null}
                   </td>
-                  <td>{v.metodo_pago || '—'}{v.estado_credito ? ` · ${v.estado_credito}` : ''}</td>
+                  <td>
+                    {v.metodo_pago || '—'}
+                    {v.estado_credito ? ` · ${v.estado_credito}` : ''}
+                    {String(v.estado || '').toLowerCase() === 'cancelada' ? ' · cancelada' : ''}
+                  </td>
                   <td>{fmtMonto(v.total)}</td>
                   <td className="muted">{v.vendedor_nombre || '—'}</td>
                 </tr>

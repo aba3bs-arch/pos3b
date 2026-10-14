@@ -186,6 +186,7 @@ export const TIPOS_NOTIF = {
   CONTRATACION: 'contratacion_aspirante',
   ASALTO: 'asalto_en_proceso',
   FONDO_SERVICIO_PIN: 'fondo_servicio_pin',
+  RUTA_CANCELACION_PIN: 'ruta_cancelacion_pin',
 };
 
 /** Alertas CT que el cajero debe ver flotantes hasta atenderlas. */
@@ -198,6 +199,11 @@ export const TIPOS_ALERTA_CT_CAJERO = [
 /** Cobro de servicios (Fondo) pendiente de PIN del cajero en caja. */
 export const TIPOS_ALERTA_FONDO_CAJERO = [
   TIPOS_NOTIF.FONDO_SERVICIO_PIN,
+];
+
+/** Cancelación/devolución de venta en ruta · PIN admin. */
+export const TIPOS_ALERTA_CANCELACION_RUTA = [
+  TIPOS_NOTIF.RUTA_CANCELACION_PIN,
 ];
 
 export function esAlertaCtCajero(n) {
@@ -259,6 +265,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'ASALTO EN PROCESO';
     case TIPOS_NOTIF.FONDO_SERVICIO_PIN:
       return 'Cobro servicio · aprobar PIN';
+    case TIPOS_NOTIF.RUTA_CANCELACION_PIN:
+      return 'Cancelar venta ruta · PIN admin';
     default:
       return tipo || 'Notificación';
   }

@@ -144,6 +144,7 @@ import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesCon
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
 import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
+import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOverlay.jsx';
 import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
 import ReleaseAvisoOverlay from './components/ReleaseAvisoOverlay.jsx';
@@ -2008,6 +2009,12 @@ function App() {
             supabase={supabase}
             user={user}
             sucursal={sucursal}
+          />
+        ) : null}
+        {user && !user.esCtMovil ? (
+          <AlertaCancelacionRutaOverlay
+            supabase={supabase}
+            user={user}
           />
         ) : null}
         {user && !user.esCtMovil ? (

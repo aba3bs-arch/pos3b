@@ -27,6 +27,14 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_auditorias', vista: 'auditorias', label: 'Inv-op / Auditorías', desc: 'Recolector → departamentos · faltantes costo/público', icon: 'search', grupo: 'admin' },
   { id: 'ruta_creditos', vista: 'creditos', label: 'Créditos por pagar', desc: 'Ruta + Recolecciones · cajero con PIN', icon: 'register', grupo: 'oper' },
   { id: 'ruta_servicios', vista: 'servicios', label: 'Cobro servicios', desc: 'CFE y servicios · solicitud móvil · PIN cajero', icon: 'dollar', grupo: 'oper' },
+  {
+    id: 'ruta_cancelacion',
+    vista: 'cancelacion',
+    label: 'Cancelación / Devolución',
+    desc: 'Anular venta por error · PIN admin · revierte camión/RC/créditos',
+    icon: 'trash',
+    grupo: 'oper',
+  },
   { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios / Tesorería', icon: 'register', grupo: 'admin' },
 ];
 
@@ -34,9 +42,9 @@ export const SUBCOMANDOS_VENTA_RUTA = [
 export const ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL = {
   // Gerente: todo el hub, excepto limpiar consultas (solo Admin por defecto).
   Gerente: SUBCOMANDOS_VENTA_RUTA.filter((s) => s.hub !== false).map((s) => s.id),
-  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios'],
-  Cajero: ['ruta_creditos'],
-  Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios'],
+  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_cancelacion'],
+  Cajero: ['ruta_creditos', 'ruta_cancelacion'],
+  Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios', 'ruta_cancelacion'],
   Auditor: ['ruta_auditorias', 'ruta_consultas', 'ruta_preinventario'],
 };
 
