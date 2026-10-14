@@ -85,7 +85,19 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
         pin,
       });
       if (!r.ok) return alert(r.error || 'No se pudo aprobar.');
-      alert(`Cancelación aprobada · ${r.resultado?.folio || ''} · ${r.admin || 'admin'}`);
+      const res = r.resultado || {};
+      const partes = [];
+      if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
+      if (res.inventarioTienda?.aplicados) partes.push(`tienda −${res.inventarioTienda.aplicados} prod.`);
+      if (res.creditos?.eliminados) partes.push(`crédito ×${res.creditos.eliminados}`);
+      if (res.transito?.eliminado) partes.push('efectivo RC quitado');
+      if (res.compra?.eliminada || res.compra?.cancelada) partes.push('compra eliminada');
+      if (res.venta?.eliminada || res.venta?.ok) partes.push('venta eliminada');
+      alert(
+        `Cancelación aplicada · ${res.folio || ''}\n`
+        + (partes.length ? partes.join(' · ') : 'Reversión completa')
+        + `\n${r.admin || 'admin'}`,
+      );
       setPin('');
       await cargar();
     } finally {
@@ -195,7 +207,8 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
             </button>
           </div>
           <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.75rem' }}>
-            Al aprobar se revierte inventario del camión, créditos por pagar, efectivo en RC/VentaRuta y pedido en Compras.
+            Al aprobar: 1) devuelve inventario al camión 2) descuenta piso de tienda si ya se recibió
+            3) elimina crédito y/o efectivo (mixto = ambos) 4) borra venta, compra y RC/VentaRuta.
           </p>
         </div>
       </div>

@@ -25,6 +25,7 @@ import {
   cuentaRtMercanciaPorDefecto,
   etiquetaCuentaRt,
 } from '../lib/rtCuentas.js';
+import { repararTransitosCancelacionesAprobadas } from '../lib/rutaCancelaciones.js';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import SelectorCalendario from './SelectorCalendario.jsx';
@@ -122,6 +123,15 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
       const desde = presetFecha === 'todos' ? '' : filtroDesde;
       const hasta = presetFecha === 'todos' ? '' : filtroHasta;
+
+      // Cancelaciones aprobadas que dejaron efectivo en Pendientes → limpiar por folio VR.
+      if (!esHistorial) {
+        try {
+          await repararTransitosCancelacionesAprobadas(supabase, { limit: 80 });
+        } catch {
+          /* no bloquear liquidación si falla la reparación */
+        }
+      }
 
       const [movs, alr, gastos] = await Promise.all([
         esHistorial
