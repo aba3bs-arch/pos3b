@@ -195,7 +195,8 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
             </button>
           </div>
           <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.75rem' }}>
-            Al aprobar se revierte inventario del camión, créditos por pagar, efectivo en RC/VentaRuta y pedido en Compras.
+            Al aprobar se descuenta el inventario de la tienda (si ya se recibió), se regresa al camión,
+            y se anulan créditos, RC/VentaRuta y la compra.
           </p>
         </div>
       </div>

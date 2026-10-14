@@ -11,6 +11,7 @@ import {
   TIPOS_NOTIF,
 } from './contabilidadNotificaciones.js';
 import { eliminarMovimientoTransito } from './controlEfectivo.js';
+import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
 import { lineasDeCarga } from './ventaEnRuta.js';
 
 export const AVISO_FALTA_CANCELACIONES =
@@ -176,11 +177,164 @@ async function revertirTransito(supabase, transitoId) {
   return { ok: true, eliminado: true, id: tr.id, monto: tr.monto };
 }
 
-async function cancelarCompraPedido(supabase, compraId) {
+function compraYaRecibida(compra) {
+  const est = String(compra?.estado || '').toLowerCase();
+  return est === 'recibida' || est === 'recibido' || est === 'cerrada';
+}
+
+/** Líneas a descontar del piso de la tienda (qty recibida o qty de la venta). */
+function lineasDescontarTienda(compra, venta) {
+  const itemsRec = Array.isArray(compra?.items) ? compra.items : [];
+  if (itemsRec.length) {
+    return itemsRec
+      .map((l) => ({
+        id: String(l.id || l.producto_id || ''),
+        nombre: l.nombre || l.id,
+        qty: Math.floor(Number(l.qty ?? l.cantidad ?? l.qty_recibido) || 0),
+        costo: Number(l.costo ?? l.costo_est) || 0,
+      }))
+      .filter((l) => l.id && l.qty > 0);
+  }
+  return artsDeVenta(venta)
+    .map((a) => ({
+      id: String(a.producto_id || a.productoId || ''),
+      nombre: a.nombre || a.producto_id,
+      qty: Math.floor(Number(a.cantidad ?? a.qty) || 0),
+      costo: Number(a.precio) || 0,
+    }))
+    .filter((l) => l.id && l.qty > 0);
+}
+
+/**
+ * Si la compra ya se recibió en la tienda, descuenta el inventario de piso
+ * (Petroleos, etc.) para que la devolución quite lo que entró por Compras.
+ */
+async function descontarInventarioTienda(supabase, {
+  venta,
+  compra = null,
+  adminNombre = null,
+} = {}) {
+  const tipoCli = String(venta?.cliente_tipo || '') === 'externo' ? 'externo' : 'sucursal';
+  if (tipoCli !== 'sucursal') return { ok: true, omitido: 'cliente_externo', aplicados: 0 };
+
+  const suc = normalizarCodigoTienda(venta.cliente_id || compra?.sucursal_id);
+  if (!suc || suc === 'MAIN' || suc === 'CEDIS') {
+    return { ok: true, omitido: 'sin_sucursal', aplicados: 0 };
+  }
+
+  // Solo descuenta piso si la mercancía ya entró (compra recibida) o si no hay compra
+  // pero el cliente es sucursal y pedimos forzar (no debería).
+  if (compra && !compraYaRecibida(compra)) {
+    return { ok: true, omitido: 'compra_no_recibida', aplicados: 0 };
+  }
+  if (!compra) {
+    return { ok: true, omitido: 'sin_compra', aplicados: 0 };
+  }
+
+  const lineas = lineasDescontarTienda(compra, venta);
+  if (!lineas.length) return { ok: true, omitido: 'sin_lineas', aplicados: 0 };
+
+  const folioVenta = venta.folio || String(venta.id || '').slice(0, 8);
+  const motivo = `Devolución venta en ruta ${folioVenta} · cancela recepción en ${suc}`;
+  const errores = [];
+  const hechos = [];
+  let aplicados = 0;
+
+  for (const l of lineas) {
+    const r = await aplicarMovimientoInventario(supabase, {
+      tipo: 'retiro',
+      modo: 'devolucion_ruta',
+      productoOrigen: { id: l.id, nombre: l.nombre },
+      cantidad: l.qty,
+      motivo,
+      usuario: adminNombre || 'Admin ruta',
+      sucursal: suc,
+      sucursalOperacion: suc,
+      meta: {
+        devolucion_ruta: true,
+        venta_id: venta.id,
+        folio_venta: folioVenta,
+        compra_id: compra.id,
+        precio: l.costo || null,
+        subtotal: l.costo ? round2(l.costo * l.qty) : null,
+      },
+    });
+    if (!r.ok) {
+      errores.push(`${l.nombre || l.id}: ${r.error}`);
+      continue;
+    }
+    aplicados += 1;
+    hechos.push({ productoId: l.id, nombre: l.nombre, qty: l.qty });
+  }
+
+  if (!aplicados) {
+    return {
+      ok: false,
+      error: `No se pudo descontar inventario en ${etiquetaTienda(suc) || suc}: ${errores.join('; ') || 'sin líneas'}`,
+      errores,
+    };
+  }
+  return {
+    ok: true,
+    aplicados,
+    hechos,
+    sucursalId: suc,
+    parcial: errores.length > 0,
+    errores: errores.length ? errores : undefined,
+  };
+}
+
+async function anularGastoCompraCorte(supabase, compra, venta) {
+  if (!supabase || !compra?.id) return { ok: true, omitido: true };
+  const suc = normalizarCodigoTienda(compra.sucursal_id || venta?.cliente_id);
+  const folioInv = (String(compra.notas || '').match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1];
+  const folioVenta = venta?.folio || folioVentaRutaDesdeNotasSafe(compra.notas);
+  // Busca gastos ligados a esta recepción / folio VR
+  let q = supabase
+    .from('cortes_contabilidad_gastos')
+    .select('id, comentario, monto, deleted_at')
+    .eq('modulo', 'abarrotes')
+    .order('created_at', { ascending: false })
+    .limit(40);
+  if (suc) q = q.eq('sucursal_id', suc);
+  const { data, error } = await q;
+  if (error) return { ok: true, omitido: true, aviso: error.message };
+  const hits = (data || []).filter((g) => {
+    if (g.deleted_at) return false;
+    const c = String(g.comentario || '');
+    if (folioInv && c.includes(folioInv)) return true;
+    if (folioVenta && c.toUpperCase().includes(String(folioVenta).toUpperCase())) return true;
+    if (c.includes(String(compra.id))) return true;
+    return false;
+  });
+  if (!hits.length) return { ok: true, omitido: true };
+  let anulados = 0;
+  for (const g of hits) {
+    let { error: eUp } = await supabase
+      .from('cortes_contabilidad_gastos')
+      .update({
+        deleted_at: new Date().toISOString(),
+        comentario: `${g.comentario || ''} · ANULADO por devolución ruta`.trim(),
+      })
+      .eq('id', g.id);
+    if (eUp && /deleted_at|column|schema cache/i.test(String(eUp.message || ''))) {
+      ({ error: eUp } = await supabase.from('cortes_contabilidad_gastos').delete().eq('id', g.id));
+    }
+    if (!eUp) anulados += 1;
+  }
+  return { ok: true, anulados, ids: hits.map((h) => h.id) };
+}
+
+function folioVentaRutaDesdeNotasSafe(notas) {
+  const m = String(notas || '').match(/\b(VR-[A-Z0-9-]+)\b/i);
+  return m ? String(m[1]).toUpperCase() : null;
+}
+
+async function cancelarCompraPedido(supabase, compraId, { yaDescontoTienda = false } = {}) {
   if (!compraId) return { ok: true, omitido: true };
   const { data: c, error } = await supabase
     .from('compras')
-    .select('id, estado, notas, sucursal_id')
+    .select('id, estado, notas, sucursal_id, items, items_pedido')
     .eq('id', compraId)
     .maybeSingle();
   if (error) {
@@ -188,12 +342,13 @@ async function cancelarCompraPedido(supabase, compraId) {
     return { ok: false, error: error.message };
   }
   if (!c) return { ok: true, omitido: true };
-  const est = String(c.estado || '').toLowerCase();
-  if (est === 'recibida' || est === 'recibido' || est === 'cerrada') {
+  const recibida = compraYaRecibida(c);
+  if (recibida && !yaDescontoTienda) {
     return {
       ok: false,
-      error: 'La compra ya fue recibida en tienda. Cancela inventario/recepción manualmente o revierte antes.',
+      error: 'La compra ya fue recibida y no se descontó el inventario de tienda.',
       recibida: true,
+      compra: c,
     };
   }
   const { error: eUp } = await supabase
@@ -204,12 +359,15 @@ async function cancelarCompraPedido(supabase, compraId) {
     })
     .eq('id', c.id);
   if (eUp) {
-    // Si no acepta estado cancelada, borrar pedido
-    const { error: eDel } = await supabase.from('compras').delete().eq('id', c.id);
-    if (eDel) return { ok: false, error: eUp.message };
-    return { ok: true, eliminada: true, id: c.id };
+    // Pedido sin columna estado cancelada: borrar solo si no estaba recibida
+    if (!recibida) {
+      const { error: eDel } = await supabase.from('compras').delete().eq('id', c.id);
+      if (eDel) return { ok: false, error: eUp.message };
+      return { ok: true, eliminada: true, id: c.id, compra: c };
+    }
+    return { ok: false, error: eUp.message, compra: c };
   }
-  return { ok: true, cancelada: true, id: c.id };
+  return { ok: true, cancelada: true, id: c.id, recibida, compra: c };
 }
 
 async function marcarVentaCancelada(supabase, venta, adminNombre) {
@@ -250,15 +408,42 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
   const planCamion = await planRevertirCamion(supabase, venta);
   if (!planCamion.ok) return planCamion;
 
+  // Carga compra (si existe) para saber si hay que descontar piso de tienda.
+  let compraRow = null;
+  if (venta.compra_id) {
+    const { data: c } = await supabase
+      .from('compras')
+      .select('id, estado, notas, sucursal_id, items, items_pedido')
+      .eq('id', venta.compra_id)
+      .maybeSingle();
+    compraRow = c || null;
+  }
+
+  // 1) Si ya se recibió en Petroleos/tienda → descontar inventario de piso.
+  const invTienda = await descontarInventarioTienda(supabase, {
+    venta,
+    compra: compraRow,
+    adminNombre,
+  });
+  if (!invTienda.ok) return invTienda;
+
+  // 2) Anular gasto de corte ligado a esa recepción (si hubo).
+  const gasto = compraRow && compraYaRecibida(compraRow)
+    ? await anularGastoCompraCorte(supabase, compraRow, venta)
+    : { ok: true, omitido: true };
+
   const tr = await revertirTransito(supabase, venta.transito_id);
   if (!tr.ok) return tr;
 
   const cxc = await eliminarCreditosDeVenta(supabase, venta.id);
   if (!cxc.ok) return cxc;
 
-  const compra = await cancelarCompraPedido(supabase, venta.compra_id);
+  const compra = await cancelarCompraPedido(supabase, venta.compra_id, {
+    yaDescontoTienda: !compraYaRecibida(compraRow) || (Number(invTienda.aplicados) || 0) > 0,
+  });
   if (!compra.ok) return compra;
 
+  // 3) Devolver mercancía al camión (baja qty_vendida).
   const cam = await aplicarRevertirCamion(supabase, planCamion.plan);
   if (!cam.ok) return cam;
 
@@ -268,6 +453,8 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
   return {
     ok: true,
     camion: cam.hechos,
+    inventarioTienda: invTienda,
+    gastoCorte: gasto,
     transito: tr,
     creditos: cxc,
     compra,
@@ -340,20 +527,7 @@ export async function solicitarCancelacionVentaRuta(supabase, {
     };
   }
 
-  if (venta.compra_id) {
-    const { data: c } = await supabase
-      .from('compras')
-      .select('id, estado')
-      .eq('id', venta.compra_id)
-      .maybeSingle();
-    const est = String(c?.estado || '').toLowerCase();
-    if (est === 'recibida' || est === 'recibido' || est === 'cerrada') {
-      return {
-        ok: false,
-        error: 'La compra ya fue recibida en tienda. Revierte la recepción antes de cancelar la venta.',
-      };
-    }
-  }
+  // Compra recibida: se permite; al aprobar se descuenta inventario de la tienda.
 
   const montos = montosDeVenta(venta);
   const suc =
