@@ -166,7 +166,12 @@ import {
   limpiarSesionPersistenteMovil,
 } from './lib/sesionPersistenteMovil.js';
 import { EVENTO_NOTIFICACIONES, EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, TIPOS_NOTIF } from './lib/contabilidadNotificaciones.js';
-import { crearDetectorTeclasAsalto, dispararAlertaAsalto } from './lib/alertaAsalto.js';
+import {
+  crearDetectorTeclasAsalto,
+  dispararAlertaAsalto,
+  emitirAvisoOrigenAlertaAsalto,
+} from './lib/alertaAsalto.js';
+import FranjaAsaltoOrigenAviso from './components/FranjaAsaltoOrigenAviso.jsx';
 import { registrarCapturaInstalacionPwa } from './lib/appMovil.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import PantallaLogin from './components/PantallaLogin.jsx';
@@ -529,10 +534,12 @@ function App() {
   }, [sesion, user, supabase]);
 
   // Alarma de asalto: cualesquiera ≥3 teclas a la vez (al azar), o Escape ×5.
+  // En la caja origen: franja roja/amarilla «Presionastes 3 teclas» (se quita con cualquier tecla).
   useEffect(() => {
     if (!sesion || !user || user.esCtMovil) return undefined;
     const detector = crearDetectorTeclasAsalto({
       onActivar: ({ teclas, modo }) => {
+        emitirAvisoOrigenAlertaAsalto({ teclas, modo: modo || 'teclas' });
         void dispararAlertaAsalto(supabase, {
           user,
           sucursal,
@@ -2020,6 +2027,7 @@ function App() {
         {user && !user.esCtMovil ? (
           <AlertaAsaltoOverlay supabase={supabase} user={user} />
         ) : null}
+        {user && !user.esCtMovil ? <FranjaAsaltoOrigenAviso /> : null}
         <ModalActivarBiometria
           open={Boolean(ofertaBiometria)}
           nombre={ofertaBiometria?.user?.nombre}

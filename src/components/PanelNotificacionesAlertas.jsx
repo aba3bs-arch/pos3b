@@ -189,7 +189,8 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
             Respaldo: pulse <strong>Escape {ESC_TAPS_ASALTO} veces</strong> seguidas (rápido).
           </li>
           <li>
-            En la caja <strong>no aparece nada</strong> (discreto, para no provocar al asaltante).
+            En la caja: <strong>franja roja/amarilla</strong> «Presionastes 3 teclas»
+            (por si fue accidente; se quita con cualquier tecla). Sin sirena local.
             Suena y se ve en dispositivos de admin / indirectos MAIN.
           </li>
           <li>

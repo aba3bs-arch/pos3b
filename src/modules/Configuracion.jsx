@@ -1741,7 +1741,8 @@ export default function Configuracion({
         </button>
         <p className="muted" style={{ margin: '1rem 0 0.35rem', fontSize: '0.85rem' }}>
           La alarma de asalto <strong>no</strong> se silencia con estas opciones.
-          En la caja origen queda <strong>en silencio</strong> (discreto); suena en admin / MAIN.
+          En la caja origen no suena sirena; aparece una <strong>franja roja/amarilla</strong>
+          («Presionastes 3 teclas») que se quita con cualquier tecla. Suena en admin / MAIN.
           Se activa con <strong>cualesquiera 3 teclas a la vez</strong> (al azar, sin memorizar)
           o Escape ×5. También: <strong>Configuración → Notificaciones → Probar alarma</strong>.
         </p>

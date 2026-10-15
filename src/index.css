@@ -6200,3 +6200,61 @@ table.data th {
   }
 }
 
+
+/* ── Franja aviso origen alarma asalto (3 teclas accidental) ── */
+.franja-asalto-origen {
+  position: fixed;
+  inset: 0;
+  z-index: 20050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: transparent;
+}
+
+.franja-asalto-origen__barra {
+  width: 100%;
+  min-height: 2in;
+  height: 2in;
+  max-height: 28vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem 1rem;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.25), 0 12px 40px rgba(0, 0, 0, 0.45);
+  animation: franja-asalto-parpadeo 0.55s steps(1, end) infinite;
+  pointer-events: none;
+}
+
+.franja-asalto-origen__texto {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: clamp(1.6rem, 4.5vw, 2.75rem);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-align: center;
+  line-height: 1.15;
+  color: #111;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.franja-asalto-origen__hint {
+  font-size: clamp(0.85rem, 2vw, 1.1rem);
+  font-weight: 600;
+  color: #1a1a1a;
+  opacity: 0.9;
+  text-align: center;
+}
+
+@keyframes franja-asalto-parpadeo {
+  0%,
+  49% {
+    background: #dc2626;
+  }
+  50%,
+  100% {
+    background: #facc15;
+  }
+}
