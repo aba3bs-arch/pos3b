@@ -6,8 +6,8 @@
  * Destino: Administradores + empleados indirectos (MAIN).
  *
  * La máquina ORIGEN no suena sirena ni overlay de «ASALTO»; muestra una franja
- * parpadeante «Presionastes 3 teclas» (se quita con cualquier tecla) por si fue
- * accidente. Solo suenan / avisan con sirena los demás dispositivos.
+ * parpadeante discreta «Sistema en mantenimiento» (queda hasta pulsar una tecla
+ * nueva, tras soltar el acorde). Solo suenan / avisan con sirena los remotos.
  *
  * Nota: muchos teclados baratos no registran 5 teclas a la vez (ghosting);
  * por eso el mínimo práctico es 3 y existe Escape ×5 como respaldo.
@@ -36,8 +36,16 @@ export const STORAGE_ORIGEN_ASALTO = 'pos-asalto-origen-ids';
 export const TEXTO_ALERTA_ASALTO = 'ASALTO EN PROCESO';
 export const TEXTO_ALERTA_ASALTO_SUB =
   'Alarma de emergencia activada. Verifica la tienda y contacta a seguridad / autoridades si aplica.';
-/** Texto de la franja en la caja origen (activación accidental por teclas). */
-export const TEXTO_FRANJA_3_TECLAS = 'Presionastes 3 teclas';
+/**
+ * Texto de la franja en la caja origen.
+ * Discreto a propósito: si hay asaltante presente no debe leerse «asalto» / «teclas».
+ * (Cajero: cualquier tecla nueva, tras soltar el acorde, la quita.)
+ */
+export const TEXTO_FRANJA_ORIGEN = 'Sistema en mantenimiento';
+/** @deprecated usar TEXTO_FRANJA_ORIGEN */
+export const TEXTO_FRANJA_3_TECLAS = TEXTO_FRANJA_ORIGEN;
+export const TEXTO_FRANJA_HINT = 'Espere un momento…';
+export const STORAGE_FRANJA_ORIGEN = 'pos-asalto-franja-origen';
 
 /** Emite aviso visual solo en la máquina que disparó (no llega a remotos). */
 export function emitirAvisoOrigenAlertaAsalto(detail = {}) {
@@ -202,8 +210,8 @@ export function suscribirAlertaAsaltoBroadcast(supabase, { onAlarma, dispositivo
 
 /**
  * Dispara la alarma desde la sesión actual (cualquiera logueado en tienda).
- * ORIGEN: sin sirena / overlay ASALTO; franja «Presionastes 3 teclas» vía evento aparte.
- * REMOTOS: buzón + broadcast + Web Push a admins / indirectos MAIN.
+ * ORIGEN: sin sirena / overlay ASALTO; franja discreta «Sistema en mantenimiento».
+ * REMOTOS: buzón + broadcast + Web Push persistente a admins / indirectos MAIN.
  * @param {{ forzar?: boolean, modo?: 'teclas'|'escape'|'prueba', teclas?: number }} opts
  */
 export async function dispararAlertaAsalto(supabase, {
@@ -278,6 +286,7 @@ export async function dispararAlertaAsalto(supabase, {
       tipo: TIPOS_NOTIF.ASALTO,
       usuarioIds,
       modo: 'asalto',
+      sucursalId: sucursal || null,
       excluirDispositivoId: obtenerIdDispositivoLocal(),
     });
 

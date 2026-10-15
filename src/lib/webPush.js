@@ -114,6 +114,7 @@ export async function dispararPushRemoto(supabase, {
   tipo,
   usuarioIds = null,
   modo = null,
+  sucursalId = null,
   excluirDispositivoId = null,
 } = {}) {
   if (!supabase || !vapidPublicKey()) return { ok: false, skipped: true, error: 'Sin VAPID / conexión.' };
@@ -126,6 +127,7 @@ export async function dispararPushRemoto(supabase, {
         tipo: tipo || null,
         usuario_ids: Array.isArray(usuarioIds) ? usuarioIds.map(String) : null,
         modo: modo || null,
+        sucursal_id: sucursalId != null ? String(sucursalId) : null,
         excluir_dispositivo_id: excluirDispositivoId != null ? String(excluirDispositivoId) : null,
       },
     });

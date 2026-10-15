@@ -7,7 +7,11 @@ import {
   usuarioRecibeAlertaAsalto,
   crearDetectorTeclasAsalto,
   TEXTO_ALERTA_ASALTO,
+  TEXTO_FRANJA_ORIGEN,
 } from './alertaAsalto.js';
+
+assert.match(TEXTO_FRANJA_ORIGEN, /mantenimiento/i);
+assert.ok(!/asalto|teclas|presionast/i.test(TEXTO_FRANJA_ORIGEN));
 
 assert.equal(TECLAS_MIN_ASALTO, 3);
 assert.equal(ESC_TAPS_ASALTO, 5);

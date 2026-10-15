@@ -189,12 +189,13 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
             Respaldo: pulse <strong>Escape {ESC_TAPS_ASALTO} veces</strong> seguidas (rápido).
           </li>
           <li>
-            En la caja: <strong>franja roja/amarilla</strong> «Presionastes 3 teclas»
-            (por si fue accidente; se quita con cualquier tecla). Sin sirena local.
-            Suena y se ve en dispositivos de admin / indirectos MAIN.
+            En la caja: <strong>franja roja/amarilla</strong> «Sistema en mantenimiento»
+            (discreta ante un asaltante; permanece hasta una tecla nueva tras soltar el acorde).
+            Sin sirena local. Suena / push en admin · gerente · MAIN.
           </li>
           <li>
-            En MAIN y celulares: pulse «Activar alertas» una vez y deje la app abierta o instalada.
+            En celulares: «Activar alertas» una vez (PWA en iPhone). La notificación de asalto
+            es <strong>persistente</strong>; al tocarla abre la pantalla de alerta aunque no hubiera sesión.
           </li>
         </ul>
       </div>

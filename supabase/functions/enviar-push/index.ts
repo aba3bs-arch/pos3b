@@ -45,6 +45,7 @@ Deno.serve(async (req) => {
     const tipo = body.tipo != null ? String(body.tipo) : null;
     const modo = String(body.modo || '').toLowerCase();
     const esAsalto = modo === 'asalto' || tipo === 'asalto_en_proceso';
+    const sucursalId = body.sucursal_id != null ? String(body.sucursal_id) : null;
     const usuarioIds = Array.isArray(body.usuario_ids)
       ? body.usuario_ids.map((x) => String(x)).filter(Boolean)
       : [];
@@ -107,10 +108,11 @@ Deno.serve(async (req) => {
       mensaje,
       id,
       tipo,
-      tag: id ? `pos3b-${id}` : `pos3b-${Date.now()}`,
-      requireInteraction: esAsalto,
+      tag: id ? (esAsalto ? `pos3b-asalto-${id}` : `pos3b-${id}`) : (esAsalto ? 'pos3b-asalto' : `pos3b-${Date.now()}`),
+      requireInteraction: true,
       silent: false,
       asalto: esAsalto,
+      sucursal_id: sucursalId,
     });
 
     let enviados = 0;
