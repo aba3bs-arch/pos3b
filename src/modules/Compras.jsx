@@ -189,9 +189,10 @@ export default function Compras({
     return { desde, hasta };
   }, [presetVentasCompras, ventasDesde, ventasHasta]);
 
-  const historialFiltrado = useMemo(() => {
+  /** Solo pedidos pendientes (aún no recibidos) — tab Por recibir. */
+  const porRecibirFiltrado = useMemo(() => {
     const vivos = (historial || []).filter(
-      (c) => String(c.estado || '').toLowerCase() !== 'cancelada',
+      (c) => String(c.estado || '').toLowerCase() === 'pedido',
     );
     if (presetHistCompras === 'rango' && histDesde && histHasta) {
       return vivos.filter((c) => enRangoYmd(toYmd(c.created_at), histDesde, histHasta));
@@ -205,6 +206,28 @@ export default function Compras({
       const dYmd = toYmd(desde);
       const hYmd = toYmd(hasta);
       return vivos.filter((c) => enRangoYmd(toYmd(c.created_at), dYmd, hYmd));
+    }
+    const r = rangoDesdePreset(presetHistCompras);
+    if (!r) return vivos;
+    return vivos.filter((c) => enRangoYmd(toYmd(c.created_at), r.desde, r.hasta));
+  }, [historial, presetHistCompras, histDesde, histHasta]);
+
+  /** Recepciones ya hechas — tab Historial (no se confunde con «por recibir»). */
+  const historialRecibidasFiltrado = useMemo(() => {
+    const vivos = (historial || []).filter((c) => {
+      const est = String(c.estado || '').toLowerCase();
+      return est === 'recibida' || est === 'recibido' || est === 'cerrada';
+    });
+    if (presetHistCompras === 'rango' && histDesde && histHasta) {
+      return vivos.filter((c) => enRangoYmd(toYmd(c.created_at), histDesde, histHasta));
+    }
+    if (presetHistCompras === '8d' || presetHistCompras === '14d') {
+      const dias = presetHistCompras === '8d' ? DIAS_HISTORIAL_COMPRAS : 14;
+      const hasta = new Date();
+      const desde = new Date();
+      desde.setDate(desde.getDate() - dias);
+      desde.setHours(0, 0, 0, 0);
+      return vivos.filter((c) => enRangoYmd(toYmd(c.created_at), toYmd(desde), toYmd(hasta)));
     }
     const r = rangoDesdePreset(presetHistCompras);
     if (!r) return vivos;
@@ -960,8 +983,11 @@ export default function Compras({
         <button type="button" className={pestana === 'herramienta' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestana('herramienta')}>
           Herramienta de compra
         </button>
-        <button type="button" className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestana('historial')}>
+        <button type="button" className={pestana === 'por_recibir' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestana('por_recibir')}>
           Por recibir
+        </button>
+        <button type="button" className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestana('historial')}>
+          Historial recepciones
         </button>
       </div>
 
@@ -1364,15 +1390,26 @@ export default function Compras({
         </>
       )}
 
-      {pestana === 'historial' && (
+      {(pestana === 'por_recibir' || pestana === 'historial') && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Historial de compras / recepciones</h3>
+          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+            {pestana === 'por_recibir' ? 'Mercancía por recibir' : 'Historial de recepciones'}
+          </h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-            Se conserva {DIAS_HISTORIAL_COMPRAS} días en este módulo; después pasa a{' '}
-            <strong>Contabilidad → Archivo</strong>. El ticket de recepción muestra{' '}
-            <strong>CREDITO</strong> / desglose mixto cuando viene de Venta en Ruta.
-            {' '}<strong>Eliminar</strong> solo quita el registro del historial
-            (no mueve inventario). Para devolver mercancía de venta en ruta usa Cancelación / Devolución.
+            {pestana === 'por_recibir' ? (
+              <>
+                Solo pedidos <strong>pendientes</strong> (aún no se recibió mercancía).
+                {' '}<strong>Eliminar</strong> cancela el pedido: <strong>no mueve inventario</strong>
+                (nunca se había sumado al piso).
+              </>
+            ) : (
+              <>
+                Recepciones ya hechas. Se conservan {DIAS_HISTORIAL_COMPRAS} días; después pasan a{' '}
+                <strong>Contabilidad → Archivo</strong>.
+                {' '}<strong>Eliminar</strong> solo quita el registro del historial
+                (no descuenta inventario). Para devolver mercancía de venta en ruta usa Cancelación / Devolución.
+              </>
+            )}
           </p>
           <FiltroPeriodo
             preset={presetHistCompras}
@@ -1398,14 +1435,14 @@ export default function Compras({
                 </tr>
               </thead>
               <tbody>
-                {historialFiltrado.length === 0 ? (
+                {(pestana === 'por_recibir' ? porRecibirFiltrado : historialRecibidasFiltrado).length === 0 ? (
                   <tr>
                     <td colSpan={7} className="muted">
-                      Sin movimientos.
+                      {pestana === 'por_recibir' ? 'Sin pedidos pendientes.' : 'Sin recepciones en el periodo.'}
                     </td>
                   </tr>
                 ) : (
-                  historialFiltrado.map((c) => (
+                  (pestana === 'por_recibir' ? porRecibirFiltrado : historialRecibidasFiltrado).map((c) => (
                     <tr key={c.id}>
                       <td>{c.created_at ? new Date(c.created_at).toLocaleString('es-MX') : '—'}</td>
                       <td>
@@ -1417,14 +1454,14 @@ export default function Compras({
                         ) : null}
                       </td>
                       <td>
-                        <span className="badge">{c.estado || 'recibida'}</span>
+                        <span className="badge">{c.estado || 'pedido'}</span>
                       </td>
                       <td>{c.proveedores?.nombre || '—'}</td>
                       <td>${Number(c.total || 0).toFixed(2)}</td>
                       <td>{c.notas}</td>
                       <td>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                          {(c.estado === 'recibida' || c.estado === 'recibido' || c.estado === 'cerrada') && (
+                          {compraYaRecibida(c) && (
                             <button
                               type="button"
                               className="btn btn-ghost"
@@ -1467,7 +1504,7 @@ export default function Compras({
                               Imprimir pedido
                             </button>
                           )}
-                          {(c.estado === 'recibida' || c.estado === 'recibido' || c.estado === 'cerrada')
+                          {compraYaRecibida(c)
                             && Array.isArray(c.items) && c.items.length > 0 && (
                             <button
                               type="button"
@@ -1494,13 +1531,16 @@ export default function Compras({
                                 color: '#b91c1c',
                                 borderColor: '#fecaca',
                               }}
-                              disabled={eliminandoCompraId === String(c.id)}
+                              disabled={
+                                eliminandoCompraId === String(c.id)
+                                || (compraYaRecibida(c) && !puedeEliminarRecibida)
+                              }
                               title={
                                 compraYaRecibida(c)
                                   ? (puedeEliminarRecibida
                                     ? 'Quitar del historial (no mueve inventario)'
-                                    : 'Solo admin/gerente puede eliminar recepciones del historial')
-                                  : 'Eliminar pedido por recibir'
+                                    : 'Solo admin/gerente puede quitar recepciones del historial')
+                                  : 'Eliminar pedido pendiente (no mueve inventario)'
                               }
                               onClick={() => void eliminarCompraHistorial(c)}
                             >
