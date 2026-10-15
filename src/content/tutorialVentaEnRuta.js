@@ -172,9 +172,13 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         '· Buscar CFE en Pendientes de mercancía → va a **RC Servicios**.',
         '· Pagar créditos de **varias tiendas** a la vez (elige una sola).',
         '· Confundir **Eliminar ingreso** con devolver stock (solo borra el ticket).',
+        '· Venta cobrada mal: usa **Cancelación / Devolución** (PIN admin), no Cancelar carga.',
       ],
       imagen: `${IMG}/11-errores.svg`,
       imagenAlt: 'Checklist de errores típicos actualizado en Venta en Ruta',
+      notas: [
+        'Tutorial dedicado: menú Tutorial → «Cancelación / Devolución en Venta en Ruta».',
+      ],
     },
     {
       id: 'quiz',

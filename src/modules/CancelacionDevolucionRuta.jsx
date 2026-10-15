@@ -11,6 +11,8 @@ import {
 import { listarVentasRuta } from '../lib/ventaEnRuta.js';
 import { normalizarRol } from '../lib/roles.js';
 import InputPin from '../components/InputPin.jsx';
+import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
+import { TUTORIAL_CANCELACION_RUTA } from '../content/tutorialCancelacionRuta.js';
 
 const COLOR = '#b91c1c';
 
@@ -34,6 +36,7 @@ export default function CancelacionDevolucionRuta({
   const [tick, setTick] = useState(0);
   const [pinAdmin, setPinAdmin] = useState('');
   const [aprobandoId, setAprobandoId] = useState(null);
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
 
   const rol = normalizarRol(user?.rol);
   const esAdminPin = rol === 'Administrador' || rol === 'Gerente';
@@ -196,9 +199,19 @@ export default function CancelacionDevolucionRuta({
             borra crédito y/o efectivo, la compra y el registro de la venta.
           </p>
         </div>
-        {onVolver ? (
-          <button type="button" className="btn btn-ghost" onClick={onVolver}>← Volver</button>
-        ) : null}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.8rem' }}
+            onClick={() => setTutorialAbierto(true)}
+          >
+            Ver tutorial
+          </button>
+          {onVolver ? (
+            <button type="button" className="btn btn-ghost" onClick={onVolver}>← Volver</button>
+          ) : null}
+        </div>
       </div>
 
       <div style={{ marginTop: '1rem', display: 'grid', gap: '0.75rem', maxWidth: 560 }}>
@@ -348,6 +361,12 @@ export default function CancelacionDevolucionRuta({
           </p>
         ) : null}
       </div>
+
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_CANCELACION_RUTA}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }

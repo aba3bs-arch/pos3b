@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff5f5"/>
+      <stop offset="55%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="danger" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b91c1c"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#b91c1c" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <text x="40" y="42" font-family="Segoe UI,Arial,sans-serif" font-size="24" font-weight="700" fill="#b91c1c">3. Solicitar la cancelación</text>
+  <text x="40" y="70" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#546e7a">Venta en Ruta → Cancelación / Devolución</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="40" y="100" width="520" height="340" rx="16" fill="#fff"/>
+    <rect x="40" y="100" width="520" height="48" fill="#fef2f2"/>
+    <text x="60" y="130" font-size="14" font-weight="700" fill="#b91c1c">Cancelación / Devolución</text>
+    <text x="60" y="175" font-size="13" fill="#64748b">Venta a cancelar</text>
+    <rect x="60" y="185" width="460" height="44" rx="10" fill="#f8fafc" stroke="#fecaca" stroke-width="1.5"/>
+    <text x="78" y="213" font-size="14" font-weight="600" fill="#0f172a">VR-3B10-0415 · 3B10 · mixto · $420.00</text>
+    <rect x="60" y="245" width="460" height="70" rx="10" fill="#fff7f7" stroke="#fecaca" stroke-width="1"/>
+    <text x="78" y="270" font-size="13" font-weight="700" fill="#b91c1c">VR-3B10-0415 · hoy 11:42</text>
+    <text x="78" y="295" font-size="12" fill="#64748b">3B10 El Mezquite · mixto · Luis · con RC + crédito</text>
+    <text x="60" y="345" font-size="13" fill="#64748b">Motivo</text>
+    <rect x="60" y="355" width="460" height="50" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+    <text x="78" y="386" font-size="13" fill="#334155">Crédito a tienda equivocada; debió ser efectivo</text>
+    <rect x="600" y="100" width="320" height="340" rx="16" fill="#fff"/>
+    <rect x="600" y="100" width="320" height="48" fill="#ecfdf5"/>
+    <text x="620" y="130" font-size="14" font-weight="700" fill="#0f766e">Pasos</text>
+    <g font-size="14" fill="#334155">
+      <circle cx="640" cy="180" r="12" fill="#b91c1c"/><text x="640" y="185" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+      <text x="665" y="185">Elige el folio</text>
+      <circle cx="640" cy="230" r="12" fill="#b91c1c"/><text x="640" y="235" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+      <text x="665" y="235">Escribe el motivo</text>
+      <circle cx="640" cy="280" r="12" fill="#b91c1c"/><text x="640" y="285" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text>
+      <text x="665" y="285">Solicitar cancelación</text>
+      <circle cx="640" cy="330" r="12" fill="#0f766e"/><text x="640" y="335" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">4</text>
+      <text x="665" y="335">Espera PIN admin</text>
+    </g>
+    <rect x="630" y="370" width="260" height="42" rx="10" fill="url(#danger)"/>
+    <text x="760" y="397" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Solicitar (PIN admin)</text>
+  </g>
+</svg>
