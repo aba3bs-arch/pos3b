@@ -723,6 +723,19 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
       ...ajustesDeriv,
     ]);
 
+    // Ocultar retiros del bug «Eliminar recepción» (por si quedan en nube/local).
+    merged = merged.filter((m) => {
+      const meta = m?.meta && typeof m.meta === 'object' ? m.meta : {};
+      if (meta.eliminar_compra === true || meta.eliminar_compra === 'true' || meta.oculto_consulta) {
+        return false;
+      }
+      const motivo = String(m?.motivo || '');
+      if (/Eliminar\s+recepci[oó]n/i.test(motivo) || /Eliminar.*Compras/i.test(motivo)) {
+        return false;
+      }
+      return true;
+    });
+
     if (tipo) merged = merged.filter((m) => coincideTipoFiltro(m, tipo));
     if (productoId) {
       const pid = String(productoId);
