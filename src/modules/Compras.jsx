@@ -1487,7 +1487,8 @@ export default function Compras({
                               Recibir
                             </button>
                           )}
-                          {(c.estado === 'pedido' || (Array.isArray(c.items_pedido) && c.items_pedido.length > 0)) && (
+                          {pestana === 'por_recibir'
+                            && Array.isArray(c.items_pedido) && c.items_pedido.length > 0 && (
                             <button
                               type="button"
                               className="btn btn-ghost"
@@ -1507,7 +1508,8 @@ export default function Compras({
                               Reimprimir ticket
                             </button>
                           )}
-                          {compraYaRecibida(c)
+                          {pestana === 'historial'
+                            && compraYaRecibida(c)
                             && Array.isArray(c.items) && c.items.length > 0 && (
                             <button
                               type="button"
