@@ -30,7 +30,15 @@ import {
   proveedorUsaEntregaDirecta,
 } from '../lib/comprasProveedor.js';
 import { filtrarProveedoresPorAmbito, listarProveedoresPorAmbito } from '../lib/proveedoresAmbito.js';
-import { cargarGastoCompraACorteAbarrotes } from '../lib/compraGastoCorte.js';
+import {
+  armarPayloadTicketRecepcionAsync,
+  cargarGastoCompraACorteAbarrotes,
+} from '../lib/compraGastoCorte.js';
+import {
+  DIAS_HISTORIAL_COMPRAS,
+  archivarComprasHistorial,
+  excluirArchivados,
+} from '../lib/archivo.js';
 
 async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user, folio }) {
   const errores = [];
@@ -128,7 +136,7 @@ export default function Compras({
   const [presetVentasCompras, setPresetVentasCompras] = useState('14d');
   const [ventasDesde, setVentasDesde] = useState('');
   const [ventasHasta, setVentasHasta] = useState('');
-  const [presetHistCompras, setPresetHistCompras] = useState('6m');
+  const [presetHistCompras, setPresetHistCompras] = useState('8d');
   const [histDesde, setHistDesde] = useState('');
   const [histHasta, setHistHasta] = useState('');
   const diasDetalle = useMemo(() => ultimosDias(7), []);
@@ -136,6 +144,13 @@ export default function Compras({
 
   const PRESETS_VENTAS_COMPRAS = [
     { id: '7d', label: 'Últimos 7 días' },
+    { id: '14d', label: 'Últimos 14 días' },
+    { id: 'mes', label: 'Mes actual' },
+    { id: 'rango', label: 'Rango de fechas' },
+  ];
+
+  const PRESETS_HIST_COMPRAS = [
+    { id: '8d', label: `Últimos ${DIAS_HISTORIAL_COMPRAS} días` },
     { id: '14d', label: 'Últimos 14 días' },
     { id: 'mes', label: 'Mes actual' },
     { id: 'rango', label: 'Rango de fechas' },
@@ -173,6 +188,16 @@ export default function Compras({
     if (presetHistCompras === 'rango' && histDesde && histHasta) {
       return historial.filter((c) => enRangoYmd(toYmd(c.created_at), histDesde, histHasta));
     }
+    if (presetHistCompras === '8d' || presetHistCompras === '14d') {
+      const dias = presetHistCompras === '8d' ? DIAS_HISTORIAL_COMPRAS : 14;
+      const hasta = new Date();
+      const desde = new Date();
+      desde.setDate(desde.getDate() - dias);
+      desde.setHours(0, 0, 0, 0);
+      const dYmd = toYmd(desde);
+      const hYmd = toYmd(hasta);
+      return historial.filter((c) => enRangoYmd(toYmd(c.created_at), dYmd, hYmd));
+    }
     const r = rangoDesdePreset(presetHistCompras);
     if (!r) return historial;
     return historial.filter((c) => enRangoYmd(toYmd(c.created_at), r.desde, r.hasta));
@@ -191,22 +216,38 @@ export default function Compras({
 
   const cambiarPresetHistCompras = (preset) => {
     setPresetHistCompras(preset);
-    if (preset !== 'rango') {
-      const r = rangoDesdePreset(preset);
-      if (r) {
-        setHistDesde(r.desde);
-        setHistHasta(r.hasta);
-      }
+    if (preset === 'rango') return;
+    if (preset === '8d' || preset === '14d') {
+      const dias = preset === '8d' ? DIAS_HISTORIAL_COMPRAS : 14;
+      const hasta = new Date();
+      const desde = new Date();
+      desde.setDate(desde.getDate() - dias);
+      desde.setHours(0, 0, 0, 0);
+      setHistDesde(toYmd(desde));
+      setHistHasta(toYmd(hasta));
+      return;
+    }
+    const r = rangoDesdePreset(preset);
+    if (r) {
+      setHistDesde(r.desde);
+      setHistHasta(r.hasta);
     }
   };
 
   const loadProveedoresYHistorial = async () => {
     if (!supabase) return;
+    // Historial operativo 8 días → Archivo
+    try {
+      await archivarComprasHistorial(supabase, { user, dias: DIAS_HISTORIAL_COMPRAS });
+    } catch {
+      /* no bloquear carga */
+    }
     let qCompras = supabase
       .from('compras')
       .select('*, proveedores(nombre)')
       .order('created_at', { ascending: false })
-      .limit(80);
+      .limit(120);
+    qCompras = excluirArchivados(qCompras);
     if (sucursal && !esSucursalNoVenta(sucursal)) qCompras = qCompras.eq('sucursal_id', sucursal);
     const [pr, co] = await Promise.all([
       listarProveedoresPorAmbito(supabase, sucursal, { select: '*' }),
@@ -221,6 +262,19 @@ export default function Compras({
     if (!co.error) {
       setHistorial(co.data || []);
       setErr('');
+    } else if (/archived_at/i.test(String(co.error.message || ''))) {
+      // Sin SQL de archivo aún: cargar sin filtro
+      let q2 = supabase
+        .from('compras')
+        .select('*, proveedores(nombre)')
+        .order('created_at', { ascending: false })
+        .limit(120);
+      if (sucursal && !esSucursalNoVenta(sucursal)) q2 = q2.eq('sucursal_id', sucursal);
+      const co2 = await q2;
+      if (!co2.error) {
+        setHistorial(co2.data || []);
+        setErr('');
+      } else setErr(co2.error.message);
     } else setErr(co.error.message);
   };
 
@@ -357,6 +411,23 @@ export default function Compras({
   const proveedorNombre = useMemo(() => proveedores.find((p) => p.id === proveedorId)?.nombre || '', [proveedores, proveedorId]);
   const proveedorSeleccionado = useMemo(() => proveedores.find((p) => p.id === proveedorId) || null, [proveedores, proveedorId]);
   const proveedorEsDirecta = useMemo(() => proveedorUsaEntregaDirecta(proveedorSeleccionado), [proveedorSeleccionado]);
+
+  const imprimirTicketRecepcion = useCallback(async (compra, extras = {}) => {
+    if (!compra && !extras.items?.length) return;
+    const payload = await armarPayloadTicketRecepcionAsync(supabase, {
+      compra: compra || null,
+      sucursal: extras.sucursal || compra?.sucursal_id || sucursal,
+      proveedor: extras.proveedor
+        || compra?.proveedores?.nombre
+        || proveedorNombre
+        || null,
+      items: extras.items || compra?.items || [],
+      total: extras.total != null ? extras.total : Number(compra?.total) || 0,
+      usuario: user?.nombre || null,
+      folio: extras.folio || null,
+    });
+    await imprimirRecepcionCompra(payload);
+  }, [supabase, sucursal, proveedorNombre, user?.nombre]);
 
   const construirLineas = useCallback(
     (pedidoExistente = null) => {
@@ -657,13 +728,16 @@ export default function Compras({
     alert(
       `Mercancía recibida. Folio ${folioCompra}. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgGasto}${msgExtra}${msgNube}`,
     );
-    await imprimirRecepcionCompra({
-      sucursal,
-      proveedor: compraActiva.proveedores?.nombre || proveedorNombre,
-      folio: compraActiva.id,
-      items,
-      total: totalTicket,
-    });
+    await imprimirTicketRecepcion(
+      { ...compraActiva, total: totalTicket, items, proveedores: compraActiva.proveedores },
+      {
+        sucursal,
+        proveedor: compraActiva.proveedores?.nombre || proveedorNombre,
+        items,
+        total: totalTicket,
+        folio: folioCompra,
+      },
+    );
     setHerramientaAbierta(false);
     setCompraActiva(null);
     setModoRecepcion(false);
@@ -771,12 +845,12 @@ export default function Compras({
     alert(
       `Entrega directa registrada. Folio ${folioCompra}. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgGasto}${msgExtra}${msgNube}`,
     );
-    await imprimirRecepcionCompra({
+    await imprimirTicketRecepcion(data, {
       sucursal,
       proveedor: data.proveedores?.nombre || proveedorNombre,
-      folio: data.id,
       items,
       total: totalTicket,
+      folio: folioCompra,
     });
     setHerramientaAbierta(false);
     setModoEntregaDirecta(false);
@@ -1142,7 +1216,7 @@ export default function Compras({
                     className="btn btn-ghost"
                     style={{ marginTop: '0.75rem', marginLeft: '0.5rem' }}
                     onClick={() =>
-                      imprimirRecepcionCompra({
+                      void imprimirTicketRecepcion(null, {
                         sucursal,
                         proveedor: proveedorNombre,
                         items: lineas
@@ -1193,9 +1267,9 @@ export default function Compras({
                     className="btn btn-ghost"
                     style={{ marginTop: '0.75rem', marginLeft: '0.5rem' }}
                     onClick={() =>
-                      imprimirRecepcionCompra({
+                      void imprimirTicketRecepcion(compraActiva, {
                         sucursal,
-                        proveedor: proveedorNombre,
+                        proveedor: compraActiva?.proveedores?.nombre || proveedorNombre,
                         folio: compraActiva?.id,
                         items: lineas
                           .filter((l) => Number(l.qty_recibido) > 0)
@@ -1215,7 +1289,12 @@ export default function Compras({
 
       {pestana === 'historial' && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Por recibir</h3>
+          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Historial de compras / recepciones</h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Se conserva {DIAS_HISTORIAL_COMPRAS} días en este módulo; después pasa a{' '}
+            <strong>Contabilidad → Archivo</strong>. El ticket de recepción muestra{' '}
+            <strong>CREDITO</strong> / desglose mixto cuando viene de Venta en Ruta.
+          </p>
           <FiltroPeriodo
             preset={presetHistCompras}
             onPresetChange={cambiarPresetHistCompras}
@@ -1223,6 +1302,7 @@ export default function Compras({
             hasta={histHasta}
             onDesdeChange={setHistDesde}
             onHastaChange={setHistHasta}
+            presets={PRESETS_HIST_COMPRAS}
             style={{ marginBottom: '0.75rem' }}
           />
           <div className="table-wrap">
@@ -1308,16 +1388,16 @@ export default function Compras({
                               Imprimir pedido
                             </button>
                           )}
-                          {c.estado === 'recibida' && Array.isArray(c.items) && c.items.length > 0 && (
+                          {(c.estado === 'recibida' || c.estado === 'recibido' || c.estado === 'cerrada')
+                            && Array.isArray(c.items) && c.items.length > 0 && (
                             <button
                               type="button"
                               className="btn btn-ghost"
                               style={{ fontSize: '0.8rem' }}
                               onClick={() =>
-                                imprimirRecepcionCompra({
+                                void imprimirTicketRecepcion(c, {
                                   sucursal: c.sucursal_id || sucursal,
                                   proveedor: c.proveedores?.nombre || '—',
-                                  folio: c.id,
                                   items: c.items,
                                   total: Number(c.total) || 0,
                                 })
