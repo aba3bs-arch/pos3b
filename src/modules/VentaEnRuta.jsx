@@ -42,7 +42,7 @@ import {
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
-import { imprimirCargaCamion } from '../lib/impresion.js';
+import { entregarTicketVenta, imprimirCargaCamion } from '../lib/impresion.js';
 import {
   guardarCarritoPosRuta,
   leerCarritoPosRuta,
@@ -2132,9 +2132,40 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
       montoEfectivo: montoEfe,
       montoCredito: montoCre,
     });
-    setGuardando(false);
-    if (!r.ok) return alert(r.error);
+    if (!r.ok) {
+      setGuardando(false);
+      return alert(r.error);
+    }
     if (r.avisos?.length) setAviso(r.avisos.join(' · '));
+
+    // Ticket con tipo de pago en letra grande (CREDITO / MIXTO / EFECTIVO).
+    try {
+      await entregarTicketVenta({
+        sucursal: tipo === 'sucursal' ? id : (user?.sucursal_id || 'MAIN'),
+        vendedor: vendedorNombre,
+        folio: r.venta?.folio || r.folio || null,
+        destino: dest?.nombre || id,
+        articulos: carrito.map((a) => ({
+          id: a.productoId,
+          nombre: a.nombre,
+          precio: a.precio,
+          qty: a.cantidad,
+        })),
+        total,
+        metodo_pago: metodo,
+        metodo,
+        monto_efectivo: montoEfe,
+        monto_credito: montoCre,
+        tituloTicket: 'VENTA EN RUTA',
+        pieExtra: r.compraId
+          ? 'Pedido enviado a Compras de la tienda destino.'
+          : '',
+      }, 'imprimir', { forzar: true, titulo: 'Ticket venta en ruta' });
+    } catch (e) {
+      console.warn('Ticket venta ruta:', e);
+    }
+
+    setGuardando(false);
     const extra = [
       r.cuenta === 'mixto'
         ? `Mixto · efe ${fmtMonto(r.montoEfectivo)} · créd ${fmtMonto(r.montoCredito)}`
