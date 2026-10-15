@@ -734,18 +734,39 @@ export async function registrarCargoCreditoRuta(supabase, {
 
 /**
  * Verifica PIN de cajero en la sucursal (o admin).
+ * También acepta PIN temporal de CT (cubre turno activo en esa tienda).
  */
 export async function verificarPinCajero(supabase, pin, sucursal) {
   const { user, error, avisoSucursal } = await buscarUsuarioPorPinYSucursal(supabase, pin, sucursal);
+  if (user) {
+    const r = rolSistemaEfectivo(user.rol);
+    if (r !== 'Cajero' && r !== 'Administrador' && r !== 'Gerente' && normalizarRol(user.rol) !== 'Supervisor') {
+      return { ok: false, error: 'Este PIN no es de cajero (ni admin/gerente).' };
+    }
+    return { ok: true, user };
+  }
+
+  // PIN temporal CT: mismo privilegio de caja en la tienda/día de la cobertura.
+  try {
+    const { validarPinTemporalCt, construirUsuarioDesdeSolicitudCt } = await import('./cubreSolicitudes.js');
+    const pinTemp = await validarPinTemporalCt(supabase, pin, sucursal);
+    if (pinTemp.ok && pinTemp.solicitud) {
+      return {
+        ok: true,
+        user: construirUsuarioDesdeSolicitudCt(pinTemp.solicitud),
+        esCubreTurno: true,
+      };
+    }
+    // PIN temporal reconocido pero no usable ahora (otra tienda / vencido / día futuro).
+    if (pinTemp.error && pinTemp.razon && pinTemp.razon !== 'falta_tabla') {
+      return { ok: false, error: pinTemp.error };
+    }
+  } catch {
+    /* tabla CT ausente: seguir como PIN incorrecto */
+  }
+
   if (error) return { ok: false, error };
-  if (!user) {
-    return { ok: false, error: avisoSucursal ? 'PIN no válido en esta sucursal.' : 'PIN incorrecto.' };
-  }
-  const r = rolSistemaEfectivo(user.rol);
-  if (r !== 'Cajero' && r !== 'Administrador' && r !== 'Gerente' && normalizarRol(user.rol) !== 'Supervisor') {
-    return { ok: false, error: 'Este PIN no es de cajero (ni admin/gerente).' };
-  }
-  return { ok: true, user };
+  return { ok: false, error: avisoSucursal ? 'PIN no válido en esta sucursal.' : 'PIN incorrecto.' };
 }
 
 /**

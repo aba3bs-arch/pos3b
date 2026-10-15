@@ -161,7 +161,7 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
             </div>
           )}
           <label style={{ display: 'block', marginTop: '0.9rem', fontSize: '0.85rem' }}>
-            PIN del cajero
+            PIN del cajero (o PIN temporal CT)
             <InputPin
               value={pin}
               onChange={(e) => setPin(e.target.value)}
@@ -194,6 +194,7 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
           </div>
           <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.75rem' }}>
             Al aprobar se carga el gasto al corte y el dinero entra al Fondo (RC/VentaRuta).
+            El CT con PIN temporal de esta tienda también puede aprobar.
           </p>
         </div>
       </div>
