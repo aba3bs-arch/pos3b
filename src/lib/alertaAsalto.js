@@ -5,8 +5,9 @@
  *  - Escape pulsado ESC_TAPS_ASALTO veces seguidas en ≤ ESC_VENTANA_MS.
  * Destino: Administradores + empleados indirectos (MAIN).
  *
- * La máquina ORIGEN queda en silencio (sin overlay, sirena ni notificación OS)
- * para no alertar al asaltante. Solo suenan / avisan los demás dispositivos.
+ * La máquina ORIGEN no suena sirena ni overlay de «ASALTO»; muestra una franja
+ * parpadeante «Presionastes 3 teclas» (se quita con cualquier tecla) por si fue
+ * accidente. Solo suenan / avisan con sirena los demás dispositivos.
  *
  * Nota: muchos teclados baratos no registran 5 teclas a la vez (ghosting);
  * por eso el mínimo práctico es 3 y existe Escape ×5 como respaldo.
@@ -27,12 +28,22 @@ export const ESC_VENTANA_MS = 2500;
 
 export const EVENTO_ALERTA_ASALTO = 'pos-alerta-asalto';
 export const EVENTO_ALERTA_ASALTO_DETENER = 'pos-alerta-asalto-detener';
+/** Aviso local en la caja que activó (p. ej. 3 teclas por accidente). */
+export const EVENTO_ALERTA_ASALTO_ORIGEN_AVISO = 'pos-alerta-asalto-origen-aviso';
 export const CANAL_BROADCAST_ASALTO = 'pos-alerta-asalto';
 export const STORAGE_ORIGEN_ASALTO = 'pos-asalto-origen-ids';
 
 export const TEXTO_ALERTA_ASALTO = 'ASALTO EN PROCESO';
 export const TEXTO_ALERTA_ASALTO_SUB =
   'Alarma de emergencia activada. Verifica la tienda y contacta a seguridad / autoridades si aplica.';
+/** Texto de la franja en la caja origen (activación accidental por teclas). */
+export const TEXTO_FRANJA_3_TECLAS = 'Presionastes 3 teclas';
+
+/** Emite aviso visual solo en la máquina que disparó (no llega a remotos). */
+export function emitirAvisoOrigenAlertaAsalto(detail = {}) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(EVENTO_ALERTA_ASALTO_ORIGEN_AVISO, { detail }));
+}
 
 const COOLDOWN_MS = 45_000;
 let ultimoDisparoAt = 0;
@@ -191,7 +202,7 @@ export function suscribirAlertaAsaltoBroadcast(supabase, { onAlarma, dispositivo
 
 /**
  * Dispara la alarma desde la sesión actual (cualquiera logueado en tienda).
- * ORIGEN: silencioso (sin sirena / overlay / notificación OS).
+ * ORIGEN: sin sirena / overlay ASALTO; franja «Presionastes 3 teclas» vía evento aparte.
  * REMOTOS: buzón + broadcast + Web Push a admins / indirectos MAIN.
  * @param {{ forzar?: boolean, modo?: 'teclas'|'escape'|'prueba', teclas?: number }} opts
  */
