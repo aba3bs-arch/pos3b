@@ -2,17 +2,22 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { fmtMonto } from '../lib/consultasUi.js';
 import {
   AVISO_FALTA_CANCELACIONES,
+  aprobarCancelacionVentaConPin,
   listarCancelacionesPendientes,
+  rechazarCancelacionVentaConPin,
   repararTransitosCancelacionesAprobadas,
   solicitarCancelacionVentaRuta,
 } from '../lib/rutaCancelaciones.js';
 import { listarVentasRuta } from '../lib/ventaEnRuta.js';
+import { normalizarRol } from '../lib/roles.js';
+import InputPin from '../components/InputPin.jsx';
 
 const COLOR = '#b91c1c';
 
 /**
  * Venta en Ruta → Cancelación / Devolución.
  * Solicita cancelar una venta (efectivo, crédito o mixto); un admin aprueba con PIN.
+ * Admin/Gerente también pueden aprobar desde esta pantalla (no solo por notificación).
  */
 export default function CancelacionDevolucionRuta({
   supabase,
@@ -27,6 +32,11 @@ export default function CancelacionDevolucionRuta({
   const [motivo, setMotivo] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [tick, setTick] = useState(0);
+  const [pinAdmin, setPinAdmin] = useState('');
+  const [aprobandoId, setAprobandoId] = useState(null);
+
+  const rol = normalizarRol(user?.rol);
+  const esAdminPin = rol === 'Administrador' || rol === 'Gerente';
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -82,12 +92,86 @@ export default function CancelacionDevolucionRuta({
         if (r.aviso) setAviso?.(r.aviso);
         return;
       }
-      alert('Solicitud enviada. El administrador debe aprobar con PIN en la notificación.');
+      alert('Solicitud enviada. El administrador debe aprobar con PIN en la notificación o aquí abajo.');
       setMotivo('');
       setVentaId('');
       setTick((t) => t + 1);
     } finally {
       setEnviando(false);
+    }
+  };
+
+  const resumenResultado = (res = {}) => {
+    const partes = [];
+    if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
+    if (res.inventarioTienda?.aplicados) partes.push(`tienda −${res.inventarioTienda.aplicados} prod.`);
+    if (res.creditos?.eliminados) partes.push(`crédito ×${res.creditos.eliminados}`);
+    if (res.transito?.eliminado) partes.push('efectivo RC quitado');
+    if (res.compra?.eliminada || res.compra?.cancelada) partes.push('compra eliminada');
+    if (res.venta?.eliminada || res.venta?.ok) partes.push('venta eliminada');
+    return partes;
+  };
+
+  const aprobarPendiente = async (sol) => {
+    if (!esAdminPin || !sol?.id) return;
+    if (!pinAdmin || String(pinAdmin).length < 4) {
+      return alert('Ingresa el PIN de administrador para aprobar.');
+    }
+    if (!confirm(
+      `¿Aprobar cancelación ${sol.folio_venta}?\n`
+      + 'Se revertirá inventario, crédito/mixto y efectivo RC, y se borrará la venta.',
+    )) return;
+    setAprobandoId(sol.id);
+    try {
+      const r = await aprobarCancelacionVentaConPin(supabase, {
+        cancelacionId: sol.id,
+        pin: pinAdmin,
+      });
+      if (!r.ok) {
+        alert(r.error || 'No se pudo aprobar.');
+        return;
+      }
+      const partes = resumenResultado(r.resultado || {});
+      if (!partes.length) {
+        alert(
+          `Cancelación marcada, pero no se detectaron reversiones.\n`
+          + 'Revisa inventario / créditos / RC.\n'
+          + (r.admin || ''),
+        );
+      } else {
+        alert(
+          `Cancelación aplicada · ${r.resultado?.folio || sol.folio_venta}\n`
+          + `${partes.join(' · ')}\n${r.admin || 'admin'}`,
+        );
+      }
+      setPinAdmin('');
+      setTick((t) => t + 1);
+    } finally {
+      setAprobandoId(null);
+    }
+  };
+
+  const rechazarPendiente = async (sol) => {
+    if (!esAdminPin || !sol?.id) return;
+    if (!pinAdmin || String(pinAdmin).length < 4) {
+      return alert('Ingresa el PIN para rechazar.');
+    }
+    const motivoR = window.prompt('Motivo del rechazo (opcional):') || '';
+    setAprobandoId(sol.id);
+    try {
+      const r = await rechazarCancelacionVentaConPin(supabase, {
+        cancelacionId: sol.id,
+        pin: pinAdmin,
+        motivo: motivoR,
+      });
+      if (!r.ok) {
+        alert(r.error || 'No se pudo rechazar.');
+        return;
+      }
+      setPinAdmin('');
+      setTick((t) => t + 1);
+    } finally {
+      setAprobandoId(null);
     }
   };
 
@@ -186,6 +270,16 @@ export default function CancelacionDevolucionRuta({
 
       <div style={{ marginTop: '1.5rem' }}>
         <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Pendientes de aprobación</h4>
+        {esAdminPin && pendientes.length > 0 ? (
+          <label style={{ display: 'block', marginBottom: '0.65rem', fontSize: '0.85rem', maxWidth: 280 }}>
+            PIN admin para aprobar / rechazar
+            <InputPin
+              value={pinAdmin}
+              onChange={(e) => setPinAdmin(e.target.value)}
+              style={{ marginTop: '0.35rem', width: '100%' }}
+            />
+          </label>
+        ) : null}
         {cargando ? (
           <p className="muted">Cargando…</p>
         ) : !pendientes.length ? (
@@ -198,8 +292,10 @@ export default function CancelacionDevolucionRuta({
                   <th>Folio</th>
                   <th>Fecha</th>
                   <th>Cliente</th>
+                  <th>Pago</th>
                   <th>Total</th>
                   <th>Solicitó</th>
+                  {esAdminPin ? <th>Acción</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -208,14 +304,49 @@ export default function CancelacionDevolucionRuta({
                     <td><strong>{c.folio_venta}</strong></td>
                     <td className="muted">{fmtFecha(c.created_at)}</td>
                     <td>{c.cliente_nombre || c.cliente_id || '—'}</td>
+                    <td className="muted">{c.metodo_pago || '—'}</td>
                     <td>{fmtMonto(c.total)}</td>
                     <td className="muted">{c.solicitado_por || '—'}</td>
+                    {esAdminPin ? (
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{
+                              background: COLOR,
+                              borderColor: COLOR,
+                              padding: '0.25rem 0.55rem',
+                              fontSize: '0.78rem',
+                            }}
+                            disabled={!!aprobandoId}
+                            onClick={() => void aprobarPendiente(c)}
+                          >
+                            {aprobandoId === c.id ? '…' : 'Aprobar'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.25rem 0.55rem', fontSize: '0.78rem' }}
+                            disabled={!!aprobandoId}
+                            onClick={() => void rechazarPendiente(c)}
+                          >
+                            Rechazar
+                          </button>
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
+        {!esAdminPin && pendientes.length > 0 ? (
+          <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.78rem' }}>
+            Esperando PIN de administrador (notificación flotante o usuario admin en esta pantalla).
+          </p>
+        ) : null}
       </div>
     </div>
   );
