@@ -2060,6 +2060,20 @@ export async function registrarVentaRuta(supabase, {
   }
 
   const folio = folioVenta();
+  // Guarda asignación exacta por línea de camión para poder revertir al cancelar.
+  const lineasCamionMeta = allAsign.map((x) => ({
+    lineaId: x.linea?.id || null,
+    cargaId: x.cargaId || x.linea?.carga_id || null,
+    productoId: String(x.linea?.producto_id || ''),
+    qty: round3(x.qty),
+  })).filter((x) => x.lineaId && x.qty > 0);
+  const artsGuardar = [...arts];
+  if (mp === 'mixto') {
+    artsGuardar.push({ _pago_mixto: true, efectivo: montoEfe, credito: montoCre });
+  }
+  if (lineasCamionMeta.length) {
+    artsGuardar.push({ _lineas_camion: lineasCamionMeta });
+  }
   const ventaPayload = {
     carga_id: primaryCargaId,
     folio,
@@ -2068,9 +2082,7 @@ export async function registrarVentaRuta(supabase, {
     cliente_nombre: clienteNombre || String(clienteId),
     metodo_pago: mp,
     total,
-    articulos: mp === 'mixto'
-      ? [...arts, { _pago_mixto: true, efectivo: montoEfe, credito: montoCre }]
-      : arts,
+    articulos: artsGuardar,
     vendedor_nombre: vendedorNombre || null,
     estado_credito: montoCre > 0 ? 'pendiente' : null,
   };

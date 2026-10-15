@@ -90,14 +90,21 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
       if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
       if (res.inventarioTienda?.aplicados) partes.push(`tienda −${res.inventarioTienda.aplicados} prod.`);
       if (res.creditos?.eliminados) partes.push(`crédito ×${res.creditos.eliminados}`);
-      if (res.transito?.eliminado) partes.push('efectivo RC quitado');
+      if (res.transito?.eliminado || res.transitoExtra?.eliminado) partes.push('efectivo RC quitado');
       if (res.compra?.eliminada || res.compra?.cancelada) partes.push('compra eliminada');
       if (res.venta?.eliminada || res.venta?.ok) partes.push('venta eliminada');
-      alert(
-        `Cancelación aplicada · ${res.folio || ''}\n`
-        + (partes.length ? partes.join(' · ') : 'Reversión completa')
-        + `\n${r.admin || 'admin'}`,
-      );
+      if (!partes.length) {
+        alert(
+          `Cancelación sin reversiones detectadas · ${res.folio || ''}\n`
+          + 'Revisa inventario, créditos y RC/VentaRuta.\n'
+          + `${r.admin || 'admin'}`,
+        );
+      } else {
+        alert(
+          `Cancelación aplicada · ${res.folio || ''}\n`
+          + `${partes.join(' · ')}\n${r.admin || 'admin'}`,
+        );
+      }
       setPin('');
       await cargar();
     } finally {

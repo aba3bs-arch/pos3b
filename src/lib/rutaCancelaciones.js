@@ -36,79 +36,261 @@ function round3(n) {
   return Math.round((Number(n) || 0) * 1000) / 1000;
 }
 
+/** Normaliza articulos (array, JSON string o null). */
+function normalizarArticulos(raw) {
+  let arts = raw;
+  if (typeof arts === 'string') {
+    try {
+      arts = JSON.parse(arts);
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(arts) ? arts : [];
+}
+
 function artsDeVenta(venta) {
-  return (venta?.articulos || []).filter((a) => a && !a._pago_mixto);
+  return normalizarArticulos(venta?.articulos).filter(
+    (a) => a && !a._pago_mixto && !a._lineas_camion && !a._cancelada,
+  );
+}
+
+/** Meta `_lineas_camion` guardada al vender (línea exacta del camión). */
+function planDesdeLineasCamionMeta(venta) {
+  const meta = normalizarArticulos(venta?.articulos).find((a) => a && Array.isArray(a._lineas_camion));
+  if (!meta?._lineas_camion?.length) return null;
+  return meta._lineas_camion
+    .map((x) => ({
+      lineaId: x.lineaId || x.linea_id || null,
+      productoId: String(x.productoId || x.producto_id || ''),
+      qtyRestar: round3(x.qty ?? x.qtyRestar ?? 0),
+      cargaId: x.cargaId || x.carga_id || null,
+      nombre: x.nombre || x.productoId || '',
+    }))
+    .filter((x) => x.lineaId && x.qtyRestar > 0);
 }
 
 function montosDeVenta(venta) {
   const total = round2(venta?.total);
   const mp = String(venta?.metodo_pago || '').toLowerCase();
-  const mixto = (venta?.articulos || []).find((a) => a && a._pago_mixto);
+  const mixto = normalizarArticulos(venta?.articulos).find(
+    (a) => a && (a._pago_mixto === true || a._pago_mixto === 1 || a._pago_mixto === 'true'),
+  );
   if (mp === 'mixto' && mixto) {
     return {
-      efectivo: round2(mixto.efectivo),
-      credito: round2(mixto.credito),
+      efectivo: round2(mixto.efectivo ?? mixto.monto_efectivo),
+      credito: round2(mixto.credito ?? mixto.monto_credito),
     };
   }
   if (mp === 'credito') return { efectivo: 0, credito: total };
+  if (mp === 'mixto') {
+    // Sin meta: no asume todo efectivo/crédito
+    return { efectivo: 0, credito: 0, mixtoSinDesglose: true };
+  }
   return { efectivo: total, credito: 0 };
 }
 
-/** Plan para devolver qty_vendida al camión (por producto, líneas con vendido). */
-async function planRevertirCamion(supabase, venta) {
-  const arts = artsDeVenta(venta);
-  if (!arts.length) return { ok: true, plan: [], avisos: [] };
-  const cargaId = String(venta.carga_id || '').trim();
-  if (!cargaId) {
-    return {
-      ok: true,
-      plan: [],
-      avisos: ['La venta no tiene carga asociada; no se pudo devolver al camión.'],
-    };
+/**
+ * Carga líneas del camión para revertir:
+ * 1) carga de la venta 2) otras cargas con qty_vendida de esos productos.
+ */
+async function lineasParaRevertirCamion(supabase, venta, productoIds) {
+  const byId = new Map();
+  const cargaId = String(venta?.carga_id || '').trim();
+  if (cargaId) {
+    const linRes = await lineasDeCarga(supabase, cargaId);
+    if (linRes.error) return { ok: false, error: linRes.error, lineas: [] };
+    for (const l of linRes.data || []) byId.set(String(l.id), l);
   }
 
-  const linRes = await lineasDeCarga(supabase, cargaId);
-  if (linRes.error) return { ok: false, error: linRes.error };
-  const lineas = linRes.data || [];
+  const pids = (productoIds || []).map(String).filter(Boolean);
+  if (pids.length && supabase) {
+    // Amplía a cualquier línea con vendido de esos productos (venta multi-carga).
+    let q = supabase
+      .from('ruta_carga_lineas')
+      .select('*')
+      .in('producto_id', pids)
+      .gt('qty_vendida', 0)
+      .limit(400);
+    const { data, error } = await q;
+    if (error && !/qty_vendida|column|schema cache/i.test(String(error.message || ''))) {
+      // Si falla el filtro gt, reintenta sin él y filtra en memoria
+      const retry = await supabase
+        .from('ruta_carga_lineas')
+        .select('*')
+        .in('producto_id', pids)
+        .limit(400);
+      if (retry.error) {
+        if (!cargaId) return { ok: false, error: retry.error.message, lineas: [] };
+      } else {
+        for (const l of retry.data || []) {
+          if ((Number(l.qty_vendida) || 0) > 0) byId.set(String(l.id), l);
+        }
+      }
+    } else if (!error) {
+      for (const l of data || []) byId.set(String(l.id), l);
+    }
+  }
+
+  return { ok: true, lineas: [...byId.values()] };
+}
+
+/**
+ * Plan para devolver qty_vendida al camión.
+ * Si hay artículos vendidos y no se puede devolver nada → error (no soft-ok).
+ */
+async function planRevertirCamion(supabase, venta, { planPrefijado = null, exigirCompleto = true } = {}) {
+  const arts = artsDeVenta(venta);
+  if (!arts.length) return { ok: true, plan: [], avisos: ['Sin artículos de producto en la venta.'] };
+
+  const need = new Map(); // pid → { qty, nombre }
+  for (const a of arts) {
+    const pid = String(a.producto_id || a.productoId || '');
+    const qty = round3(a.cantidad ?? a.qty ?? 0);
+    if (!pid || !(qty > 0)) continue;
+    const prev = need.get(pid) || { qty: 0, nombre: a.nombre || pid };
+    need.set(pid, { qty: round3(prev.qty + qty), nombre: a.nombre || prev.nombre });
+  }
+  if (!need.size) return { ok: true, plan: [], avisos: ['Artículos sin cantidad.'] };
+
+  // Preferencia: plan de la solicitud → meta _lineas_camion de la venta.
+  const prefijo = (Array.isArray(planPrefijado) && planPrefijado.length)
+    ? planPrefijado
+    : planDesdeLineasCamionMeta(venta);
+
+  const plan = [];
+  const avisos = [];
+  const usedLineas = new Set();
+
+  // 1) Aplica plan prefijado (líneas exactas) y descuenta del need.
+  if (Array.isArray(prefijo) && prefijo.length) {
+    for (const p of prefijo) {
+      const lineaId = p.lineaId || p.linea_id || p.id;
+      const qtyRestar = round3(p.qtyRestar ?? p.qty_restar ?? p.qty);
+      if (!lineaId || !(qtyRestar > 0)) continue;
+      const { data: lin, error } = await supabase
+        .from('ruta_carga_lineas')
+        .select('id, qty_vendida, producto_id, producto_nombre, carga_id')
+        .eq('id', lineaId)
+        .maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      const vendida = Number(lin?.qty_vendida) || 0;
+      if (!lin || vendida <= 0) {
+        avisos.push(`${p.nombre || lineaId}: ya no tiene qty_vendida (¿ya revertido?).`);
+        continue;
+      }
+      const pid = String(lin.producto_id || p.productoId || '');
+      const info = need.get(pid);
+      const maxNeed = info ? info.qty : qtyRestar;
+      const take = round3(Math.min(qtyRestar, vendida, maxNeed));
+      if (!(take > 0)) continue;
+      plan.push({
+        lineaId: lin.id,
+        productoId: pid,
+        nombre: p.nombre || info?.nombre || lin.producto_nombre || pid,
+        qtyRestar: take,
+        qtyAntes: vendida,
+        cargaId: lin.carga_id || null,
+      });
+      usedLineas.add(String(lin.id));
+      // Baja qty local para no volver a tomar la misma en el paso 2
+      lin.qty_vendida = round3(vendida - take);
+      if (info) {
+        info.qty = round3(info.qty - take);
+        need.set(pid, info);
+      }
+    }
+  }
+
+  // 2) Completa faltantes buscando en todas las cargas con qty_vendida.
+  const faltanPids = [...need.entries()].filter(([, info]) => info.qty > 0.001).map(([pid]) => pid);
+  const linPack = await lineasParaRevertirCamion(
+    supabase,
+    venta,
+    faltanPids.length ? faltanPids : [...need.keys()],
+  );
+  if (!linPack.ok) return linPack;
+  const lineas = linPack.lineas || [];
+
   const byProd = new Map();
   for (const l of lineas) {
     const pid = String(l.producto_id || '');
     if (!pid) continue;
+    // Ajusta qty si ya tomamos de esta línea en el prefijo
+    const prev = plan.filter((p) => String(p.lineaId) === String(l.id));
+    let vendida = Number(l.qty_vendida) || 0;
+    for (const p of prev) vendida = round3(Math.max(0, vendida - (Number(p.qtyRestar) || 0)));
     if (!byProd.has(pid)) byProd.set(pid, []);
-    byProd.get(pid).push(l);
+    byProd.get(pid).push({ ...l, qty_vendida: vendida });
   }
 
-  const plan = [];
-  const avisos = [];
-  for (const a of arts) {
-    const pid = String(a.producto_id || a.productoId || '');
-    let restante = round3(a.cantidad ?? a.qty ?? 0);
-    if (!pid || !(restante > 0)) continue;
+  const faltantes = [];
+  for (const [pid, info] of need) {
+    let restante = info.qty;
+    if (!(restante > 0.001)) continue;
     const cands = (byProd.get(pid) || [])
       .filter((l) => (Number(l.qty_vendida) || 0) > 0)
       .sort((x, y) => (Number(y.qty_vendida) || 0) - (Number(x.qty_vendida) || 0));
     for (const lin of cands) {
       if (restante <= 0) break;
-      const vendida = Number(lin.qty_vendida) || 0;
-      const take = round3(Math.min(restante, vendida));
+      const vendidaLocal = Number(lin.qty_vendida) || 0;
+      const take = round3(Math.min(restante, vendidaLocal));
       if (!(take > 0)) continue;
-      plan.push({
-        lineaId: lin.id,
-        productoId: pid,
-        nombre: a.nombre || lin.nombre || pid,
-        qtyRestar: take,
-        qtyAntes: vendida,
-      });
-      lin.qty_vendida = round3(vendida - take);
+      const orig = lineas.find((x) => String(x.id) === String(lin.id));
+      const qtyDb = Number(orig?.qty_vendida) || vendidaLocal;
+      const existing = plan.find((p) => String(p.lineaId) === String(lin.id));
+      if (existing) {
+        existing.qtyRestar = round3(existing.qtyRestar + take);
+        existing.qtyAntes = qtyDb;
+      } else {
+        plan.push({
+          lineaId: lin.id,
+          productoId: pid,
+          nombre: info.nombre || lin.producto_nombre || pid,
+          qtyRestar: take,
+          qtyAntes: qtyDb,
+          cargaId: lin.carga_id || null,
+        });
+      }
+      lin.qty_vendida = round3(vendidaLocal - take);
       restante = round3(restante - take);
+      usedLineas.add(String(lin.id));
     }
     if (restante > 0.001) {
+      faltantes.push({ pid, nombre: info.nombre, restante });
       avisos.push(
-        `${a.nombre || pid}: faltan ${restante} en qty_vendida del camión (se devuelve lo posible).`,
+        `${info.nombre || pid}: faltan ${restante} en qty_vendida del camión.`,
       );
     }
   }
-  return { ok: true, plan, avisos };
+
+  // Si no se pudo armar ningún plan pero había cantidades → fallo duro
+  // (antes soft-ok dejaba inventario vendido y marcaba cancelación aprobada).
+  if (!plan.length && need.size) {
+    const nombres = [...need.values()].map((x) => x.nombre).join(', ');
+    return {
+      ok: false,
+      error:
+        `No se pudo devolver inventario al camión (${nombres}). `
+        + 'No hay qty_vendida en las cargas. Revisa la carga del camión o repara manualmente.',
+      avisos,
+      faltantes,
+    };
+  }
+
+  if (exigirCompleto && faltantes.length) {
+    return {
+      ok: false,
+      error:
+        `Inventario incompleto al devolver al camión: ${avisos.join(' ')} `
+        + 'No se aprueba la cancelación a medias.',
+      plan,
+      avisos,
+      faltantes,
+    };
+  }
+
+  return { ok: true, plan, avisos, faltantes };
 }
 
 async function aplicarRevertirCamion(supabase, plan) {
@@ -160,45 +342,128 @@ async function aplicarRevertirCamion(supabase, plan) {
   return { ok: true, hechos };
 }
 
+const LS_CXC = 'pos3b_ruta_cxc_movimientos';
+
+function limpiarCxcLocalStorage({ ventaId = null, folioVenta = null } = {}) {
+  if (typeof localStorage === 'undefined') return 0;
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_CXC) || '[]');
+    if (!Array.isArray(raw) || !raw.length) return 0;
+    const folio = String(folioVenta || '').trim().toUpperCase();
+    const vid = ventaId != null ? String(ventaId) : '';
+    const keep = raw.filter((m) => {
+      if (!m) return true;
+      if (vid && String(m.venta_id || '') === vid) return false;
+      if (folio) {
+        const f = String(m.folio_venta || '').trim().toUpperCase();
+        if (f && f === folio) return false;
+        const notas = String(m.notas || '').toUpperCase();
+        if (notas.includes(folio)) return false;
+      }
+      return true;
+    });
+    const n = raw.length - keep.length;
+    if (n > 0) localStorage.setItem(LS_CXC, JSON.stringify(keep.slice(0, 3000)));
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Borra cargos/abonos de CxC de la venta (crédito o parte crédito del mixto).
- * Busca por venta_id y por folio VR.
+ * Busca por venta_id, folio_venta y notas que mencionen el folio VR.
+ * También limpia fallback localStorage.
  */
-async function eliminarCreditosDeVenta(supabase, { ventaId = null, folioVenta = null } = {}) {
-  if (!ventaId && !folioVenta) return { ok: true, eliminados: 0, ids: [] };
+async function eliminarCreditosDeVenta(supabase, {
+  ventaId = null,
+  folioVenta = null,
+  exigirSiHabiaCredito = false,
+  montoCreditoEsperado = 0,
+} = {}) {
+  const folio = String(folioVenta || '').trim();
+  const vid = ventaId != null ? String(ventaId).trim() : '';
+  if (!vid && !folio) return { ok: true, eliminados: 0, ids: [] };
 
   const byId = new Map();
-  if (ventaId) {
-    const { data, error } = await supabase
-      .from('ruta_cxc_movimientos')
-      .select('id, tipo, estatus, monto, pagado_at, transito_id, folio_venta, venta_id')
-      .eq('venta_id', ventaId);
-    if (error) {
-      if (faltaTabla(error) || /ruta_cxc/i.test(String(error.message || ''))) {
-        return { ok: true, eliminados: 0, ids: [], aviso: error.message };
-      }
-      return { ok: false, error: error.message };
-    }
-    for (const m of data || []) byId.set(String(m.id), m);
+  const selectCols = 'id, tipo, estatus, monto, pagado_at, transito_id, folio_venta, venta_id, notas';
+
+  if (!supabase) {
+    const n = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
+    return { ok: true, eliminados: n, ids: [], local: n };
   }
 
-  const folio = String(folioVenta || '').trim();
+  if (vid) {
+    // venta_id se guarda como texto; prueba string y raw
+    for (const key of [...new Set([vid, ventaId])]) {
+      const { data, error } = await supabase
+        .from('ruta_cxc_movimientos')
+        .select(selectCols)
+        .eq('venta_id', key);
+      if (error) {
+        if (faltaTabla(error)) {
+          const n = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
+          return { ok: true, eliminados: n, ids: [], aviso: error.message, local: n };
+        }
+        // columna/tipo: no abortar; sigue con folio
+        if (!/venta_id|column|schema cache|invalid input/i.test(String(error.message || ''))) {
+          return { ok: false, error: error.message };
+        }
+      } else {
+        for (const m of data || []) byId.set(String(m.id), m);
+      }
+    }
+  }
+
   if (folio) {
     const { data, error } = await supabase
       .from('ruta_cxc_movimientos')
-      .select('id, tipo, estatus, monto, pagado_at, transito_id, folio_venta, venta_id')
+      .select(selectCols)
       .eq('folio_venta', folio);
     if (error && !/folio_venta|column|schema cache/i.test(String(error.message || ''))) {
       if (faltaTabla(error) || /ruta_cxc/i.test(String(error.message || ''))) {
-        return { ok: true, eliminados: byId.size, ids: [...byId.keys()], aviso: error.message };
+        const n = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
+        return {
+          ok: true,
+          eliminados: byId.size + n,
+          ids: [...byId.keys()],
+          aviso: error.message,
+          local: n,
+        };
       }
       return { ok: false, error: error.message };
     }
     for (const m of data || []) byId.set(String(m.id), m);
+
+    // Notas con el folio (schema viejo sin folio_venta, o mixto solo en notas)
+    const { data: byNotas, error: eN } = await supabase
+      .from('ruta_cxc_movimientos')
+      .select(selectCols)
+      .ilike('notas', `%${folio}%`)
+      .limit(40);
+    if (!eN) {
+      for (const m of byNotas || []) byId.set(String(m.id), m);
+    }
   }
 
+  const localN = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
   const movimientos = [...byId.values()];
-  if (!movimientos.length) return { ok: true, eliminados: 0, ids: [] };
+
+  if (!movimientos.length) {
+    if (exigirSiHabiaCredito && Number(montoCreditoEsperado) > 0.009) {
+      // Puede que ya se hayan borrado en un reintento; no bloquea si no hay filas
+      return {
+        ok: true,
+        eliminados: localN,
+        ids: [],
+        local: localN,
+        aviso: localN
+          ? `Crédito local ×${localN}`
+          : 'Sin movimientos CxC (¿ya eliminados?).',
+      };
+    }
+    return { ok: true, eliminados: localN, ids: [], local: localN };
+  }
 
   // Si hubo cobro de crédito, quitar también su tránsito En Tránsito
   for (const m of movimientos) {
@@ -211,7 +476,6 @@ async function eliminarCreditosDeVenta(supabase, { ventaId = null, folioVenta = 
   const { error: eDel } = await supabase.from('ruta_cxc_movimientos').delete().in('id', ids);
   if (eDel) return { ok: false, error: eDel.message };
 
-  // Confirma
   const { data: still } = await supabase
     .from('ruta_cxc_movimientos')
     .select('id')
@@ -222,11 +486,24 @@ async function eliminarCreditosDeVenta(supabase, { ventaId = null, folioVenta = 
       error: `No se pudieron borrar ${(still || []).length} movimiento(s) de crédito.`,
     };
   }
-  return { ok: true, eliminados: ids.length, ids };
+  return {
+    ok: true,
+    eliminados: ids.length + localN,
+    ids,
+    local: localN,
+    tipos: movimientos.map((m) => m.tipo),
+  };
 }
 
+const TIPOS_TRANSITO_VENTA_RUTA = new Set([
+  'Venta Ruta',
+  'Cobro Crédito',
+  'Entrega Crédito',
+  '',
+]);
+
 /**
- * Localiza movimientos En Tránsito de «Venta Ruta» por id y/o folio VR.
+ * Localiza movimientos En Tránsito de «Venta Ruta» / cobro crédito por id y/o folio VR.
  * Si la venta no guardó transito_id, aún así se limpia RC/VentaRuta Pendientes.
  */
 async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioVenta = null } = {}) {
@@ -235,7 +512,7 @@ async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioV
   if (tid) {
     const { data: tr, error } = await supabase
       .from('transito_efectivo')
-      .select('id, estatus, monto, tipo_movimiento, num_traspaso')
+      .select('id, estatus, monto, tipo_movimiento, num_traspaso, descripcion_gasto')
       .eq('id', tid)
       .maybeSingle();
     if (error) return { ok: false, error: error.message, rows: [] };
@@ -246,16 +523,36 @@ async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioV
   if (folio) {
     const { data, error } = await supabase
       .from('transito_efectivo')
-      .select('id, estatus, monto, tipo_movimiento, num_traspaso')
+      .select('id, estatus, monto, tipo_movimiento, num_traspaso, descripcion_gasto')
       .eq('num_traspaso', folio)
       .order('fecha_hora', { ascending: false })
-      .limit(10);
+      .limit(20);
     if (error) return { ok: false, error: error.message, rows: [...found.values()] };
     for (const row of data || []) {
       const tipo = String(row.tipo_movimiento || '');
-      // Prioriza Venta Ruta; también limpia filas sin tipo si el folio es VR-
-      if (tipo === 'Venta Ruta' || (!tipo && /^VR-/i.test(folio))) {
+      // Venta Ruta (efectivo/mixto), cobros de crédito ligados al folio, o sin tipo si VR-
+      if (
+        TIPOS_TRANSITO_VENTA_RUTA.has(tipo)
+        || tipo === 'Venta Ruta'
+        || (!tipo && /^VR-/i.test(folio))
+      ) {
         found.set(String(row.id), row);
+      }
+    }
+
+    // Descripción / nota con el folio (por si num_traspaso no coincide exactamente)
+    const { data: byDesc, error: eD } = await supabase
+      .from('transito_efectivo')
+      .select('id, estatus, monto, tipo_movimiento, num_traspaso, descripcion_gasto')
+      .ilike('descripcion_gasto', `%${folio}%`)
+      .order('fecha_hora', { ascending: false })
+      .limit(20);
+    if (!eD) {
+      for (const row of byDesc || []) {
+        const tipo = String(row.tipo_movimiento || '');
+        if (tipo === 'Venta Ruta' || tipo === 'Cobro Crédito' || tipo === 'Entrega Crédito') {
+          found.set(String(row.id), row);
+        }
       }
     }
   }
@@ -358,19 +655,27 @@ export async function repararTransitosCancelacionesAprobadas(supabase, { limit =
     }
 
     if (venta) {
+      const planPref = Array.isArray(sol.meta?.plan_camion) ? sol.meta.plan_camion : null;
+      const artsV = normalizarArticulos(venta.articulos);
+      const artsS = normalizarArticulos(sol.articulos);
       const exec = await ejecutarCancelacionVentaRuta(supabase, {
         venta: {
           ...venta,
           folio: venta.folio || folio,
-          articulos: venta.articulos?.length ? venta.articulos : (sol.articulos || []),
+          articulos: artsV.length ? artsV : artsS,
           carga_id: venta.carga_id || sol.carga_id,
           compra_id: venta.compra_id || sol.compra_id,
           transito_id: venta.transito_id || sol.transito_id,
           cliente_tipo: venta.cliente_tipo || sol.cliente_tipo,
           cliente_id: venta.cliente_id || sol.cliente_id,
+          metodo_pago: venta.metodo_pago || sol.metodo_pago,
+          total: venta.total ?? sol.total,
         },
         adminNombre: sol.admin_nombre || 'reparacion',
         transitoIdFallback: sol.transito_id || null,
+        planCamionPrefijado: planPref,
+        // Ya estaba «aprobado»: limpia lo que se pueda sin bloquear por faltante parcial.
+        relajarInventario: true,
       });
       if (exec.ok) {
         reparadas += 1;
@@ -407,9 +712,22 @@ function compraYaRecibida(compra) {
   return est === 'recibida' || est === 'recibido' || est === 'cerrada';
 }
 
+function parseItemsCompra(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const j = JSON.parse(raw);
+      return Array.isArray(j) ? j : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 /** Líneas a descontar del piso de la tienda (qty recibida o qty de la venta). */
 function lineasDescontarTienda(compra, venta) {
-  const itemsRec = Array.isArray(compra?.items) ? compra.items : [];
+  const itemsRec = parseItemsCompra(compra?.items);
   if (itemsRec.length) {
     return itemsRec
       .map((l) => ({
@@ -430,6 +748,35 @@ function lineasDescontarTienda(compra, venta) {
     .filter((l) => l.id && l.qty > 0);
 }
 
+/** Busca compra ligada a la venta por id o por folio VR en notas. */
+async function resolverCompraDeVenta(supabase, venta) {
+  if (!supabase) return null;
+  if (venta?.compra_id) {
+    const { data: c } = await supabase
+      .from('compras')
+      .select('id, estado, notas, sucursal_id, items, items_pedido')
+      .eq('id', venta.compra_id)
+      .maybeSingle();
+    if (c) return c;
+  }
+  const folio = String(venta?.folio || '').trim();
+  if (!folio) return null;
+  const suc = normalizarCodigoTienda(
+    venta?.cliente_tipo === 'sucursal' ? venta.cliente_id : null,
+  );
+  let q = supabase
+    .from('compras')
+    .select('id, estado, notas, sucursal_id, items, items_pedido')
+    .ilike('notas', `%${folio}%`)
+    .order('created_at', { ascending: false })
+    .limit(8);
+  if (suc) q = q.eq('sucursal_id', suc);
+  const { data, error } = await q;
+  if (error || !data?.length) return null;
+  // Prefiere no-cancelada
+  return data.find((c) => String(c.estado || '').toLowerCase() !== 'cancelada') || data[0];
+}
+
 /**
  * Si la compra ya se recibió en la tienda, descuenta el inventario de piso
  * (Petroleos, etc.) para que la devolución quite lo que entró por Compras.
@@ -447,8 +794,7 @@ async function descontarInventarioTienda(supabase, {
     return { ok: true, omitido: 'sin_sucursal', aplicados: 0 };
   }
 
-  // Solo descuenta piso si la mercancía ya entró (compra recibida) o si no hay compra
-  // pero el cliente es sucursal y pedimos forzar (no debería).
+  // Solo descuenta piso si la mercancía ya entró (compra recibida).
   if (compra && !compraYaRecibida(compra)) {
     return { ok: true, omitido: 'compra_no_recibida', aplicados: 0 };
   }
@@ -468,7 +814,7 @@ async function descontarInventarioTienda(supabase, {
   for (const l of lineas) {
     const r = await aplicarMovimientoInventario(supabase, {
       tipo: 'retiro',
-      modo: 'devolucion_ruta',
+      modo: 'piso',
       productoOrigen: { id: l.id, nombre: l.nombre },
       cantidad: l.qty,
       motivo,
@@ -631,18 +977,24 @@ async function eliminarRegistroVenta(supabase, venta) {
 /**
  * Ejecuta la reversión completa de una venta (tras PIN admin).
  * Orden: 1) inventario camión 2) inventario tienda 3) crédito/efectivo/compra/traspaso 4) borrar venta.
+ * Falla duro si no puede devolver inventario o limpiar crédito/efectivo cuando aplica.
  */
 export async function ejecutarCancelacionVentaRuta(supabase, {
   venta,
   adminNombre = null,
   transitoIdFallback = null,
   soloLimpiarTransito = false,
+  planCamionPrefijado = null,
+  relajarInventario = false,
 } = {}) {
   if (!supabase || !venta?.id) return { ok: false, error: 'Venta inválida.' };
   const folio = venta.folio || null;
   const tid = venta.transito_id || transitoIdFallback || null;
-  const artsFlag = (venta.articulos || []).some((a) => a && a._cancelada);
+  const artsNorm = normalizarArticulos(venta.articulos);
+  const artsFlag = artsNorm.some((a) => a && a._cancelada);
   const yaCancelada = String(venta.estado || '').toLowerCase() === 'cancelada' || artsFlag;
+  const montos = montosDeVenta({ ...venta, articulos: artsNorm });
+  const mp = String(venta.metodo_pago || '').toLowerCase();
 
   if (soloLimpiarTransito) {
     const trOrphan = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
@@ -650,26 +1002,33 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
     return { ok: true, soloTransito: true, transito: trOrphan, ventaId: venta.id, folio };
   }
 
-  // Carga compra (si existe) para saber si hay que descontar piso de tienda.
-  let compraRow = null;
-  if (venta.compra_id) {
-    const { data: c } = await supabase
-      .from('compras')
-      .select('id, estado, notas, sucursal_id, items, items_pedido')
-      .eq('id', venta.compra_id)
-      .maybeSingle();
-    compraRow = c || null;
-  }
+  // Compra por id o por folio VR en notas (si el id ya no existe).
+  const compraRow = await resolverCompraDeVenta(supabase, venta);
+  const ventaConCompra = {
+    ...venta,
+    articulos: artsNorm,
+    compra_id: venta.compra_id || compraRow?.id || null,
+  };
 
   // 1) PRIMERO: devolver inventario al camión (baja qty_vendida → vuelve disponible).
-  const planCamion = await planRevertirCamion(supabase, venta);
+  const planCamion = await planRevertirCamion(supabase, ventaConCompra, {
+    planPrefijado: planCamionPrefijado,
+    exigirCompleto: !relajarInventario && !yaCancelada,
+  });
   if (!planCamion.ok) return planCamion;
   const cam = await aplicarRevertirCamion(supabase, planCamion.plan);
   if (!cam.ok) return cam;
+  if (!cam.hechos?.length && artsDeVenta(ventaConCompra).length && !yaCancelada && !relajarInventario) {
+    return {
+      ok: false,
+      error: 'No se actualizó qty_vendida en el camión. Cancelación abortada.',
+      camionAvisos: planCamion.avisos,
+    };
+  }
 
   // 2) Si ya se recibió en Petroleos/tienda → descontar inventario de piso.
   const invTienda = await descontarInventarioTienda(supabase, {
-    venta,
+    venta: ventaConCompra,
     compra: compraRow,
     adminNombre,
   });
@@ -677,35 +1036,57 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
 
   // 3) Anular gasto de corte ligado a esa recepción (si hubo).
   const gasto = compraRow && compraYaRecibida(compraRow)
-    ? await anularGastoCompraCorte(supabase, compraRow, venta)
+    ? await anularGastoCompraCorte(supabase, compraRow, ventaConCompra)
     : { ok: true, omitido: true };
 
   // 4) Eliminar crédito (crédito o parte crédito del mixto) en CxC.
   const cxc = await eliminarCreditosDeVenta(supabase, {
     ventaId: venta.id,
     folioVenta: folio,
+    exigirSiHabiaCredito: montos.credito > 0 || mp === 'credito' || mp === 'mixto',
+    montoCreditoEsperado: montos.credito,
   });
   if (!cxc.ok) return cxc;
 
   // 5) Quitar efectivo de RC/VentaRuta Pendientes (efectivo o parte efectivo del mixto).
   const tr = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
   if (!tr.ok) return tr;
+  // Si era efectivo/mixto con monto y no se borró nada ni se omitió por ya limpio → avisar
+  if (
+    (montos.efectivo > 0 || mp === 'efectivo' || mp === 'mixto')
+    && !tr.eliminado
+    && !tr.omitido
+    && tid
+  ) {
+    return {
+      ok: false,
+      error: tr.error || 'No se pudo quitar el efectivo de RC/VentaRuta.',
+      transito: tr,
+    };
+  }
 
   // 6) Eliminar compra / pedido en Compras.
-  const compra = await cancelarCompraPedido(supabase, venta.compra_id, {
+  const compraId = ventaConCompra.compra_id || compraRow?.id || null;
+  const compra = await cancelarCompraPedido(supabase, compraId, {
     yaDescontoTienda: !compraYaRecibida(compraRow) || (Number(invTienda.aplicados) || 0) > 0,
   });
   if (!compra.ok) return compra;
 
   // 7) Traspaso ligado (si existe).
-  const traspaso = await cancelarTraspasoVenta(supabase, venta, adminNombre);
+  const traspaso = await cancelarTraspasoVenta(supabase, ventaConCompra, adminNombre);
 
   // 8) Eliminar registro de la venta en todos lados.
   const mv = await eliminarRegistroVenta(supabase, venta);
   if (!mv.ok) {
-    // Si ya no existe (reintento), ok; si falló por otra razón, error.
     if (!yaCancelada) return mv;
   }
+
+  // 9) Verificación residual: crédito y tránsito no deben quedar.
+  const cxcCheck = await eliminarCreditosDeVenta(supabase, {
+    ventaId: venta.id,
+    folioVenta: folio,
+  });
+  const trCheck = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
 
   return {
     ok: true,
@@ -714,13 +1095,16 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
     inventarioTienda: invTienda,
     gastoCorte: gasto,
     transito: tr,
+    transitoExtra: trCheck?.eliminado ? trCheck : undefined,
     creditos: cxc,
+    creditosExtra: cxcCheck?.eliminados ? cxcCheck : undefined,
     compra,
     traspaso,
     venta: mv.ok ? mv : { ok: true, yaEliminada: true, id: venta.id },
     ventaId: venta.id,
     folio: venta.folio,
     yaCancelada,
+    montos,
   };
 }
 
@@ -754,8 +1138,8 @@ export async function solicitarCancelacionVentaRuta(supabase, {
     return { ok: false, error: 'Ya hay una cancelación pendiente para este folio.' };
   }
 
-  // Validación previa (sin aplicar) para fallar temprano
-  const plan = await planRevertirCamion(supabase, venta);
+  // Validación previa (sin aplicar) para fallar temprano — exige plan completo
+  const plan = await planRevertirCamion(supabase, venta, { exigirCompleto: true });
   if (!plan.ok) return plan;
 
   // Precheck tránsito (por id o folio VR) sin borrar
@@ -782,6 +1166,12 @@ export async function solicitarCancelacionVentaRuta(supabase, {
   // Compra recibida / crédito cobrado: se permite; al aprobar se elimina en todos lados.
 
   const montos = montosDeVenta(venta);
+  if (montos.mixtoSinDesglose) {
+    return {
+      ok: false,
+      error: 'La venta mixto no tiene desglose de efectivo/crédito. No se puede cancelar automáticamente.',
+    };
+  }
   const suc =
     normalizarCodigoTienda(venta.cliente_tipo === 'sucursal' ? venta.cliente_id : 'MAIN')
     || 'MAIN';
@@ -909,10 +1299,11 @@ export async function aprobarCancelacionVentaConPin(supabase, {
   if (eV) return { ok: false, error: eV.message };
 
   // Snapshot de la solicitud por si la venta ya no está o faltan campos.
+  const artsSol = normalizarArticulos(sol.articulos);
   const venta = ventaDb || {
     id: sol.venta_id,
     folio: sol.folio_venta,
-    articulos: sol.articulos || [],
+    articulos: artsSol,
     carga_id: sol.carga_id,
     compra_id: sol.compra_id,
     transito_id: sol.transito_id,
@@ -924,19 +1315,61 @@ export async function aprobarCancelacionVentaConPin(supabase, {
     vendedor_nombre: sol.vendedor_nombre,
   };
 
+  const artsVenta = normalizarArticulos(venta.articulos);
+  const planPref = Array.isArray(sol.meta?.plan_camion) ? sol.meta.plan_camion : null;
+
   const exec = await ejecutarCancelacionVentaRuta(supabase, {
     venta: {
       ...venta,
       folio: venta.folio || sol.folio_venta,
-      articulos: (venta.articulos && venta.articulos.length) ? venta.articulos : (sol.articulos || []),
+      articulos: artsVenta.length ? artsVenta : artsSol,
       carga_id: venta.carga_id || sol.carga_id,
       compra_id: venta.compra_id || sol.compra_id,
       transito_id: venta.transito_id || sol.transito_id,
+      metodo_pago: venta.metodo_pago || sol.metodo_pago,
+      total: venta.total ?? sol.total,
+      cliente_tipo: venta.cliente_tipo || sol.cliente_tipo,
+      cliente_id: venta.cliente_id || sol.cliente_id,
     },
     adminNombre: auth.user?.nombre || auth.nombre,
     transitoIdFallback: sol.transito_id || null,
+    planCamionPrefijado: planPref,
   });
   if (!exec.ok) return exec;
+
+  // Sin hechos de camión ni crédito/efectivo limpiado cuando sí había montos → no aprobar
+  const montoCre = Number(sol.monto_credito) || Number(exec.montos?.credito) || 0;
+  const montoEfe = Number(sol.monto_efectivo) || Number(exec.montos?.efectivo) || 0;
+  const camOk = (exec.camion && exec.camion.length > 0) || exec.yaCancelada;
+  const cxcAviso = String(exec.creditos?.aviso || '');
+  const cxcOk = montoCre <= 0.009
+    || (Number(exec.creditos?.eliminados) || 0) > 0
+    || /ya eliminad|sin movimiento/i.test(cxcAviso);
+  const trOk = montoEfe <= 0.009
+    || exec.transito?.eliminado
+    || exec.transito?.omitido
+    || exec.transitoExtra?.eliminado;
+  if (!camOk && artsSol.length) {
+    return {
+      ok: false,
+      error: 'La cancelación no devolvió inventario al camión. No se marcó como aprobada.',
+      parcial: exec,
+    };
+  }
+  if (!cxcOk && montoCre > 0.009) {
+    return {
+      ok: false,
+      error: 'La cancelación no eliminó el crédito/mixto en CxC. No se marcó como aprobada.',
+      parcial: exec,
+    };
+  }
+  if (!trOk && montoEfe > 0.009) {
+    return {
+      ok: false,
+      error: 'La cancelación no quitó el efectivo de RC/VentaRuta. No se marcó como aprobada.',
+      parcial: exec,
+    };
+  }
 
   // Doble check residuales por folio
   await eliminarCreditosDeVenta(supabase, {
