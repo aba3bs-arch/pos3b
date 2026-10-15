@@ -187,17 +187,66 @@ export function htmlPedidoCompra(data) {
   </body></html>`;
 }
 
+function htmlBloquePagoRecepcion(data) {
+  const metodo = String(data.metodo_pago || data.metodo || '').toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const efe = Number(data.monto_efectivo ?? data.montoEfectivo);
+  const cre = Number(data.monto_credito ?? data.montoCredito);
+  if (metodo === 'credito') {
+    return `
+      <div class="center" style="margin:8px 0 10px">
+        <div style="font-size:2.1em;font-weight:900;letter-spacing:0.08em;line-height:1">CREDITO</div>
+        <div class="bold" style="margin-top:4px;font-size:1.15em">${fmtMoney(Number.isFinite(cre) && cre > 0 ? cre : data.total)}</div>
+      </div>`;
+  }
+  if (metodo === 'mixto') {
+    const e = Number.isFinite(efe) ? efe : 0;
+    const c = Number.isFinite(cre) ? cre : 0;
+    return `
+      <div class="center" style="margin:6px 0 8px">
+        <div style="font-size:1.55em;font-weight:900;letter-spacing:0.04em">MIXTO</div>
+      </div>
+      <div class="bold">Desglose de pago</div>
+      <div>Efectivo: ${fmtMoney(e)}</div>
+      <div>Crédito: ${fmtMoney(c)}</div>
+      <div class="sep"></div>`;
+  }
+  if (metodo === 'efectivo') {
+    return `<div class="muted" style="margin-bottom:4px">Pago: EFECTIVO · ${fmtMoney(Number.isFinite(efe) && efe > 0 ? efe : data.total)}</div>`;
+  }
+  if (data.metodo_pago) {
+    return `<div class="muted" style="margin-bottom:4px">Pago: ${esc(data.metodo_pago)}</div>`;
+  }
+  return '';
+}
+
 export function htmlRecepcionCompra(data) {
   const cfg = leerConfigImpresion();
   const lineas = (data.items || []).filter((l) => Number(l.qty || l.qty_recibido) > 0);
+  const metodo = String(data.metodo_pago || data.metodo || '').toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const titulo =
+    metodo === 'credito' ? 'RECEPCIÓN · CREDITO'
+      : metodo === 'mixto' ? 'RECEPCIÓN · MIXTO'
+        : 'RECEPCIÓN DE COMPRA';
+  const folioVisible = data.folioVenta || data.folio_venta || data.folio;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recepción</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
-    ${cabeceraDoc('RECEPCIÓN DE COMPRA', { sucursal: data.sucursal, usuario: data.usuario, folio: data.folio })}
-    <div class="bold">Proveedor: ${esc(data.proveedor)}</div>
+    ${cabeceraDoc(titulo, { sucursal: data.sucursal, usuario: data.usuario, folio: folioVisible })}
+    ${htmlBloquePagoRecepcion(data)}
+    ${data.proveedor ? `<div class="bold">Proveedor: ${esc(data.proveedor)}</div>` : ''}
+    ${data.folioVenta || data.folio_venta ? `<div class="muted">Venta ruta: ${esc(data.folioVenta || data.folio_venta)}</div>` : ''}
     <div class="sep"></div>
+    <div class="bold" style="margin-bottom:4px">Mercancía recibida</div>
     ${htmlTablaLineas(lineas, [
       { label: 'Cód.', key: 'id' },
-      { label: 'Producto', key: 'nombre' },
-      { label: 'Rec.', key: 'qty', align: 'right', fmt: (r) => r.qty ?? r.qty_recibido },
+      {
+        label: 'Descripción',
+        key: 'nombre',
+        fmt: (r) => esc(r.nombre || r.descripcion || r.id || ''),
+      },
+      { label: 'Cant.', key: 'qty', align: 'right', fmt: (r) => r.qty ?? r.qty_recibido },
       { label: 'Costo', key: 'costo', align: 'right', fmt: (r) => fmtMoney(r.costo || r.costo_est) },
     ])}
     <div class="sep"></div>

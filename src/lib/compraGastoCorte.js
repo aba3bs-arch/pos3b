@@ -394,3 +394,75 @@ export async function cargarGastoCompraACorteAbarrotes(supabase, {
     montoCredito: decision.montoCredito || 0,
   };
 }
+
+/**
+ * Datos de pago para ticket de recepción (notas del pedido y/o venta en ruta).
+ */
+export function pagoTicketRecepcionCompra(compra, venta = null, totalFallback = 0) {
+  const total = round2(totalFallback || compra?.total || 0);
+  const notas = [venta?.notas, compra?.notas].filter(Boolean).join(' · ');
+  if (venta) {
+    return montosPagoDesdeVentaRuta({ ...venta, notas }, total);
+  }
+  const metodo = metodoPagoDesdeNotasCompra(compra?.notas) || 'efectivo';
+  return montosPagoDesdeVentaRuta(
+    { metodo_pago: metodo, total, notas: compra?.notas || '' },
+    total,
+  );
+}
+
+/**
+ * Payload listo para imprimirRecepcionCompra (CREDITO grande / desglose mixto / descripciones).
+ */
+export function armarPayloadTicketRecepcion({
+  compra = null,
+  venta = null,
+  sucursal = null,
+  proveedor = null,
+  items = null,
+  total = null,
+  usuario = null,
+  folio = null,
+} = {}) {
+  const lineas = (items
+    || compra?.items
+    || [])
+    .filter((l) => Number(l.qty || l.qty_recibido) > 0)
+    .map((l) => ({
+      id: l.id || l.producto_id,
+      nombre: l.nombre || l.descripcion || l.id,
+      descripcion: l.nombre || l.descripcion || l.id,
+      qty: Number(l.qty ?? l.qty_recibido) || 0,
+      costo: Number(l.costo ?? l.costo_est) || 0,
+    }));
+  const totalTicket = round2(total != null ? total : (compra?.total || 0));
+  const pago = pagoTicketRecepcionCompra(compra, venta, totalTicket);
+  const folioVr = folioVentaRutaDesdeNotas(compra?.notas) || venta?.folio || null;
+  return {
+    sucursal: sucursal || compra?.sucursal_id || null,
+    proveedor: proveedor || compra?.proveedores?.nombre || (esCompraVentaEnRuta(compra) ? 'Venta en ruta' : '—'),
+    folio: folio || folioVr || compra?.id || null,
+    folioVenta: folioVr,
+    items: lineas,
+    total: totalTicket,
+    usuario: usuario || null,
+    metodo_pago: pago.metodo,
+    monto_efectivo: pago.montoEfectivo,
+    monto_credito: pago.montoCredito,
+    esVentaRuta: esCompraVentaEnRuta(compra),
+  };
+}
+
+/** Resuelve venta (si aplica) y arma el ticket de recepción. */
+export async function armarPayloadTicketRecepcionAsync(supabase, opts = {}) {
+  const compra = opts.compra || null;
+  let venta = opts.venta || null;
+  if (!venta && supabase && compra && esCompraVentaEnRuta(compra)) {
+    try {
+      venta = await resolverVentaRutaDeCompra(supabase, compra);
+    } catch {
+      venta = null;
+    }
+  }
+  return armarPayloadTicketRecepcion({ ...opts, venta });
+}

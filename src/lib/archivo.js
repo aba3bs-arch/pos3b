@@ -9,6 +9,8 @@
 
 /** Default de fábrica; el valor efectivo lo da leerDiasArchivoOperativo(). */
 export const DIAS_ARCHIVO_DEFAULT = 15;
+/** Historial de Compras / recepciones visible en módulo antes de pasar a Archivo. */
+export const DIAS_HISTORIAL_COMPRAS = 8;
 /** @deprecated usar DIAS_ARCHIVO_DEFAULT o leerDiasArchivoOperativo() */
 export const DIAS_ARCHIVO_OPERATIVO = DIAS_ARCHIVO_DEFAULT;
 
@@ -74,6 +76,7 @@ export const TIPOS_ARCHIVO = [
   { id: 'prestamos', label: 'Préstamos personales', tabla: 'prestamos', deptoCol: 'area_corte', fechaCol: 'created_at' },
   { id: 'pagares', label: 'Pagarés', tabla: 'pagares', deptoCol: 'area', fechaCol: 'created_at' },
   { id: 'nominas', label: 'Nóminas', tabla: 'nomina_periodos', deptoCol: 'pagador_filtro', fechaCol: 'periodo_fin' },
+  { id: 'compras', label: 'Compras / recepciones', tabla: 'compras', deptoCol: null, fechaCol: 'created_at' },
 ];
 
 export function faltaColumnaArchivedAt(error) {
@@ -139,14 +142,16 @@ function etiquetaDepto(v) {
 
 function filaArchivo(tipo, row) {
   const meta = metaTipo(tipo);
-  const depto = meta ? row?.[meta.deptoCol] : null;
+  const depto = tipo === 'compras'
+    ? 'compras'
+    : (meta?.deptoCol ? row?.[meta.deptoCol] : null);
   const fechaRaw = meta ? row?.[meta.fechaCol] : row?.created_at;
   return {
     tipo,
     tipoLabel: meta?.label || tipo,
     id: row.id,
     sucursal_id: row.sucursal_id || '—',
-    departamento: etiquetaDepto(depto),
+    departamento: tipo === 'compras' ? 'Compras' : etiquetaDepto(depto),
     departamento_raw: depto || null,
     fecha: fechaRaw ? String(fechaRaw).slice(0, 10) : '—',
     archived_at: row.archived_at || null,
@@ -175,6 +180,13 @@ function resumenFila(tipo, row) {
   }
   if (tipo === 'nominas') {
     return `Periodo ${row.periodo_inicio || ''} → ${row.periodo_fin || ''} · $${Number(row.total || 0).toFixed(2)}`.trim();
+  }
+  if (tipo === 'compras') {
+    const prov = row.proveedores?.nombre || (String(row.notas || '').match(/Venta en ruta/i) ? 'Venta en ruta' : '—');
+    const folio = String(row.notas || '').match(/\b(VR-[A-Z0-9-]+)\b/i)?.[1]
+      || String(row.notas || '').match(/Folio inv\s+([A-Z0-9-]+)/i)?.[1]
+      || String(row.id || '').slice(0, 8);
+    return `${folio} · ${prov} · $${Number(row.total || 0).toFixed(2)} · ${row.estado || ''}`.trim();
   }
   return String(row.id || '');
 }
@@ -330,6 +342,16 @@ export async function archivarPendientesOperativos(supabase, { user } = {}) {
     if (fatal?.fatal) return { ok: false, error: fatal.fatal, conteos };
   }
 
+  // Compras / recepciones: historial visible 8 días, luego Archivo
+  {
+    await mark('compras', async () => {
+      const r = await archivarComprasHistorial(supabase, { user, dias: DIAS_HISTORIAL_COMPRAS });
+      if (r.faltaSql) return 0;
+      if (!r.ok && r.error) throw new Error(r.error);
+      return r.archivados || 0;
+    });
+  }
+
   const total = Object.values(conteos).reduce((a, n) => a + (Number(n) || 0), 0);
   return {
     ok: errores.length === 0,
@@ -342,6 +364,37 @@ export async function archivarPendientesOperativos(supabase, { user } = {}) {
       total > 0
         ? `Archivados ${total} registro(s) anteriores a ${umbralYmd} (retenidos ${dias} días en módulos). IE no se modifica.`
         : `Nada nuevo que archivar (umbral ${umbralYmd}, retención ${dias} días).`,
+  };
+}
+
+/**
+ * Archiva compras/recepciones con más de `dias` (default 8) fuera del historial operativo.
+ * Requiere supabase/fix_compras_archivo.sql.
+ */
+export async function archivarComprasHistorial(supabase, { user = null, dias = DIAS_HISTORIAL_COMPRAS } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', archivados: 0 };
+  const ret = Number.isFinite(Number(dias)) ? Math.max(1, Math.round(Number(dias))) : DIAS_HISTORIAL_COMPRAS;
+  const umbralIso = fechaUmbralArchivo(new Date(), ret);
+  const by = String(user?.nombre || user?.id || 'sistema').trim() || 'sistema';
+  const patch = { archived_at: new Date().toISOString(), archived_by: by };
+  const { data, error } = await supabase
+    .from('compras')
+    .update(patch)
+    .lt('created_at', umbralIso)
+    .is('archived_at', null)
+    .in('estado', ['recibida', 'recibido', 'cerrada', 'cancelada'])
+    .select('id');
+  if (error) {
+    if (faltaColumnaArchivedAt(error)) {
+      return { ok: true, archivados: 0, faltaSql: true, aviso: 'Ejecuta supabase/fix_compras_archivo.sql' };
+    }
+    return { ok: false, error: error.message, archivados: 0 };
+  }
+  return {
+    ok: true,
+    archivados: (data || []).length,
+    umbral: umbralIso.slice(0, 10),
+    dias: ret,
   };
 }
 
