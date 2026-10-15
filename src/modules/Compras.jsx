@@ -728,8 +728,8 @@ export default function Compras({
       { forzar: true },
     );
     alert(
-      `Pedido guardado como pendiente de recepción (${items_pedido.length} producto(s)).\n` +
-        'Cuando llegue la mercancía, elígelo en «Pedido pendiente» o en Por recibir → Recibir.',
+      `Pedido guardado en «Por recibir» (${items_pedido.length} producto(s)).\n` +
+        'Cuando llegue la mercancía: Por recibir → Recibir. Al confirmar pasa a Historial de compras.',
     );
     setHerramientaAbierta(false);
     setCompraActiva(null);
@@ -739,6 +739,7 @@ export default function Compras({
     setNotasPedido('');
     await loadProveedoresYHistorial();
     await loadPedidosPendientes();
+    setPestana('por_recibir');
   };
 
   const recibirMercancia = async () => {
@@ -846,8 +847,9 @@ export default function Compras({
     setLineas([]);
     for (const p of inv.productos || []) fusionarProducto?.(p);
     cargarDatos();
-    loadProveedoresYHistorial();
-    loadPedidosPendientes();
+    await loadProveedoresYHistorial();
+    await loadPedidosPendientes();
+    setPestana('historial');
   };
 
   const registrarEntregaDirecta = async () => {
@@ -958,8 +960,9 @@ export default function Compras({
     setNotasPedido('');
     for (const p of invPreview.productos || []) fusionarProducto?.(p);
     cargarDatos();
-    loadProveedoresYHistorial();
-    loadPedidosPendientes();
+    await loadProveedoresYHistorial();
+    await loadPedidosPendientes();
+    setPestana('historial');
   };
 
   const cerrarHerramienta = () => {
@@ -987,7 +990,7 @@ export default function Compras({
           Por recibir
         </button>
         <button type="button" className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestana('historial')}>
-          Historial recepciones
+          Historial de compras
         </button>
       </div>
 
@@ -1393,21 +1396,20 @@ export default function Compras({
       {(pestana === 'por_recibir' || pestana === 'historial') && (
         <div className="card">
           <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-            {pestana === 'por_recibir' ? 'Mercancía por recibir' : 'Historial de recepciones'}
+            {pestana === 'por_recibir' ? 'Por recibir' : 'Historial de compras'}
           </h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
             {pestana === 'por_recibir' ? (
               <>
-                Solo pedidos <strong>pendientes</strong> (aún no se recibió mercancía).
-                {' '}<strong>Eliminar</strong> cancela el pedido: <strong>no mueve inventario</strong>
-                (nunca se había sumado al piso).
+                Pedidos pendientes de mercancía. Al <strong>Recibir</strong>, pasan a{' '}
+                <strong>Historial de compras</strong> y se actualiza inventario.
+                Puedes <strong>reimprimir el ticket del pedido</strong>. Eliminar cancela el pedido sin mover stock.
               </>
             ) : (
               <>
-                Recepciones ya hechas. Se conservan {DIAS_HISTORIAL_COMPRAS} días; después pasan a{' '}
+                Recepciones ya aplicadas. Se conservan {DIAS_HISTORIAL_COMPRAS} días; después pasan a{' '}
                 <strong>Contabilidad → Archivo</strong>.
-                {' '}<strong>Eliminar</strong> solo quita el registro del historial
-                (no descuenta inventario). Para devolver mercancía de venta en ruta usa Cancelación / Devolución.
+                Puedes <strong>reimprimir el ticket de recepción</strong>. Eliminar solo quita el registro (no descuenta inventario).
               </>
             )}
           </p>
@@ -1490,6 +1492,7 @@ export default function Compras({
                               type="button"
                               className="btn btn-ghost"
                               style={{ fontSize: '0.8rem' }}
+                              title="Reimprimir ticket del pedido"
                               onClick={() =>
                                 imprimirPedidoCompra({
                                   sucursal: c.sucursal_id || sucursal,
@@ -1501,7 +1504,7 @@ export default function Compras({
                                 })
                               }
                             >
-                              Imprimir pedido
+                              Reimprimir ticket
                             </button>
                           )}
                           {compraYaRecibida(c)
@@ -1510,6 +1513,7 @@ export default function Compras({
                               type="button"
                               className="btn btn-ghost"
                               style={{ fontSize: '0.8rem' }}
+                              title="Reimprimir ticket de recepción"
                               onClick={() =>
                                 void imprimirTicketRecepcion(c, {
                                   sucursal: c.sucursal_id || sucursal,
@@ -1519,7 +1523,7 @@ export default function Compras({
                                 })
                               }
                             >
-                              Imprimir recepción
+                              Reimprimir ticket
                             </button>
                           )}
                           {String(c.estado || '').toLowerCase() !== 'cancelada' && (
