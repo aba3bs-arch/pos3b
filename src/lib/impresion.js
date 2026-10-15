@@ -139,31 +139,95 @@ function htmlTablaLineas(lineas, cols) {
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
+/** Normaliza metodo_pago a efectivo | credito | mixto | ''. */
+export function normalizarMetodoPagoTicket(raw) {
+  const s = String(raw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!s) return '';
+  if (s.includes('mixto')) return 'mixto';
+  if (s.includes('credito') || s.includes('crédito')) return 'credito';
+  if (s.includes('efectivo') || s === 'cash') return 'efectivo';
+  return s;
+}
+
+/**
+ * Bloque grande de tipo de pago para tickets (CREDITO / MIXTO / EFECTIVO).
+ * Usado en venta POS, venta en ruta y recepción de compras.
+ */
+export function htmlBloqueTipoPagoGrande(data = {}) {
+  const metodo = normalizarMetodoPagoTicket(data.metodo_pago || data.metodo);
+  const efe = Number(data.monto_efectivo ?? data.montoEfectivo);
+  const cre = Number(data.monto_credito ?? data.montoCredito);
+  const total = Number(data.total) || 0;
+  if (metodo === 'credito') {
+    return `
+      <div class="center" style="margin:8px 0 10px">
+        <div style="font-size:2.1em;font-weight:900;letter-spacing:0.08em;line-height:1">CREDITO</div>
+        <div class="bold" style="margin-top:4px;font-size:1.15em">${fmtMoney(Number.isFinite(cre) && cre > 0 ? cre : total)}</div>
+      </div>`;
+  }
+  if (metodo === 'mixto') {
+    const e = Number.isFinite(efe) ? efe : 0;
+    const c = Number.isFinite(cre) ? cre : 0;
+    return `
+      <div class="center" style="margin:6px 0 8px">
+        <div style="font-size:2em;font-weight:900;letter-spacing:0.06em;line-height:1">MIXTO</div>
+      </div>
+      <div class="bold">Desglose de pago</div>
+      <div>Efectivo: ${fmtMoney(e)}</div>
+      <div>Crédito: ${fmtMoney(c)}</div>
+      <div class="sep"></div>`;
+  }
+  if (metodo === 'efectivo') {
+    return `
+      <div class="center" style="margin:8px 0 10px">
+        <div style="font-size:2.1em;font-weight:900;letter-spacing:0.08em;line-height:1">EFECTIVO</div>
+        <div class="bold" style="margin-top:4px;font-size:1.15em">${fmtMoney(Number.isFinite(efe) && efe > 0 ? efe : total)}</div>
+      </div>`;
+  }
+  if (data.metodo_pago) {
+    return `<div class="muted" style="margin-bottom:4px">Pago: ${esc(data.metodo_pago)}</div>`;
+  }
+  return '';
+}
+
 export function htmlTicketVenta(data) {
   const cfg = leerConfigImpresion();
-  const items = data.articulos || [];
+  const items = (data.articulos || []).filter((it) => it && !it._pago_mixto);
   const filas = items
     .map(
       (it) =>
         linea([
           `<span>${esc(it.nombre)}</span>`,
-          `<span class="r">${it.qty || 1} × ${fmtMoney(it.precio)}</span>`,
-          `<span class="r bold">${fmtMoney(Number(it.precio) * (it.qty || 1))}</span>`,
+          `<span class="r">${it.qty || it.cantidad || 1} × ${fmtMoney(it.precio)}</span>`,
+          `<span class="r bold">${fmtMoney(Number(it.precio) * (it.qty || it.cantidad || 1))}</span>`,
         ]),
     )
     .join('');
+  const metodo = normalizarMetodoPagoTicket(data.metodo_pago || data.metodo);
+  const titulo =
+    metodo === 'credito' ? 'TICKET · CREDITO'
+      : metodo === 'mixto' ? 'TICKET · MIXTO'
+        : metodo === 'efectivo' ? 'TICKET · EFECTIVO'
+          : (data.tituloTicket || 'TICKET DE VENTA');
   const cambio =
-    data.cambio != null && data.esEfectivo
+    data.cambio != null && (data.esEfectivo || metodo === 'efectivo')
       ? `<div>Recibido: ${fmtMoney(data.recibido)} ${esc(data.moneda || 'MXN')}</div><div class="bold">Cambio: ${fmtMoney(data.cambio)} MXN</div>`
       : '';
+  const destino = data.destino || data.cliente_nombre || data.tienda
+    ? `<div class="bold">Destino: ${esc(data.destino || data.cliente_nombre || data.tienda)}</div>`
+    : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Ticket</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
-    ${cabeceraDoc('TICKET DE VENTA', { sucursal: data.sucursal, usuario: data.vendedor, fecha: data.fecha })}
+    ${cabeceraDoc(titulo, { sucursal: data.sucursal, usuario: data.vendedor, fecha: data.fecha, folio: data.folio })}
+    ${htmlBloqueTipoPagoGrande(data)}
+    ${destino}
     <table>${filas}</table>
     <div class="sep"></div>
     <div class="total-line">TOTAL ${fmtMoney(data.total)} MXN</div>
-    <div class="muted" style="margin-top:4px">Pago: ${esc(data.metodo_pago)}</div>
     ${cambio}
-    ${pieDoc()}
+    ${pieDoc(data.pieExtra || '')}
   </body></html>`;
 }
 
@@ -187,54 +251,19 @@ export function htmlPedidoCompra(data) {
   </body></html>`;
 }
 
-function htmlBloquePagoRecepcion(data) {
-  const metodo = String(data.metodo_pago || data.metodo || '').toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  const efe = Number(data.monto_efectivo ?? data.montoEfectivo);
-  const cre = Number(data.monto_credito ?? data.montoCredito);
-  if (metodo === 'credito') {
-    return `
-      <div class="center" style="margin:8px 0 10px">
-        <div style="font-size:2.1em;font-weight:900;letter-spacing:0.08em;line-height:1">CREDITO</div>
-        <div class="bold" style="margin-top:4px;font-size:1.15em">${fmtMoney(Number.isFinite(cre) && cre > 0 ? cre : data.total)}</div>
-      </div>`;
-  }
-  if (metodo === 'mixto') {
-    const e = Number.isFinite(efe) ? efe : 0;
-    const c = Number.isFinite(cre) ? cre : 0;
-    return `
-      <div class="center" style="margin:6px 0 8px">
-        <div style="font-size:1.55em;font-weight:900;letter-spacing:0.04em">MIXTO</div>
-      </div>
-      <div class="bold">Desglose de pago</div>
-      <div>Efectivo: ${fmtMoney(e)}</div>
-      <div>Crédito: ${fmtMoney(c)}</div>
-      <div class="sep"></div>`;
-  }
-  if (metodo === 'efectivo') {
-    return `<div class="muted" style="margin-bottom:4px">Pago: EFECTIVO · ${fmtMoney(Number.isFinite(efe) && efe > 0 ? efe : data.total)}</div>`;
-  }
-  if (data.metodo_pago) {
-    return `<div class="muted" style="margin-bottom:4px">Pago: ${esc(data.metodo_pago)}</div>`;
-  }
-  return '';
-}
-
 export function htmlRecepcionCompra(data) {
   const cfg = leerConfigImpresion();
   const lineas = (data.items || []).filter((l) => Number(l.qty || l.qty_recibido) > 0);
-  const metodo = String(data.metodo_pago || data.metodo || '').toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+  const metodo = normalizarMetodoPagoTicket(data.metodo_pago || data.metodo);
   const titulo =
     metodo === 'credito' ? 'RECEPCIÓN · CREDITO'
       : metodo === 'mixto' ? 'RECEPCIÓN · MIXTO'
-        : 'RECEPCIÓN DE COMPRA';
+        : metodo === 'efectivo' ? 'RECEPCIÓN · EFECTIVO'
+          : 'RECEPCIÓN DE COMPRA';
   const folioVisible = data.folioVenta || data.folio_venta || data.folio;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recepción</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
     ${cabeceraDoc(titulo, { sucursal: data.sucursal, usuario: data.usuario, folio: folioVisible })}
-    ${htmlBloquePagoRecepcion(data)}
+    ${htmlBloqueTipoPagoGrande(data)}
     ${data.proveedor ? `<div class="bold">Proveedor: ${esc(data.proveedor)}</div>` : ''}
     ${data.folioVenta || data.folio_venta ? `<div class="muted">Venta ruta: ${esc(data.folioVenta || data.folio_venta)}</div>` : ''}
     <div class="sep"></div>

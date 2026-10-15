@@ -42,7 +42,7 @@ import {
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
-import { imprimirCargaCamion } from '../lib/impresion.js';
+import { entregarTicketVenta, imprimirCargaCamion } from '../lib/impresion.js';
 import {
   guardarCarritoPosRuta,
   leerCarritoPosRuta,
@@ -1840,6 +1840,8 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const [metodo, setMetodo] = useState('efectivo');
   const [montoEfectivo, setMontoEfectivo] = useState('');
   const [montoCredito, setMontoCredito] = useState('');
+  const [pinCobro, setPinCobro] = useState('');
+  const [errPinCobro, setErrPinCobro] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [tickCamion, setTickCamion] = useState(0);
   const [lastAddedId, setLastAddedId] = useState('');
@@ -2085,6 +2087,8 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     setMetodo('efectivo');
     setMontoEfectivo(String(total.toFixed(2)));
     setMontoCredito('0');
+    setPinCobro('');
+    setErrPinCobro('');
     setMostrarCobro(true);
   };
 
@@ -2098,6 +2102,11 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const cobrar = async () => {
     if (!clienteKey) return alert('Elige la tienda (o cliente) destino de la venta.');
     if (!carrito.length) return alert('Carrito vacío.');
+    const pin = String(pinCobro || '').trim();
+    if (!pin || pin.length < 4) {
+      setErrPinCobro('Ingresa el PIN del vendedor para confirmar la venta.');
+      return;
+    }
     const [tipo, ...rest] = clienteKey.split(':');
     const id = rest.join(':');
     const dest = destinos.find((d) => d.tipo === tipo && String(d.id) === id);
@@ -2120,6 +2129,26 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     if (!confirm(`¿Cerrar venta ${fmtMonto(total)} · ${labelMetodo}\nDestino: ${dest?.nombre || id}?`)) return;
 
     setGuardando(true);
+    setErrPinCobro('');
+    const pinOk = await verificarPinVendedorSesionRuta(supabase, {
+      pin,
+      vendedorId: String(vendedorSesion?.id || vendedorId || '').trim(),
+      sucursal: tipo === 'sucursal' ? id : (user?.sucursal_id || undefined),
+      vendedores: vendedorSesion
+        ? [{
+          ...vendedorSesion,
+          id: vendedorSesion.id || vendedorId,
+          usuario_id: vendedorSesion.usuario_id || vendedorSesion.id || null,
+          repartidor_id: vendedorSesion.repartidor_id || repartidorIdSesion || null,
+        }]
+        : null,
+    });
+    if (!pinOk.ok) {
+      setGuardando(false);
+      setErrPinCobro(pinOk.error || 'PIN incorrecto.');
+      return;
+    }
+
     const r = await registrarVentaRuta(supabase, {
       vendedorId: vendedorId || undefined,
       repartidorId: repartidorIdSesion || undefined,
@@ -2128,13 +2157,44 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
       clienteNombre: dest?.nombre || id,
       metodoPago: metodo,
       articulos: carrito,
-      vendedorNombre,
+      vendedorNombre: pinOk.user?.nombre || vendedorNombre,
       montoEfectivo: montoEfe,
       montoCredito: montoCre,
     });
-    setGuardando(false);
-    if (!r.ok) return alert(r.error);
+    if (!r.ok) {
+      setGuardando(false);
+      return alert(r.error);
+    }
     if (r.avisos?.length) setAviso(r.avisos.join(' · '));
+
+    // Ticket con tipo de pago en letra grande (CREDITO / MIXTO / EFECTIVO).
+    try {
+      await entregarTicketVenta({
+        sucursal: tipo === 'sucursal' ? id : (user?.sucursal_id || 'MAIN'),
+        vendedor: pinOk.user?.nombre || vendedorNombre,
+        folio: r.venta?.folio || r.folio || null,
+        destino: dest?.nombre || id,
+        articulos: carrito.map((a) => ({
+          id: a.productoId,
+          nombre: a.nombre,
+          precio: a.precio,
+          qty: a.cantidad,
+        })),
+        total,
+        metodo_pago: metodo,
+        metodo,
+        monto_efectivo: montoEfe,
+        monto_credito: montoCre,
+        tituloTicket: 'VENTA EN RUTA',
+        pieExtra: r.compraId
+          ? 'Pedido enviado a Compras de la tienda destino.'
+          : '',
+      }, 'imprimir', { forzar: true, titulo: 'Ticket venta en ruta' });
+    } catch (e) {
+      console.warn('Ticket venta ruta:', e);
+    }
+
+    setGuardando(false);
     const extra = [
       r.cuenta === 'mixto'
         ? `Mixto · efe ${fmtMonto(r.montoEfectivo)} · créd ${fmtMonto(r.montoCredito)}`
@@ -2149,6 +2209,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     omitirGuardadoRef.current = true;
     carritoRef.current = [];
     setCarrito([]);
+    setPinCobro('');
     setMostrarCobro(false);
     setQtyEditId(null);
     guardarCarritoPosRuta(vendedorSesion, { clienteKey: clienteKeyRef.current, carrito: [] });
@@ -2550,11 +2611,30 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
                 </div>
               )}
 
+              <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                PIN del vendedor (requerido para confirmar la venta)
+              </label>
+              <InputPin
+                value={pinCobro}
+                onChange={(e) => {
+                  setPinCobro(e.target.value);
+                  setErrPinCobro('');
+                }}
+                disabled={guardando}
+                style={{ marginBottom: errPinCobro ? '0.35rem' : '0.75rem' }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void cobrar();
+                }}
+              />
+              {errPinCobro ? (
+                <p style={{ margin: '0 0 0.65rem', color: '#b91c1c', fontSize: '0.85rem' }}>{errPinCobro}</p>
+              ) : null}
+
               <button
                 type="button"
                 className="btn btn-success"
                 style={{ width: '100%', padding: '0.9rem', fontSize: '1.05rem' }}
-                disabled={guardando || !clienteKey}
+                disabled={guardando || !clienteKey || String(pinCobro || '').trim().length < 4}
                 onClick={() => void cobrar()}
               >
                 {guardando ? 'Guardando…' : `Confirmar · ${fmtMonto(total)}`}
