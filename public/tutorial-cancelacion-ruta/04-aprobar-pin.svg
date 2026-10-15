@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff5f5"/>
+      <stop offset="55%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="danger" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b91c1c"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#b91c1c" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <text x="40" y="42" font-family="Segoe UI,Arial,sans-serif" font-size="24" font-weight="700" fill="#b91c1c">4. Admin aprueba con PIN</text>
+  <text x="40" y="70" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#546e7a">Notificación flotante o lista de pendientes · solo admin / gerente</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="40" y="100" width="440" height="340" rx="16" fill="#fff"/>
+    <rect x="40" y="100" width="440" height="52" fill="#fef2f2"/>
+    <rect x="40" y="100" width="440" height="6" fill="#b91c1c"/>
+    <text x="60" y="135" font-size="13" font-weight="700" fill="#b91c1c">Cancelar venta ruta · PIN admin</text>
+    <text x="60" y="185" font-size="17" font-weight="700" fill="#0f172a">Cancelar VR-3B10-0415 · $420.00</text>
+    <text x="60" y="220" font-size="14" fill="#334155">Luis solicita cancelar/devolver</text>
+    <text x="60" y="245" font-size="14" fill="#334155">mixto · 3B10 El Mezquite</text>
+    <text x="60" y="280" font-size="13" fill="#64748b">Motivo: crédito a tienda equivocada</text>
+    <rect x="60" y="305" width="400" height="56" rx="12" fill="#fff7f7" stroke="#fecaca"/>
+    <text x="80" y="330" font-size="12" fill="#64748b">Folio · método · total</text>
+    <text x="80" y="350" font-size="14" font-weight="700" fill="#b91c1c">VR-3B10-0415 · mixto · $420.00</text>
+    <rect x="60" y="380" width="190" height="40" rx="10" fill="url(#danger)"/>
+    <text x="155" y="406" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Aprobar</text>
+    <rect x="270" y="380" width="170" height="40" rx="10" fill="#f1f5f9"/>
+    <text x="355" y="406" text-anchor="middle" font-size="13" font-weight="600" fill="#475569">Rechazar</text>
+    <rect x="520" y="100" width="400" height="340" rx="16" fill="#fff"/>
+    <rect x="520" y="100" width="400" height="48" fill="#e6f4f1"/>
+    <text x="540" y="130" font-size="14" font-weight="700" fill="#0f766e">PIN de administrador</text>
+    <rect x="560" y="190" width="320" height="56" rx="12" fill="#f8fafc" stroke="#0f766e" stroke-width="2"/>
+    <text x="720" y="226" text-anchor="middle" font-size="28" letter-spacing="10" font-weight="700" fill="#0f766e">••••</text>
+    <text x="540" y="290" font-size="14" fill="#334155">✓ Devuelve inventario al camión</text>
+    <text x="540" y="320" font-size="14" fill="#334155">✓ Borra crédito y/o efectivo RC</text>
+    <text x="540" y="350" font-size="14" fill="#334155">✓ Elimina compra y el folio</text>
+    <text x="540" y="395" font-size="13" fill="#64748b">Sin PIN → nada se revierte</text>
+  </g>
+</svg>
