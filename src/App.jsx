@@ -534,7 +534,7 @@ function App() {
   }, [sesion, user, supabase]);
 
   // Alarma de asalto: cualesquiera ≥3 teclas a la vez (al azar), o Escape ×5.
-  // En la caja origen: franja roja/amarilla «Presionastes 3 teclas» (se quita con cualquier tecla).
+  // Caja origen: franja «Sistema en mantenimiento» (queda hasta tecla nueva tras soltar el acorde).
   useEffect(() => {
     if (!sesion || !user || user.esCtMovil) return undefined;
     const detector = crearDetectorTeclasAsalto({
@@ -2024,7 +2024,8 @@ function App() {
             user={user}
           />
         ) : null}
-        {user && !user.esCtMovil ? (
+        {/* Overlay de asalto: también sin sesión (push persistente / ?alerta=asalto). */}
+        {!user?.esCtMovil ? (
           <AlertaAsaltoOverlay supabase={supabase} user={user} />
         ) : null}
         {user && !user.esCtMovil ? <FranjaAsaltoOrigenAviso /> : null}

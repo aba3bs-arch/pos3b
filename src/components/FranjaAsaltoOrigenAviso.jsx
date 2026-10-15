@@ -1,30 +1,66 @@
 import React, { useEffect, useState } from 'react';
 import {
   EVENTO_ALERTA_ASALTO_ORIGEN_AVISO,
-  TECLAS_MIN_ASALTO,
-  TEXTO_FRANJA_3_TECLAS,
+  STORAGE_FRANJA_ORIGEN,
+  TEXTO_FRANJA_HINT,
+  TEXTO_FRANJA_ORIGEN,
 } from '../lib/alertaAsalto.js';
 import PortalFlotante from './PortalFlotante.jsx';
 
+function leerFranjaPersistida() {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(STORAGE_FRANJA_ORIGEN);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data?.at) return null;
+    // Máx. 8 h (turno); si quedó olvidada, igual se quita con una tecla.
+    if (Date.now() - Number(data.at) > 1000 * 60 * 60 * 8) {
+      sessionStorage.removeItem(STORAGE_FRANJA_ORIGEN);
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function guardarFranjaPersistida(texto) {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem(
+      STORAGE_FRANJA_ORIGEN,
+      JSON.stringify({ texto: texto || TEXTO_FRANJA_ORIGEN, at: Date.now() }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function limpiarFranjaPersistida() {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.removeItem(STORAGE_FRANJA_ORIGEN);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
- * Franja a media pantalla en la caja que activó la alarma (p. ej. 3 teclas por accidente).
- * Parpadea rojo ↔ amarillo (~2 pulgadas). Se quita al pulsar cualquier tecla
- * (después de soltar el acorde que la disparó).
+ * Franja a media pantalla en la caja que activó la alarma.
+ * Texto discreto («Sistema en mantenimiento»). Parpadea rojo ↔ amarillo.
+ * Permanece hasta una tecla NUEVA (ignora key-repeat y el acorde que la disparó).
  */
 export default function FranjaAsaltoOrigenAviso() {
-  const [visible, setVisible] = useState(false);
-  const [texto, setTexto] = useState(TEXTO_FRANJA_3_TECLAS);
+  const persistida = typeof window !== 'undefined' ? leerFranjaPersistida() : null;
+  const [visible, setVisible] = useState(Boolean(persistida));
+  const [texto, setTexto] = useState(persistida?.texto || TEXTO_FRANJA_ORIGEN);
 
   useEffect(() => {
-    const onAviso = (e) => {
-      const d = e?.detail || {};
-      const modo = d.modo || 'teclas';
-      const n = Number(d.teclas) || TECLAS_MIN_ASALTO;
-      if (modo === 'escape') {
-        setTexto(`Presionastes Escape ×${n}`);
-      } else {
-        setTexto(n === 3 ? TEXTO_FRANJA_3_TECLAS : `Presionastes ${n} teclas`);
-      }
+    const onAviso = () => {
+      // Siempre el mismo copy discreto (no mencionar teclas / asalto).
+      setTexto(TEXTO_FRANJA_ORIGEN);
+      guardarFranjaPersistida(TEXTO_FRANJA_ORIGEN);
       setVisible(true);
     };
     window.addEventListener(EVENTO_ALERTA_ASALTO_ORIGEN_AVISO, onAviso);
@@ -34,37 +70,44 @@ export default function FranjaAsaltoOrigenAviso() {
   useEffect(() => {
     if (!visible) return undefined;
 
+    const pressed = new Set();
+    let soltoAcorde = false;
     let armado = false;
-    let tArmar = null;
-
-    // Espera a que suelten las teclas del acorde (o 450 ms) antes de aceptar «cualquier tecla» para cerrar.
-    const intentarArmar = () => {
-      if (armado) return;
-      armado = true;
-      if (tArmar) {
-        clearTimeout(tArmar);
-        tArmar = null;
-      }
-    };
-
-    tArmar = setTimeout(intentarArmar, 450);
-
-    const onKeyUp = () => {
-      // Cuando ya no hay teclas abajo, arma el cierre
-      intentarArmar();
-    };
 
     const onKeyDown = (e) => {
+      if (e.repeat) return; // no cerrar por hold/repeat del acorde
+      const code = e.code || e.key;
+      if (code) pressed.add(code);
+
+      // Solo tras haber soltado el acorde completo, la siguiente tecla nueva cierra.
       if (!armado) return;
       e.preventDefault();
       e.stopPropagation();
+      limpiarFranjaPersistida();
       setVisible(false);
     };
+
+    const onKeyUp = (e) => {
+      const code = e.code || e.key;
+      if (code) pressed.delete(code);
+      if (pressed.size === 0) {
+        soltoAcorde = true;
+        armado = true;
+      }
+    };
+
+    // Si al montar no hay teclas abajo (p. ej. restauró de sessionStorage), arma ya.
+    // Si el acorde sigue abajo, espera keyup hasta vaciar.
+    const tArmarSiVacio = setTimeout(() => {
+      if (pressed.size === 0 && !soltoAcorde) {
+        armado = true;
+      }
+    }, 80);
 
     window.addEventListener('keyup', onKeyUp, true);
     window.addEventListener('keydown', onKeyDown, true);
     return () => {
-      if (tArmar) clearTimeout(tArmar);
+      clearTimeout(tArmarSiVacio);
       window.removeEventListener('keyup', onKeyUp, true);
       window.removeEventListener('keydown', onKeyDown, true);
     };
@@ -76,13 +119,13 @@ export default function FranjaAsaltoOrigenAviso() {
     <PortalFlotante>
       <div
         className="franja-asalto-origen"
-        role="alert"
-        aria-live="assertive"
-        aria-label={`${texto}. Pulsa cualquier tecla para quitar.`}
+        role="status"
+        aria-live="polite"
+        aria-label={`${texto}. ${TEXTO_FRANJA_HINT}`}
       >
         <div className="franja-asalto-origen__barra">
           <span className="franja-asalto-origen__texto">{texto}</span>
-          <span className="franja-asalto-origen__hint">Pulsa cualquier tecla para quitar</span>
+          <span className="franja-asalto-origen__hint">{TEXTO_FRANJA_HINT}</span>
         </div>
       </div>
     </PortalFlotante>
