@@ -334,51 +334,10 @@ export default function Compras({
     return est === 'recibida' || est === 'recibido' || est === 'cerrada';
   };
 
-  /** Anula gastos de corte Abarrotes ligados a esta recepción. */
-  const anularGastoCorteDeCompra = async (compra) => {
-    if (!supabase || !compra?.id) return { ok: true, anulados: 0 };
-    const suc = normalizarCodigoTienda(compra.sucursal_id || sucursal);
-    const folioInv = (String(compra.notas || '').match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1];
-    const folioVr = (String(compra.notas || '').match(/\b(VR-[A-Z0-9-]+)\b/i) || [])[1];
-    let q = supabase
-      .from('cortes_contabilidad_gastos')
-      .select('id, comentario, monto, deleted_at')
-      .eq('modulo', 'abarrotes')
-      .order('created_at', { ascending: false })
-      .limit(40);
-    if (suc) q = q.eq('sucursal_id', suc);
-    const { data, error } = await q;
-    if (error) return { ok: true, anulados: 0, aviso: error.message };
-    const hits = (data || []).filter((g) => {
-      if (g.deleted_at) return false;
-      const c = String(g.comentario || '');
-      if (folioInv && c.includes(folioInv)) return true;
-      if (folioVr && c.toUpperCase().includes(String(folioVr).toUpperCase())) return true;
-      if (c.includes(String(compra.id))) return true;
-      return false;
-    });
-    if (!hits.length) return { ok: true, anulados: 0 };
-    let anulados = 0;
-    for (const g of hits) {
-      let { error: eUp } = await supabase
-        .from('cortes_contabilidad_gastos')
-        .update({
-          deleted_at: new Date().toISOString(),
-          comentario: `${g.comentario || ''} · ANULADO por eliminar compra`.trim(),
-        })
-        .eq('id', g.id);
-      if (eUp && /deleted_at|column|schema cache/i.test(String(eUp.message || ''))) {
-        ({ error: eUp } = await supabase.from('cortes_contabilidad_gastos').delete().eq('id', g.id));
-      }
-      if (!eUp) anulados += 1;
-    }
-    return { ok: true, anulados };
-  };
-
   /**
    * Elimina un registro de Por recibir / historial.
-   * - pedido: borra (o marca cancelada) sin tocar inventario.
-   * - recibida: admin/gerente → descuenta piso + anula gasto + borra.
+   * Solo quita el registro de Compras: NO descuenta inventario ni anula gastos.
+   * (Revertir mercancía de una venta en ruta va por Cancelación / Devolución.)
    */
   const eliminarCompraHistorial = async (compra) => {
     if (!supabase || !compra?.id || eliminandoCompraId) return;
@@ -392,14 +351,15 @@ export default function Compras({
     }
 
     if (recibida && !puedeEliminarRecibida) {
-      alert('Solo administrador o gerente puede eliminar una compra ya recibida (revierte inventario).');
+      alert('Solo administrador o gerente puede eliminar una compra ya recibida del historial.');
       return;
     }
 
     const msg = recibida
-      ? `¿Eliminar recepción ${folio}?\n\n`
-        + 'Se descontará el inventario de piso, se anulará el gasto de corte (si hubo)\n'
-        + 'y se quitará de Por recibir / historial.\n\nEsta acción no se puede deshacer.'
+      ? `¿Quitar del historial la recepción ${folio}?\n\n`
+        + 'Solo desaparece de Por recibir / historial.\n'
+        + 'NO se mueve inventario ni se anula el gasto de corte.\n'
+        + '(Si necesitas devolver mercancía de una venta en ruta, usa Cancelación / Devolución.)'
       : `¿Eliminar pedido ${folio}?\n\n`
         + 'Desaparecerá de Por recibir. No afecta inventario (aún no se había recibido).';
 
@@ -407,77 +367,22 @@ export default function Compras({
 
     setEliminandoCompraId(String(compra.id));
     try {
-      const sucOp = normalizarCodigoTienda(compra.sucursal_id || sucursal);
-      let invMsg = '';
-
-      if (recibida) {
-        const items = Array.isArray(compra.items) ? compra.items : [];
-        const lineas = items
-          .map((l) => ({
-            id: String(l.id || l.producto_id || ''),
-            nombre: l.nombre || l.id,
-            qty: Math.floor(Number(l.qty ?? l.cantidad ?? l.qty_recibido) || 0),
-            costo: Number(l.costo ?? l.costo_est) || 0,
-          }))
-          .filter((l) => l.id && l.qty > 0);
-
-        const erroresInv = [];
-        let aplicados = 0;
-        for (const l of lineas) {
-          const r = await aplicarMovimientoInventario(supabase, {
-            tipo: 'retiro',
-            modo: 'piso',
-            productoOrigen: { id: l.id, nombre: l.nombre },
-            cantidad: l.qty,
-            motivo: `Eliminar recepción ${folio} · Compras`,
-            usuario: user?.nombre || 'Admin',
-            sucursal: sucOp,
-            sucursalOperacion: sucOp,
-            meta: {
-              eliminar_compra: true,
-              compra_id: compra.id,
-              precio: l.costo || null,
-              subtotal: l.costo ? Number((l.costo * l.qty).toFixed(2)) : null,
-            },
-          });
-          if (!r.ok) {
-            erroresInv.push(`${l.nombre}: ${r.error}`);
-            continue;
-          }
-          aplicados += 1;
-          if (r.producto) fusionarProducto?.(r.producto);
-          else if (r.patch) fusionarProducto?.({ id: l.id, ...r.patch });
-        }
-
-        if (lineas.length && !aplicados) {
-          alert(`No se pudo descontar inventario:\n${erroresInv.join('\n') || 'Sin líneas'}`);
-          return;
-        }
-        invMsg = aplicados
-          ? `\nInventario: −${aplicados} producto(s).`
-          : '\nSin líneas de inventario que descontar.';
-        if (erroresInv.length) invMsg += `\nAdvertencia: ${erroresInv.join('; ')}`;
-
-        const gasto = await anularGastoCorteDeCompra(compra);
-        if (gasto.anulados) invMsg += `\nGasto de corte anulado (×${gasto.anulados}).`;
-      }
-
       const { error: eDel } = await supabase.from('compras').delete().eq('id', compra.id);
       if (eDel) {
         const { error: eUp } = await supabase
           .from('compras')
           .update({
             estado: 'cancelada',
-            notas: `${compra.notas || ''} · Eliminada desde Por recibir`.trim(),
+            notas: `${compra.notas || ''} · Eliminada desde Por recibir (solo historial)`.trim(),
           })
           .eq('id', compra.id);
         if (eUp) {
           if (!alertSqlCompras(eDel)) alert(eDel.message || eUp.message);
           return;
         }
-        alert(`Compra marcada como cancelada.${invMsg}`);
+        alert('Compra marcada como cancelada (historial). Inventario sin cambios.');
       } else {
-        alert(`Compra eliminada.${invMsg}`);
+        alert('Compra eliminada del historial. Inventario sin cambios.');
       }
 
       if (compraActiva && String(compraActiva.id) === String(compra.id)) {
@@ -488,7 +393,6 @@ export default function Compras({
       }
       await loadPedidosPendientes();
       await loadProveedoresYHistorial();
-      cargarDatos?.();
     } finally {
       setEliminandoCompraId(null);
     }
@@ -1467,8 +1371,8 @@ export default function Compras({
             Se conserva {DIAS_HISTORIAL_COMPRAS} días en este módulo; después pasa a{' '}
             <strong>Contabilidad → Archivo</strong>. El ticket de recepción muestra{' '}
             <strong>CREDITO</strong> / desglose mixto cuando viene de Venta en Ruta.
-            {' '}<strong>Eliminar</strong> quita pedidos pendientes; en recepciones (admin/gerente)
-            también descuenta piso y anula el gasto de corte.
+            {' '}<strong>Eliminar</strong> solo quita el registro del historial
+            (no mueve inventario). Para devolver mercancía de venta en ruta usa Cancelación / Devolución.
           </p>
           <FiltroPeriodo
             preset={presetHistCompras}
@@ -1594,8 +1498,8 @@ export default function Compras({
                               title={
                                 compraYaRecibida(c)
                                   ? (puedeEliminarRecibida
-                                    ? 'Eliminar recepción: descuenta inventario y anula gasto'
-                                    : 'Solo admin/gerente puede eliminar recepciones')
+                                    ? 'Quitar del historial (no mueve inventario)'
+                                    : 'Solo admin/gerente puede eliminar recepciones del historial')
                                   : 'Eliminar pedido por recibir'
                               }
                               onClick={() => void eliminarCompraHistorial(c)}
