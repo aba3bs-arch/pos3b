@@ -102,7 +102,7 @@ export async function solicitarCobroServicioRuta(supabase, {
     mensaje:
       `${repartidorNombre || 'Recolector'} solicita cobrar ${row.servicio_nombre} `
       + `en ${etiquetaTienda(suc)} · corte ${etiquetaModuloCorteFondo(mod)}.\n`
-      + 'Aprueba con tu PIN de cajero para cargar el gasto y registrar el Fondo.',
+      + 'Aprueba con tu PIN de cajero (o PIN temporal CT) para cargar el gasto y registrar el Fondo.',
   });
 
   return { ok: true, data, notificacionId: notif?.id || null, aviso: notif?.aviso || null };

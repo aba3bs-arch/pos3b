@@ -51,10 +51,11 @@ export const TUTORIAL_COBRO_SERVICIOS = {
     },
     {
       id: 'aprobar',
-      titulo: '4. El cajero aprueba con PIN',
+      titulo: '4. El cajero (o CT) aprueba con PIN',
       cuerpo: [
         'En la tienda llega una **notificación** de cobro de servicio.',
         'El cajero revisa monto / servicio / tienda y aprueba con su **PIN**.',
+        'Si hay **CT con PIN temporal** en esa tienda, también puede aprobar el cobro de servicios.',
         'Al aprobar: se carga el **gasto en el corte** elegido y entra un **ingreso al Fondo / RC Servicios**.',
         'Sin PIN aprobado, el dinero **no** llega a RC Servicios.',
       ],
