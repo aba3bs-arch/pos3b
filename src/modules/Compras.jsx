@@ -19,7 +19,8 @@ import {
   folioDesdeCompraId,
   siguienteFolioMovimiento,
 } from '../lib/inventarioMovimientos.js';
-import { folioVisibleCompra } from '../lib/foliosInventario.js';
+import { folioCompraConPago, folioVisibleCompra } from '../lib/foliosInventario.js';
+import { metodoPagoDesdeNotasCompra } from '../lib/compraGastoCorte.js';
 import { pedirFolioEditado, renombrarFolioInventario } from '../lib/folioInventarioEditar.js';
 import { etiquetaTienda, esSucursalNoVenta, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
@@ -765,7 +766,9 @@ export default function Compras({
     const errores = [];
     let aplicados = 0;
     const motivoBase = `Compra/recepción · ${compraActiva.id}${compraActiva.notas ? ` · ${compraActiva.notas}` : ''}`;
-    const folioCompra = folioDesdeCompraId(compraActiva.id, sucursal);
+    const metodoPagoRec = metodoPagoDesdeNotasCompra(compraActiva.notas) || 'efectivo';
+    // Ticket: CMP-…-E / -C / -M (mixto → padre -M; partes -ME/-MC en CxC/RC).
+    const folioCompra = folioCompraConPago(compraActiva.id, sucursal, metodoPagoRec);
 
     const inv = await aplicarInventarioCompra(supabase, items, motivoBase, {
       sucursal,
@@ -872,7 +875,7 @@ export default function Compras({
     const totalTicket = parseFloat(String(ticketRaw).replace(',', '.'));
     if (Number.isNaN(totalTicket) || totalTicket < 0) return alert('Total no válido.');
 
-    const notas = `Entrega directa · ${notasPedido || proveedorNombre}`.trim();
+    const notas = `Entrega directa · metodo efectivo · ${notasPedido || proveedorNombre}`.trim();
     const folioCompra = await siguienteFolioMovimiento(supabase, 'entrada', sucursal);
     const invPreview = await aplicarInventarioCompra(supabase, items, `${notas} · ${folioCompra}`, {
       sucursal,

@@ -8,6 +8,7 @@
  */
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { agregarGastoTurno } from './corteContabilidad/store.js';
+import { familiaFoliosPago, folioConSufijoPago, leerSufijoPagoFolio } from './foliosPago.js';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -413,6 +414,7 @@ export function pagoTicketRecepcionCompra(compra, venta = null, totalFallback = 
 
 /**
  * Payload listo para imprimirRecepcionCompra (CREDITO grande / desglose mixto / descripciones).
+ * Folio del ticket lleva sufijo -E / -C / -M (y familia -ME/-MC en mixto).
  */
 export function armarPayloadTicketRecepcion({
   compra = null,
@@ -438,11 +440,32 @@ export function armarPayloadTicketRecepcion({
   const totalTicket = round2(total != null ? total : (compra?.total || 0));
   const pago = pagoTicketRecepcionCompra(compra, venta, totalTicket);
   const folioVr = folioVentaRutaDesdeNotas(compra?.notas) || venta?.folio || null;
+  const folioBase = folio || folioVr || null;
+  let folioTicket = folioBase;
+  let folioEfectivo = null;
+  let folioCredito = null;
+  if (folioBase) {
+    const fam = familiaFoliosPago(
+      folioBase,
+      leerSufijoPagoFolio(folioBase) ? '' : (pago.metodo || ''),
+    );
+    // Si el folio ya trae -E/-C/-M, familiaFoliosPago con metodo '' deja operacion=base;
+    // re-derivar con el método de pago para obtener -ME/-MC en mixto.
+    const famPago = familiaFoliosPago(folioBase, pago.metodo || '');
+    folioTicket = famPago.operacion
+      || folioConSufijoPago(folioBase, pago.metodo)
+      || fam.operacion
+      || folioBase;
+    folioEfectivo = famPago.efectivo || null;
+    folioCredito = famPago.credito || null;
+  }
   return {
     sucursal: sucursal || compra?.sucursal_id || null,
     proveedor: proveedor || compra?.proveedores?.nombre || (esCompraVentaEnRuta(compra) ? 'Venta en ruta' : '—'),
-    folio: folio || folioVr || compra?.id || null,
+    folio: folioTicket || compra?.id || null,
     folioVenta: folioVr,
+    folio_efectivo: folioEfectivo,
+    folio_credito: folioCredito,
     items: lineas,
     total: totalTicket,
     usuario: usuario || null,
