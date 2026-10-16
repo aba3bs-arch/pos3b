@@ -11,7 +11,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_carga', vista: 'carga', label: 'Carga de camión', desc: `Repartidor · descuenta CEDIS`, icon: 'package', grupo: 'admin' },
   { id: 'ruta_precios', vista: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar', grupo: 'admin' },
   { id: 'ruta_clientes', vista: 'clientes', label: 'Clientes externos', desc: 'Clientes no propios', icon: 'users', grupo: 'admin' },
-  { id: 'ruta_consultas', vista: 'consultas', label: 'Consultas', desc: 'Ingresos, ventas, cargas y créditos', icon: 'search', grupo: 'admin' },
+  { id: 'ruta_consultas', vista: 'consultas', label: 'Consultas', desc: 'Ingresos, créditos y cancelaciones (cajero: sin ventas/cargas/créditos por tienda)', icon: 'search', grupo: 'admin' },
   {
     id: 'ruta_limpiar_consultas',
     vista: null,
