@@ -64,7 +64,7 @@ import {
   slugCodigoCamion,
 } from '../lib/rutaCamiones.js';
 import { listarCreditosCobradosRuta, listarCreditosPendientesRuta } from '../lib/rutaCxc.js';
-import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esSucursalNoVenta, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
@@ -79,7 +79,7 @@ import {
 } from '../lib/catalogoCedis.js';
 import { asegurarProveedorCedisLas3bAmbito } from '../lib/proveedoresAmbito.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
-import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
+import { esRolMostradorRestringido, esRolRepartidor, normalizarRol } from '../lib/roles.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_VENTA_EN_RUTA } from '../content/tutorialVentaEnRuta.js';
 import CorteRuta from './CorteRuta.jsx';
@@ -451,6 +451,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         <VistaConsultas
           supabase={supabase}
           user={user}
+          sucursal={sucursal || user?.sucursal_id}
           setAviso={setAviso}
           cargarDatos={cargarDatos}
           fusionarProducto={fusionarProducto}
@@ -2732,8 +2733,53 @@ function CreditosPendientesPorTienda({ rows, expandido, setExpandido, fmtFecha }
   );
 }
 
-function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProducto }) {
-  const [tab, setTab] = useState('ingresos');
+/** Tabs que el cajero no debe ver en Consultas (Ventas / Cargas / Créditos por tienda). */
+const TABS_CONSULTAS_OCULTAS_CAJERO = new Set(['ventas', 'cargas', 'creditos_tienda']);
+
+const TABS_CONSULTAS_RUTA = [
+  { id: 'ingresos', label: 'Ingresos' },
+  { id: 'ventas', label: 'Ventas' },
+  { id: 'cargas', label: 'Cargas' },
+  { id: 'creditos_tienda', label: 'Créditos por tienda' },
+  { id: 'creditos', label: 'Créditos cobrados' },
+  { id: 'cancelaciones', label: 'Cancelaciones' },
+];
+
+function filaTocaSucursal(row, sucNorm) {
+  if (!sucNorm || !row) return true;
+  const candidatos = [
+    row.cliente_id,
+    row.sucursal_id,
+    row.sucursal,
+    row.tienda_id,
+    row.meta?.sucursal_id,
+    row.meta?.cliente_id,
+  ];
+  for (const c of candidatos) {
+    const n = normalizarCodigoTienda(c) || String(c || '').toUpperCase();
+    if (n && n === sucNorm) return true;
+  }
+  return false;
+}
+
+function VistaConsultas({ supabase, user, sucursal, setAviso, cargarDatos, fusionarProducto }) {
+  const esCajero = esRolMostradorRestringido(user?.rol);
+  const sucOp = normalizarCodigoTienda(sucursal || user?.sucursal_id) || '';
+  // Tienda de venta: solo ve lo de esa sucursal. MAIN/CEDIS ven todo.
+  const filtrarPorSucursal = Boolean(sucOp) && !esSucursalNoVenta(sucOp);
+
+  const tabsVisibles = useMemo(
+    () => TABS_CONSULTAS_RUTA.filter((t) => !(esCajero && TABS_CONSULTAS_OCULTAS_CAJERO.has(t.id))),
+    [esCajero],
+  );
+
+  const tabInicial = useMemo(() => {
+    // En tienda el cajero no tiene ingresos CEDIS útiles → abrir créditos cobrados.
+    if (esCajero && filtrarPorSucursal) return 'creditos';
+    return tabsVisibles[0]?.id || 'ingresos';
+  }, [esCajero, filtrarPorSucursal, tabsVisibles]);
+
+  const [tab, setTab] = useState(tabInicial);
   const [rows, setRows] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [tick, setTick] = useState(0);
@@ -2741,6 +2787,13 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
   const [cancelandoId, setCancelandoId] = useState('');
   const [liquidandoId, setLiquidandoId] = useState('');
   const [eliminandoIngresoId, setEliminandoIngresoId] = useState('');
+
+  useEffect(() => {
+    if (!tabsVisibles.some((t) => t.id === tab)) {
+      setTab(tabInicial);
+      setExpandido(null);
+    }
+  }, [tabsVisibles, tab, tabInicial]);
 
   const puedeCancelar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_carga');
   const puedeLiquidarCarga = puedeCancelar
@@ -2755,26 +2808,41 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
     void (async () => {
       setCargando(true);
       try {
+        const sucFiltro = filtrarPorSucursal ? sucOp : undefined;
+
         if (tab === 'cargas') {
+          // Cargas CEDIS→camión: solo central / no-cajero (tab oculta al cajero).
           const r = await listarCargasRuta(supabase, { limit: 80 });
           if (cancel) return;
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
           setRows(r.data || []);
         } else if (tab === 'ingresos') {
-          const r = await listarReporteIngresosCargaRuta(supabase, { limit: 80 });
-          if (cancel) return;
-          if (r.aviso) setAviso(r.aviso);
-          if (r.error) setAviso(r.error);
-          setRows(r.data || []);
+          // Tickets de carga CEDIS→camión: globales en central; en tienda no aplican.
+          if (filtrarPorSucursal) {
+            if (cancel) return;
+            setRows([]);
+          } else {
+            const r = await listarReporteIngresosCargaRuta(supabase, { limit: 80 });
+            if (cancel) return;
+            if (r.aviso) setAviso(r.aviso);
+            if (r.error) setAviso(r.error);
+            setRows(r.data || []);
+          }
         } else if (tab === 'creditos') {
-          const r = await listarCreditosCobradosRuta(supabase, { limit: 150 });
+          const r = await listarCreditosCobradosRuta(supabase, {
+            limit: 150,
+            sucursalId: sucFiltro,
+          });
           if (cancel) return;
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
           setRows(r.data || []);
         } else if (tab === 'creditos_tienda') {
-          const r = await listarCreditosPendientesRuta(supabase, { limit: 300 });
+          const r = await listarCreditosPendientesRuta(supabase, {
+            limit: 300,
+            sucursalId: sucFiltro,
+          });
           if (cancel) return;
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
@@ -2784,13 +2852,23 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
           if (cancel) return;
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
-          setRows(r.data || []);
+          const lista = r.data || [];
+          setRows(sucFiltro ? lista.filter((row) => filaTocaSucursal(row, sucFiltro)) : lista);
         } else {
           const r = await listarVentasRuta(supabase, { limit: 100 });
           if (cancel) return;
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
-          setRows(r.data || []);
+          const lista = r.data || [];
+          setRows(
+            sucFiltro
+              ? lista.filter((v) => {
+                const tipo = String(v.cliente_tipo || '').toLowerCase();
+                if (tipo && tipo !== 'sucursal') return false;
+                return filaTocaSucursal(v, sucFiltro);
+              })
+              : lista,
+          );
         }
       } finally {
         if (!cancel) setCargando(false);
@@ -2799,7 +2877,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
     return () => {
       cancel = true;
     };
-  }, [supabase, tab, setAviso, tick]);
+  }, [supabase, tab, setAviso, tick, filtrarPorSucursal, sucOp]);
 
   const fmtFecha = (iso) => {
     if (!iso) return '—';
@@ -2947,20 +3025,26 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
       <div>
         <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta, para aclaraciones).
-          En cada línea de Ingresos puedes eliminar el ticket. En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
-          Cancelaciones = solicitudes y devoluciones de ventas aprobadas con PIN de administrador.
+          {esCajero ? (
+            <>
+              Cajero: solo <strong>Ingresos</strong> (central), <strong>Créditos cobrados</strong> y{' '}
+              <strong>Cancelaciones</strong> de <strong>esta sucursal</strong>
+              {filtrarPorSucursal ? ` (${etiquetaTienda(sucOp) || sucOp})` : ''}.
+            </>
+          ) : (
+            <>
+              Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta).
+              En Cargas: cancelar (sin ventas) o liquidar/cerrar.
+              Cancelaciones = devoluciones aprobadas con PIN de administrador.
+              {filtrarPorSucursal
+                ? ` Vista filtrada a ${etiquetaTienda(sucOp) || sucOp}.`
+                : ' Central: todas las sucursales.'}
+            </>
+          )}
         </p>
       </div>
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-        {[
-          { id: 'ingresos', label: 'Ingresos' },
-          { id: 'ventas', label: 'Ventas' },
-          { id: 'cargas', label: 'Cargas' },
-          { id: 'creditos_tienda', label: 'Créditos por tienda' },
-          { id: 'creditos', label: 'Créditos cobrados' },
-          { id: 'cancelaciones', label: 'Cancelaciones' },
-        ].map((t) => (
+        {tabsVisibles.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -2974,7 +3058,11 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
       {cargando ? (
         <p className="muted">Cargando…</p>
       ) : !rows.length ? (
-        <p className="muted">Sin registros.</p>
+        <p className="muted">
+          {tab === 'ingresos' && filtrarPorSucursal
+            ? 'Los tickets de carga CEDIS→camión se consultan en central (MAIN/CEDIS). Esta tienda solo ve créditos y cancelaciones propias.'
+            : 'Sin registros.'}
+        </p>
       ) : tab === 'ingresos' ? (
         <div className="table-wrap">
           <table className="consultas-table">
