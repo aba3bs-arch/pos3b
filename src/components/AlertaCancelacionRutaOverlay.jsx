@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   EVENTO_NOTIFICACIONES,
   EVENTO_NOTIFICACION_DISPOSITIVO,
@@ -24,6 +24,9 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
   const [solicitud, setSolicitud] = useState(null);
   const [pin, setPin] = useState('');
   const [procesando, setProcesando] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  /** refs cerradas en esta sesión (siguen pendientes en BD; no reaparecen al recargar lista). */
+  const pospuestasRef = useRef(new Set());
 
   const rol = normalizarRol(user?.rol);
   const puedeVer = Boolean(
@@ -43,7 +46,9 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
       todasTiendas: true,
       limit: 20,
     });
-    const lista = res.data || [];
+    const lista = (res.data || []).filter(
+      (n) => !pospuestasRef.current.has(String(n.ref_id || n.id || '')),
+    );
     setAlertas(lista);
     if (!lista.length) {
       setSolicitud(null);
@@ -77,14 +82,23 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
 
   const aprobar = async () => {
     if (procesando) return;
-    if (!pin || String(pin).length < 4) return alert('Ingresa el PIN de administrador.');
+    if (!pin || String(pin).length < 4) {
+      setErrorMsg('Ingresa el PIN de administrador.');
+      return;
+    }
+    setErrorMsg('');
     setProcesando(true);
     try {
       const r = await aprobarCancelacionVentaConPin(supabase, {
         cancelacionId: actual.ref_id,
         pin,
       });
-      if (!r.ok) return alert(r.error || 'No se pudo aprobar.');
+      // Liberar UI antes de cualquier alert() bloqueante (si no, queda «Procesando…»).
+      setProcesando(false);
+      if (!r.ok) {
+        setErrorMsg(r.error || 'No se pudo aprobar.');
+        return;
+      }
       const res = r.resultado || {};
       const partes = [];
       if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
@@ -106,7 +120,11 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
         );
       }
       setPin('');
+      setErrorMsg('');
       await cargar();
+    } catch (err) {
+      setProcesando(false);
+      setErrorMsg(err?.message || 'Error al aprobar.');
     } finally {
       setProcesando(false);
     }
@@ -114,8 +132,12 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
 
   const rechazar = async () => {
     if (procesando) return;
-    if (!pin || String(pin).length < 4) return alert('Ingresa el PIN para rechazar.');
+    if (!pin || String(pin).length < 4) {
+      setErrorMsg('Ingresa el PIN para rechazar.');
+      return;
+    }
     const motivo = window.prompt('Motivo del rechazo (opcional):') || '';
+    setErrorMsg('');
     setProcesando(true);
     try {
       const r = await rechazarCancelacionVentaConPin(supabase, {
@@ -123,9 +145,17 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
         pin,
         motivo,
       });
-      if (!r.ok) return alert(r.error || 'No se pudo rechazar.');
+      setProcesando(false);
+      if (!r.ok) {
+        setErrorMsg(r.error || 'No se pudo rechazar.');
+        return;
+      }
       setPin('');
+      setErrorMsg('');
       await cargar();
+    } catch (err) {
+      setProcesando(false);
+      setErrorMsg(err?.message || 'Error al rechazar.');
     } finally {
       setProcesando(false);
     }
@@ -147,9 +177,38 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
             width: '100%',
             borderTop: '5px solid #b91c1c',
             boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
+            position: 'relative',
           }}
         >
-          <p className="muted" style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, letterSpacing: 0.4 }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-label="Cerrar"
+            onClick={() => {
+              const key = String(actual.ref_id || actual.id || '');
+              if (key) pospuestasRef.current.add(key);
+              setProcesando(false);
+              setErrorMsg('');
+              setPin('');
+              setSolicitud(null);
+              setAlertas((prev) => prev.filter(
+                (n) => String(n.ref_id || n.id || '') !== key,
+              ));
+            }}
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              minWidth: 36,
+              padding: '0.25rem 0.5rem',
+              fontSize: '1.1rem',
+              lineHeight: 1,
+            }}
+            title="Cerrar (la solicitud queda pendiente)"
+          >
+            ×
+          </button>
+          <p className="muted" style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, letterSpacing: 0.4, paddingRight: 36 }}>
             {etiquetaTipoNotificacion(actual.tipo)}
             {restantes > 0 ? ` · +${restantes} más` : ''}
           </p>
@@ -193,6 +252,22 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
               }}
             />
           </label>
+          {errorMsg ? (
+            <p
+              role="alert"
+              style={{
+                margin: '0.65rem 0 0',
+                padding: '0.5rem 0.65rem',
+                borderRadius: 8,
+                background: 'rgba(185,28,28,0.12)',
+                color: '#991b1b',
+                fontSize: '0.85rem',
+                lineHeight: 1.4,
+              }}
+            >
+              {errorMsg}
+            </p>
+          ) : null}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.85rem' }}>
             <button
               type="button"
