@@ -284,7 +284,8 @@ export function normalizarFolioIngRet(raw) {
 }
 
 export function normalizarFolioCmp(raw) {
-  const s = String(raw || '').trim().replace(/\s+/g, '');
+  // Quita -E/-C/-M/-ME/-MC (ticket de recepción) para clave canónica de sustento.
+  const s = quitarSufijoPagoFolio(String(raw || '').trim().replace(/\s+/g, ''));
   if (!s || !/^CMP-/i.test(s)) return '';
   const mNew = s.match(/^CMP-([A-Z0-9]+)-([A-F0-9]{6,})$/i);
   if (mNew) return `CMP-${mNew[1].toUpperCase()}-${mNew[2].toUpperCase()}`;
@@ -297,7 +298,8 @@ export function normalizarFolioCmp(raw) {
 export function normalizarFolioInventario(raw) {
   const s0 = String(raw || '').trim();
   if (!s0) return '';
-  const s = s0.replace(/\s+/g, '');
+  // Sufijos de pago solo aplican a CMP/VR; quitarlos antes de clasificar.
+  const s = quitarSufijoPagoFolio(s0.replace(/\s+/g, ''));
   if (/^trp/i.test(s)) return normalizarFolioTrp(s);
   const ing = normalizarFolioIngRet(s);
   if (ing) return ing;
@@ -328,6 +330,7 @@ export function variantesFolioInventario(raw, sucursal = '') {
   const out = [];
   addUniq(out, n);
   addUniq(out, String(raw || '').trim());
+  addUniq(out, quitarSufijoPagoFolio(raw));
 
   const mIngNew = n.match(/^(ING|RET)-([A-Z0-9]+)-(\d{4}|\d{8})-(\d+)$/i);
   if (mIngNew) addUniq(out, `${mIngNew[1].toUpperCase()}-${mIngNew[3]}-${mIngNew[4]}`);
@@ -351,6 +354,13 @@ export function variantesFolioInventario(raw, sucursal = '') {
   const mCmpOld = n.match(/^CMP-([A-F0-9]{6,})$/i);
   if (mCmpOld && token && token !== 'X') {
     addUniq(out, `CMP-${token}-${mCmpOld[1].toUpperCase()}`);
+  }
+
+  // Variantes con sufijo de pago (recepciones CMP-…-E/-C/-M).
+  if (/^CMP-/i.test(n)) {
+    for (const suf of ['E', 'C', 'M', 'ME', 'MC']) {
+      addUniq(out, `${n}-${suf}`);
+    }
   }
 
   return out;

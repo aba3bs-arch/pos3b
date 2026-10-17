@@ -43,6 +43,9 @@ test('normaliza folios ING corto, CMP y trp', () => {
   assert.equal(normalizarFolioSustentoSmoking('trp-5-20'), 'trp-5-0020');
   assert.equal(normalizarFolioSustentoSmoking('trp-FUS-7'), 'trp-FUS-0007');
   assert.equal(normalizarFolioSustentoSmoking('CMP-5-a1b2c3d4'), 'CMP-5-A1B2C3D4');
+  // Recepción con sufijo de pago: misma clave de sustento.
+  assert.equal(normalizarFolioSustentoSmoking('CMP-5-A1B2C3D4-E'), 'CMP-5-A1B2C3D4');
+  assert.equal(normalizarFolioSustentoSmoking('CMP-5-A1B2C3D4-M'), 'CMP-5-A1B2C3D4');
 });
 
 test('parseFoliosInventarioSmoking', () => {
@@ -237,4 +240,50 @@ test('acepta folio ING-2-… contra ingreso viejo sin sucursal', async () => {
   });
   assert.equal(r.ok, true);
   assert.equal(r.total, 105);
+});
+
+test('rechaza CMP de Venta en Ruta como sustento Smoking', async () => {
+  const id = 'a1b2c3d4-1111-2222-3333-444444444444';
+  const supabase = mockSupabaseMovimientos([]);
+  const r = await resolverFolioSustentoSmoking(supabase, {
+    folio: 'CMP-5-A1B2C3D4-E',
+    sucursal: '3B5',
+    comprasCache: [
+      {
+        id,
+        total: 42,
+        estado: 'recibida',
+        notas: 'Venta en ruta VR-ABC · Folio inv CMP-5-A1B2C3D4-E',
+        sucursal_id: '3B5',
+        proveedor_id: null,
+        proveedores: null,
+      },
+    ],
+  });
+  assert.equal(r.ok, false);
+  assert.match(String(r.error || ''), /Venta en Ruta/i);
+});
+
+test('CMP con sufijo -E resuelve a la misma compra Smoking', async () => {
+  const id = 'b2c3d4e5-1111-2222-3333-444444444444';
+  const supabase = mockSupabaseMovimientos([]);
+  const r = await resolverFolioSustentoSmoking(supabase, {
+    folio: 'CMP-5-B2C3D4E5-E',
+    sucursal: '3B5',
+    comprasCache: [
+      {
+        id,
+        total: 210,
+        estado: 'recibida',
+        notas: 'Pedido Smoking · Folio inv CMP-5-B2C3D4E5-E',
+        sucursal_id: '3B5',
+        proveedor_id: 'prov1',
+        proveedores: { nombre: 'Smoking' },
+      },
+    ],
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.folio, 'CMP-5-B2C3D4E5');
+  assert.equal(r.total, 210);
+  assert.equal(r.proveedor, 'Smoking');
 });

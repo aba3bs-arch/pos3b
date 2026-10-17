@@ -1,4 +1,10 @@
-import { precioRutaEfectivoParaCosto, proveedorUsaCostoPrecioRuta } from './proveedoresCostoRuta.js';
+import {
+  familiaMarcaPrecioRuta,
+  precioRutaEfectivoParaCosto,
+  productoUsaCostoPrecioRutaPorMarca,
+  proveedorUsaCostoPrecioRuta,
+  TARIFA_CEDIS_POR_MARCA,
+} from './proveedoresCostoRuta.js';
 
 /** Cantidad sugerida según stock actual y mínimo configurado. */
 export function sugerirQtyPedido(p, umbralCatalogo, vendidoPeriodo = 0) {
@@ -24,11 +30,17 @@ export function costoEstimadoProducto(p, opts = {}) {
   const ruta = precioRutaEfectivoParaCosto(p, opts.catalogo || []);
   if (ruta != null) return ruta;
   const usarRuta =
-    opts.usarPrecioRuta === true ||
-    (opts.proveedorNombre && proveedorUsaCostoPrecioRuta(opts.proveedorNombre));
+    opts.usarPrecioRuta === true
+    || productoUsaCostoPrecioRutaPorMarca(p)
+    || (opts.proveedorNombre && proveedorUsaCostoPrecioRuta(opts.proveedorNombre));
   if (usarRuta) {
-    const compraCon = Number(p?.precio_compra_con || p?.costo) || 0;
-    if (compraCon > 0) return Math.round(compraCon * 100) / 100;
+    // Nunca caer en precio_compra ($5.25) para Smoking/Marlboro/Pall Mall.
+    const fam = familiaMarcaPrecioRuta(p?.nombre || p?.producto_nombre);
+    const fija = fam ? TARIFA_CEDIS_POR_MARCA[fam] : null;
+    if (fija != null && fija > 0) return Math.round(fija * 100) / 100;
+    if (/(SMOKING)/i.test(String(opts.proveedorNombre || ''))) {
+      return Math.round(TARIFA_CEDIS_POR_MARCA.SMOKING * 100) / 100;
+    }
   }
   const compraCon = Number(p?.precio_compra_con || p?.costo) || 0;
   if (compraCon > 0) return Math.round(compraCon * 100) / 100;
