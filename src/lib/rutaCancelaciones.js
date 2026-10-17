@@ -13,8 +13,13 @@ import {
 import { eliminarMovimientoTransito } from './controlEfectivo.js';
 import {
   familiaFoliosPago,
+  mismosFoliosBase,
   quitarSufijoPagoFolio,
 } from './foliosPago.js';
+import {
+  folioDesdeCompraId,
+  folioInvDesdeNotas,
+} from './foliosInventario.js';
 import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
 import { lineasDeCarga } from './ventaEnRuta.js';
 
@@ -32,6 +37,16 @@ function variantesFolioPago(folioVenta, metodoPago = '') {
     if (fam.credito) out.add(fam.credito);
   }
   return [...out].filter(Boolean);
+}
+
+/** ¿El texto (comentario/notas) menciona alguna variante de folio? */
+function textoMencionaFolios(texto, folios) {
+  const t = String(texto || '').toUpperCase();
+  if (!t) return false;
+  return (folios || []).some((f) => {
+    const u = String(f || '').trim().toUpperCase();
+    return u && t.includes(u);
+  });
 }
 
 export const AVISO_FALTA_CANCELACIONES =
@@ -392,7 +407,7 @@ function limpiarCxcLocalStorage({ ventaId = null, folioVenta = null } = {}) {
 
 /**
  * Borra cargos/abonos de CxC de la venta (crédito o parte crédito del mixto).
- * Busca por venta_id, folio_venta y notas que mencionen el folio VR.
+ * Busca por venta_id, folio_venta (-M/-MC/-C/…) y notas que mencionen el folio VR.
  * También limpia fallback localStorage.
  */
 async function eliminarCreditosDeVenta(supabase, {
@@ -407,6 +422,7 @@ async function eliminarCreditosDeVenta(supabase, {
   if (!vid && !folio) return { ok: true, eliminados: 0, ids: [] };
 
   const folios = variantesFolioPago(folio, metodoPago);
+  const baseFolio = quitarSufijoPagoFolio(folio) || folio;
   const byId = new Map();
   const selectCols = 'id, tipo, estatus, monto, pagado_at, transito_id, folio_venta, venta_id, notas';
 
@@ -414,6 +430,13 @@ async function eliminarCreditosDeVenta(supabase, {
     let n = 0;
     for (const f of (folios.length ? folios : [folio])) {
       n += limpiarCxcLocalStorage({ ventaId: vid, folioVenta: f });
+    }
+    if (exigirSiHabiaCredito && Number(montoCreditoEsperado) > 0.009 && n <= 0) {
+      return {
+        ok: false,
+        error: `No se encontró el crédito CxC de ${folio || vid} (ni …-MC) para eliminarlo.`,
+        eliminados: 0,
+      };
     }
     return { ok: true, eliminados: n, ids: [], local: n };
   }
@@ -438,6 +461,28 @@ async function eliminarCreditosDeVenta(supabase, {
         for (const m of data || []) byId.set(String(m.id), m);
       }
     }
+  }
+
+  // Una sola consulta .in por familia de folios (más fiable que N eq).
+  if (folios.length) {
+    const { data: byIn, error: eIn } = await supabase
+      .from('ruta_cxc_movimientos')
+      .select(selectCols)
+      .in('folio_venta', folios);
+    if (eIn && !/folio_venta|column|schema cache/i.test(String(eIn.message || ''))) {
+      if (faltaTabla(eIn) || /ruta_cxc/i.test(String(eIn.message || ''))) {
+        const n = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
+        return {
+          ok: true,
+          eliminados: byId.size + n,
+          ids: [...byId.keys()],
+          aviso: eIn.message,
+          local: n,
+        };
+      }
+      return { ok: false, error: eIn.message };
+    }
+    for (const m of byIn || []) byId.set(String(m.id), m);
   }
 
   for (const f of folios) {
@@ -465,9 +510,36 @@ async function eliminarCreditosDeVenta(supabase, {
       .from('ruta_cxc_movimientos')
       .select(selectCols)
       .ilike('notas', `%${f}%`)
-      .limit(40);
+      .limit(80);
     if (!eN) {
       for (const m of byNotas || []) byId.set(String(m.id), m);
+    }
+  }
+
+  // Barrido amplio: cargos recientes con la misma base de folio (por si el sufijo no coincide).
+  if (!byId.size && baseFolio) {
+    const { data: recientes, error: eR } = await supabase
+      .from('ruta_cxc_movimientos')
+      .select(selectCols)
+      .eq('tipo', 'cargo')
+      .order('created_at', { ascending: false })
+      .limit(800);
+    if (!eR) {
+      for (const m of recientes || []) {
+        const f = String(m.folio_venta || '');
+        const notas = String(m.notas || '');
+        if (vid && String(m.venta_id || '') === vid) {
+          byId.set(String(m.id), m);
+          continue;
+        }
+        if (f && mismosFoliosBase(f, baseFolio)) {
+          byId.set(String(m.id), m);
+          continue;
+        }
+        if (textoMencionaFolios(notas, folios.length ? folios : [baseFolio])) {
+          byId.set(String(m.id), m);
+        }
+      }
     }
   }
 
@@ -478,7 +550,16 @@ async function eliminarCreditosDeVenta(supabase, {
   const movimientos = [...byId.values()];
 
   if (!movimientos.length) {
-    // Sin filas: OK (ya limpiado o nunca hubo CxC). Siempre aviso para no bloquear aprobación.
+    if (exigirSiHabiaCredito && Number(montoCreditoEsperado) > 0.009 && localN <= 0) {
+      return {
+        ok: false,
+        error:
+          `No se encontró el crédito CxC de ${folio || vid} `
+          + '(ni variantes -MC/-C) para eliminarlo. Revisa Créditos por pagar.',
+        eliminados: 0,
+        local: 0,
+      };
+    }
     return {
       ok: true,
       eliminados: localN,
@@ -503,17 +584,44 @@ async function eliminarCreditosDeVenta(supabase, {
 
   const ids = movimientos.map((m) => String(m.id));
   const { error: eDel } = await supabase.from('ruta_cxc_movimientos').delete().in('id', ids);
-  if (eDel) return { ok: false, error: eDel.message };
+  if (eDel) {
+    // Fallback: marcar cancelado si DELETE está bloqueado
+    const { error: eUp } = await supabase
+      .from('ruta_cxc_movimientos')
+      .update({
+        estatus: 'cancelado',
+        notas: `${movimientos[0]?.notas || ''} · ANULADO por cancelación/devolución ruta`.trim(),
+      })
+      .in('id', ids);
+    if (eUp) return { ok: false, error: eDel.message };
+    return {
+      ok: true,
+      eliminados: ids.length + localN,
+      ids,
+      local: localN,
+      marcadoCancelado: true,
+      tipos: movimientos.map((m) => m.tipo),
+    };
+  }
 
   const { data: still } = await supabase
     .from('ruta_cxc_movimientos')
-    .select('id')
+    .select('id, estatus')
     .in('id', ids);
-  if ((still || []).length) {
-    return {
-      ok: false,
-      error: `No se pudieron borrar ${(still || []).length} movimiento(s) de crédito.`,
-    };
+  const vivos = (still || []).filter(
+    (m) => String(m.estatus || 'pendiente') === 'pendiente',
+  );
+  if (vivos.length) {
+    const { error: eUp2 } = await supabase
+      .from('ruta_cxc_movimientos')
+      .update({ estatus: 'cancelado' })
+      .in('id', vivos.map((m) => m.id));
+    if (eUp2) {
+      return {
+        ok: false,
+        error: `No se pudieron borrar ${vivos.length} movimiento(s) de crédito.`,
+      };
+    }
   }
   return {
     ok: true,
@@ -789,7 +897,7 @@ function lineasDescontarTienda(compra, venta) {
     .filter((l) => l.id && l.qty > 0);
 }
 
-/** Busca compra ligada a la venta por id o por folio VR en notas. */
+/** Busca compra ligada a la venta por id o por folio VR (y variantes -M/-MC/…) en notas. */
 async function resolverCompraDeVenta(supabase, venta) {
   if (!supabase) return null;
   if (venta?.compra_id) {
@@ -805,17 +913,20 @@ async function resolverCompraDeVenta(supabase, venta) {
   const suc = normalizarCodigoTienda(
     venta?.cliente_tipo === 'sucursal' ? venta.cliente_id : null,
   );
-  let q = supabase
-    .from('compras')
-    .select('id, estado, notas, sucursal_id, items, items_pedido')
-    .ilike('notas', `%${folio}%`)
-    .order('created_at', { ascending: false })
-    .limit(8);
-  if (suc) q = q.eq('sucursal_id', suc);
-  const { data, error } = await q;
-  if (error || !data?.length) return null;
-  // Prefiere no-cancelada
-  return data.find((c) => String(c.estado || '').toLowerCase() !== 'cancelada') || data[0];
+  const folios = variantesFolioPago(folio, venta?.metodo_pago);
+  for (const f of (folios.length ? folios : [folio])) {
+    let q = supabase
+      .from('compras')
+      .select('id, estado, notas, sucursal_id, items, items_pedido')
+      .ilike('notas', `%${f}%`)
+      .order('created_at', { ascending: false })
+      .limit(8);
+    if (suc) q = q.eq('sucursal_id', suc);
+    const { data, error } = await q;
+    if (error || !data?.length) continue;
+    return data.find((c) => String(c.estado || '').toLowerCase() !== 'cancelada') || data[0];
+  }
+  return null;
 }
 
 /**
@@ -896,31 +1007,119 @@ async function descontarInventarioTienda(supabase, {
   };
 }
 
-async function anularGastoCompraCorte(supabase, compra, venta) {
+/**
+ * Anula el gasto de Corte Abarrotes de la recepción (COMPRA VENTA EN RUTA · CMP-…).
+ * El gasto se indexa por folio CMP (no por VR); hay que buscar ambas familias.
+ */
+async function anularGastoCompraCorte(supabase, compra, venta, { metodoPago = null } = {}) {
   if (!supabase || !compra?.id) return { ok: true, omitido: true };
   const suc = normalizarCodigoTienda(compra.sucursal_id || venta?.cliente_id);
-  const folioInv = (String(compra.notas || '').match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1];
+  const mp = String(metodoPago || venta?.metodo_pago || '').toLowerCase();
+  const folioInv = folioInvDesdeNotas(compra.notas)
+    || (String(compra.notas || '').match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1]
+    || '';
   const folioVenta = venta?.folio || folioVentaRutaDesdeNotasSafe(compra.notas);
-  // Busca gastos ligados a esta recepción / folio VR
-  let q = supabase
-    .from('cortes_contabilidad_gastos')
-    .select('id, comentario, monto, deleted_at')
-    .eq('modulo', 'abarrotes')
-    .order('created_at', { ascending: false })
-    .limit(40);
-  if (suc) q = q.eq('sucursal_id', suc);
-  const { data, error } = await q;
-  if (error) return { ok: true, omitido: true, aviso: error.message };
-  const hits = (data || []).filter((g) => {
-    if (g.deleted_at) return false;
-    const c = String(g.comentario || '');
-    if (folioInv && c.includes(folioInv)) return true;
-    if (folioVenta && c.toUpperCase().includes(String(folioVenta).toUpperCase())) return true;
-    if (c.includes(String(compra.id))) return true;
-    return false;
-  });
-  if (!hits.length) return { ok: true, omitido: true };
+  const tokens = new Set();
+  if (folioInv) {
+    for (const t of variantesFolioPago(folioInv, mp)) tokens.add(t);
+  }
+  // Folios CMP derivados del id (con/sin sucursal, con sufijos de pago).
+  for (const baseCmp of [
+    folioDesdeCompraId(compra.id, compra.sucursal_id || suc),
+    folioDesdeCompraId(compra.id, ''),
+  ].filter(Boolean)) {
+    for (const t of variantesFolioPago(baseCmp, mp || 'mixto')) tokens.add(t);
+  }
+  if (folioVenta) {
+    for (const t of variantesFolioPago(folioVenta, mp)) tokens.add(t);
+  }
+  const hex = String(compra.id).replace(/-/g, '').slice(0, 8).toUpperCase();
+  if (hex) tokens.add(hex);
+  tokens.add(String(compra.id));
+  const listaTok = [...tokens].filter(Boolean);
+
+  const byId = new Map();
+  const yaAnulados = [];
+  const selectCols = 'id, comentario, monto, deleted_at, folios_inventario, sucursal_id';
+
+  const absorber = (rows) => {
+    for (const g of rows || []) {
+      if (!g?.id) continue;
+      const blob = `${g.comentario || ''} ${g.folios_inventario || ''}`;
+      if (!textoMencionaFolios(blob, listaTok) && !textoMencionaFolios(blob, [hex])) continue;
+      if (g.deleted_at || /ANULADO por devoluci[oó]n ruta/i.test(String(g.comentario || ''))) {
+        yaAnulados.push(g);
+        continue;
+      }
+      byId.set(String(g.id), g);
+    }
+  };
+
+  // Búsquedas dirigidas por comentario (el gasto dice «COMPRA VENTA EN RUTA · CMP-…»).
+  for (const tok of listaTok.slice(0, 24)) {
+    if (String(tok).length < 6) continue;
+    let q = supabase
+      .from('cortes_contabilidad_gastos')
+      .select(selectCols)
+      .eq('modulo', 'abarrotes')
+      .ilike('comentario', `%${tok}%`)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (suc) q = q.eq('sucursal_id', suc);
+    const { data, error } = await q;
+    if (error && /folios_inventario|deleted_at|column|schema cache/i.test(String(error.message || ''))) {
+      let q2 = supabase
+        .from('cortes_contabilidad_gastos')
+        .select('id, comentario, monto')
+        .eq('modulo', 'abarrotes')
+        .ilike('comentario', `%${tok}%`)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (suc) q2 = q2.eq('sucursal_id', suc);
+      const retry = await q2;
+      if (!retry.error) absorber(retry.data);
+      continue;
+    }
+    if (!error) absorber(data);
+  }
+
+  // Barrido de respaldo por sucursal (por si el token no estaba en comentario).
+  if (!byId.size) {
+    let q = supabase
+      .from('cortes_contabilidad_gastos')
+      .select(selectCols)
+      .eq('modulo', 'abarrotes')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (suc) q = q.eq('sucursal_id', suc);
+    const { data, error } = await q;
+    if (error && /folios_inventario|deleted_at|column|schema cache/i.test(String(error.message || ''))) {
+      let q2 = supabase
+        .from('cortes_contabilidad_gastos')
+        .select('id, comentario, monto')
+        .eq('modulo', 'abarrotes')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (suc) q2 = q2.eq('sucursal_id', suc);
+      const retry = await q2;
+      if (!retry.error) absorber(retry.data);
+    } else if (!error) {
+      absorber(data);
+    } else {
+      return { ok: true, omitido: true, aviso: error.message };
+    }
+  }
+
+  const hits = [...byId.values()];
+  if (!hits.length) {
+    if (yaAnulados.length) {
+      return { ok: true, anulados: 0, yaAnulados: yaAnulados.length, omitido: false };
+    }
+    return { ok: true, omitido: true, tokens: listaTok.slice(0, 12) };
+  }
+
   let anulados = 0;
+  const idsOk = [];
   for (const g of hits) {
     let { error: eUp } = await supabase
       .from('cortes_contabilidad_gastos')
@@ -932,9 +1131,19 @@ async function anularGastoCompraCorte(supabase, compra, venta) {
     if (eUp && /deleted_at|column|schema cache/i.test(String(eUp.message || ''))) {
       ({ error: eUp } = await supabase.from('cortes_contabilidad_gastos').delete().eq('id', g.id));
     }
-    if (!eUp) anulados += 1;
+    if (!eUp) {
+      anulados += 1;
+      idsOk.push(g.id);
+    }
   }
-  return { ok: true, anulados, ids: hits.map((h) => h.id) };
+  if (!anulados) {
+    return {
+      ok: false,
+      error: 'No se pudo anular el gasto de Corte Abarrotes ligado a la compra.',
+      ids: hits.map((h) => h.id),
+    };
+  }
+  return { ok: true, anulados, ids: idsOk };
 }
 
 function folioVentaRutaDesdeNotasSafe(notas) {
@@ -1079,10 +1288,26 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
   });
   if (!invTienda.ok) return invTienda;
 
-  // 3) Anular gasto de corte ligado a esa recepción (si hubo).
-  const gasto = compraRow && compraYaRecibida(compraRow)
-    ? await anularGastoCompraCorte(supabase, compraRow, ventaConCompra)
+  // 3) Anular gasto de Corte Abarrotes (COMPRA VENTA EN RUTA · CMP-…).
+  // Se intenta siempre que haya compra: el gasto nace al recibir (efectivo / parte efectivo mixto).
+  const gastoEsperado = Boolean(
+    compraRow
+    && compraYaRecibida(compraRow)
+    && (montos.efectivo > 0.009 || mp === 'efectivo'),
+  );
+  const gasto = compraRow
+    ? await anularGastoCompraCorte(supabase, compraRow, ventaConCompra, { metodoPago: mp })
     : { ok: true, omitido: true };
+  if (!gasto.ok) return gasto;
+  if (gastoEsperado && !(Number(gasto.anulados) > 0) && !(Number(gasto.yaAnulados) > 0)) {
+    return {
+      ok: false,
+      error:
+        'No se anuló el gasto de Corte Abarrotes de esa compra (folio CMP). '
+        + 'Cancelación abortada — revisa el corte de la tienda.',
+      gastoCorte: gasto,
+    };
+  }
 
   // 4) Eliminar crédito (crédito o parte crédito del mixto) en CxC.
   // Busca también …-MC / …-C (folio de operación puede ser …-M).
@@ -1090,8 +1315,10 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
     ventaId: venta.id,
     folioVenta: folio,
     metodoPago: mp,
-    exigirSiHabiaCredito: montos.credito > 0 || mp === 'credito' || mp === 'mixto',
-    montoCreditoEsperado: montos.credito,
+    exigirSiHabiaCredito: montos.credito > 0.009 || mp === 'credito',
+    montoCreditoEsperado: montos.credito > 0.009
+      ? montos.credito
+      : (mp === 'credito' ? Math.max(Number(venta.total) || 0, 0) : 0),
   });
   if (!cxc.ok) return cxc;
 
@@ -1395,8 +1622,7 @@ export async function aprobarCancelacionVentaConPin(supabase, {
   });
   if (!exec.ok) return exec;
 
-  // Sin hechos de camión → no aprobar. CxC/RC: solo bloquear si falló de verdad (ok:false).
-  // Antes se bloqueaba si monto_credito>0 pero no había filas CxC (mixto con desglose en -MC).
+  // Sin hechos de camión / crédito / gasto / RC → no aprobar.
   const montoCre = Number(sol.monto_credito) || Number(exec.montos?.credito) || 0;
   const montoEfe = Number(sol.monto_efectivo) || Number(exec.montos?.efectivo) || 0;
   const mpSol = String(sol.metodo_pago || venta.metodo_pago || '').toLowerCase();
@@ -1408,11 +1634,18 @@ export async function aprobarCancelacionVentaConPin(supabase, {
       parcial: exec,
     };
   }
-  if (exec.creditos && exec.creditos.ok === false && montoCre > 0.009) {
+  if (exec.creditos && exec.creditos.ok === false) {
     return {
       ok: false,
       error: exec.creditos.error
         || 'La cancelación no eliminó el crédito/mixto en CxC. No se marcó como aprobada.',
+      parcial: exec,
+    };
+  }
+  if (montoCre > 0.009 && !(Number(exec.creditos?.eliminados) > 0) && !exec.creditos?.aviso) {
+    return {
+      ok: false,
+      error: 'La cancelación no eliminó el crédito/mixto en CxC. No se marcó como aprobada.',
       parcial: exec,
     };
   }
@@ -1424,13 +1657,43 @@ export async function aprobarCancelacionVentaConPin(supabase, {
       parcial: exec,
     };
   }
+  if (exec.gastoCorte && exec.gastoCorte.ok === false) {
+    return {
+      ok: false,
+      error: exec.gastoCorte.error
+        || 'La cancelación no anuló el gasto de Corte Abarrotes. No se marcó como aprobada.',
+      parcial: exec,
+    };
+  }
+  if (
+    montoEfe > 0.009
+    && exec.gastoCorte
+    && !(Number(exec.gastoCorte.anulados) > 0)
+    && !(Number(exec.gastoCorte.yaAnulados) > 0)
+    && !exec.gastoCorte.omitido
+  ) {
+    return {
+      ok: false,
+      error: 'La cancelación no anuló el gasto de Corte Abarrotes. No se marcó como aprobada.',
+      parcial: exec,
+    };
+  }
 
-  // Doble check residuales por folio (incluye -ME / -MC)
-  await eliminarCreditosDeVenta(supabase, {
+  // Doble check residuales por folio (incluye -ME / -MC) — exige borrar si aún hay crédito.
+  const cxcExtra = await eliminarCreditosDeVenta(supabase, {
     ventaId: sol.venta_id || venta.id,
     folioVenta: sol.folio_venta || venta.folio,
     metodoPago: mpSol,
+    exigirSiHabiaCredito: false,
   });
+  if (cxcExtra.ok === false) {
+    return {
+      ok: false,
+      error: cxcExtra.error || 'Quedó crédito CxC residual. No se marcó como aprobada.',
+      parcial: { ...exec, creditosExtra: cxcExtra },
+    };
+  }
+  if (cxcExtra.eliminados) exec.creditosExtra = cxcExtra;
   const trExtra = await revertirTransito(supabase, {
     transitoId: sol.transito_id || venta.transito_id,
     folioVenta: sol.folio_venta || venta.folio,

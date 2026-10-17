@@ -104,6 +104,7 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
       if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
       if (res.inventarioTienda?.aplicados) partes.push(`tienda −${res.inventarioTienda.aplicados} prod.`);
       if (res.creditos?.eliminados) partes.push(`crédito ×${res.creditos.eliminados}`);
+      if (res.gastoCorte?.anulados) partes.push(`gasto corte ×${res.gastoCorte.anulados}`);
       if (res.transito?.eliminado || res.transitoExtra?.eliminado) partes.push('efectivo RC quitado');
       if (res.compra?.eliminada || res.compra?.cancelada) partes.push('compra eliminada');
       if (res.venta?.eliminada || res.venta?.ok) partes.push('venta eliminada');
