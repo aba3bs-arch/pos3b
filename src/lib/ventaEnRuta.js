@@ -21,6 +21,7 @@ import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { listarRepartidores } from './controlEfectivo.js';
 import { conImpuesto, gananciaDesdePrecios } from './productoForm.js';
+import { familiaFoliosPago, folioConSufijoPago } from './foliosPago.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 /** @deprecated El efectivo de venta en ruta ya no entra a RC Abarrotes. */
@@ -455,8 +456,10 @@ function folioEventoCarga() {
   const rnd = Math.random().toString(36).slice(2, 5).toUpperCase();
   return `CI-${ymd}-${hms}-${rnd}`;
 }
-function folioVenta() {
-  return `VR-${Date.now().toString(36).toUpperCase()}`;
+/** Folio VR con sufijo de pago: -E / -C / -M. */
+function folioVenta(metodo = '') {
+  const base = `VR-${Date.now().toString(36).toUpperCase()}`;
+  return folioConSufijoPago(base, metodo) || base;
 }
 
 /**
@@ -2059,7 +2062,8 @@ export async function registrarVentaRuta(supabase, {
     return { ok: false, error: 'No se pudo asociar la venta a una carga en ruta.' };
   }
 
-  const folio = folioVenta();
+  const folio = folioVenta(mp);
+  const foliosPago = familiaFoliosPago(folio, mp);
   // Guarda asignación exacta por línea de camión para poder revertir al cancelar.
   const lineasCamionMeta = allAsign.map((x) => ({
     lineaId: x.linea?.id || null,
@@ -2069,7 +2073,13 @@ export async function registrarVentaRuta(supabase, {
   })).filter((x) => x.lineaId && x.qty > 0);
   const artsGuardar = [...arts];
   if (mp === 'mixto') {
-    artsGuardar.push({ _pago_mixto: true, efectivo: montoEfe, credito: montoCre });
+    artsGuardar.push({
+      _pago_mixto: true,
+      efectivo: montoEfe,
+      credito: montoCre,
+      folio_efectivo: foliosPago.efectivo,
+      folio_credito: foliosPago.credito,
+    });
   }
   if (lineasCamionMeta.length) {
     artsGuardar.push({ _lineas_camion: lineasCamionMeta });
@@ -2213,14 +2223,15 @@ export async function registrarVentaRuta(supabase, {
         }
       }
     }
+    const folioEfe = foliosPago.efectivo || folio;
     const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
       sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
       monto: montoEfe,
-      folioVenta: folio,
+      folioVenta: folioEfe,
       vendedorId,
       vendedorNombre,
       repartidorId: ridTransito || undefined,
-      nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
+      nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe} · ${folioEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
     });
     if (!tr.ok) {
       await enlazarVenta();
@@ -2239,6 +2250,7 @@ export async function registrarVentaRuta(supabase, {
   }
 
   if (montoCre > 0) {
+    const folioCre = foliosPago.credito || folio;
     const cxc = await registrarCargoCreditoRuta(supabase, {
       clienteTipo: tipoCli,
       clienteId,
@@ -2246,10 +2258,10 @@ export async function registrarVentaRuta(supabase, {
       monto: montoCre,
       ventaId: venta.id,
       cargaId: primaryCargaId,
-      folioVenta: folio,
+      folioVenta: folioCre,
       usuarioNombre: vendedorNombre,
       notas: mp === 'mixto'
-        ? `Venta ${folio} · mixto crédito ${montoCre}`
+        ? `Venta ${folio} · mixto crédito ${montoCre} · ${folioCre}`
         : `Venta ${folio}`,
     });
     if (!cxc.ok) {

@@ -2140,11 +2140,14 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     if (r.avisos?.length) setAviso(r.avisos.join(' · '));
 
     // Ticket con tipo de pago en letra grande (CREDITO / MIXTO / EFECTIVO).
+    // Folios: …-E / …-C / …-M (mixto desglosa …-ME y …-MC).
     try {
+      const folioOp = r.venta?.folio || r.folio || null;
+      const mixMeta = (r.venta?.articulos || []).find((a) => a && a._pago_mixto);
       await entregarTicketVenta({
         sucursal: tipo === 'sucursal' ? id : (user?.sucursal_id || 'MAIN'),
         vendedor: vendedorNombre,
-        folio: r.venta?.folio || r.folio || null,
+        folio: folioOp,
         destino: dest?.nombre || id,
         articulos: carrito.map((a) => ({
           id: a.productoId,
@@ -2157,6 +2160,8 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
         metodo,
         monto_efectivo: montoEfe,
         monto_credito: montoCre,
+        folio_efectivo: mixMeta?.folio_efectivo || null,
+        folio_credito: mixMeta?.folio_credito || null,
         tituloTicket: 'VENTA EN RUTA',
         pieExtra: r.compraId
           ? 'Pedido enviado a Compras de la tienda destino.'

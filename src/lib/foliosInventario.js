@@ -2,7 +2,8 @@
  * Folios de inventario por sucursal.
  * Ingresos: ING-{suc}-{DDMM}-####   (3B5 → ING-5-0509-0001)
  * Retiros:  RET-{suc}-{DDMM}-####
- * Compras:  CMP-{suc}-XXXXXXXX  (o ING al recibir, mismo consecutivo que ingresos)
+ * Compras:  CMP-{suc}-XXXXXXXX[-E|-C|-M]  (ticket: -E efectivo, -C crédito, -M mixto;
+ *           en mixto además -ME / -MC para partes; ver foliosPago.js)
  * Traspasos: trp-{suc}-####
  *
  * El consecutivo #### es continuo por sucursal (NO reinicia cada día):
@@ -13,6 +14,11 @@
  */
 import { tokenFolioSucursal } from '../constants/sucursales.js';
 import { hoyYmdNogales } from './corteCaja.js';
+import {
+  familiaFoliosPago,
+  folioConSufijoPago,
+  quitarSufijoPagoFolio,
+} from './foliosPago.js';
 
 const LS_FOLIO_ING = 'pos3b_folio_ingreso_seq';
 const LS_FOLIO_RET = 'pos3b_folio_retiro_seq';
@@ -179,7 +185,7 @@ export async function siguienteFolioMovimiento(supabase, tipo = 'entrada', sucur
   return generarFolioMovimiento(tipo, sucursal);
 }
 
-/** Folio estable ligado a una compra (misma recepción = mismo folio), distinto por sucursal. */
+/** Folio base ligado a una compra (sin sufijo de pago), distinto por sucursal. */
 export function folioDesdeCompraId(compraId, sucursal = '') {
   const raw = String(compraId || '').replace(/-/g, '').trim();
   if (!raw) return generarFolioMovimiento('entrada', sucursal);
@@ -189,10 +195,23 @@ export function folioDesdeCompraId(compraId, sucursal = '') {
   return `CMP-${token}-${hex}`;
 }
 
-/** ¿El folio tecleado corresponde a esta compra? Acepta CMP viejo y CMP-{suc}-hex. */
+/**
+ * Folio de ticket de compra/recepción con sufijo de pago (-E / -C / -M).
+ * Mixto: el ticket padre es …-M; partes …-ME / …-MC vía familiaFoliosPago.
+ */
+export function folioCompraConPago(compraId, sucursal = '', metodo = '') {
+  const base = folioDesdeCompraId(compraId, sucursal);
+  return folioConSufijoPago(base, metodo) || base;
+}
+
+export function familiaFoliosCompraPago(compraId, sucursal = '', metodo = '') {
+  return familiaFoliosPago(folioDesdeCompraId(compraId, sucursal), metodo);
+}
+
+/** ¿El folio tecleado corresponde a esta compra? Acepta CMP viejo, con sucursal y sufijos -E/-C/-M/-ME/-MC. */
 export function coincideFolioCompra(compra, folio) {
   if (!compra?.id) return false;
-  const fUp = String(folio || '').trim().toUpperCase();
+  const fUp = quitarSufijoPagoFolio(folio).toUpperCase();
   if (!fUp) return false;
   if (folioDesdeCompraId(compra.id).toUpperCase() === fUp) return true;
   if (folioDesdeCompraId(compra.id, compra.sucursal_id).toUpperCase() === fUp) return true;

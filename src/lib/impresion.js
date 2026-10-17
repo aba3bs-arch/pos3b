@@ -171,13 +171,15 @@ export function htmlBloqueTipoPagoGrande(data = {}) {
   if (metodo === 'mixto') {
     const e = Number.isFinite(efe) ? efe : 0;
     const c = Number.isFinite(cre) ? cre : 0;
+    const folioMe = data.folio_efectivo || data.folioEfectivo || '';
+    const folioMc = data.folio_credito || data.folioCredito || '';
     return `
       <div class="center" style="margin:6px 0 8px">
         <div style="font-size:2em;font-weight:900;letter-spacing:0.06em;line-height:1">MIXTO</div>
       </div>
       <div class="bold">Desglose de pago</div>
-      <div>Efectivo: ${fmtMoney(e)}</div>
-      <div>Crédito: ${fmtMoney(c)}</div>
+      <div>Efectivo: ${fmtMoney(e)}${folioMe ? ` · ${esc(folioMe)}` : ''}</div>
+      <div>Crédito: ${fmtMoney(c)}${folioMc ? ` · ${esc(folioMc)}` : ''}</div>
       <div class="sep"></div>`;
   }
   if (metodo === 'efectivo') {
