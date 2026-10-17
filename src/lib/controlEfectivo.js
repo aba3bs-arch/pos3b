@@ -1748,16 +1748,6 @@ function bitacoraTextoGasto(fotoUrl, descripcion, sufijo) {
   return `${base}${sufijo ? ` ${sufijo}` : ''}`.trim();
 }
 
-/** Categorías rápidas para gastos del camión / surtido. */
-export const CATEGORIAS_GASTO_RUTA = [
-  { id: 'gasolina', label: 'Gasolina' },
-  { id: 'casetas', label: 'Casetas' },
-  { id: 'comida', label: 'Comida' },
-  { id: 'refacciones', label: 'Refacciones' },
-  { id: 'estacionamiento', label: 'Estacionamiento' },
-  { id: 'otro', label: 'Otro' },
-];
-
 /**
  * Solo gastos que AÚN afectan el neto a liberar (todas las rutas / recolectores).
  * No incluye históricos ya absorbidos por liquidaciones anteriores.
@@ -1909,7 +1899,8 @@ export async function registrarGastoRecolector(supabase, { repartidorId, monto, 
 export async function registrarGastoRutaConEvidencia(supabase, {
   repartidorId,
   monto,
-  categoria = 'otro',
+  categoriaId = null,
+  categoriaNombre = '',
   descripcion = '',
   evidenciaUrl = null,
   registradoPor = null,
@@ -1918,13 +1909,14 @@ export async function registrarGastoRutaConEvidencia(supabase, {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const m = Number(monto);
   if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
-  const cat = CATEGORIAS_GASTO_RUTA.find((c) => c.id === String(categoria || '').toLowerCase())
-    || CATEGORIAS_GASTO_RUTA.find((c) => c.id === 'otro');
+  const catNom = String(categoriaNombre || '').trim();
+  if (!catNom) return { ok: false, error: 'Selecciona una categoría de gasto.' };
   const nota = String(descripcion || '').trim();
   const concepto = nota
-    ? `${cat.label}: ${nota}`.slice(0, 500)
-    : cat.label;
+    ? `${catNom}: ${nota}`.slice(0, 500)
+    : catNom.slice(0, 500);
   if (!concepto) return { ok: false, error: 'Describe el gasto.' };
+  void categoriaId;
   const foto = String(evidenciaUrl || '').trim();
   if (!foto || !esDataUrlImagen(foto)) {
     return { ok: false, error: 'Toma o adjunta una foto del ticket / nota de remisión.' };

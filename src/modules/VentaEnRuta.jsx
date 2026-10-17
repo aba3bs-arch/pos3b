@@ -431,14 +431,26 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
       {vista === 'gastos' && puede('ruta_gastos') && (
         !vendedorSesion ? (
-          <PanelSesionVendedorRuta
-            supabase={supabase}
-            user={user}
-            sucursal={sucursal}
-            titulo="Login recolector · Gastos de ruta"
-            onSesion={onSesionVendedorOk}
-            setAviso={setAviso}
-          />
+          <>
+            {/* Solo Admin gestiona categorías sin login de recolector */}
+            {normalizarRol(user?.rol) === 'Administrador' ? (
+              <GastosRuta
+                supabase={supabase}
+                user={user}
+                setAviso={setAviso}
+                onVolver={() => ir('hub')}
+                soloCategorias
+              />
+            ) : null}
+            <PanelSesionVendedorRuta
+              supabase={supabase}
+              user={user}
+              sucursal={sucursal}
+              titulo="Login recolector · Gastos de ruta"
+              onSesion={onSesionVendedorOk}
+              setAviso={setAviso}
+            />
+          </>
         ) : (
           <GastosRuta
             supabase={supabase}
