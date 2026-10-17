@@ -11,8 +11,28 @@ import {
   TIPOS_NOTIF,
 } from './contabilidadNotificaciones.js';
 import { eliminarMovimientoTransito } from './controlEfectivo.js';
+import {
+  familiaFoliosPago,
+  quitarSufijoPagoFolio,
+} from './foliosPago.js';
 import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
 import { lineasDeCarga } from './ventaEnRuta.js';
+
+/** Variantes de folio VR/CMP con sufijos -E/-C/-M/-ME/-MC (y base sin sufijo). */
+function variantesFolioPago(folioVenta, metodoPago = '') {
+  const raw = String(folioVenta || '').trim();
+  if (!raw) return [];
+  const base = quitarSufijoPagoFolio(raw) || raw;
+  const out = new Set([raw, base]);
+  for (const m of ['efectivo', 'credito', 'mixto', String(metodoPago || '').toLowerCase()]) {
+    if (!m) continue;
+    const fam = familiaFoliosPago(base, m);
+    if (fam.operacion) out.add(fam.operacion);
+    if (fam.efectivo) out.add(fam.efectivo);
+    if (fam.credito) out.add(fam.credito);
+  }
+  return [...out].filter(Boolean);
+}
 
 export const AVISO_FALTA_CANCELACIONES =
   'Falta la tabla de cancelaciones de ruta. En Supabase ejecuta supabase/fix_ruta_cancelaciones.sql';
@@ -378,6 +398,7 @@ function limpiarCxcLocalStorage({ ventaId = null, folioVenta = null } = {}) {
 async function eliminarCreditosDeVenta(supabase, {
   ventaId = null,
   folioVenta = null,
+  metodoPago = null,
   exigirSiHabiaCredito = false,
   montoCreditoEsperado = 0,
 } = {}) {
@@ -385,11 +406,15 @@ async function eliminarCreditosDeVenta(supabase, {
   const vid = ventaId != null ? String(ventaId).trim() : '';
   if (!vid && !folio) return { ok: true, eliminados: 0, ids: [] };
 
+  const folios = variantesFolioPago(folio, metodoPago);
   const byId = new Map();
   const selectCols = 'id, tipo, estatus, monto, pagado_at, transito_id, folio_venta, venta_id, notas';
 
   if (!supabase) {
-    const n = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
+    let n = 0;
+    for (const f of (folios.length ? folios : [folio])) {
+      n += limpiarCxcLocalStorage({ ventaId: vid, folioVenta: f });
+    }
     return { ok: true, eliminados: n, ids: [], local: n };
   }
 
@@ -415,14 +440,14 @@ async function eliminarCreditosDeVenta(supabase, {
     }
   }
 
-  if (folio) {
+  for (const f of folios) {
     const { data, error } = await supabase
       .from('ruta_cxc_movimientos')
       .select(selectCols)
-      .eq('folio_venta', folio);
+      .eq('folio_venta', f);
     if (error && !/folio_venta|column|schema cache/i.test(String(error.message || ''))) {
       if (faltaTabla(error) || /ruta_cxc/i.test(String(error.message || ''))) {
-        const n = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
+        const n = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: f });
         return {
           ok: true,
           eliminados: byId.size + n,
@@ -439,36 +464,40 @@ async function eliminarCreditosDeVenta(supabase, {
     const { data: byNotas, error: eN } = await supabase
       .from('ruta_cxc_movimientos')
       .select(selectCols)
-      .ilike('notas', `%${folio}%`)
+      .ilike('notas', `%${f}%`)
       .limit(40);
     if (!eN) {
       for (const m of byNotas || []) byId.set(String(m.id), m);
     }
   }
 
-  const localN = limpiarCxcLocalStorage({ ventaId: vid, folioVenta: folio });
+  let localN = 0;
+  for (const f of (folios.length ? folios : [folio])) {
+    localN += limpiarCxcLocalStorage({ ventaId: vid, folioVenta: f });
+  }
   const movimientos = [...byId.values()];
 
   if (!movimientos.length) {
-    if (exigirSiHabiaCredito && Number(montoCreditoEsperado) > 0.009) {
-      // Puede que ya se hayan borrado en un reintento; no bloquea si no hay filas
-      return {
-        ok: true,
-        eliminados: localN,
-        ids: [],
-        local: localN,
-        aviso: localN
-          ? `Crédito local ×${localN}`
-          : 'Sin movimientos CxC (¿ya eliminados?).',
-      };
-    }
-    return { ok: true, eliminados: localN, ids: [], local: localN };
+    // Sin filas: OK (ya limpiado o nunca hubo CxC). Siempre aviso para no bloquear aprobación.
+    return {
+      ok: true,
+      eliminados: localN,
+      ids: [],
+      local: localN,
+      aviso: localN
+        ? `Crédito local ×${localN}`
+        : 'Sin movimientos CxC (¿ya eliminados?).',
+    };
   }
 
   // Si hubo cobro de crédito, quitar también su tránsito En Tránsito
   for (const m of movimientos) {
     if (m.transito_id) {
-      await revertirTransito(supabase, { transitoId: m.transito_id, folioVenta: folio || null });
+      await revertirTransito(supabase, {
+        transitoId: m.transito_id,
+        folioVenta: folio || null,
+        metodoPago,
+      });
     }
   }
 
@@ -506,7 +535,11 @@ const TIPOS_TRANSITO_VENTA_RUTA = new Set([
  * Localiza movimientos En Tránsito de «Venta Ruta» / cobro crédito por id y/o folio VR.
  * Si la venta no guardó transito_id, aún así se limpia RC/VentaRuta Pendientes.
  */
-async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioVenta = null } = {}) {
+async function localizarTransitosVentaRuta(supabase, {
+  transitoId = null,
+  folioVenta = null,
+  metodoPago = null,
+} = {}) {
   const found = new Map();
   const tid = transitoId != null ? String(transitoId).trim() : '';
   if (tid) {
@@ -520,11 +553,12 @@ async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioV
   }
 
   const folio = String(folioVenta || '').trim();
-  if (folio) {
+  const folios = variantesFolioPago(folio, metodoPago);
+  for (const f of folios) {
     const { data, error } = await supabase
       .from('transito_efectivo')
       .select('id, estatus, monto, tipo_movimiento, num_traspaso, descripcion_gasto')
-      .eq('num_traspaso', folio)
+      .eq('num_traspaso', f)
       .order('fecha_hora', { ascending: false })
       .limit(20);
     if (error) return { ok: false, error: error.message, rows: [...found.values()] };
@@ -534,7 +568,7 @@ async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioV
       if (
         TIPOS_TRANSITO_VENTA_RUTA.has(tipo)
         || tipo === 'Venta Ruta'
-        || (!tipo && /^VR-/i.test(folio))
+        || (!tipo && /^VR-/i.test(f))
       ) {
         found.set(String(row.id), row);
       }
@@ -544,7 +578,7 @@ async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioV
     const { data: byDesc, error: eD } = await supabase
       .from('transito_efectivo')
       .select('id, estatus, monto, tipo_movimiento, num_traspaso, descripcion_gasto')
-      .ilike('descripcion_gasto', `%${folio}%`)
+      .ilike('descripcion_gasto', `%${f}%`)
       .order('fecha_hora', { ascending: false })
       .limit(20);
     if (!eD) {
@@ -560,8 +594,12 @@ async function localizarTransitosVentaRuta(supabase, { transitoId = null, folioV
   return { ok: true, rows: [...found.values()] };
 }
 
-async function revertirTransito(supabase, { transitoId = null, folioVenta = null } = {}) {
-  const loc = await localizarTransitosVentaRuta(supabase, { transitoId, folioVenta });
+async function revertirTransito(supabase, {
+  transitoId = null,
+  folioVenta = null,
+  metodoPago = null,
+} = {}) {
+  const loc = await localizarTransitosVentaRuta(supabase, { transitoId, folioVenta, metodoPago });
   if (!loc.ok) return loc;
   const rows = loc.rows || [];
   if (!rows.length) {
@@ -686,13 +724,16 @@ export async function repararTransitosCancelacionesAprobadas(supabase, { limit =
     }
 
     // Venta ya no existe: limpia residuales por folio/ids de la solicitud
+    const mpSol = String(sol.metodo_pago || '').toLowerCase();
     const cxc = await eliminarCreditosDeVenta(supabase, {
       ventaId: sol.venta_id,
       folioVenta: folio,
+      metodoPago: mpSol,
     });
     const tr = await revertirTransito(supabase, {
       transitoId: sol.transito_id,
       folioVenta: folio,
+      metodoPago: mpSol,
     });
     if (sol.compra_id) {
       await cancelarCompraPedido(supabase, sol.compra_id, { yaDescontoTienda: true });
@@ -997,7 +1038,11 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
   const mp = String(venta.metodo_pago || '').toLowerCase();
 
   if (soloLimpiarTransito) {
-    const trOrphan = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
+    const trOrphan = await revertirTransito(supabase, {
+      transitoId: tid,
+      folioVenta: folio,
+      metodoPago: mp,
+    });
     if (!trOrphan.ok) return trOrphan;
     return { ok: true, soloTransito: true, transito: trOrphan, ventaId: venta.id, folio };
   }
@@ -1040,16 +1085,23 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
     : { ok: true, omitido: true };
 
   // 4) Eliminar crédito (crédito o parte crédito del mixto) en CxC.
+  // Busca también …-MC / …-C (folio de operación puede ser …-M).
   const cxc = await eliminarCreditosDeVenta(supabase, {
     ventaId: venta.id,
     folioVenta: folio,
+    metodoPago: mp,
     exigirSiHabiaCredito: montos.credito > 0 || mp === 'credito' || mp === 'mixto',
     montoCreditoEsperado: montos.credito,
   });
   if (!cxc.ok) return cxc;
 
   // 5) Quitar efectivo de RC/VentaRuta Pendientes (efectivo o parte efectivo del mixto).
-  const tr = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
+  // Busca también …-ME / …-E.
+  const tr = await revertirTransito(supabase, {
+    transitoId: tid,
+    folioVenta: folio,
+    metodoPago: mp,
+  });
   if (!tr.ok) return tr;
   // Si era efectivo/mixto con monto y no se borró nada ni se omitió por ya limpio → avisar
   if (
@@ -1085,8 +1137,13 @@ export async function ejecutarCancelacionVentaRuta(supabase, {
   const cxcCheck = await eliminarCreditosDeVenta(supabase, {
     ventaId: venta.id,
     folioVenta: folio,
+    metodoPago: mp,
   });
-  const trCheck = await revertirTransito(supabase, { transitoId: tid, folioVenta: folio });
+  const trCheck = await revertirTransito(supabase, {
+    transitoId: tid,
+    folioVenta: folio,
+    metodoPago: mp,
+  });
 
   return {
     ok: true,
@@ -1142,10 +1199,11 @@ export async function solicitarCancelacionVentaRuta(supabase, {
   const plan = await planRevertirCamion(supabase, venta, { exigirCompleto: true });
   if (!plan.ok) return plan;
 
-  // Precheck tránsito (por id o folio VR) sin borrar
+  // Precheck tránsito (por id o folio VR / -ME / -E) sin borrar
   const locTr = await localizarTransitosVentaRuta(supabase, {
     transitoId: venta.transito_id,
     folioVenta: venta.folio,
+    metodoPago: venta.metodo_pago,
   });
   if (!locTr.ok) return locTr;
   const trBloqueado = (locTr.rows || []).find((tr) => {
@@ -1337,18 +1395,12 @@ export async function aprobarCancelacionVentaConPin(supabase, {
   });
   if (!exec.ok) return exec;
 
-  // Sin hechos de camión ni crédito/efectivo limpiado cuando sí había montos → no aprobar
+  // Sin hechos de camión → no aprobar. CxC/RC: solo bloquear si falló de verdad (ok:false).
+  // Antes se bloqueaba si monto_credito>0 pero no había filas CxC (mixto con desglose en -MC).
   const montoCre = Number(sol.monto_credito) || Number(exec.montos?.credito) || 0;
   const montoEfe = Number(sol.monto_efectivo) || Number(exec.montos?.efectivo) || 0;
+  const mpSol = String(sol.metodo_pago || venta.metodo_pago || '').toLowerCase();
   const camOk = (exec.camion && exec.camion.length > 0) || exec.yaCancelada;
-  const cxcAviso = String(exec.creditos?.aviso || '');
-  const cxcOk = montoCre <= 0.009
-    || (Number(exec.creditos?.eliminados) || 0) > 0
-    || /ya eliminad|sin movimiento/i.test(cxcAviso);
-  const trOk = montoEfe <= 0.009
-    || exec.transito?.eliminado
-    || exec.transito?.omitido
-    || exec.transitoExtra?.eliminado;
   if (!camOk && artsSol.length) {
     return {
       ok: false,
@@ -1356,29 +1408,33 @@ export async function aprobarCancelacionVentaConPin(supabase, {
       parcial: exec,
     };
   }
-  if (!cxcOk && montoCre > 0.009) {
+  if (exec.creditos && exec.creditos.ok === false && montoCre > 0.009) {
     return {
       ok: false,
-      error: 'La cancelación no eliminó el crédito/mixto en CxC. No se marcó como aprobada.',
+      error: exec.creditos.error
+        || 'La cancelación no eliminó el crédito/mixto en CxC. No se marcó como aprobada.',
       parcial: exec,
     };
   }
-  if (!trOk && montoEfe > 0.009) {
+  if (exec.transito && exec.transito.ok === false && montoEfe > 0.009) {
     return {
       ok: false,
-      error: 'La cancelación no quitó el efectivo de RC/VentaRuta. No se marcó como aprobada.',
+      error: exec.transito.error
+        || 'La cancelación no quitó el efectivo de RC/VentaRuta. No se marcó como aprobada.',
       parcial: exec,
     };
   }
 
-  // Doble check residuales por folio
+  // Doble check residuales por folio (incluye -ME / -MC)
   await eliminarCreditosDeVenta(supabase, {
     ventaId: sol.venta_id || venta.id,
     folioVenta: sol.folio_venta || venta.folio,
+    metodoPago: mpSol,
   });
   const trExtra = await revertirTransito(supabase, {
     transitoId: sol.transito_id || venta.transito_id,
     folioVenta: sol.folio_venta || venta.folio,
+    metodoPago: mpSol,
   });
   if (trExtra.ok && trExtra.eliminado) {
     exec.transitoExtra = trExtra;
