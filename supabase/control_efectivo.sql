@@ -30,6 +30,7 @@ ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS descripcion_gasto   VARCH
 ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS fecha_liquidacion   TIMESTAMPTZ;
 ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS usuario_liquida     VARCHAR(100);
 ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS foto_url            TEXT;
+ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS evidencia_url       TEXT;
 ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS estatus             VARCHAR(30) DEFAULT 'En Tránsito';
 
 INSERT INTO repartidores (id, nombre, pin, activo)

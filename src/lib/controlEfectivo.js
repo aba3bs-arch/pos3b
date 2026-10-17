@@ -1701,7 +1701,7 @@ export async function listarGastosActivosParaLiquidacion(supabase, repartidorId)
   let q = supabase
     .from('transito_efectivo')
     .select(
-      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida, foto_url',
+      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida, foto_url, evidencia_url',
     )
     .eq('repartidor_id', repartidorId)
     .eq('tipo_movimiento', 'Gasto')
@@ -1710,7 +1710,22 @@ export async function listarGastosActivosParaLiquidacion(supabase, repartidorId)
   if (lastLiq?.fecha_liquidacion) {
     q = q.gt('fecha_liquidacion', lastLiq.fecha_liquidacion);
   }
-  const { data, error } = await q;
+  let { data, error } = await q;
+  if (error && /evidencia_url|column|schema cache/i.test(String(error.message || ''))) {
+    q = supabase
+      .from('transito_efectivo')
+      .select(
+        'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida, foto_url',
+      )
+      .eq('repartidor_id', repartidorId)
+      .eq('tipo_movimiento', 'Gasto')
+      .eq('estatus', 'Liquidado')
+      .order('fecha_liquidacion', { ascending: true });
+    if (lastLiq?.fecha_liquidacion) {
+      q = q.gt('fecha_liquidacion', lastLiq.fecha_liquidacion);
+    }
+    ({ data, error } = await q);
+  }
   if (error) throw error;
   return (data || []).filter((g) => !gastoYaAplicadoEnLiquidacion(g));
 }
@@ -1720,6 +1735,28 @@ export function gastoYaAplicadoEnLiquidacion(g) {
   const bit = String(g?.foto_url || '');
   return bit.includes('| LIQ_APLICADA') || Boolean(g?.aplicado_liquidacion_at);
 }
+
+function esDataUrlImagen(s) {
+  return /^data:image\//i.test(String(s || ''));
+}
+
+/** Bitácora en foto_url sin pisar una foto (data URL) guardada por error ahí. */
+function bitacoraTextoGasto(fotoUrl, descripcion, sufijo) {
+  const base = esDataUrlImagen(fotoUrl)
+    ? String(descripcion || 'Gasto').trim()
+    : String(fotoUrl || descripcion || 'Gasto').trim();
+  return `${base}${sufijo ? ` ${sufijo}` : ''}`.trim();
+}
+
+/** Categorías rápidas para gastos del camión / surtido. */
+export const CATEGORIAS_GASTO_RUTA = [
+  { id: 'gasolina', label: 'Gasolina' },
+  { id: 'casetas', label: 'Casetas' },
+  { id: 'comida', label: 'Comida' },
+  { id: 'refacciones', label: 'Refacciones' },
+  { id: 'estacionamiento', label: 'Estacionamiento' },
+  { id: 'otro', label: 'Otro' },
+];
 
 /**
  * Solo gastos que AÚN afectan el neto a liberar (todas las rutas / recolectores).
@@ -1815,7 +1852,11 @@ export async function marcarGastosAplicadosEnLiquidacion(supabase, { gastos = []
   const tLiq = fechaLiquidacion || ahoraIsoNogales();
   let count = 0;
   for (const g of gastos) {
-    const bitacora = `${g.foto_url || g.descripcion_gasto || ''} | LIQ_APLICADA ${tLiq} · ${adminNombre || ''}`.trim();
+    const bitacora = bitacoraTextoGasto(
+      g.foto_url,
+      g.descripcion_gasto,
+      `| LIQ_APLICADA ${tLiq} · ${adminNombre || ''}`,
+    );
     const { error } = await supabase
       .from('transito_efectivo')
       .update({
@@ -1861,6 +1902,116 @@ export async function registrarGastoRecolector(supabase, { repartidorId, monto, 
   return { ok: true, recolector: rep?.nombre, pendiente: true };
 }
 
+/**
+ * Gasto registrado por el repartidor / surtidor en Venta en Ruta (con foto del ticket).
+ * Queda Liquidado de inmediato y se descuenta en RC/VentaRuta al liquidar.
+ */
+export async function registrarGastoRutaConEvidencia(supabase, {
+  repartidorId,
+  monto,
+  categoria = 'otro',
+  descripcion = '',
+  evidenciaUrl = null,
+  registradoPor = null,
+  origen = 'Ruta',
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const m = Number(monto);
+  if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
+  const cat = CATEGORIAS_GASTO_RUTA.find((c) => c.id === String(categoria || '').toLowerCase())
+    || CATEGORIAS_GASTO_RUTA.find((c) => c.id === 'otro');
+  const nota = String(descripcion || '').trim();
+  const concepto = nota
+    ? `${cat.label}: ${nota}`.slice(0, 500)
+    : cat.label;
+  if (!concepto) return { ok: false, error: 'Describe el gasto.' };
+  const foto = String(evidenciaUrl || '').trim();
+  if (!foto || !esDataUrlImagen(foto)) {
+    return { ok: false, error: 'Toma o adjunta una foto del ticket / nota de remisión.' };
+  }
+  if (!repartidorId) return { ok: false, error: 'Falta el recolector / repartidor.' };
+
+  const saldo = await saldoEnTransitoRepartidor(supabase, repartidorId);
+  if (m + saldo.reservado > saldo.total + 0.001) {
+    return {
+      ok: false,
+      error: `El gasto (${fmtMonto(m)}) supera el efectivo en tránsito disponible (${fmtMonto(saldo.disponible)}).`,
+      saldo,
+    };
+  }
+
+  const rep = (await listarRepartidoresTodos(supabase)).find((r) => String(r.id) === String(repartidorId));
+  const ahora = ahoraIsoNogales();
+  const folio = `GASTO-R-${Date.now().toString(36).toUpperCase()}`;
+  const quien = String(registradoPor || rep?.nombre || 'Ruta').trim();
+  const datos = {
+    sucursal_origen: etiquetaOrigenGasto(origen) || 'Ruta',
+    repartidor_id: repartidorId,
+    cajero_nombre: quien,
+    monto: m,
+    num_traspaso: folio,
+    foto_url: `Venta en Ruta · ${concepto}`,
+    evidencia_url: foto,
+    estatus: 'Liquidado',
+    tipo_movimiento: 'Gasto',
+    descripcion_gasto: concepto,
+    fecha_hora: ahora,
+    fecha_liquidacion: ahora,
+    usuario_liquida: quien,
+  };
+
+  let { data, error } = await supabase.from('transito_efectivo').insert([datos]).select('id, num_traspaso, monto, descripcion_gasto').single();
+  if (error && /evidencia_url|column|schema cache/i.test(String(error.message || ''))) {
+    return {
+      ok: false,
+      error:
+        'Falta la columna evidencia_url. En Supabase ejecuta supabase/fix_gasto_ruta_evidencia.sql',
+    };
+  }
+  if (error) return { ok: false, error: error.message };
+  return {
+    ok: true,
+    data,
+    folio,
+    monto: m,
+    concepto,
+    recolector: rep?.nombre || repartidorId,
+    saldoDespues: {
+      ...saldo,
+      disponible: Math.max(0, Math.round(((saldo.disponible || 0) - m) * 100) / 100),
+    },
+  };
+}
+
+/** Últimos gastos de un repartidor (ruta + panel RT) para el submódulo. */
+export async function listarGastosRutaRecientes(supabase, { repartidorId = null, limit = 40 } = {}) {
+  if (!supabase) return { data: [], error: null };
+  let q = supabase
+    .from('transito_efectivo')
+    .select(
+      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, descripcion_gasto, estatus, fecha_liquidacion, foto_url, evidencia_url',
+    )
+    .eq('tipo_movimiento', 'Gasto')
+    .order('fecha_hora', { ascending: false })
+    .limit(limit);
+  if (repartidorId) q = q.eq('repartidor_id', repartidorId);
+  let { data, error } = await q;
+  if (error && /evidencia_url|column|schema cache/i.test(String(error.message || ''))) {
+    q = supabase
+      .from('transito_efectivo')
+      .select(
+        'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, descripcion_gasto, estatus, fecha_liquidacion, foto_url',
+      )
+      .eq('tipo_movimiento', 'Gasto')
+      .order('fecha_hora', { ascending: false })
+      .limit(limit);
+    if (repartidorId) q = q.eq('repartidor_id', repartidorId);
+    ({ data, error } = await q);
+  }
+  if (error) return { data: [], error: error.message };
+  return { data: data || [], error: null };
+}
+
 export async function aceptarGastosRecolector(supabase, { ids, repartidorId, recolectorNombre }) {
   if (!ids?.length) return { ok: false, error: 'Selecciona al menos un gasto.' };
   const { data, error } = await supabase
@@ -1883,7 +2034,11 @@ export async function aceptarGastosRecolector(supabase, { ids, repartidorId, rec
         estatus: 'Liquidado',
         usuario_liquida: recolectorNombre || 'Recolector',
         fecha_liquidacion: ahora,
-        foto_url: `${row.foto_url || row.descripcion_gasto || ''} · Aceptado por ${recolectorNombre || 'recolector'}`.trim(),
+        foto_url: bitacoraTextoGasto(
+          row.foto_url,
+          row.descripcion_gasto,
+          `· Aceptado por ${recolectorNombre || 'recolector'}`,
+        ),
       })
       .eq('id', row.id)
       .eq('estatus', 'Por Aceptar');

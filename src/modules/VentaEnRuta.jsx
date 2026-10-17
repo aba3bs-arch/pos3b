@@ -87,6 +87,7 @@ import PreinventarioRuta from './PreinventarioRuta.jsx';
 import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
 import CobroServiciosRuta from './CobroServiciosRuta.jsx';
+import GastosRuta from './GastosRuta.jsx';
 import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
@@ -420,6 +421,26 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           />
         ) : (
           <CobroServiciosRuta
+            supabase={supabase}
+            user={user}
+            vendedorSesion={vendedorSesion}
+            setAviso={setAviso}
+            onVolver={() => ir('hub')}
+          />
+        )
+      )}
+      {vista === 'gastos' && puede('ruta_gastos') && (
+        !vendedorSesion ? (
+          <PanelSesionVendedorRuta
+            supabase={supabase}
+            user={user}
+            sucursal={sucursal}
+            titulo="Login recolector · Gastos de ruta"
+            onSesion={onSesionVendedorOk}
+            setAviso={setAviso}
+          />
+        ) : (
+          <GastosRuta
             supabase={supabase}
             user={user}
             vendedorSesion={vendedorSesion}
