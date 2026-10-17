@@ -609,17 +609,40 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                 border: '1px solid rgba(220,38,38,0.28)',
               }}
             >
-              <strong style={{ color: 'var(--brand-red)' }}>Gastos aceptados (descontar al recolectar)</strong>
+              <strong style={{ color: 'var(--brand-red)' }}>Gastos (descontar al recolectar)</strong>
               <p className="muted" style={{ margin: '0.35rem 0 0.5rem', fontSize: '0.8rem' }}>
-                Autorizados en Panel RT y aceptados por el recolector. Se restan del efectivo en tránsito.
+                Panel RT (aceptados) o registrados en Venta en Ruta → Gastos con foto. Se restan del efectivo en tránsito.
               </p>
               <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
-                {gastosActivos.map((g) => (
-                  <li key={g.id} style={{ marginBottom: '0.25rem' }}>
-                    {g.descripcion_gasto || g.num_traspaso || 'Gasto'} · {g.sucursal_origen || '—'} ·{' '}
-                    <strong style={{ color: 'var(--brand-red)' }}>−{fmtMonto(g.monto)}</strong>
-                  </li>
-                ))}
+                {gastosActivos.map((g) => {
+                  const evid = g.evidencia_url && String(g.evidencia_url).startsWith('data:image')
+                    ? g.evidencia_url
+                    : null;
+                  return (
+                    <li key={g.id} style={{ marginBottom: '0.35rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {evid ? (
+                        <a href={evid} target="_blank" rel="noreferrer" title="Ver evidencia">
+                          <img
+                            src={evid}
+                            alt=""
+                            style={{
+                              width: 36,
+                              height: 36,
+                              objectFit: 'cover',
+                              borderRadius: 6,
+                              display: 'block',
+                              border: '1px solid rgba(0,0,0,0.12)',
+                            }}
+                          />
+                        </a>
+                      ) : null}
+                      <span>
+                        {g.descripcion_gasto || g.num_traspaso || 'Gasto'} · {g.sucursal_origen || '—'} ·{' '}
+                        <strong style={{ color: 'var(--brand-red)' }}>−{fmtMonto(g.monto)}</strong>
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
               <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'var(--brand-red)' }}>
                 Total gastos: −{fmtMonto(totalGastosActivos)}
