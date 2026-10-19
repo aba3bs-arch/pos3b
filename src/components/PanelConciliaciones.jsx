@@ -97,7 +97,7 @@ export default function PanelConciliaciones({ supabase, user }) {
   const [hasta, setHasta] = useState(() => rangoDesdePreset('hoy')?.hasta || '');
   const [sucursal, setSucursal] = useState('');
   const [repartidorId, setRepartidorId] = useState('');
-  const [filtroEstatus, setFiltroEstatus] = useState('pendientes');
+  const [filtroEstatus, setFiltroEstatus] = useState('todos');
 
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
@@ -192,11 +192,11 @@ export default function PanelConciliaciones({ supabase, user }) {
     const sinRec = datos?.tiendasSinRecoleccion?.length || 0;
     const msg =
       `¿Sellar conciliación Smoking / Venta en Ruta?\n\n` +
-      `Cobros (RC / Recolección): ${fmtMonto(tot.totalEntradas)}\n` +
+      `Cobros + créditos: ${fmtMonto(tot.totalEntradas)}\n` +
       `Gastos Smoking / Venta en Ruta: ${fmtMonto(tot.totalSalidas)}\n` +
       `Diferencia: ${fmtMonto(tot.diferencia)}\n` +
       (sinRec ? `Tiendas sin cobro anotado: ${sinRec}\n` : '') +
-      `\n${tot.entradas.length} cobros · ${tot.salidas.length} gastos`;
+      `\n${tot.entradas.length} cobros/créditos · ${tot.salidas.length} gastos`;
     if (!confirm(msg)) return;
     setGuardando(true);
     const r = await sellarConciliacion(supabase, {
@@ -357,7 +357,7 @@ export default function PanelConciliaciones({ supabase, user }) {
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', justifyContent: 'flex-end' }}>
               <div className="muted" style={{ fontSize: '0.82rem' }}>
-                Incluye: <strong>{PROVEEDOR_CONCILIACION}</strong> + Venta en Ruta
+                Incluye: <strong>{PROVEEDOR_CONCILIACION}</strong> + Venta en Ruta + créditos
               </div>
               <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>
                 {cargando ? 'Cargando…' : 'Actualizar'}
@@ -387,12 +387,17 @@ export default function PanelConciliaciones({ supabase, user }) {
                 }}
               >
                 <div>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>Cobros RC / Recolección</div>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>Cobros + créditos</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f766e' }}>
                     {fmtMonto(tot.totalEntradas)}
                   </div>
                   <div className="muted" style={{ fontSize: '0.72rem' }}>
                     {datos.resumenEntradas.count} mov. · {OPCIONES_ESTATUS_COBRO.find((o) => o.value === filtroEstatus)?.label}
+                  </div>
+                  <div className="muted" style={{ fontSize: '0.7rem', marginTop: '0.2rem' }}>
+                    Efectivo {fmtMonto(datos.resumenEntradas.efectivo || 0)}
+                    {' · '}
+                    Créditos {fmtMonto(datos.resumenEntradas.creditos || 0)}
                   </div>
                 </div>
                 <div>
@@ -531,7 +536,7 @@ export default function PanelConciliaciones({ supabase, user }) {
 
               <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
                 <TablaMovs
-                  titulo="Cobros del repartidor (Venta en Ruta / Recolección)"
+                  titulo="Cobros y créditos por tienda (efectivo + CxC)"
                   color="#0f766e"
                   rows={datos.entradas}
                   sel={selEnt}
