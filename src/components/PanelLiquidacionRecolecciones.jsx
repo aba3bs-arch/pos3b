@@ -15,6 +15,7 @@ import {
   listarRepartidores,
   marcarAlertaVista,
   reporteRecoleccionTiendaFecha,
+  resumenMercanciaEnTransitoPorRepartidor,
   resumenTotalesPorTipo,
   calcularNetosLiquidacion,
   armarAcreditacionesLiquidacion,
@@ -60,6 +61,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const rol = normalizarRol(user?.rol);
   const [repartidores, setRepartidores] = useState([]);
   const [repLiq, setRepLiq] = useState('');
+  const [resumenReps, setResumenReps] = useState([]);
   const [enTransito, setEnTransito] = useState([]);
   const [gastosActivos, setGastosActivos] = useState([]);
   const [selIds, setSelIds] = useState({});
@@ -119,7 +121,10 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       setRepartidores(reps);
       const repId = repLiq || reps[0]?.id || '';
       if (!repLiq && repId) setRepLiq(repId);
-      if (!repId) return;
+      if (!repId) {
+        setResumenReps([]);
+        return;
+      }
 
       const desde = presetFecha === 'todos' ? '' : filtroDesde;
       const hasta = presetFecha === 'todos' ? '' : filtroHasta;
@@ -133,7 +138,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         }
       }
 
-      const [movs, alr, gastos] = await Promise.all([
+      const [movs, alr, gastos, resumen] = await Promise.all([
         esHistorial
           ? listarLiquidacionesRepartidor(supabase, repId, { desde, hasta }).then((rows) =>
               // Historial: se muestran merchandise + créditos; servicios van en RC Servicios.
@@ -144,10 +149,13 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             ),
         esHistorial ? Promise.resolve([]) : listarAlertasRecoleccion(supabase),
         esHistorial ? Promise.resolve([]) : listarGastosActivosParaLiquidacion(supabase, repId),
+        // Casillas siempre: totales por recolector (Pendientes mercancía).
+        resumenMercanciaEnTransitoPorRepartidor(supabase),
       ]);
       setEnTransito(movs);
       setGastosActivos(gastos);
       setAlertas(alr);
+      setResumenReps(resumen);
       setSelIds(esHistorial ? {} : inicializarSeleccionLiquidacion(movs));
     } catch (e) {
       setError(e.message?.includes('repartidores') ? 'Ejecuta supabase/control_efectivo.sql en Supabase.' : e.message);
@@ -297,6 +305,69 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             Reporte por tienda y fecha. Consulta pendientes por liquidar o revisa liquidaciones pasadas con el calendario.
           </p>
         </>
+      )}
+
+      {resumenReps.length > 0 && (
+        <div style={{ marginBottom: '0.85rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.8rem' }}>
+            Efectivo en tránsito por recolector (toca una casilla para liquidar)
+          </p>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: '0.55rem',
+            }}
+          >
+            {resumenReps.map((r) => {
+              const activo = String(r.id) === String(repLiq);
+              const conMonto = Number(r.total) > 0;
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => {
+                    setRepLiq(r.id);
+                    if (modoConsulta !== 'pendiente') cambiarModoConsulta('pendiente');
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '10px',
+                    border: activo
+                      ? '2px solid var(--brand-blue)'
+                      : '1px solid rgba(15, 23, 42, 0.12)',
+                    background: activo
+                      ? 'rgba(37, 99, 235, 0.08)'
+                      : conMonto
+                        ? 'rgba(225, 153, 41, 0.08)'
+                        : 'rgba(148, 163, 184, 0.08)',
+                    cursor: 'pointer',
+                    boxShadow: activo ? '0 0 0 1px rgba(37, 99, 235, 0.2)' : 'none',
+                  }}
+                >
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
+                    {r.nombre}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: '0.25rem',
+                      fontSize: '1.15rem',
+                      fontWeight: 800,
+                      color: conMonto ? 'var(--brand-gold-dark, #b45309)' : 'var(--muted)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {fmtMonto(r.total)}
+                  </div>
+                  <div className="muted" style={{ marginTop: '0.15rem', fontSize: '0.72rem' }}>
+                    {conMonto ? `${r.count} mov. en tránsito` : 'Sin tránsito'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
