@@ -1790,7 +1790,21 @@ export async function crearCargaRuta(supabase, {
   const cargaId = row.id;
   const porId = new Map((inventario || []).map((p) => [String(p.id), p]));
   const patches = [];
+  const debitadosCedis = [];
   let aviso = abierta.aviso || null;
+
+  const rollbackCedisDebitado = async (motivo) => {
+    for (const it of debitadosCedis) {
+      const prod = porId.get(it.productoId) || { id: it.productoId, nombre: it.nombre };
+      await devolverCedisDesdeCarga(supabase, {
+        producto: prod,
+        cantidad: it.cantidad,
+        motivo: motivo || `Rollback carga ${folio}`,
+        usuario: usuarioNombre || '—',
+        folio,
+      });
+    }
+  };
 
   for (const it of items) {
     const prod = porId.get(it.productoId) || { id: it.productoId, nombre: it.nombre };
@@ -1802,8 +1816,13 @@ export async function crearCargaRuta(supabase, {
       folio,
     });
     if (!mov.ok) {
+      // Compensar ítems ya descontados (evita Smoking/otros saliendo de CEDIS sin subir al camión).
+      await rollbackCedisDebitado(
+        `Rollback carga ${folio} (falló CEDIS · ${it.nombre || it.productoId})`,
+      );
       return { ok: false, error: `CEDIS · ${it.nombre || it.productoId}: ${mov.error}`, cargaId, folio, reusada };
     }
+    debitadosCedis.push(it);
     if (mov.patch) patches.push({ id: it.productoId, ...mov.patch, nombre: it.nombre });
     if (mov.aviso || mov.fallbackJson) {
       aviso = mov.aviso || 'Stock CEDIS actualizado (modo respaldo). Ejecuta supabase/fix_stock_delta_atomico.sql.';
@@ -1812,17 +1831,7 @@ export async function crearCargaRuta(supabase, {
 
   const sum = await sumarLineasACargaRuta(supabase, cargaId, items);
   if (!sum.ok) {
-    // Compensar CEDIS ya descontado si las líneas no se pudieron registrar
-    for (const it of items) {
-      const prod = porId.get(it.productoId) || { id: it.productoId, nombre: it.nombre };
-      await devolverCedisDesdeCarga(supabase, {
-        producto: prod,
-        cantidad: it.cantidad,
-        motivo: `Rollback carga ${folio} (falló registrar líneas)`,
-        usuario: usuarioNombre || '—',
-        folio,
-      });
-    }
+    await rollbackCedisDebitado(`Rollback carga ${folio} (falló registrar líneas)`);
     return { ok: false, error: sum.error, cargaId, folio, reusada };
   }
 

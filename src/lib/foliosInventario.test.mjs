@@ -73,6 +73,17 @@ assert.equal(normalizarFolioIngRet('ING-5-0309-1'), 'ING-5-0309-0001');
 assert.equal(normalizarFolioInventario('ing-5-0309-1'), 'ING-5-0309-0001');
 assert.equal(normalizarFolioInventario('trp-10-3'), 'trp-10-0003');
 assert.equal(normalizarFolioInventario('CMP-5-a1b2c3d4'), 'CMP-5-A1B2C3D4');
+// Sufijos de pago (-E/-C/-M) no deben romper sustento Smoking / anti-duplicado.
+assert.equal(normalizarFolioInventario('CMP-5-A1B2C3D4-E'), 'CMP-5-A1B2C3D4');
+assert.equal(normalizarFolioInventario('CMP-5-A1B2C3D4-MC'), 'CMP-5-A1B2C3D4');
+assert.equal(
+  variantesFolioInventario('CMP-5-A1B2C3D4-E', '3B5').includes('CMP-5-A1B2C3D4'),
+  true,
+);
+assert.equal(
+  variantesFolioInventario('CMP-5-A1B2C3D4', '3B5').includes('CMP-5-A1B2C3D4-E'),
+  true,
+);
 
 assert.deepEqual(
   variantesFolioInventario('ING-5-0309-0001', '3B5').includes('ING-0309-0001'),

@@ -380,6 +380,17 @@ async function resolverCompra(supabase, folio, sid, comprasCache) {
       error: `${folio} aún no está como recibida (estado: ${compra.estado}).`,
     };
   }
+  // Pedidos del POS Venta en Ruta (proveedor_id null, notas «Venta en ruta…»)
+  // ya generan gasto VENTA EN RUTA al recibir — no sirven de sustento Smoking.
+  if (/venta\s+en\s+ruta/i.test(String(compra.notas || ''))) {
+    return {
+      ok: false,
+      error:
+        `El folio ${folio} es de Venta en Ruta (entrega del camión), no de Smoking.\n` +
+        'Esa recepción ya carga gasto «VENTA EN RUTA» al aceptarse en Compras.\n' +
+        'No lo uses como sustento de un gasto Smoking (evita doble conteo).',
+    };
+  }
   const nombreProv = compra.proveedores?.nombre || '';
   if (nombreProv && !esProveedorSmokingNombre(nombreProv)) {
     return {
@@ -388,6 +399,14 @@ async function resolverCompra(supabase, folio, sid, comprasCache) {
         `El folio ${folio} no es de Smoking.\n` +
         `Proveedor en Compras: ${nombreProv || '—'}\n\n` +
         'Captura el folio de la recepción Smoking.',
+    };
+  }
+  if (!nombreProv) {
+    return {
+      ok: false,
+      error:
+        `El folio ${folio} no tiene proveedor Smoking en Compras.\n` +
+        'Usa el folio de la recepción Smoking (proveedor Smoking / Marlboro).',
     };
   }
   return {
@@ -548,12 +567,23 @@ export async function validarSustentoSmokingGasto(supabase, {
       if (idx < 0) continue;
       const rest = str.slice(idx + marker.length);
       for (const f of parseFoliosInventarioSmoking(rest).map(normalizarFolioSustentoSmoking)) {
-        if (f && !usados.has(f)) usados.set(f, g.id);
+        if (!f) continue;
+        // Indexa también variantes (CMP-…-E ↔ CMP-…, con/sin sucursal).
+        for (const v of variantesFolioInventario(f, sid)) {
+          const key = normalizarFolioSustentoSmoking(v) || v;
+          if (key && !usados.has(key)) usados.set(key, g.id);
+        }
       }
     }
   }
 
-  const repetidos = uniq.filter((f) => usados.has(f));
+  const repetidos = uniq.filter((f) => {
+    if (usados.has(f)) return true;
+    return variantesFolioInventario(f, sid).some((v) => {
+      const key = normalizarFolioSustentoSmoking(v) || v;
+      return key && usados.has(key);
+    });
+  });
   if (repetidos.length) {
     const first = usados.get(repetidos[0]);
     return {
