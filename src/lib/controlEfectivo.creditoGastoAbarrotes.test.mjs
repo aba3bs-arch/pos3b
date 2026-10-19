@@ -6,6 +6,7 @@ import {
   reporteGeneralPorTienda,
   movimientosMercancia,
   construirDatosTraspaso,
+  agruparMercanciaEnTransitoPorRepartidor,
 } from './controlEfectivo.js';
 
 const p = payloadGastoCreditoCobradoAbarrotes(
@@ -93,5 +94,26 @@ assert.equal(fila.recoleccion, 1000);
 assert.equal(fila.credito, 1010);
 assert.equal(fila.movCredito, 2);
 assert.equal(fila.movRecoleccion, 1);
+
+// Casillas RC: total mercancía en tránsito por recolector (ignora Cobro Servicio).
+const casillas = agruparMercanciaEnTransitoPorRepartidor(
+  [
+    { id: 'rep_a', nombre: 'Ana' },
+    { id: 'rep_b', nombre: 'Beto' },
+    { id: 'rep_c', nombre: 'Carlos' },
+  ],
+  [
+    { repartidor_id: 'rep_a', tipo_movimiento: 'Venta Ruta', monto: 500 },
+    { repartidor_id: 'rep_a', tipo_movimiento: TIPO_COBRO_CREDITO, monto: 200 },
+    { repartidor_id: 'rep_a', tipo_movimiento: 'Cobro Servicio', monto: 90 },
+    { repartidor_id: 'rep_b', tipo_movimiento: 'Recolección', monto: 150 },
+  ],
+);
+assert.equal(casillas.length, 3);
+assert.equal(casillas[0].nombre, 'Ana');
+assert.equal(casillas[0].total, 700);
+assert.equal(casillas[0].count, 2);
+assert.equal(casillas.find((c) => c.id === 'rep_b').total, 150);
+assert.equal(casillas.find((c) => c.id === 'rep_c').total, 0);
 
 console.log('controlEfectivo.creditoGastoAbarrotes.test.mjs OK');

@@ -943,6 +943,54 @@ export async function listarMercanciaEnTransitoPorRepartidor(supabase, repartido
 }
 
 /**
+ * Agrupa mercancía en tránsito por recolector (totales para casillas RC/VentaRuta).
+ * Pure: recibe lista de repartidores activos + movimientos en tránsito (sin Gasto).
+ */
+export function agruparMercanciaEnTransitoPorRepartidor(repartidores = [], movimientos = []) {
+  const byRep = new Map();
+  for (const r of repartidores || []) {
+    const id = String(r.id || '');
+    if (!id) continue;
+    byRep.set(id, {
+      id: r.id,
+      nombre: r.nombre || id,
+      total: 0,
+      count: 0,
+    });
+  }
+  const merc = movimientosMercancia(movimientos);
+  for (const m of merc) {
+    const rid = String(m.repartidor_id || '');
+    if (!rid) continue;
+    if (!byRep.has(rid)) {
+      byRep.set(rid, {
+        id: m.repartidor_id,
+        nombre: m.repartidores?.nombre || m.repartidor_nombre || rid,
+        total: 0,
+        count: 0,
+      });
+    }
+    const g = byRep.get(rid);
+    g.total = Math.round((g.total + (Number(m.monto) || 0)) * 100) / 100;
+    g.count += 1;
+  }
+  return [...byRep.values()].sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    return String(a.nombre).localeCompare(String(b.nombre), 'es');
+  });
+}
+
+/** Resumen de mercancía en tránsito por cada recolector activo (casillas RC). */
+export async function resumenMercanciaEnTransitoPorRepartidor(supabase) {
+  if (!supabase) return [];
+  const [reps, movs] = await Promise.all([
+    listarRepartidores(supabase),
+    listarTodoEnTransito(supabase),
+  ]);
+  return agruparMercanciaEnTransitoPorRepartidor(reps, movs);
+}
+
+/**
  * Cobros de servicio (CFE/etc.) en tránsito — van a RC Servicios, no a Pendientes mercancía.
  * @param {{ repartidorId?: string|null }} opts
  */
