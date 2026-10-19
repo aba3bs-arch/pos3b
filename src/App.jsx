@@ -124,15 +124,16 @@ import {
   pinCubreTurnoActivo,
   validarDatosCubreTurno,
 } from './lib/cubreTurno.js';
-import {
-  otorgarAutorizacionFueraHorario,
-  verificarPinAdministradorGlobal,
-} from './lib/autorizacionTurnoFueraHorario.js';
+import { verificarPinAdministradorGlobal } from './lib/autorizacionTurnoFueraHorario.js';
 import {
   limpiarExtensionSesionTurno,
   MINUTOS_EXTENSION_SESION,
   otorgarExtensionSesionTurno,
 } from './lib/extensionSesionTurno.js';
+import {
+  estadoSolicitudExtensionEmpleado,
+  solicitarExtensionTurno,
+} from './lib/solicitudExtensionTurno.js';
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
@@ -145,6 +146,7 @@ import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
 import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
 import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOverlay.jsx';
+import AlertaExtensionTurnoOverlay from './components/AlertaExtensionTurnoOverlay.jsx';
 import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
 import ReleaseAvisoOverlay from './components/ReleaseAvisoOverlay.jsx';
@@ -205,6 +207,9 @@ function App() {
   const [pinAdminAutorizacion, setPinAdminAutorizacion] = useState('');
   const [avisoExtensionTurno, setAvisoExtensionTurno] = useState(null);
   const [autorizandoTurno, setAutorizandoTurno] = useState(false);
+  const [solicitandoMasTiempo, setSolicitandoMasTiempo] = useState(false);
+  const [esperandoAprobacionTiempo, setEsperandoAprobacionTiempo] = useState(false);
+  const [esperandoAprobacionSesion, setEsperandoAprobacionSesion] = useState(false);
   const [pendienteCubreTurno, setPendienteCubreTurno] = useState(false);
   const [nombreCubre, setNombreCubre] = useState('');
   const [telefonoCubre, setTelefonoCubre] = useState('');
@@ -802,6 +807,9 @@ function App() {
       setPendienteAutorizacionTurno(null);
       setPendienteAutorizacionDispositivo(null);
       setPinAdminAutorizacion('');
+      setEsperandoAprobacionTiempo(false);
+      setEsperandoAprobacionSesion(false);
+      setSolicitandoMasTiempo(false);
       setPendienteCubreTurno(false);
       setNombreCubre('');
       setTelefonoCubre('');
@@ -1115,36 +1123,28 @@ function App() {
     }
   };
 
-  const manejarAutorizacionAdminTurno = async () => {
+  const manejarSolicitarMasTiempoLogin = async () => {
     if (!pendienteAutorizacionTurno?.user) return;
-    const p = pinAdminAutorizacion.trim();
-    if (!p) return alert('Indica el PIN del administrador.');
-    if (!supabase) return alert('Sin conexión a Supabase. No se puede validar el PIN del administrador.');
-    setAutorizandoTurno(true);
+    if (!supabase) return alert('Sin conexión. No se puede enviar la solicitud.');
+    setSolicitandoMasTiempo(true);
     try {
-      const auth = await verificarPinAdministradorGlobal(supabase, p);
-      if (!auth.ok) {
-        return alert(auth.error || 'No se pudo autorizar con ese PIN.');
+      const res = await solicitarExtensionTurno(supabase, {
+        usuario: pendienteAutorizacionTurno.user,
+        sucursal,
+        origen: 'login',
+      });
+      if (!res.ok) {
+        alert(res.error || 'No se pudo enviar la solicitud.');
+        return;
       }
-      await otorgarAutorizacionFueraHorario({
-        usuarioId: pendienteAutorizacionTurno.user.id,
-        sucursal,
-        admin: auth.user,
-        supabase,
-      });
-      void auditarPinAdmin(supabase, {
-        admin: auth.user,
-        usuarioObjetivo: pendienteAutorizacionTurno.user,
-        sucursal,
-        motivo: 'entrada_fuera_horario',
-      });
-      setPinAdminAutorizacion('');
-      await completarLogin(pendienteAutorizacionTurno.user, {
-        ajustarSucursal: pendienteAutorizacionTurno.ajustarSucursal,
-        autorizacionAdmin: true,
-      });
+      setEsperandoAprobacionTiempo(true);
+      if (res.reutilizada) {
+        /* ya había solicitud pendiente */
+      } else if (res.mensaje) {
+        /* ok */
+      }
     } finally {
-      setAutorizandoTurno(false);
+      setSolicitandoMasTiempo(false);
     }
   };
 
@@ -1171,6 +1171,8 @@ function App() {
   const forzarCierreSesionPorTurno = useCallback(() => {
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
     setAvisoExtensionTurno(null);
+    setEsperandoAprobacionSesion(false);
+    setSolicitandoMasTiempo(false);
     setOfertaBiometria(null);
     setSesion(false);
     setUser(null);
@@ -1189,48 +1191,123 @@ function App() {
     setAvisoExtensionTurno(null);
   }, [user, sucursal, avisoExtensionTurno]);
 
-  /** PIN admin/gerente en el modal de turno vencido → autorización 8 h sin cerrar sesión. */
-  const autorizarExtensionConAdmin = useCallback(
-    async (pinAdmin) => {
-      if (!user?.id || !sucursal) return false;
-      if (!supabase) {
-        alert('Sin conexión a Supabase. No se puede validar el PIN del administrador.');
-        return false;
+  /** Desde sesión abierta (turno vencido): pide más tiempo al admin por notificación. */
+  const solicitarMasTiempoSesion = useCallback(async () => {
+    if (!user?.id || !sucursal) return;
+    if (!supabase) {
+      alert('Sin conexión. No se puede enviar la solicitud.');
+      return;
+    }
+    setSolicitandoMasTiempo(true);
+    try {
+      const res = await solicitarExtensionTurno(supabase, {
+        usuario: user,
+        sucursal,
+        origen: 'sesion',
+      });
+      if (!res.ok) {
+        alert(res.error || 'No se pudo enviar la solicitud.');
+        return;
       }
-      const p = String(pinAdmin || '').trim();
-      if (!p) {
-        alert('Indica el PIN del administrador o gerente.');
-        return false;
-      }
-      setAutorizandoTurno(true);
+      setEsperandoAprobacionSesion(true);
+    } finally {
+      setSolicitandoMasTiempo(false);
+    }
+  }, [user, sucursal, supabase]);
+
+  // Login: espera aprobación remota (admin en celular) → sincroniza y entra.
+  useEffect(() => {
+    if (!esperandoAprobacionTiempo || !pendienteAutorizacionTurno?.user || !supabase || !sucursal) {
+      return undefined;
+    }
+    let cancelado = false;
+    const uid = pendienteAutorizacionTurno.user.id;
+    const userPend = pendienteAutorizacionTurno.user;
+    const ajustar = pendienteAutorizacionTurno.ajustarSucursal;
+
+    const tick = async () => {
       try {
-        const auth = await verificarPinAdministradorGlobal(supabase, p);
-        if (!auth.ok) {
-          alert(auth.error || 'No se pudo autorizar con ese PIN.');
-          return false;
+        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import(
+          './lib/autorizacionTurnoFueraHorario.js'
+        );
+        const sync = await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, uid, sucursal);
+        if (cancelado) return;
+        if (sync.vigente) {
+          setEsperandoAprobacionTiempo(false);
+          setPendienteAutorizacionTurno(null);
+          await completarLogin(userPend, { ajustarSucursal: ajustar, autorizacionAdmin: true });
+          return;
         }
-        await otorgarAutorizacionFueraHorario({
+        const st = await estadoSolicitudExtensionEmpleado(supabase, { usuarioId: uid, sucursal });
+        if (cancelado) return;
+        if (st.data?.estado === 'rechazada') {
+          setEsperandoAprobacionTiempo(false);
+          alert(
+            st.data.motivo_rechazo
+              ? `Solicitud rechazada: ${st.data.motivo_rechazo}`
+              : 'El administrador rechazó la solicitud de más tiempo.',
+          );
+        }
+      } catch {
+        /* reintentar */
+      }
+    };
+
+    void tick();
+    const id = setInterval(() => void tick(), 4000);
+    return () => {
+      cancelado = true;
+      clearInterval(id);
+    };
+  }, [
+    esperandoAprobacionTiempo,
+    pendienteAutorizacionTurno,
+    supabase,
+    sucursal,
+    completarLogin,
+  ]);
+
+  // Sesión abierta: espera aprobación → cierra modal de turno vencido.
+  useEffect(() => {
+    if (!esperandoAprobacionSesion || !user?.id || !sucursal || !supabase) return undefined;
+    let cancelado = false;
+    const tick = async () => {
+      try {
+        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import(
+          './lib/autorizacionTurnoFueraHorario.js'
+        );
+        const sync = await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, user.id, sucursal);
+        if (cancelado) return;
+        if (sync.vigente) {
+          limpiarExtensionSesionTurno(user.id, sucursal);
+          setAvisoExtensionTurno(null);
+          setEsperandoAprobacionSesion(false);
+          return;
+        }
+        const st = await estadoSolicitudExtensionEmpleado(supabase, {
           usuarioId: user.id,
           sucursal,
-          admin: auth.user,
-          supabase,
         });
-        void auditarPinAdmin(supabase, {
-          admin: auth.user,
-          usuarioObjetivo: user,
-          sucursal,
-          motivo: 'extension_turno_8h',
-        });
-        // La auth de 8 h sustituye la extensión corta.
-        limpiarExtensionSesionTurno(user.id, sucursal);
-        setAvisoExtensionTurno(null);
-        return true;
-      } finally {
-        setAutorizandoTurno(false);
+        if (cancelado) return;
+        if (st.data?.estado === 'rechazada') {
+          setEsperandoAprobacionSesion(false);
+          alert(
+            st.data.motivo_rechazo
+              ? `Solicitud rechazada: ${st.data.motivo_rechazo}`
+              : 'El administrador rechazó la solicitud de más tiempo.',
+          );
+        }
+      } catch {
+        /* reintentar */
       }
-    },
-    [user, sucursal, supabase],
-  );
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 4000);
+    return () => {
+      cancelado = true;
+      clearInterval(id);
+    };
+  }, [esperandoAprobacionSesion, user, sucursal, supabase]);
 
   const cerrarSesion = () => {
     if (sucursalLatido) void marcarPresenciaFueraDeLinea();
@@ -1255,6 +1332,9 @@ function App() {
     setPinAdminAutorizacion('');
     setEnviandoCubre(false);
     setAutorizandoTurno(false);
+    setSolicitandoMasTiempo(false);
+    setEsperandoAprobacionTiempo(false);
+    setEsperandoAprobacionSesion(false);
     configurarContextoAuditoria({ user: null });
     // Remonta el campo PIN vacío para que el navegador no reutilice el valor anterior.
     setLoginPinKey((n) => n + 1);
@@ -1444,16 +1524,20 @@ function App() {
         pendienteAutorizacionDispositivo={pendienteAutorizacionDispositivo}
         pinAdminAutorizacion={pinAdminAutorizacion}
         onPinAdminChange={(e) => setPinAdminAutorizacion(e.target.value)}
-        onAutorizarTurno={manejarAutorizacionAdminTurno}
+        onSolicitarMasTiempo={manejarSolicitarMasTiempoLogin}
         onAutorizarDispositivo={manejarAutorizacionAdminDispositivo}
         onCancelarAutorizacion={() => {
           setPendienteAutorizacionTurno(null);
           setPendienteAutorizacionDispositivo(null);
           setPinAdminAutorizacion('');
+          setEsperandoAprobacionTiempo(false);
+          setSolicitandoMasTiempo(false);
           setPin('');
           setLoginPinKey((n) => n + 1);
         }}
         autorizandoTurno={autorizandoTurno}
+        solicitandoMasTiempo={solicitandoMasTiempo}
+        esperandoAprobacionTiempo={esperandoAprobacionTiempo}
       />
     );
   }
@@ -2024,6 +2108,12 @@ function App() {
             user={user}
           />
         ) : null}
+        {user && !user.esCtMovil ? (
+          <AlertaExtensionTurnoOverlay
+            supabase={supabase}
+            user={user}
+          />
+        ) : null}
         {/* Overlay de asalto: también sin sesión (push persistente / ?alerta=asalto). */}
         {!user?.esCtMovil ? (
           <AlertaAsaltoOverlay supabase={supabase} user={user} />
@@ -2041,8 +2131,9 @@ function App() {
           minutos={MINUTOS_EXTENSION_SESION}
           onAceptar={aceptarExtensionTurno}
           onRechazar={forzarCierreSesionPorTurno}
-          onAutorizarAdmin={autorizarExtensionConAdmin}
-          autorizandoAdmin={autorizandoTurno}
+          onSolicitarMasTiempo={solicitarMasTiempoSesion}
+          solicitandoMasTiempo={solicitandoMasTiempo}
+          esperandoAprobacion={esperandoAprobacionSesion}
         />
         {mobile && (
           <MobileBottomNav

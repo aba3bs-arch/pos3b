@@ -43,10 +43,12 @@ export default function PantallaLogin({
   pendienteAutorizacionDispositivo,
   pinAdminAutorizacion,
   onPinAdminChange,
-  onAutorizarTurno,
+  onSolicitarMasTiempo,
   onAutorizarDispositivo,
   onCancelarAutorizacion,
   autorizandoTurno,
+  solicitandoMasTiempo = false,
+  esperandoAprobacionTiempo = false,
 }) {
   const [pedirAdminDesbloqueo, setPedirAdminDesbloqueo] = useState(false);
   const [pinAdminDesbloqueo, setPinAdminDesbloqueo] = useState('');
@@ -291,32 +293,52 @@ export default function PantallaLogin({
             <p>
               Empleado: <strong>{pendienteAutorizacionTurno.user.nombre}</strong>
             </p>
-            <p className="muted login-hint-sm">
-              <strong>Proceso:</strong> 1) el cajero ya metió su PIN · 2) aquí va el PIN del{' '}
-              <strong>administrador o gerente</strong> (no el del cajero) · 3) pulsa{' '}
-              <strong>Autorizar entrada</strong> (válido 8 h en {etiquetaTienda(sucursal)}).
-              También desde MAIN: <strong>Configuración → Turnos de caja → Autorizar entrada fuera de horario</strong>.
-            </p>
-            <label className="muted login-field">
-              PIN del administrador / gerente
-              <InputPin
-                value={pinAdminAutorizacion}
-                onChange={onPinAdminChange}
-                onKeyDown={(e) => e.key === 'Enter' && !autorizandoTurno && onAutorizarTurno()}
-                placeholder="PIN admin / gerente"
-                autoFocus
-                autoComplete="off"
-                name="autorizacion-turno-admin"
-              />
-            </label>
-            <div className="login-auth-actions">
-              <button type="button" className="btn btn-gold" onClick={onAutorizarTurno} disabled={autorizandoTurno}>
-                {autorizandoTurno ? 'Verificando…' : 'Autorizar entrada'}
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={onCancelarAutorizacion} disabled={autorizandoTurno}>
-                Cancelar
-              </button>
-            </div>
+            {esperandoAprobacionTiempo ? (
+              <>
+                <p className="muted login-hint-sm">
+                  Solicitud enviada a los administradores. Cuando aprueben (2–12 h) desde su celular,
+                  entrarás automáticamente en {etiquetaTienda(sucursal)}.
+                </p>
+                <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'var(--brand-gold)' }}>
+                  Esperando aprobación…
+                </p>
+                <div className="login-auth-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={onCancelarAutorizacion}
+                    disabled={solicitandoMasTiempo}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="muted login-hint-sm">
+                  Pulsa <strong>Solicitar más tiempo</strong>. Un administrador o gerente recibirá
+                  la alerta en su celular, autoriza con su PIN y elige 2, 4, 6, 8 o 12 horas.
+                </p>
+                <div className="login-auth-actions">
+                  <button
+                    type="button"
+                    className="btn btn-gold"
+                    onClick={onSolicitarMasTiempo}
+                    disabled={solicitandoMasTiempo || autorizandoTurno}
+                  >
+                    {solicitandoMasTiempo ? 'Enviando…' : 'Solicitar más tiempo'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={onCancelarAutorizacion}
+                    disabled={solicitandoMasTiempo || autorizandoTurno}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 

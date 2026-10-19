@@ -128,7 +128,6 @@ import {
   cargarTurnosTiendaDesdeNube,
 } from '../lib/turnosSync.js';
 import {
-  otorgarAutorizacionFueraHorario,
   listarAutorizacionesFueraHorarioVigentes,
   revocarAutorizacionFueraHorarioNube,
 } from '../lib/autorizacionTurnoFueraHorario.js';
@@ -434,7 +433,6 @@ export default function Configuracion({
   const [authFhLista, setAuthFhLista] = useState([]);
   const [authFhAviso, setAuthFhAviso] = useState('');
   const [authFhCargando, setAuthFhCargando] = useState(false);
-  const [authFhUsuarioId, setAuthFhUsuarioId] = useState('');
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
@@ -3192,63 +3190,19 @@ export default function Configuracion({
         </div>
 
         {puedeAsignarTurnoEmpleados && (
-          <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(192,57,43,0.05)', border: '1px solid rgba(192,57,43,0.25)' }}>
-            <strong style={{ color: '#c0392b' }}>Autorizar entrada fuera de horario</strong>
+          <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(180,83,9,0.06)', border: '1px solid rgba(180,83,9,0.28)' }}>
+            <strong style={{ color: '#b45309' }}>Más tiempo / fuera de horario</strong>
             <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.82rem' }}>
-              Desde MAIN (o aquí): elige cajero de <strong>{etiquetaTienda(turnosTienda)}</strong> y autoriza 8 h.
-              Así no hace falta ir a la caja a meter el PIN. El cajero solo vuelve a poner su PIN en el login.
+              El empleado pide <strong>Solicitar más tiempo</strong> en el login. Tú recibes la alerta en el celular
+              (o aquí si estás en sesión), autorizas con PIN y eliges 2, 4, 6, 8 o 12 horas.
+              Abajo solo ves las autorizaciones vigentes de <strong>{etiquetaTienda(turnosTienda)}</strong> para revocarlas.
             </p>
             {authFhAviso ? (
               <p style={{ color: '#c0392b', fontSize: '0.8rem', margin: '0 0 0.5rem' }}>{authFhAviso}</p>
             ) : null}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
-              <label className="muted" style={{ flex: '1 1 220px' }}>
-                Cajero / repartidor
-                <select
-                  className="select"
-                  style={{ display: 'block', marginTop: '0.3rem', width: '100%' }}
-                  value={authFhUsuarioId}
-                  onChange={(e) => setAuthFhUsuarioId(e.target.value)}
-                >
-                  <option value="">— Elegir —</option>
-                  {(usuariosTurno || [])
-                    .filter((u) => {
-                      const rol = normalizarRol(u.rol);
-                      if (rol !== 'Cajero' && rol !== 'Repartidor') return false;
-                      const suc = String(u.sucursal_id || '').toUpperCase();
-                      return !suc || suc === String(turnosTienda).toUpperCase() || suc === 'MAIN';
-                    })
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.nombre} · {u.rol}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="btn btn-gold"
-                disabled={!authFhUsuarioId || authFhCargando}
-                onClick={async () => {
-                  const u = (usuariosTurno || []).find((x) => String(x.id) === String(authFhUsuarioId));
-                  if (!u) return alert('Elige un empleado.');
-                  if (!confirm(`¿Autorizar a ${u.nombre} a entrar en ${etiquetaTienda(turnosTienda)} fuera de horario por 8 horas?`)) return;
-                  const res = await otorgarAutorizacionFueraHorario({
-                    usuarioId: u.id,
-                    sucursal: turnosTienda,
-                    admin: user,
-                    supabase,
-                  });
-                  if (!res) return alert('No se pudo otorgar.');
-                  setAuthFhUsuarioId('');
-                  await cargarAuthFh();
-                  alert(`Autorizado. ${u.nombre} ya puede entrar en ${etiquetaTienda(turnosTienda)} hasta que expire (8 h).`);
-                }}
-              >
-                Autorizar 8 h
-              </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
               <button type="button" className="btn btn-ghost" onClick={() => cargarAuthFh()} disabled={authFhCargando}>
-                Actualizar
+                Actualizar vigentes
               </button>
             </div>
             {authFhCargando && <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>Cargando…</p>}

@@ -1,6 +1,7 @@
 -- Autorización de entrada fuera de horario (login / checador).
--- El admin puede otorgarla desde su panel (MAIN) o con PIN en la caja.
--- Vigente 8 h por usuario + sucursal. Ejecutar en Supabase → SQL Editor.
+-- Se otorga cuando el admin aprueba una solicitud (overlay celular: 2–12 h)
+-- o desde flujos/flujos que llaman otorgarAutorizacionFueraHorario.
+-- Ejecutar en Supabase → SQL Editor.
 
 create table if not exists public.pos_autorizacion_turno_fh (
   usuario_id text not null,
@@ -19,7 +20,7 @@ create index if not exists idx_pos_auth_turno_fh_suc
   on public.pos_autorizacion_turno_fh (sucursal_id);
 
 comment on table public.pos_autorizacion_turno_fh is
-  'Autorización admin/gerente para que un cajero entre fuera de ventana de turno (8 h). Panel admin o PIN en caja.';
+  'Autorización admin/gerente para que un cajero entre fuera de ventana de turno (duración variable). Solicitud desde login → overlay PIN.';
 
 alter table public.pos_autorizacion_turno_fh enable row level security;
 
