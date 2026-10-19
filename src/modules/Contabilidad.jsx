@@ -17,8 +17,8 @@ const DESCRIPCIONES = {
     ayuda: 'También en Venta en Ruta → RC/VentaRuta. Cierra y sella el efectivo recolectado (incl. ventas de camión) por tienda/día.',
   },
   Conciliaciones: {
-    desc: 'Smoking (cortes) vs cobros del repartidor',
-    ayuda: 'Smoking vs cobros Recolección. Filtra En Tránsito/Por Cobrar, marca tiendas sin recolección y muestra ticket de corte.',
+    desc: 'Smoking / Venta en Ruta vs cobros del camión',
+    ayuda: 'Cuadra Venta Ruta (RC) + Recolección vs gastos Smoking o recepción Venta en Ruta en Corte Abarrotes. Marca tiendas sin cobro y muestra ticket de corte.',
   },
   Consolidación: {
     desc: 'Gastos por turno · Virtual / Garage / Abarrotes',
