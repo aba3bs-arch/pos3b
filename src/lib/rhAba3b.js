@@ -112,8 +112,23 @@ function errorMencionaActivo(error) {
   return String(error?.message || '').toLowerCase().includes('activo');
 }
 
-export async function buscarExpedienteRhDeUsuario(supabase, usuario) {
+/**
+ * Elige expediente RH entre coincidencias.
+ * En reingreso (usuario inactivo) prioriza la baja para no “perder” el expediente.
+ */
+export function elegirExpedienteRhDeHits(hits = [], { preferirBaja = false } = {}) {
+  const list = Array.isArray(hits) ? hits.filter(Boolean) : [];
+  if (!list.length) return null;
+  if (preferirBaja) {
+    const baja = list.find((e) => e.estado === 'baja');
+    if (baja) return baja;
+  }
+  return list.find((e) => e.estado === 'activo') || list[0];
+}
+
+export async function buscarExpedienteRhDeUsuario(supabase, usuario, { preferirBaja = false } = {}) {
   if (!supabase || !usuario?.id) return { ok: true, empleado: null };
+  const pedirBaja = preferirBaja || usuario.activo === false;
   const { data: byIdRows, error: eId } = await supabase
     .from('rh_empleados')
     .select('*')
@@ -123,7 +138,9 @@ export async function buscarExpedienteRhDeUsuario(supabase, usuario) {
     if (esErrorTablaRh(eId)) return { ok: false, error: AVISO_FALTA_RH_ABA3B, empleado: null };
     return { ok: false, error: eId.message, empleado: null };
   }
-  if (byIdRows?.length) return { ok: true, empleado: byIdRows[0] };
+  if (byIdRows?.length) {
+    return { ok: true, empleado: elegirExpedienteRhDeHits(byIdRows, { preferirBaja: pedirBaja }) };
+  }
 
   const { data: list, error: eList } = await supabase
     .from('rh_empleados')
@@ -136,12 +153,12 @@ export async function buscarExpedienteRhDeUsuario(supabase, usuario) {
   }
   const hits = (list || []).filter((e) => usuarioCoincideConEmpleadoRh(usuario, e));
   if (hits.length === 0) return { ok: true, empleado: null };
-  const activo = hits.find((e) => e.estado === 'activo');
-  return { ok: true, empleado: activo || hits[0] };
+  return { ok: true, empleado: elegirExpedienteRhDeHits(hits, { preferirBaja: pedirBaja }) };
 }
 
 export async function consultarRestriccionReingresoRh(supabase, usuario) {
-  const res = await buscarExpedienteRhDeUsuario(supabase, usuario);
+  // Reingreso: preferir expediente en baja ligado al usuario (aunque exista otro activo homónimo).
+  const res = await buscarExpedienteRhDeUsuario(supabase, usuario, { preferirBaja: true });
   if (!res.ok) {
     if (res.error === AVISO_FALTA_RH_ABA3B) {
       return { ok: true, requierePinPrincipal: false, empleado: null };
@@ -1205,7 +1222,8 @@ export async function darDeBajaUsuarioPosYRh(supabase, usuario, opts = {}, { use
 }
 
 /**
- * Reactiva usuario POS. Si en RH no es recontratable, exige PIN del admin principal.
+ * Reactiva usuario POS y deja el expediente en RH ABA3B → Activos.
+ * Si no hay expediente, lo crea. Si está de baja, recontrata (no solo activa el PIN).
  */
 export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrincipal, form } = {}, { user } = {}) {
   if (!supabase || !usuario?.id) return { ok: false, error: 'Usuario inválido.' };
@@ -1213,30 +1231,54 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
   const rest = await consultarRestriccionReingresoRh(supabase, usuario);
   if (!rest.ok) return rest;
 
-  if (rest.requierePinPrincipal) {
-    const pin = String(pinAdminPrincipal || '').trim();
-    if (!pin) {
+  let emp = rest.empleado;
+
+  // Sin expediente RH: crear/vincular (antes solo se activaba el PIN → no salía en Activos).
+  if (!emp) {
+    const ens = await asegurarExpedienteRhDesdeUsuario(
+      supabase,
+      { ...usuario, activo: true },
+      { user, estadoInicial: 'activo' },
+    );
+    if (!ens.ok) {
+      const { error } = await supabase.from('usuarios').update({ activo: true }).eq('id', usuario.id);
+      if (error) {
+        if (errorMencionaActivo(error)) {
+          return { ok: false, error: 'Ejecuta supabase/fix_usuarios_activo.sql en Supabase.' };
+        }
+        return { ok: false, error: error.message };
+      }
       return {
-        ok: false,
-        error: 'Este empleado no es recontratable. Se necesita el PIN del administrador principal.',
-        requierePinPrincipal: true,
-        empleado: rest.empleado,
+        ok: true,
+        mensaje:
+          `${usuario.nombre} reactivado en Usuarios, pero no quedó en RH ABA3B → Activos: ${ens.error}`,
+        avisoRh: ens.error,
       };
     }
-    const rec = await recontratarEmpleadoRh(supabase, rest.empleado.id, form || {}, {
-      user,
-      pinAdminPrincipal: pin,
-    });
-    if (!rec.ok) return rec;
-    return rec;
+    emp = ens.empleado;
   }
 
-  if (rest.empleado && rest.empleado.estado === 'baja') {
-    const rec = await recontratarEmpleadoRh(supabase, rest.empleado.id, form || {}, { user });
-    if (!rec.ok) return rec;
-    return rec;
+  // Expediente en baja → recontratación (pasa a Activos). Exige PIN si no recontratable.
+  if (emp.estado === 'baja') {
+    if (requierePinAdminPrincipalParaAlta(emp)) {
+      const pin = String(pinAdminPrincipal || '').trim();
+      if (!pin) {
+        return {
+          ok: false,
+          error: 'Este empleado no es recontratable. Se necesita el PIN del administrador principal.',
+          requierePinPrincipal: true,
+          empleado: emp,
+        };
+      }
+      return recontratarEmpleadoRh(supabase, emp.id, form || {}, {
+        user,
+        pinAdminPrincipal: pin,
+      });
+    }
+    return recontratarEmpleadoRh(supabase, emp.id, form || {}, { user });
   }
 
+  // Ya activo en RH: reactivar PIN/POS y alinear sucursal.
   const { error } = await supabase.from('usuarios').update({ activo: true }).eq('id', usuario.id);
   if (error) {
     if (errorMencionaActivo(error)) {
@@ -1244,25 +1286,38 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
     }
     return { ok: false, error: error.message };
   }
-  if (rest.empleado && rest.empleado.estado === 'activo') {
-    await sincronizarUsuarioPosActivo(supabase, rest.empleado, true);
+
+  if (!emp.usuario_id) {
+    await supabase
+      .from('rh_empleados')
+      .update({ usuario_id: usuario.id, updated_at: new Date().toISOString() })
+      .eq('id', emp.id);
+    emp = { ...emp, usuario_id: usuario.id };
   }
-  // Si reactivan indicando otra tienda sin pasar por baja RH completa:
+
+  await sincronizarUsuarioPosActivo(supabase, emp, true);
+
   if (form?.sucursal_id) {
     const suc = sucursalParaTipo(
       form.tipo_empleado || resolverTipoEmpleado(usuario),
       form.sucursal_id,
     );
-    if (suc && rest.empleado) {
-      await sincronizarUsuarioPosSucursal(supabase, { ...rest.empleado, tipo_empleado: form.tipo_empleado || rest.empleado.tipo_empleado }, suc);
-    } else if (suc) {
-      await supabase
-        .from('usuarios')
-        .update({
-          sucursal_id: suc,
-          tipo_empleado: form.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda',
-        })
-        .eq('id', usuario.id);
+    if (suc) {
+      await sincronizarUsuarioPosSucursal(
+        supabase,
+        { ...emp, tipo_empleado: form.tipo_empleado || emp.tipo_empleado },
+        suc,
+      );
+      if (String(emp.sucursal_id || '') !== String(suc)) {
+        await supabase
+          .from('rh_empleados')
+          .update({
+            sucursal_id: suc,
+            tipo_empleado: form.tipo_empleado === 'indirecto' ? 'indirecto' : (emp.tipo_empleado || 'tienda'),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', emp.id);
+      }
     }
   }
 
@@ -1280,11 +1335,35 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
     /* no bloquear reingreso */
   }
 
+  // Defensa: el expediente debe seguir en Activos tras consolidar duplicados.
+  const { data: checkRh } = await supabase
+    .from('rh_empleados')
+    .select('id, estado')
+    .eq('id', emp.id)
+    .maybeSingle();
+  if (checkRh && checkRh.estado !== 'activo') {
+    await supabase
+      .from('rh_empleados')
+      .update({
+        estado: 'activo',
+        fecha_baja: null,
+        motivo_baja: null,
+        notas_baja: null,
+        recontratable: true,
+        usuario_id: emp.usuario_id || usuario.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', emp.id);
+  }
+
   return {
     ok: true,
+    empleado: emp,
     mensaje: (form?.sucursal_id
       ? `${usuario.nombre} reactivado en ${etiquetaTienda(form.sucursal_id)}.`
-      : `${usuario.nombre} reactivado.`) + extraDup,
+      : `${usuario.nombre} reactivado.`)
+      + ' Ya aparece en RH ABA3B → Activos.'
+      + extraDup,
   };
 }
 
@@ -1361,10 +1440,19 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
     }
   }
 
+  // Vincular usuario POS si faltaba (para que Activos y Usuarios queden alineados).
+  const preferId = data.usuario_id || (syncAct?.ids || [])[0] || null;
+  if (!data.usuario_id && preferId) {
+    await supabase
+      .from('rh_empleados')
+      .update({ usuario_id: preferId, updated_at: new Date().toISOString() })
+      .eq('id', emp.id);
+    data.usuario_id = preferId;
+  }
+
   // Si por typo (Geovani/giovani) quedaron 2 activos, dejar una sola ficha.
   try {
     const { consolidarDuplicadosTrasAltaOReingreso } = await import('./usuariosDuplicados.js');
-    const preferId = data.usuario_id || (syncAct?.ids || [])[0] || null;
     const cons = await consolidarDuplicadosTrasAltaOReingreso(supabase, {
       conservarId: preferId,
       user,
@@ -1374,6 +1462,24 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
     }
   } catch {
     /* no bloquear reingreso */
+  }
+
+  // Defensa: consolidar no debe devolver este expediente a Inactivos.
+  const { data: checkRh } = await supabase
+    .from('rh_empleados')
+    .select('id, estado, usuario_id')
+    .eq('id', emp.id)
+    .maybeSingle();
+  if (checkRh && checkRh.estado !== 'activo') {
+    await supabase
+      .from('rh_empleados')
+      .update({
+        ...upd,
+        usuario_id: checkRh.usuario_id || data.usuario_id || preferId || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', emp.id);
+    data.estado = 'activo';
   }
 
   try {
@@ -1401,8 +1507,10 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
 
   return {
     ok: true,
-    empleado: data,
-    mensaje: `Empleado recontratado y activo en ${etiquetaTienda(sucursal_id) || 'su sucursal'}. Ya aparece en nómina, turnos y Usuarios.${extraPos}`,
+    empleado: { ...data, estado: 'activo' },
+    mensaje:
+      `Empleado recontratado y activo en ${etiquetaTienda(sucursal_id) || 'su sucursal'}. `
+      + `Ya aparece en RH ABA3B → Activos, nómina, turnos y Usuarios.${extraPos}`,
   };
 }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   etiquetaEstadoRh,
   etiquetaTipoEmpleadoRh,
+  elegirExpedienteRhDeHits,
   nombreCompletoRh,
   puedeGestionarRh,
   requierePinAdminPrincipalParaAlta,
@@ -37,5 +38,14 @@ assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u1', nombre: 'Otra' }, empRh), 
 assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u9', nombre: 'Ana Pérez' }, empRh), true);
 assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u9', nombre: 'Ana' }, empRh), true);
 assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u9', nombre: 'Luis Soto' }, empRh), false);
+
+// Reingreso: si hay baja + activo homónimo, preferir la baja.
+const hits = [
+  { id: 'a', estado: 'activo', nombre_completo: 'Juan Pérez' },
+  { id: 'b', estado: 'baja', nombre_completo: 'Juan Perez' },
+];
+assert.equal(elegirExpedienteRhDeHits(hits, { preferirBaja: true })?.id, 'b');
+assert.equal(elegirExpedienteRhDeHits(hits, { preferirBaja: false })?.id, 'a');
+assert.equal(elegirExpedienteRhDeHits([{ id: 'x', estado: 'baja' }])?.id, 'x');
 
 console.log('rhAba3b.test.mjs OK');
