@@ -63,7 +63,7 @@ export function tieneAutorizacionFueraHorario(user, sucursal, date = new Date())
 
 /**
  * Otorga autorización local (+ nube si hay supabase).
- * Vigente 8 h en esa tienda para ese cajero.
+ * Duración por defecto 8 h; el overlay de solicitud puede pasar 2–12 h.
  */
 export async function otorgarAutorizacionFueraHorario({
   usuarioId,
