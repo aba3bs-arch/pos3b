@@ -18,11 +18,11 @@ export default function Conciliaciones({ supabase, user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: '#b5a642' }}>Conciliaciones · Smoking</h2>
+        <h2 style={{ margin: 0, color: '#b5a642' }}>Conciliaciones · Smoking / Venta en Ruta</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Exclusivo Smoking: cobros del repartidor en Recolecciones (En Tránsito / Por Cobrar / Liquidado)
-          vs gastos Smoking de Corte Abarrotes. Señala tiendas sin recolección anotada y permite ver el
-          ticket del corte como evidencia.
+          Cuadra cobros del camión en RC/VentaRuta (tipo Venta Ruta) y recolecciones legadas
+          vs gastos Smoking o recepción Venta en Ruta en Corte Abarrotes. Señala tiendas sin
+          cobro anotado y permite ver el ticket del corte como evidencia.
         </p>
       </div>
       <PanelConciliaciones supabase={supabase} user={user} />

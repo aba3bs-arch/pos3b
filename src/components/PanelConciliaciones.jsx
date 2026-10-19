@@ -90,7 +90,7 @@ function TablaMovs({ titulo, color, rows, sel, onSel, columnas }) {
   );
 }
 
-/** Panel: Smoking (cortes) vs cobros Recolección del repartidor. */
+/** Panel: Smoking / Venta en Ruta (cortes) vs cobros RC (Venta Ruta + Recolección). */
 export default function PanelConciliaciones({ supabase, user }) {
   const [preset, setPreset] = useState('hoy');
   const [desde, setDesde] = useState(() => rangoDesdePreset('hoy')?.desde || '');
@@ -191,12 +191,12 @@ export default function PanelConciliaciones({ supabase, user }) {
     }
     const sinRec = datos?.tiendasSinRecoleccion?.length || 0;
     const msg =
-      `¿Sellar conciliación Smoking?\n\n` +
-      `Cobros recolección: ${fmtMonto(tot.totalEntradas)}\n` +
-      `Gastos Smoking (cortes): ${fmtMonto(tot.totalSalidas)}\n` +
+      `¿Sellar conciliación Smoking / Venta en Ruta?\n\n` +
+      `Cobros (RC / Recolección): ${fmtMonto(tot.totalEntradas)}\n` +
+      `Gastos Smoking / Venta en Ruta: ${fmtMonto(tot.totalSalidas)}\n` +
       `Diferencia: ${fmtMonto(tot.diferencia)}\n` +
-      (sinRec ? `Tiendas sin recolección anotada: ${sinRec}\n` : '') +
-      `\n${tot.entradas.length} cobros · ${tot.salidas.length} gastos Smoking`;
+      (sinRec ? `Tiendas sin cobro anotado: ${sinRec}\n` : '') +
+      `\n${tot.entradas.length} cobros · ${tot.salidas.length} gastos`;
     if (!confirm(msg)) return;
     setGuardando(true);
     const r = await sellarConciliacion(supabase, {
@@ -236,6 +236,7 @@ export default function PanelConciliaciones({ supabase, user }) {
   const colsEntrada = [
     { key: 'ymd', label: 'Fecha', render: (r) => fmtFechaCorta(r.ymd) },
     { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.tienda) || r.tienda },
+    { key: 'etiqueta', label: 'Tipo', render: (r) => r.etiqueta || r.tipo_movimiento || '—' },
     { key: 'folio', label: 'Folio' },
     { key: 'repartidor', label: 'Repartidor' },
     { key: 'estatus', label: 'Estatus' },
@@ -246,6 +247,7 @@ export default function PanelConciliaciones({ supabase, user }) {
     { key: 'ymd', label: 'Fecha', render: (r) => fmtFechaCorta(r.ymd) },
     { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.tienda) || r.tienda },
     { key: 'proveedor', label: 'Proveedor', render: (r) => r.proveedor || 'Smoking' },
+    { key: 'etiqueta', label: 'Origen', render: (r) => r.etiqueta || '—' },
     {
       key: 'corte_folio',
       label: 'Ticket corte',
@@ -341,7 +343,7 @@ export default function PanelConciliaciones({ supabase, user }) {
               </select>
             </label>
             <label className="muted" style={{ display: 'block' }}>
-              Estatus cobro (Recolecciones)
+              Estatus cobro (RC / Recolección)
               <select
                 className="select"
                 style={{ marginTop: '0.35rem', width: '100%' }}
@@ -355,7 +357,7 @@ export default function PanelConciliaciones({ supabase, user }) {
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', justifyContent: 'flex-end' }}>
               <div className="muted" style={{ fontSize: '0.82rem' }}>
-                Proveedor fijo: <strong>{PROVEEDOR_CONCILIACION}</strong>
+                Incluye: <strong>{PROVEEDOR_CONCILIACION}</strong> + Venta en Ruta
               </div>
               <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>
                 {cargando ? 'Cargando…' : 'Actualizar'}
@@ -385,7 +387,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                 }}
               >
                 <div>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>Cobros recolección</div>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>Cobros RC / Recolección</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f766e' }}>
                     {fmtMonto(tot.totalEntradas)}
                   </div>
@@ -394,7 +396,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                   </div>
                 </div>
                 <div>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>Gastos Smoking (cortes)</div>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>Gastos Smoking / Venta en Ruta</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#b45309' }}>
                     {fmtMonto(tot.totalSalidas)}
                   </div>
@@ -411,8 +413,8 @@ export default function PanelConciliaciones({ supabase, user }) {
                     {Math.abs(tot.diferencia) < 0.01
                       ? 'Cuadra'
                       : tot.diferencia > 0
-                        ? 'Sobra cobrado vs Smoking'
-                        : 'Falta cobrado vs Smoking'}
+                        ? 'Sobra cobrado vs gastos'
+                        : 'Falta cobrado vs gastos'}
                   </div>
                 </div>
               </div>
@@ -430,14 +432,14 @@ export default function PanelConciliaciones({ supabase, user }) {
                     Dónde está la discrepancia
                   </h3>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.8rem' }}>
-                    Tiendas con gasto Smoking en corte pero <strong>sin recolección anotada</strong> en el
+                    Tiendas con gasto Smoking / Venta en Ruta en corte pero <strong>sin cobro anotado</strong> en el
                     estatus seleccionado, o con diferencia de montos.
                   </p>
 
                   {datos.tiendasSinRecoleccion?.length > 0 && (
                     <div style={{ marginBottom: '0.75rem' }}>
                       <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.35rem', color: '#b45309' }}>
-                        Sin recolección anotada ({datos.tiendasSinRecoleccion.length})
+                        Sin cobro anotado ({datos.tiendasSinRecoleccion.length})
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                         {datos.tiendasSinRecoleccion.map((t) => (
@@ -447,9 +449,9 @@ export default function PanelConciliaciones({ supabase, user }) {
                             className="btn btn-ghost"
                             style={{ fontSize: '0.78rem', padding: '0.3rem 0.55rem', borderColor: '#fdba74' }}
                             onClick={() => setSucursal(t.tienda)}
-                            title={`${t.countSmoking} gasto(s) Smoking`}
+                            title={`${t.countSmoking} gasto(s) Smoking / Ruta`}
                           >
-                            {etiquetaTienda(t.tienda) || t.tienda}: Smoking <strong>{fmtMonto(t.smoking)}</strong>
+                            {etiquetaTienda(t.tienda) || t.tienda}: gasto <strong>{fmtMonto(t.smoking)}</strong>
                           </button>
                         ))}
                       </div>
@@ -461,7 +463,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                       <thead>
                         <tr>
                           <th>Tienda</th>
-                          <th style={{ textAlign: 'right' }}>Smoking</th>
+                          <th style={{ textAlign: 'right' }}>Gastos</th>
                           <th style={{ textAlign: 'right' }}>Cobros</th>
                           <th style={{ textAlign: 'right' }}>Diff</th>
                           <th>Estado</th>
@@ -490,7 +492,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                               </td>
                               <td>
                                 {t.sinRecoleccion
-                                  ? 'No anotó recolección'
+                                  ? 'No anotó cobro'
                                   : Math.abs(t.diff) < 0.01
                                     ? 'Cuadra'
                                     : t.diff > 0
@@ -529,7 +531,7 @@ export default function PanelConciliaciones({ supabase, user }) {
 
               <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
                 <TablaMovs
-                  titulo="Cobros del repartidor (Recolecciones)"
+                  titulo="Cobros del repartidor (Venta en Ruta / Recolección)"
                   color="#0f766e"
                   rows={datos.entradas}
                   sel={selEnt}
@@ -537,7 +539,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                   columnas={colsEntrada}
                 />
                 <TablaMovs
-                  titulo="Gastos Smoking de cortes"
+                  titulo="Gastos Smoking / Venta en Ruta (cortes)"
                   color="#b45309"
                   rows={datos.salidas}
                   sel={selSal}
@@ -555,7 +557,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                     style={{ marginTop: '0.35rem', width: '100%', resize: 'vertical' }}
                     value={notas}
                     onChange={(e) => setNotas(e.target.value)}
-                    placeholder="Ej. faltó anotar recolección en 3B2…"
+                    placeholder="Ej. faltó anotar cobro de ruta en 3B2…"
                   />
                 </label>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -563,9 +565,9 @@ export default function PanelConciliaciones({ supabase, user }) {
                     {guardando ? 'Sellando…' : 'Sellar conciliación'}
                   </button>
                   <span className="muted" style={{ fontSize: '0.8rem' }}>
-                    Selección: {tot.entradas.length} cobros · {tot.salidas.length} Smoking · diff {fmtMonto(tot.diferencia)}
+                    Selección: {tot.entradas.length} cobros · {tot.salidas.length} gastos · diff {fmtMonto(tot.diferencia)}
                     {datos.tiendasSinRecoleccion?.length
-                      ? ` · ${datos.tiendasSinRecoleccion.length} tienda(s) sin recolección`
+                      ? ` · ${datos.tiendasSinRecoleccion.length} tienda(s) sin cobro`
                       : ''}
                   </span>
                 </div>
@@ -578,7 +580,7 @@ export default function PanelConciliaciones({ supabase, user }) {
       {tab === 'historial' && (
         <div className="card" style={{ padding: '0.9rem', overflow: 'auto' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '1rem' }}>
-            Conciliaciones Smoking selladas
+            Conciliaciones Smoking / Venta en Ruta selladas
           </h3>
           {!historial.length ? (
             <p className="muted" style={{ margin: 0 }}>Aún no hay conciliaciones guardadas.</p>
@@ -589,9 +591,9 @@ export default function PanelConciliaciones({ supabase, user }) {
                   <th>Folio</th>
                   <th>Periodo</th>
                   <th>Cobros</th>
-                  <th>Smoking</th>
+                  <th>Gastos</th>
                   <th>Diff</th>
-                  <th>Sin recolección</th>
+                  <th>Sin cobro</th>
                   <th>Usuario</th>
                   <th>Estado</th>
                   <th />

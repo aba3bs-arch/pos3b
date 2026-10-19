@@ -1,7 +1,7 @@
 /**
- * Conciliaciones Abarrotes — exclusivamente:
- * cobros del repartidor (Recolección en módulo Recolecciones)
- * vs gastos Smoking de Corte Abarrotes.
+ * Conciliaciones Abarrotes — Smoking / Venta en Ruta:
+ * cobros del repartidor (Recolección legada + Venta Ruta en RC)
+ * vs gastos Smoking / recepción Venta en Ruta de Corte Abarrotes.
  */
 import { normalizarCodigoTienda, esAlmacenCentral, equivalentesCodigoTienda } from '../constants/sucursales.js';
 import { inicioDia, finDia, hoyYmdNogales } from './corteCaja.js';
@@ -16,7 +16,10 @@ import {
 
 export const PROVEEDOR_CONCILIACION = 'Smoking';
 
-/** Opciones de estatus de cobro en Recolecciones. */
+/** Tipos de tránsito que cuentan como cobro (legado + camión). */
+export const TIPOS_COBRO_CONCILIACION = ['Recolección', 'Venta Ruta'];
+
+/** Opciones de estatus de cobro en RC / Recolecciones. */
 export const OPCIONES_ESTATUS_COBRO = [
   { value: 'pendientes', label: 'En Tránsito + Por Cobrar', estatus: ['En Tránsito', 'Por Cobrar'] },
   { value: 'en_transito', label: 'Solo En Tránsito', estatus: ['En Tránsito'] },
@@ -61,11 +64,10 @@ function idsGastoEnCierre(cierre) {
   return ids;
 }
 
-/** True si el gasto de corte es de proveedor Smoking. */
-export function esGastoSmokingCorte(gasto) {
-  if (!esCategoriaProveedores(gasto?.categoria)) return false;
+/** Blob normalizado para detectar Smoking / Venta en Ruta en un gasto de corte. */
+export function blobGastoConciliacion(gasto) {
   const proveedor = proveedorDesdeGastoCorte(gasto);
-  const blob = [
+  return [
     proveedor,
     gasto?.subcategoria,
     gasto?.comentario,
@@ -73,7 +75,34 @@ export function esGastoSmokingCorte(gasto) {
   ]
     .map((x) => normalizarNombreProveedorClave(x))
     .join(' ');
-  return blob.includes('SMOKING');
+}
+
+/** True si el gasto de corte es de proveedor Smoking. */
+export function esGastoSmokingCorte(gasto) {
+  if (!esCategoriaProveedores(gasto?.categoria)) return false;
+  return blobGastoConciliacion(gasto).includes('SMOKING');
+}
+
+/**
+ * Gasto de corte conciliable: Smoking (legado) o recepción de Venta en Ruta
+ * (comentario «COMPRA VENTA EN RUTA» / subcategoría VENTA EN RUTA).
+ */
+export function esGastoConciliableRutaSmoking(gasto) {
+  if (!esCategoriaProveedores(gasto?.categoria)) return false;
+  const blob = blobGastoConciliacion(gasto);
+  return (
+    blob.includes('SMOKING')
+    || blob.includes('VENTA EN RUTA')
+    || blob.includes('COMPRA VENTA EN RUTA')
+  );
+}
+
+/** True si el movimiento de tránsito es cobro de recolección o venta en ruta. */
+export function esCobroConciliableTransito(m) {
+  if (!m) return false;
+  if (esCobroCreditoMovimiento(m)) return false;
+  const tipo = String(m.tipo_movimiento || '');
+  return TIPOS_COBRO_CONCILIACION.includes(tipo);
 }
 
 /** Índice gasto_id → cierre (ticket) para evidenciar diferencias. */
@@ -153,7 +182,8 @@ export function armarDiscrepanciasPorTienda(entradas = [], salidas = []) {
 }
 
 /**
- * Carga cobros Recolección (entradas) y gastos Smoking de cortes (salidas).
+ * Carga cobros Recolección + Venta Ruta (entradas)
+ * y gastos Smoking / Venta en Ruta de cortes (salidas).
  */
 export async function cargarDatosConciliacion(supabase, {
   desde,
@@ -178,7 +208,7 @@ export async function cargarDatosConciliacion(supabase, {
         .select(
           'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, estatus, descripcion_gasto, fecha_liquidacion, usuario_liquida',
         )
-        .eq('tipo_movimiento', 'Recolección')
+        .in('tipo_movimiento', TIPOS_COBRO_CONCILIACION)
         .in('estatus', [...estatusOk])
         .gte('fecha_hora', desdeDt.toISOString())
         .lte('fecha_hora', hastaDt.toISOString())
@@ -194,7 +224,15 @@ export async function cargarDatosConciliacion(supabase, {
         .select('*')
         .eq('modulo', 'abarrotes')
         .ilike('categoria', '%PROVEEDOR%')
-        .or('subcategoria.ilike.%Smoking%,comentario.ilike.%Smoking%')
+        .or(
+          [
+            'subcategoria.ilike.%Smoking%',
+            'comentario.ilike.%Smoking%',
+            'subcategoria.ilike.%VENTA EN RUTA%',
+            'comentario.ilike.%VENTA EN RUTA%',
+            'comentario.ilike.%COMPRA VENTA EN RUTA%',
+          ].join(','),
+        )
         .gte('created_at', desdeDt.toISOString())
         .lte('created_at', hastaDt.toISOString())
         .order('created_at', { ascending: false })
@@ -237,9 +275,9 @@ export async function cargarDatosConciliacion(supabase, {
     }),
   ]);
 
-  if (transitoRes.error) avisos.push(`Recolecciones: ${transitoRes.error.message}`);
+  if (transitoRes.error) avisos.push(`Cobros RC / Recolección: ${transitoRes.error.message}`);
   if (gastosCorteRes.error && gastosCorteRes.error.code !== '42P01') {
-    avisos.push(`Gastos Smoking: ${gastosCorteRes.error.message}`);
+    avisos.push(`Gastos Smoking / Venta en Ruta: ${gastosCorteRes.error.message}`);
   }
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
     avisos.push(`Tickets de corte: ${cierresRes.error.message}`);
@@ -250,17 +288,18 @@ export async function cargarDatosConciliacion(supabase, {
   const entradas = [];
   for (const m of transitoRes.data || []) {
     if (!estatusOk.has(m.estatus)) continue;
-    // Cobros de crédito (legados como Recolección) no son venta/cobro Smoking.
-    if (esCobroCreditoMovimiento(m)) continue;
+    // Solo Recolección (legado) y Venta Ruta; no cobros de crédito ni servicios.
+    if (!esCobroConciliableTransito(m)) continue;
     if (esAlmacenCentral(m.sucursal_origen)) continue;
     const ymd = ymdDeIso(m.fecha_hora);
     if (!enRangoYmd(ymd, desde, hasta)) continue;
+    const esRuta = String(m.tipo_movimiento || '') === 'Venta Ruta';
     entradas.push({
       id: `t:${m.id}`,
       fuente: 'transito',
       movimiento_id: m.id,
-      grupo: 'recoleccion',
-      etiqueta: 'Cobro recolección',
+      grupo: esRuta ? 'venta_ruta' : 'recoleccion',
+      etiqueta: esRuta ? 'Venta en ruta' : 'Cobro recolección',
       tipo_movimiento: m.tipo_movimiento,
       estatus: m.estatus,
       monto: round2(m.monto),
@@ -276,7 +315,7 @@ export async function cargarDatosConciliacion(supabase, {
 
   const salidas = [];
   for (const g of gastosCorteRes.data || []) {
-    if (!esGastoSmokingCorte(g)) continue;
+    if (!esGastoConciliableRutaSmoking(g)) continue;
     const est = g.estado_aprobacion;
     if (est && est !== 'aprobado') continue;
     if (esAlmacenCentral(g.sucursal_id)) continue;
@@ -285,18 +324,19 @@ export async function cargarDatosConciliacion(supabase, {
     if (!enRangoYmd(ymd, desde, hasta)) continue;
     const proveedor = proveedorDesdeGastoCorte(g);
     const cierre = cierrePorGasto.get(String(g.id)) || null;
+    const esRuta = esGastoConciliableRutaSmoking(g) && !esGastoSmokingCorte(g);
     salidas.push({
       id: `gp:${g.id}`,
-      fuente: 'gasto_smoking_corte',
+      fuente: esRuta ? 'gasto_venta_ruta_corte' : 'gasto_smoking_corte',
       movimiento_id: g.id,
-      grupo: 'smoking',
-      etiqueta: 'Gasto Smoking (corte)',
+      grupo: esRuta ? 'venta_ruta' : 'smoking',
+      etiqueta: esRuta ? 'Gasto Venta en Ruta (corte)' : 'Gasto Smoking (corte)',
       monto: round2(g.monto),
       fecha: g.created_at,
       ymd,
       tienda: normalizarCodigoTienda(g.sucursal_id) || g.sucursal_id || '—',
       folio: g.subcategoria || '—',
-      proveedor,
+      proveedor: proveedor || (esRuta ? 'Venta en ruta' : PROVEEDOR_CONCILIACION),
       categoria: g.categoria,
       subcategoria: g.subcategoria || '',
       detalle: g.comentario || '',
@@ -419,8 +459,8 @@ export async function sellarConciliacion(supabase, {
   const folio = folioConciliacion();
   const disc = armarDiscrepanciasPorTienda(entradas, salidas);
   const detalle = {
-    version: 3,
-    tipo: 'smoking_vs_recolecciones',
+    version: 4,
+    tipo: 'smoking_venta_ruta_vs_cobros',
     filtroEstatus,
     entradas: entradas.map((e) => ({
       id: e.movimiento_id,
@@ -432,6 +472,7 @@ export async function sellarConciliacion(supabase, {
       fecha: e.fecha,
       etiqueta: e.etiqueta,
       estatus: e.estatus,
+      tipo_movimiento: e.tipo_movimiento || null,
     })),
     salidas: salidas.map((s) => ({
       id: s.movimiento_id,
@@ -462,7 +503,7 @@ export async function sellarConciliacion(supabase, {
       totalEntradas,
       totalSalidas,
       diferencia,
-      texto: `Cobros ${fmtMonto(totalEntradas)} − Smoking ${fmtMonto(totalSalidas)} = ${fmtMonto(diferencia)}`,
+      texto: `Cobros ${fmtMonto(totalEntradas)} − Smoking/Ruta ${fmtMonto(totalSalidas)} = ${fmtMonto(diferencia)}`,
     },
   };
 
