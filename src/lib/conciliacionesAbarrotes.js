@@ -1,14 +1,22 @@
 /**
  * Conciliaciones Abarrotes — Smoking / Venta en Ruta:
- * cobros del repartidor (Recolección legada + Venta Ruta en RC)
- * vs gastos Smoking / recepción Venta en Ruta de Corte Abarrotes.
+ * todo lo cobrado o cargado a la tienda (efectivo RC, créditos cobrados,
+ * créditos por pagar, recolección legada) vs gastos Smoking / recepción
+ * Venta en Ruta en Corte Abarrotes.
  */
-import { normalizarCodigoTienda, esAlmacenCentral, equivalentesCodigoTienda } from '../constants/sucursales.js';
+import { normalizarCodigoTienda, esAlmacenCentral, equivalentesCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
 import { inicioDia, finDia, hoyYmdNogales } from './corteCaja.js';
 import { esCategoriaProveedores } from './corteContabilidad/catalogoGastos.js';
 import { proveedorDesdeGastoCorte } from './ieAbarrotesProveedores.js';
 import { normalizarNombreProveedorClave } from './proveedorEntregas.js';
-import { fmtMonto, listarRepartidores, fechaClaveDesdeIso, esCobroCreditoMovimiento } from './controlEfectivo.js';
+import {
+  fmtMonto,
+  listarRepartidores,
+  fechaClaveDesdeIso,
+  esCobroCreditoMovimiento,
+  TIPO_COBRO_CREDITO,
+} from './controlEfectivo.js';
+import { listarCreditosPendientesRuta } from './rutaCxc.js';
 import {
   datosImpresionDesdeHistorial,
   imprimirCorteContabilidad,
@@ -16,17 +24,38 @@ import {
 
 export const PROVEEDOR_CONCILIACION = 'Smoking';
 
-/** Tipos de tránsito que cuentan como cobro (legado + camión). */
-export const TIPOS_COBRO_CONCILIACION = ['Recolección', 'Venta Ruta'];
+/**
+ * Tipos de tránsito que cuentan como cobro/cargo a tienda:
+ * efectivo del camión, recolección legada, crédito cobrado y crédito entregado.
+ */
+export const TIPOS_COBRO_CONCILIACION = [
+  'Recolección',
+  'Venta Ruta',
+  TIPO_COBRO_CREDITO,
+  'Entrega Crédito',
+];
 
 /** Opciones de estatus de cobro en RC / Recolecciones. */
 export const OPCIONES_ESTATUS_COBRO = [
+  { value: 'todos', label: 'Todos (tránsito, por cobrar, liquidado)', estatus: ['En Tránsito', 'Por Cobrar', 'Liquidado'] },
   { value: 'pendientes', label: 'En Tránsito + Por Cobrar', estatus: ['En Tránsito', 'Por Cobrar'] },
   { value: 'en_transito', label: 'Solo En Tránsito', estatus: ['En Tránsito'] },
   { value: 'por_cobrar', label: 'Solo Por Cobrar', estatus: ['Por Cobrar'] },
   { value: 'liquidado', label: 'Solo Liquidado', estatus: ['Liquidado'] },
-  { value: 'todos', label: 'Todos (tránsito, por cobrar, liquidado)', estatus: ['En Tránsito', 'Por Cobrar', 'Liquidado'] },
 ];
+
+/** Etiqueta legible del movimiento de cobro/cargo. */
+export function etiquetaCobroConciliacion(m) {
+  if (!m) return 'Cobro';
+  if (esCobroCreditoMovimiento(m) || String(m.tipo_movimiento || '') === TIPO_COBRO_CREDITO) {
+    return 'Crédito cobrado';
+  }
+  const tipo = String(m.tipo_movimiento || '');
+  if (tipo === 'Entrega Crédito') return 'Crédito por cobrar (entrega)';
+  if (tipo === 'Venta Ruta') return 'Venta en ruta (efectivo)';
+  if (tipo === 'Crédito pendiente' || m.grupo === 'credito_pendiente') return 'Crédito por pagar';
+  return 'Cobro recolección';
+}
 
 function estatusDeFiltro(filtroEstatus) {
   const opt = OPCIONES_ESTATUS_COBRO.find((o) => o.value === filtroEstatus);
@@ -97,12 +126,29 @@ export function esGastoConciliableRutaSmoking(gasto) {
   );
 }
 
-/** True si el movimiento de tránsito es cobro de recolección o venta en ruta. */
+/**
+ * True si el movimiento de tránsito es cobro/cargo conciliable
+ * (efectivo ruta, recolección, crédito cobrado o entrega a crédito).
+ */
 export function esCobroConciliableTransito(m) {
   if (!m) return false;
-  if (esCobroCreditoMovimiento(m)) return false;
   const tipo = String(m.tipo_movimiento || '');
-  return TIPOS_COBRO_CONCILIACION.includes(tipo);
+  if (TIPOS_COBRO_CONCILIACION.includes(tipo)) return true;
+  // Legado: cobro de crédito guardado como Recolección con nota en foto_url.
+  if (esCobroCreditoMovimiento(m)) return true;
+  return false;
+}
+
+export function grupoCobroConciliacion(m) {
+  if (!m) return 'recoleccion';
+  if (esCobroCreditoMovimiento(m) || String(m.tipo_movimiento || '') === TIPO_COBRO_CREDITO) {
+    return 'credito_cobrado';
+  }
+  const tipo = String(m.tipo_movimiento || '');
+  if (tipo === 'Entrega Crédito') return 'credito_entrega';
+  if (tipo === 'Venta Ruta') return 'venta_ruta';
+  if (tipo === 'Crédito pendiente' || m.grupo === 'credito_pendiente') return 'credito_pendiente';
+  return 'recoleccion';
 }
 
 /** Índice gasto_id → cierre (ticket) para evidenciar diferencias. */
@@ -182,7 +228,7 @@ export function armarDiscrepanciasPorTienda(entradas = [], salidas = []) {
 }
 
 /**
- * Carga cobros Recolección + Venta Ruta (entradas)
+ * Carga cobros/cargos a tienda (efectivo, créditos cobrados, créditos por pagar)
  * y gastos Smoking / Venta en Ruta de cortes (salidas).
  */
 export async function cargarDatosConciliacion(supabase, {
@@ -190,7 +236,7 @@ export async function cargarDatosConciliacion(supabase, {
   hasta,
   sucursal = null,
   repartidorId = null,
-  filtroEstatus = 'pendientes',
+  filtroEstatus = 'todos',
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!desde || !hasta) return { ok: false, error: 'Indica el periodo.' };
@@ -201,12 +247,12 @@ export async function cargarDatosConciliacion(supabase, {
   const avisos = [];
   const estatusOk = new Set(estatusDeFiltro(filtroEstatus));
 
-  const [transitoRes, gastosCorteRes, cierresRes, repsRes] = await Promise.all([
+  const [transitoRes, gastosCorteRes, cierresRes, repsRes, creditosRes] = await Promise.all([
     (async () => {
       let q = supabase
         .from('transito_efectivo')
         .select(
-          'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, estatus, descripcion_gasto, fecha_liquidacion, usuario_liquida',
+          'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, estatus, descripcion_gasto, fecha_liquidacion, usuario_liquida, foto_url',
         )
         .in('tipo_movimiento', TIPOS_COBRO_CONCILIACION)
         .in('estatus', [...estatusOk])
@@ -273,6 +319,17 @@ export async function cargarDatosConciliacion(supabase, {
       avisos.push(`Repartidores: ${e.message}`);
       return [];
     }),
+    // Créditos por pagar: van por tienda (no filtran por repartidor).
+    listarCreditosPendientesRuta(supabase, {
+      sucursalId: suc || undefined,
+      fechaDesde: desde,
+      fechaHasta: hasta,
+      limit: 2000,
+      sync: 'skip',
+    }).catch((e) => {
+      avisos.push(`Créditos por pagar: ${e.message || String(e)}`);
+      return { data: [], error: e.message };
+    }),
   ]);
 
   if (transitoRes.error) avisos.push(`Cobros RC / Recolección: ${transitoRes.error.message}`);
@@ -282,24 +339,28 @@ export async function cargarDatosConciliacion(supabase, {
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
     avisos.push(`Tickets de corte: ${cierresRes.error.message}`);
   }
+  if (creditosRes?.error) avisos.push(`Créditos por pagar: ${creditosRes.error}`);
+  if (creditosRes?.aviso) avisos.push(creditosRes.aviso);
+  if (repartidorId) {
+    avisos.push('Créditos por pagar se listan por tienda (no filtran por repartidor).');
+  }
 
   const cierrePorGasto = mapaCierrePorGastoId(cierresRes.data || []);
 
   const entradas = [];
   for (const m of transitoRes.data || []) {
     if (!estatusOk.has(m.estatus)) continue;
-    // Solo Recolección (legado) y Venta Ruta; no cobros de crédito ni servicios.
     if (!esCobroConciliableTransito(m)) continue;
     if (esAlmacenCentral(m.sucursal_origen)) continue;
     const ymd = ymdDeIso(m.fecha_hora);
     if (!enRangoYmd(ymd, desde, hasta)) continue;
-    const esRuta = String(m.tipo_movimiento || '') === 'Venta Ruta';
+    const grupo = grupoCobroConciliacion(m);
     entradas.push({
       id: `t:${m.id}`,
       fuente: 'transito',
       movimiento_id: m.id,
-      grupo: esRuta ? 'venta_ruta' : 'recoleccion',
-      etiqueta: esRuta ? 'Venta en ruta' : 'Cobro recolección',
+      grupo,
+      etiqueta: etiquetaCobroConciliacion(m),
       tipo_movimiento: m.tipo_movimiento,
       estatus: m.estatus,
       monto: round2(m.monto),
@@ -312,6 +373,34 @@ export async function cargarDatosConciliacion(supabase, {
       detalle: m.descripcion_gasto || '',
     });
   }
+
+  for (const c of creditosRes?.data || []) {
+    if (String(c.cliente_tipo || 'sucursal') !== 'sucursal') continue;
+    const tienda = normalizarCodigoTienda(c.cliente_id) || String(c.cliente_id || '').trim();
+    if (!tienda || esAlmacenCentral(tienda)) continue;
+    if (suc && tienda !== suc) continue;
+    const ymd = ymdDeIso(c.created_at);
+    if (!enRangoYmd(ymd, desde, hasta)) continue;
+    entradas.push({
+      id: `cxc:${c.id}`,
+      fuente: 'cxc_pendiente',
+      movimiento_id: c.id,
+      grupo: 'credito_pendiente',
+      etiqueta: 'Crédito por pagar',
+      tipo_movimiento: 'Crédito pendiente',
+      estatus: 'Por Cobrar',
+      monto: round2(c.monto),
+      fecha: c.created_at,
+      ymd,
+      tienda,
+      folio: c.folio_venta || c.venta_id || '—',
+      repartidor_id: null,
+      repartidor: c.usuario_nombre || c.cliente_nombre || etiquetaTienda(tienda) || tienda,
+      detalle: c.notas || 'Crédito pendiente en CxC',
+    });
+  }
+
+  entradas.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
 
   const salidas = [];
   for (const g of gastosCorteRes.data || []) {
@@ -351,9 +440,18 @@ export async function cargarDatosConciliacion(supabase, {
   }
 
   const sum = (rows) => round2(rows.reduce((a, r) => a + (Number(r.monto) || 0), 0));
+  const sumGrupo = (grupo) => sum(entradas.filter((e) => e.grupo === grupo));
 
   const resumenEntradas = {
-    recoleccion: sum(entradas),
+    venta_ruta: sumGrupo('venta_ruta'),
+    recoleccion: sumGrupo('recoleccion'),
+    credito_cobrado: sumGrupo('credito_cobrado'),
+    credito_entrega: sumGrupo('credito_entrega'),
+    credito_pendiente: sumGrupo('credito_pendiente'),
+    efectivo: round2(sumGrupo('venta_ruta') + sumGrupo('recoleccion')),
+    creditos: round2(
+      sumGrupo('credito_cobrado') + sumGrupo('credito_entrega') + sumGrupo('credito_pendiente'),
+    ),
     total: sum(entradas),
     count: entradas.length,
   };
@@ -459,8 +557,8 @@ export async function sellarConciliacion(supabase, {
   const folio = folioConciliacion();
   const disc = armarDiscrepanciasPorTienda(entradas, salidas);
   const detalle = {
-    version: 4,
-    tipo: 'smoking_venta_ruta_vs_cobros',
+    version: 5,
+    tipo: 'smoking_venta_ruta_vs_cobros_creditos',
     filtroEstatus,
     entradas: entradas.map((e) => ({
       id: e.movimiento_id,
@@ -503,7 +601,7 @@ export async function sellarConciliacion(supabase, {
       totalEntradas,
       totalSalidas,
       diferencia,
-      texto: `Cobros ${fmtMonto(totalEntradas)} − Smoking/Ruta ${fmtMonto(totalSalidas)} = ${fmtMonto(diferencia)}`,
+      texto: `Cobros+créditos ${fmtMonto(totalEntradas)} − Smoking/Ruta ${fmtMonto(totalSalidas)} = ${fmtMonto(diferencia)}`,
     },
   };
 

@@ -3,21 +3,36 @@ import {
   esGastoSmokingCorte,
   esGastoConciliableRutaSmoking,
   esCobroConciliableTransito,
+  etiquetaCobroConciliacion,
+  grupoCobroConciliacion,
   TIPOS_COBRO_CONCILIACION,
   armarDiscrepanciasPorTienda,
 } from './conciliacionesAbarrotes.js';
 import { TIPO_COBRO_CREDITO } from './controlEfectivo.js';
 
-assert.deepEqual(TIPOS_COBRO_CONCILIACION, ['Recolección', 'Venta Ruta']);
+assert.ok(TIPOS_COBRO_CONCILIACION.includes('Recolección'));
+assert.ok(TIPOS_COBRO_CONCILIACION.includes('Venta Ruta'));
+assert.ok(TIPOS_COBRO_CONCILIACION.includes(TIPO_COBRO_CREDITO));
+assert.ok(TIPOS_COBRO_CONCILIACION.includes('Entrega Crédito'));
 
 assert.equal(esCobroConciliableTransito({ tipo_movimiento: 'Recolección' }), true);
 assert.equal(esCobroConciliableTransito({ tipo_movimiento: 'Venta Ruta' }), true);
+assert.equal(esCobroConciliableTransito({ tipo_movimiento: TIPO_COBRO_CREDITO }), true);
+assert.equal(esCobroConciliableTransito({ tipo_movimiento: 'Entrega Crédito' }), true);
 assert.equal(esCobroConciliableTransito({ tipo_movimiento: 'Cobro Servicio' }), false);
-assert.equal(esCobroConciliableTransito({ tipo_movimiento: TIPO_COBRO_CREDITO }), false);
 assert.equal(
   esCobroConciliableTransito({ tipo_movimiento: 'Recolección', foto_url: 'crédito cobrado · folio 1' }),
-  false,
+  true,
 );
+
+assert.equal(etiquetaCobroConciliacion({ tipo_movimiento: 'Venta Ruta' }), 'Venta en ruta (efectivo)');
+assert.equal(etiquetaCobroConciliacion({ tipo_movimiento: TIPO_COBRO_CREDITO }), 'Crédito cobrado');
+assert.equal(etiquetaCobroConciliacion({ tipo_movimiento: 'Entrega Crédito' }), 'Crédito por cobrar (entrega)');
+assert.equal(etiquetaCobroConciliacion({ grupo: 'credito_pendiente' }), 'Crédito por pagar');
+
+assert.equal(grupoCobroConciliacion({ tipo_movimiento: 'Venta Ruta' }), 'venta_ruta');
+assert.equal(grupoCobroConciliacion({ tipo_movimiento: TIPO_COBRO_CREDITO }), 'credito_cobrado');
+assert.equal(grupoCobroConciliacion({ tipo_movimiento: 'Entrega Crédito' }), 'credito_entrega');
 
 assert.equal(
   esGastoSmokingCorte({
@@ -55,12 +70,24 @@ assert.equal(
   false,
 );
 
+// Efectivo + crédito pendiente deben cubrir el gasto de recepción.
 const disc = armarDiscrepanciasPorTienda(
-  [{ tienda: '3B2', monto: 100 }],
-  [{ tienda: '3B2', monto: 100 }, { tienda: '3B3', monto: 50 }],
+  [
+    { tienda: '3B6', monto: 500, grupo: 'venta_ruta' },
+    { tienda: '3B6', monto: 364, grupo: 'credito_pendiente' },
+  ],
+  [{ tienda: '3B6', monto: 864 }],
 );
-assert.equal(disc.tiendasSinRecoleccion.length, 1);
-assert.equal(disc.tiendasSinRecoleccion[0].tienda, '3B3');
-assert.equal(disc.porTienda.find((t) => t.tienda === '3B2').diff, 0);
+const fila = disc.porTienda.find((t) => t.tienda === '3B6');
+assert.ok(fila);
+assert.equal(fila.diff, 0);
+assert.equal(fila.sinRecoleccion, false);
+
+const discFalta = armarDiscrepanciasPorTienda(
+  [],
+  [{ tienda: '3B6', monto: 864 }],
+);
+assert.equal(discFalta.tiendasSinRecoleccion.length, 1);
+assert.equal(discFalta.tiendasSinRecoleccion[0].tienda, '3B6');
 
 console.log('conciliacionesAbarrotes.test.mjs OK');
