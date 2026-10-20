@@ -79,36 +79,6 @@ function elegirAdministradorPorPin(admins, sucursalActiva) {
   return admins[0];
 }
 
-function mensajeErrorConsultaUsuarios(error) {
-  const msg = String(error?.message || error || '');
-  const low = msg.toLowerCase();
-  // Disk IO / timeouts de Supabase: el login falla aunque el PIN sea correcto.
-  if (
-    low.includes('timeout')
-    || low.includes('57014')
-    || low.includes('statement timeout')
-    || low.includes('cloudflare')
-    || low.includes('502')
-    || low.includes('503')
-    || low.includes('fetch failed')
-    || low.includes('network')
-    || low.includes('failed to fetch')
-  ) {
-    return (
-      'No se pudo consultar usuarios (Supabase lento o Disk IO agotado). '
-      + 'Espera unos minutos o sube el plan / deja que se recargue el presupuesto de disco, e intenta de nuevo.'
-    );
-  }
-  return msg || 'Error al consultar usuarios.';
-}
-
-/** true si PostgREST se quejó por 0 o N filas con Accept object (maybeSingle/single). */
-function errorFilasAmbiguas(error) {
-  const code = String(error?.code || '');
-  const msg = String(error?.message || '').toLowerCase();
-  return code === 'PGRST116' || msg.includes('multiple') || msg.includes('0 rows');
-}
-
 /**
  * Busca usuario por PIN.
  * - Empleados fijos (cajero, etc.): solo en la sucursal de la caja.
@@ -121,37 +91,26 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   if (!p) return { user: null, error: null };
   const suc = normalizarCodigoTienda(sucursalActiva);
 
-  // Evitar maybeSingle: con PIN duplicado en la misma tienda bloqueaba TODO el login (PGRST116).
-  const qExact = await supabase
-    .from('usuarios')
-    .select('*')
-    .eq('pin', p)
-    .eq('sucursal_id', suc)
-    .limit(5);
-  if (qExact.error && !faltaColumnaSucursal(qExact.error) && !errorFilasAmbiguas(qExact.error)) {
-    return { user: null, error: mensajeErrorConsultaUsuarios(qExact.error) };
+  const qExact = await supabase.from('usuarios').select('*').eq('pin', p).eq('sucursal_id', suc).maybeSingle();
+  if (qExact.error && !faltaColumnaSucursal(qExact.error)) {
+    return { user: null, error: qExact.error.message };
   }
-  const exactos = (qExact.data || []).filter(Boolean);
-  if (exactos.length) {
-    const preferido = exactos.find(usuarioEstaActivo) || exactos[0];
-    const r = rechazarSiInactivo(preferido);
+  if (qExact.data) {
+    const r = rechazarSiInactivo(qExact.data);
     return r.error ? r : { user: r.user, error: null };
   }
 
-  const qAll = await supabase.from('usuarios').select('*').eq('pin', p).limit(20);
+  const qAll = await supabase.from('usuarios').select('*').eq('pin', p);
   if (qAll.error) {
     if (faltaColumnaSucursal(qAll.error)) {
-      const qLegacy = await supabase.from('usuarios').select('*').eq('pin', p).limit(5);
-      if (qLegacy.error && !errorFilasAmbiguas(qLegacy.error)) {
-        return { user: null, error: mensajeErrorConsultaUsuarios(qLegacy.error) };
-      }
-      const legacy = (qLegacy.data || [])[0];
-      if (legacy) {
-        const r = rechazarSiInactivo(legacy);
+      const qLegacy = await supabase.from('usuarios').select('*').eq('pin', p).maybeSingle();
+      if (qLegacy.error) return { user: null, error: qLegacy.error.message };
+      if (qLegacy.data) {
+        const r = rechazarSiInactivo(qLegacy.data);
         return r.error ? r : { user: r.user, error: null, sinColumnaSucursal: true };
       }
     }
-    return { user: null, error: mensajeErrorConsultaUsuarios(qAll.error) };
+    return { user: null, error: qAll.error.message };
   }
 
   const list = (qAll.data || []).filter(usuarioEstaActivo);
