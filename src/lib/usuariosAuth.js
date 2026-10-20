@@ -79,27 +79,79 @@ function elegirAdministradorPorPin(admins, sucursalActiva) {
   return admins[0];
 }
 
+export const MENSAJE_SUPABASE_CAIDO =
+  'La base de datos de Supabase está caída o reiniciando. '
+  + 'No es tu PIN: no se pudo leer la tabla de usuarios. '
+  + 'Espera un minuto y vuelve a intentar. Si sigue igual, abre el proyecto en Supabase y pulsa Restart project.';
+
+/** 521/503, schema cache (PGRST002) o timeout: el proyecto no contestó, el PIN no se validó. */
+export function esFalloTransitorioSupabase(error) {
+  const code = String(error?.code || error?.name || '');
+  const msg = String(error?.message || error || '').toLowerCase();
+  const status = Number(error?.status || error?.statusCode || 0);
+  if (['PGRST002', 'PGRST003', '57014', '08006', '08001', '57P01', 'AbortError'].includes(code)) return true;
+  if ([502, 503, 504, 521, 522, 523, 524].includes(status)) return true;
+  return (
+    msg.includes('schema cache')
+    || msg.includes('timeout')
+    || msg.includes('timed out')
+    || msg.includes('57014')
+    || msg.includes('statement timeout')
+    || msg.includes('cloudflare')
+    || msg.includes('521')
+    || msg.includes('522')
+    || msg.includes('502')
+    || msg.includes('503')
+    || msg.includes('504')
+    || msg.includes('origin_down')
+    || msg.includes('web server is down')
+    || msg.includes('connection refused')
+    || msg.includes('econnrefused')
+    || msg.includes('fetch failed')
+    || msg.includes('failed to fetch')
+    || msg.includes('network')
+    || msg.includes('aborterror')
+    || msg.includes('the operation was aborted')
+    || msg.includes('aborted')
+  );
+}
+
 function mensajeErrorConsultaUsuarios(error) {
+  if (esFalloTransitorioSupabase(error)) return MENSAJE_SUPABASE_CAIDO;
   const msg = String(error?.message || error || '');
-  const low = msg.toLowerCase();
-  // Disk IO / timeouts de Supabase: el login falla aunque el PIN sea correcto.
-  if (
-    low.includes('timeout')
-    || low.includes('57014')
-    || low.includes('statement timeout')
-    || low.includes('cloudflare')
-    || low.includes('502')
-    || low.includes('503')
-    || low.includes('fetch failed')
-    || low.includes('network')
-    || low.includes('failed to fetch')
-  ) {
-    return (
-      'No se pudo consultar usuarios (Supabase lento o Disk IO agotado). '
-      + 'Espera unos minutos o sube el plan / deja que se recargue el presupuesto de disco, e intenta de nuevo.'
-    );
-  }
   return msg || 'Error al consultar usuarios.';
+}
+
+function abrirSenal(ms) {
+  if (typeof AbortController === 'undefined') return { signal: null, cancel() {} };
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  return { signal: c.signal, cancel() { clearTimeout(t); } };
+}
+
+/**
+ * Reintenta si Supabase/PostgREST está caído (521 o PGRST002).
+ * Un parpadeo de 1–2 s no debe verse como «no hay usuarios».
+ */
+async function leerUsuarios(run, { intentos = 3, esperaMs = 700, timeoutMs = 8000 } = {}) {
+  let last = { data: null, error: { message: 'Error al consultar usuarios.' } };
+  for (let i = 0; i < intentos; i += 1) {
+    const senal = abrirSenal(timeoutMs);
+    try {
+      let req = run();
+      if (senal.signal && req && typeof req.abortSignal === 'function') req = req.abortSignal(senal.signal);
+      last = await req;
+    } catch (err) {
+      last = { data: null, error: err };
+    } finally {
+      senal.cancel();
+    }
+    if (!last?.error || !esFalloTransitorioSupabase(last.error)) return last;
+    if (i < intentos - 1 && esperaMs > 0) {
+      await new Promise((r) => setTimeout(r, esperaMs * (i + 1)));
+    }
+  }
+  return last;
 }
 
 /** true si PostgREST se quejó por 0 o N filas con Accept object (maybeSingle/single). */
@@ -122,12 +174,10 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   const suc = normalizarCodigoTienda(sucursalActiva);
 
   // Evitar maybeSingle: con PIN duplicado en la misma tienda bloqueaba TODO el login (PGRST116).
-  const qExact = await supabase
-    .from('usuarios')
-    .select('*')
-    .eq('pin', p)
-    .eq('sucursal_id', suc)
-    .limit(5);
+  const qExact = await leerUsuarios(
+    () => supabase.from('usuarios').select('*').eq('pin', p).eq('sucursal_id', suc).limit(5),
+    opts.reintento,
+  );
   if (qExact.error && !faltaColumnaSucursal(qExact.error) && !errorFilasAmbiguas(qExact.error)) {
     return { user: null, error: mensajeErrorConsultaUsuarios(qExact.error) };
   }
@@ -138,10 +188,16 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
     return r.error ? r : { user: r.user, error: null };
   }
 
-  const qAll = await supabase.from('usuarios').select('*').eq('pin', p).limit(20);
+  const qAll = await leerUsuarios(
+    () => supabase.from('usuarios').select('*').eq('pin', p).limit(20),
+    opts.reintento,
+  );
   if (qAll.error) {
     if (faltaColumnaSucursal(qAll.error)) {
-      const qLegacy = await supabase.from('usuarios').select('*').eq('pin', p).limit(5);
+      const qLegacy = await leerUsuarios(
+        () => supabase.from('usuarios').select('*').eq('pin', p).limit(5),
+        opts.reintento,
+      );
       if (qLegacy.error && !errorFilasAmbiguas(qLegacy.error)) {
         return { user: null, error: mensajeErrorConsultaUsuarios(qLegacy.error) };
       }

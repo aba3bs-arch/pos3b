@@ -68,15 +68,22 @@ export async function validarPinMovilCt(supabase, pin) {
   const p = normalizarPinComparacion(pin);
   if (!p) return { ok: false };
 
-  // Primero resolver si el PIN pertenece a un CT. Si no, devolver ok:false
-  // sin banderas especiales para que el login normal (admin/cajero) continúe.
+  // Solo la fila de ese PIN. Antes se bajaban hasta 300 expedientes con foto INE
+  // en cada intento de login y eso empujaba el Disk IO hasta tumbar Supabase.
   const { data, error } = await supabase
     .from('rh_empleados')
     .select('id, nombre, apellidos, nombre_completo, telefono, extras, estado, tipo_empleado, sucursal_id')
     .eq('tipo_empleado', 'cubre_turno')
     .eq('estado', 'activo')
-    .limit(300);
-  if (error) return { ok: false, error: error.message };
+    .filter('extras->>ct_pin_movil', 'eq', p)
+    .limit(5);
+  if (error) {
+    const msg = String(error.message || '').toLowerCase();
+    const filtroRoto = error.code === 'PGRST100' || msg.includes('operator') || msg.includes('ct_pin_movil');
+    // Si el filtro jsonb no existe, no reintentar el barrido de fotos: el login de caja sigue.
+    if (filtroRoto) return { ok: false };
+    return { ok: false, error: error.message };
+  }
 
   const emp = (data || []).find((e) => normalizarPinComparacion(extrasDe(e).ct_pin_movil) === p);
   if (!emp) return { ok: false };
