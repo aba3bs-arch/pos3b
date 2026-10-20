@@ -66,7 +66,10 @@ export default function AlertaExtensionTurnoOverlay({ supabase, user }) {
   useEffect(() => {
     void cargar();
     if (!puedeVer) return undefined;
-    const t = setInterval(() => void cargar(), 8000);
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void cargar();
+    }, 20_000);
     const onEvt = () => void cargar();
     window.addEventListener(EVENTO_NOTIFICACIONES, onEvt);
     window.addEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onEvt);

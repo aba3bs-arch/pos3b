@@ -2,9 +2,13 @@ import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.
 import { obtenerIdDispositivoLocal } from './dispositivoUsuario.js';
 
 /** Ventana para considerar la caja “en línea” (ms). */
-export const PRESENCIA_ONLINE_MS = 2 * 60 * 1000;
-/** Intervalo de latido del POS activo. */
-export const PRESENCIA_HEARTBEAT_MS = 30 * 1000;
+export const PRESENCIA_ONLINE_MS = 3.5 * 60 * 1000;
+/**
+ * Intervalo de latido del POS activo.
+ * Antes 30 s (muy agresivo en Disk IO con muchas cajas abiertas).
+ * Con 90 s y ventana 3.5 min sigue marcando “en línea” sin saturar disco.
+ */
+export const PRESENCIA_HEARTBEAT_MS = 90 * 1000;
 
 export const AVISO_SIN_TABLA_PRESENCIA =
   'Falta la tabla pos_presencia_sucursal. Ejecuta supabase/fix_presencia_sucursal.sql en Supabase.';

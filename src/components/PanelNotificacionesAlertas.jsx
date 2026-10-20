@@ -40,7 +40,7 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
   useEffect(() => {
     refrescar();
     void registrarServiceWorkerNotificaciones().then((r) => setSwOk(Boolean(r)));
-    const iv = setInterval(refrescar, 4_000);
+    const iv = setInterval(refrescar, 15_000);
     return () => clearInterval(iv);
   }, [refrescar]);
 

@@ -61,7 +61,10 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
   useEffect(() => {
     void cargar();
     if (!puedeVer) return undefined;
-    const t = setInterval(() => void cargar(), 10000);
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void cargar();
+    }, 25_000);
     const onEvt = () => void cargar();
     window.addEventListener(EVENTO_NOTIFICACIONES, onEvt);
     window.addEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onEvt);

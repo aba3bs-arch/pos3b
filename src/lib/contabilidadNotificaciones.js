@@ -78,18 +78,30 @@ export async function crearNotificacion(supabase, row, opts = {}) {
   return { ok: true, id: data?.id, push };
 }
 
+/** Columnas usadas por overlays / badge / push (evita SELECT * en polling frecuente). */
+const COLS_NOTIF_PENDIENTES =
+  'id,sucursal_id,tipo,ref_tabla,ref_id,titulo,mensaje,estado,leida,created_at,area_buzon';
+const COLS_NOTIF_PENDIENTES_SIN_AREA =
+  'id,sucursal_id,tipo,ref_tabla,ref_id,titulo,mensaje,estado,leida,created_at';
+
 export async function listarNotificacionesPendientes(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
   const { sucursal, tipos, limit = 50, todasTiendas = false } = opts;
-  let q = supabase
-    .from('contabilidad_notificaciones')
-    .select('*')
-    .eq('estado', 'pendiente')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (sucursal && !todasTiendas) q = q.eq('sucursal_id', sucursal);
-  if (tipos?.length) q = q.in('tipo', tipos);
-  const { data, error } = await q;
+  const build = (cols) => {
+    let q = supabase
+      .from('contabilidad_notificaciones')
+      .select(cols)
+      .eq('estado', 'pendiente')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (sucursal && !todasTiendas) q = q.eq('sucursal_id', sucursal);
+    if (tipos?.length) q = q.in('tipo', tipos);
+    return q;
+  };
+  let { data, error } = await build(COLS_NOTIF_PENDIENTES);
+  if (error && /area_buzon|schema cache|column/i.test(String(error.message || ''))) {
+    ({ data, error } = await build(COLS_NOTIF_PENDIENTES_SIN_AREA));
+  }
   if (error && faltaTabla(error)) return { data: [], aviso: AVISO_FALTA_NOTIF };
   if (error) return { data: [], error: error.message };
   return { data: data || [] };
@@ -301,6 +313,7 @@ export function iniciarMonitorNotificacionesDispositivo(supabase, opts = {}) {
 
   const procesar = async () => {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     const res = await listarNotificacionesPendientes(supabase, {
       sucursal: veTodasTiendas ? undefined : sucursal,
       todasTiendas: veTodasTiendas,

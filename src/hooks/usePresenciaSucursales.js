@@ -45,12 +45,13 @@ export function usePresenciaSucursales({ supabase, sucursal, sesion, usuarioNomb
     };
   }, [supabase, habilitado, latidoActivo, sucursal, usuarioNombre, refrescar]);
 
+  // Mapa de presencia sin latido (p. ej. login). Con sesión el latido ya refresca tras cada upsert.
   useEffect(() => {
-    if (!supabase || !habilitado) return undefined;
+    if (!supabase || !habilitado || latidoActivo) return undefined;
     void refrescar();
     const id = setInterval(() => void refrescar(), PRESENCIA_HEARTBEAT_MS);
     return () => clearInterval(id);
-  }, [supabase, habilitado, refrescar]);
+  }, [supabase, habilitado, latidoActivo, refrescar]);
 
   const marcarFueraDeLinea = useCallback(async () => {
     if (!supabase || !sucursal) return;
