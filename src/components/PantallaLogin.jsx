@@ -49,6 +49,8 @@ export default function PantallaLogin({
   autorizandoTurno,
   solicitandoMasTiempo = false,
   esperandoAprobacionTiempo = false,
+  onDiagnosticarTablas,
+  diagnosticandoTablas = false,
 }) {
   const [pedirAdminDesbloqueo, setPedirAdminDesbloqueo] = useState(false);
   const [pinAdminDesbloqueo, setPinAdminDesbloqueo] = useState('');
@@ -373,6 +375,23 @@ export default function PantallaLogin({
                 Cancelar
               </button>
             </div>
+          </div>
+        )}
+
+        {typeof onDiagnosticarTablas === 'function' && supabaseConfigured && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ width: '100%', fontSize: '0.82rem' }}
+              onClick={onDiagnosticarTablas}
+              disabled={diagnosticandoTablas}
+            >
+              {diagnosticandoTablas ? 'Checando tablas…' : 'Checar tablas (login / usuarios)'}
+            </button>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.72rem', lineHeight: 1.4 }}>
+              Si no encuentra usuarios, esto muestra qué tabla falla (usuarios, turnos, PIN cubre…).
+            </p>
           </div>
         )}
 

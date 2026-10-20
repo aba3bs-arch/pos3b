@@ -177,6 +177,7 @@ import FranjaAsaltoOrigenAviso from './components/FranjaAsaltoOrigenAviso.jsx';
 import { registrarCapturaInstalacionPwa } from './lib/appMovil.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import PantallaLogin from './components/PantallaLogin.jsx';
+import { diagnosticarTablasLogin } from './lib/diagnosticoLoginTablas.js';
 import MobileBottomNav from './components/MobileBottomNav.jsx';
 import AppSidebarNav from './components/AppSidebarNav.jsx';
 import { BannerModoOffline, BannerSyncPendiente } from './components/BannerModoOffline.jsx';
@@ -215,6 +216,7 @@ function App() {
   const [telefonoCubre, setTelefonoCubre] = useState('');
   const [enviandoCubre, setEnviandoCubre] = useState(false);
   const [desbloqueandoTienda, setDesbloqueandoTienda] = useState(false);
+  const [diagnosticandoTablas, setDiagnosticandoTablas] = useState(false);
   const [vista, setVista] = useState('Inicio');
   const [valesIrPendientes, setValesIrPendientes] = useState(false);
   const [valesNavOpts, setValesNavOpts] = useState(null);
