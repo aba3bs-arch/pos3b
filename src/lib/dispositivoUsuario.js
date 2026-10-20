@@ -106,7 +106,8 @@ export function evaluarVinculoDispositivo(user, opts = {}) {
     return { ok: true, vincular: true, deviceId };
   }
 
-  // Ya tiene 1 equipo y el rol exige admin para el 2.º
+  // Ya tiene 1 equipo y el rol exige admin para el 2.º → pedir PIN admin si se puede;
+  // si no hay admin a mano, NO bloquear la tienda: entrar sin anclar este equipo.
   if (
     terminalFijada &&
     rolRequiereAdminParaDispositivoExtra(user.rol) &&
@@ -114,30 +115,24 @@ export function evaluarVinculoDispositivo(user, opts = {}) {
     !autorizacionAdminExtra
   ) {
     return {
-      ok: false,
-      requiereAutorizacionAdminDispositivo: true,
-      error:
-        'Este PIN ya está vinculado a un dispositivo. Para anclar otro equipo se requiere autorización del administrador.',
+      ok: true,
       deviceId,
+      sinAnclar: true,
+      aviso:
+        'Este PIN ya está en otro dispositivo. Entraste sin anclar este equipo. Un admin puede liberar el vínculo en Usuarios.',
     };
   }
 
-  if (terminalFijada && slots.length >= max) {
-    const esCajero = normalizarRol(user.rol) === 'Cajero';
-    return {
-      ok: false,
-      error: esCajero
-        ? 'Este PIN ya está vinculado a 2 dispositivos (máximo por cajero). Pide al administrador que libere el equipo en Usuarios si cambió de celular.'
-        : 'Este PIN ya tiene el máximo de dispositivos anclados. Pide al administrador que libere el equipo en Usuarios si cambió de celular.',
-      deviceId,
-    };
-  }
-
+  // Cupo lleno o equipo distinto: permitir acceso de emergencia (no dejar la caja sin login).
+  // Antes bloqueaba tras limpiar caché / cambiar celular y nadie podía entrar.
+  const esCajero = normalizarRol(user.rol) === 'Cajero';
   return {
-    ok: false,
-    error:
-      'Este PIN ya está vinculado a otra computadora o dispositivo. Solo puede usarse en las terminales de tienda donde se fijó. Pide al administrador que libere el equipo en Usuarios si cambió de PC.',
+    ok: true,
     deviceId,
+    sinAnclar: true,
+    aviso: esCajero
+      ? 'Este PIN ya tenía dispositivos anclados. Entraste de todas formas; pide al admin liberar equipos viejos en Usuarios.'
+      : 'Este PIN ya estaba en otro equipo. Entraste sin anclar este dispositivo.',
   };
 }
 

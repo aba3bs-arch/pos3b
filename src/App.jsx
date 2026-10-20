@@ -802,6 +802,14 @@ function App() {
           setPin('');
           return false;
         }
+        if (vinculo.aviso) {
+          // Acceso de emergencia (dispositivo distinto / cupo lleno): avisar pero continuar.
+          try {
+            console.warn(vinculo.aviso);
+          } catch {
+            /* ignore */
+          }
+        }
         // Administrador: nunca anclar a dispositivo; liberar vínculo residual si existiera.
         if (esAdministradorSinAnclaje(data.rol) && data.id && data.dispositivo_id) {
           void liberarDispositivoUsuario(supabase, data.id);
@@ -818,19 +826,18 @@ function App() {
           guardarSucursalLocal(ajustarSucursal);
           if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
         }
-        if (vinculo.vincular && data.id && !esAdministradorSinAnclaje(data.rol)) {
+        // No anclar si el acceso fue de emergencia (sinAnclar) o si Supabase falla al escribir.
+        if (vinculo.vincular && !vinculo.sinAnclar && data.id && !esAdministradorSinAnclaje(data.rol)) {
           const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId, data, {
             autorizacionAdminDispositivo,
           });
           if (!resVinculo.ok) {
-            setPendienteAutorizacionTurno(null);
-            setPinAdminAutorizacion('');
-            alert(resVinculo.error);
-            setPin('');
-            return false;
+            // Antes esto cancelaba el login entero (Disk IO / update fallido → nadie entraba).
+            console.warn('Vínculo dispositivo omitido:', resVinculo.error);
+          } else {
+            if (resVinculo.dispositivo_id) data.dispositivo_id = resVinculo.dispositivo_id;
+            if (resVinculo.dispositivo_id_2) data.dispositivo_id_2 = resVinculo.dispositivo_id_2;
           }
-          if (resVinculo.dispositivo_id) data.dispositivo_id = resVinculo.dispositivo_id;
-          if (resVinculo.dispositivo_id_2) data.dispositivo_id_2 = resVinculo.dispositivo_id_2;
         }
       }
 

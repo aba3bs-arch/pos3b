@@ -1,5 +1,24 @@
 import { normalizarCodigoTienda, etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
+import { normalizarPinComparacion } from './cubreTurno.js';
+
+/** Columnas mínimas para login (menos Disk IO que SELECT *). */
+const COLS_LOGIN_USUARIO =
+  'id,nombre,pin,rol,sucursal_id,activo,turno_id,turno_horario,'
+  + 'dispositivo_id,dispositivo_id_2,tipo_empleado,created_at';
+
+function variantesPinLogin(pin) {
+  const p = normalizarPinComparacion(pin);
+  if (!p) return [];
+  const set = new Set([p]);
+  if (/^\d+$/.test(p)) {
+    const sinCeros = p.replace(/^0+/, '') || '0';
+    set.add(sinCeros);
+    if (p.length < 6) set.add(p.padStart(4, '0'));
+    if (p.length <= 4) set.add(p.padStart(6, '0'));
+  }
+  return [...set];
+}
 
 export function sucursalUsuario(user) {
   const s = user?.sucursal_id;
@@ -117,46 +136,76 @@ function errorFilasAmbiguas(error) {
  */
 export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva, opts = {}) {
   if (!supabase) return { user: null, error: 'Sin conexión a Supabase.' };
-  const p = String(pin || '').trim();
-  if (!p) return { user: null, error: null };
+  const variantes = variantesPinLogin(pin);
+  if (!variantes.length) return { user: null, error: null };
   const suc = normalizarCodigoTienda(sucursalActiva);
 
-  // Evitar maybeSingle: con PIN duplicado en la misma tienda bloqueaba TODO el login (PGRST116).
-  const qExact = await supabase
-    .from('usuarios')
-    .select('*')
-    .eq('pin', p)
-    .eq('sucursal_id', suc)
-    .limit(5);
-  if (qExact.error && !faltaColumnaSucursal(qExact.error) && !errorFilasAmbiguas(qExact.error)) {
-    return { user: null, error: mensajeErrorConsultaUsuarios(qExact.error) };
-  }
-  const exactos = (qExact.data || []).filter(Boolean);
-  if (exactos.length) {
-    const preferido = exactos.find(usuarioEstaActivo) || exactos[0];
-    const r = rechazarSiInactivo(preferido);
-    return r.error ? r : { user: r.user, error: null };
-  }
+  const consultar = async (cols) => {
+    // 1) PIN (+ variantes) en esta tienda
+    let qExact = supabase
+      .from('usuarios')
+      .select(cols)
+      .in('pin', variantes)
+      .eq('sucursal_id', suc)
+      .limit(10);
+    let exactRes = await qExact;
+    // Reintento único si Disk IO / red falla
+    if (exactRes.error && !faltaColumnaSucursal(exactRes.error) && !errorFilasAmbiguas(exactRes.error)) {
+      await new Promise((r) => setTimeout(r, 400));
+      exactRes = await supabase
+        .from('usuarios')
+        .select(cols)
+        .in('pin', variantes)
+        .eq('sucursal_id', suc)
+        .limit(10);
+    }
+    if (exactRes.error && !faltaColumnaSucursal(exactRes.error) && !errorFilasAmbiguas(exactRes.error)) {
+      return { error: mensajeErrorConsultaUsuarios(exactRes.error) };
+    }
+    const exactos = (exactRes.data || []).filter(Boolean);
+    if (exactos.length) {
+      const preferido = exactos.find(usuarioEstaActivo) || exactos[0];
+      const r = rechazarSiInactivo(preferido);
+      return r.error ? { error: r.error } : { user: r.user };
+    }
 
-  const qAll = await supabase.from('usuarios').select('*').eq('pin', p).limit(20);
-  if (qAll.error) {
-    if (faltaColumnaSucursal(qAll.error)) {
-      const qLegacy = await supabase.from('usuarios').select('*').eq('pin', p).limit(5);
+    // 2) Mismo PIN en cualquier tienda (admin / personal central / aviso sucursal)
+    let qAll = await supabase.from('usuarios').select(cols).in('pin', variantes).limit(30);
+    if (qAll.error && faltaColumnaSucursal(qAll.error)) {
+      const qLegacy = await supabase.from('usuarios').select(cols).in('pin', variantes).limit(10);
       if (qLegacy.error && !errorFilasAmbiguas(qLegacy.error)) {
-        return { user: null, error: mensajeErrorConsultaUsuarios(qLegacy.error) };
+        return { error: mensajeErrorConsultaUsuarios(qLegacy.error) };
       }
       const legacy = (qLegacy.data || [])[0];
       if (legacy) {
         const r = rechazarSiInactivo(legacy);
-        return r.error ? r : { user: r.user, error: null, sinColumnaSucursal: true };
+        return r.error ? { error: r.error } : { user: r.user, sinColumnaSucursal: true };
       }
+      return {};
     }
-    return { user: null, error: mensajeErrorConsultaUsuarios(qAll.error) };
+    if (qAll.error && !errorFilasAmbiguas(qAll.error)) {
+      return { error: mensajeErrorConsultaUsuarios(qAll.error) };
+    }
+    return { list: qAll.data || [] };
+  };
+
+  let res = await consultar(COLS_LOGIN_USUARIO);
+  // Si faltan columnas nuevas en el SELECT, reintentar con *
+  if (res.error && /column|schema cache|does not exist/i.test(String(res.error))) {
+    res = await consultar('*');
+  }
+  if (res.error) return { user: null, error: res.error };
+  if (res.user) {
+    return {
+      user: res.user,
+      error: null,
+      sinColumnaSucursal: Boolean(res.sinColumnaSucursal),
+    };
   }
 
-  const list = (qAll.data || []).filter(usuarioEstaActivo);
+  const list = (res.list || []).filter(usuarioEstaActivo);
   if (list.length === 0) {
-    const algunoBaja = (qAll.data || []).some((u) => !usuarioEstaActivo(u));
+    const algunoBaja = (res.list || []).some((u) => !usuarioEstaActivo(u));
     if (algunoBaja) return { user: null, error: 'Este usuario está dado de baja. Pide al administrador reactivarlo.' };
     return { user: null, error: null };
   }
