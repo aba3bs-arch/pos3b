@@ -201,9 +201,10 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
         .subscribe();
     }
 
+    // Antes 3s/8s; Realtime + eventos cubren la urgencia. Menos Disk IO en Nano.
     const pollMs = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 900px)')?.matches
-      ? 3000
-      : 8000;
+      ? 8_000
+      : 20_000;
     const iv = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       void cargarPendiente();

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listarPagaresAbiertosParaCorte, pagareEstaAbierto } from '../pagares.js';
 
-const POLL_MS = 15000;
+/** Respaldo; Realtime de `pagares` es la vía principal. */
+const POLL_MS = 45_000;
 
 /**
  * Pagarés abiertos del área/sucursal del corte (hasta que se recolecten).

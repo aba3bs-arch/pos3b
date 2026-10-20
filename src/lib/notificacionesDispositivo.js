@@ -182,6 +182,7 @@ export function limpiarNotificacionesDispositivoMostradas() {
   notificacionesMostradas.clear();
 }
 
+/** Polling de respaldo; Realtime/eventos locales son la vía rápida. Menos Disk IO en Nano. */
 export function intervaloMonitorNotificacionesMs() {
-  return detectarMobile() ? 8_000 : 12_000;
+  return detectarMobile() ? 25_000 : 35_000;
 }

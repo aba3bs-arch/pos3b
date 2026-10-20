@@ -556,18 +556,51 @@ function App() {
     return detector.attach(window);
   }, [sesion, user, supabase, sucursal]);
 
+  // Realtime de productos: no recargar el catálogo completo en cada tip.
+  // Con N cajas abiertas eso satura Disk IO (Nano = 5 MB/s baseline).
   useEffect(() => {
     if (!supabase || !sesion) return undefined;
+    let debounceTimer = null;
+    let pendientePorHidden = false;
+
+    const recargarCatalogo = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        pendientePorHidden = true;
+        return;
+      }
+      pendientePorHidden = false;
+      void cargarDatos();
+    };
+
+    const schedule = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        recargarCatalogo();
+      }, 10_000);
+    };
+
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (!pendientePorHidden && !debounceTimer) return;
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      recargarCatalogo();
+    };
+
     const channel = supabase
       .channel('pos-productos-catalogo')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
-        cargarDatos();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, schedule)
       .subscribe();
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
-  }, [sesion, cargarDatos]);
+  }, [sesion, cargarDatos, supabase]);
 
   useEffect(() => {
     const syncBrand = () => setBrandTitle(leerNombreNegocio());
@@ -642,7 +675,8 @@ function App() {
         if (r.cambio) setTickCubreTurno((n) => n + 1);
       });
     };
-    const id = setInterval(sync, 60_000);
+    // Config rara vez cambia; 2 min basta y baja mucho el Disk IO del plan Nano.
+    const id = setInterval(sync, 120_000);
     return () => clearInterval(id);
   }, [sesion, supabase, sucursal]);
 
@@ -1254,7 +1288,7 @@ function App() {
     };
 
     void tick();
-    const id = setInterval(() => void tick(), 4000);
+    const id = setInterval(() => void tick(), 6_000);
     return () => {
       cancelado = true;
       clearInterval(id);
@@ -1302,7 +1336,7 @@ function App() {
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), 4000);
+    const id = setInterval(() => void tick(), 6_000);
     return () => {
       cancelado = true;
       clearInterval(id);

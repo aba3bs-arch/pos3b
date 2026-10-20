@@ -18,7 +18,7 @@ export default function BotonActivarNotificaciones({ supabase, user }) {
   useEffect(() => {
     void registrarServiceWorkerNotificaciones();
     refrescar();
-    const iv = setInterval(refrescar, 5_000);
+    const iv = setInterval(refrescar, 20_000);
     return () => clearInterval(iv);
   }, [refrescar]);
 
