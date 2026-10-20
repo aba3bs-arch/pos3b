@@ -91,7 +91,14 @@ function movimientoTocaSucursal(m, suc) {
 /** Tope de filas nube: por tienda se puede pedir más; «Todas» sigue acotado. */
 export const LIMITE_MOV_NUBE_POR_TIENDA = 10000;
 export const LIMITE_MOV_NUBE_TODAS = 8000;
-export const TAM_PAGINA_MOV_NUBE = 1000;
+/** Página más chica + cursor (sin OFFSET) → menos Disk IO en Nano. */
+export const TAM_PAGINA_MOV_NUBE = 500;
+
+/** Columnas que usa fromCloudRow / Consultas / HistorialProducto (evita SELECT *). */
+const COLS_MOVIMIENTOS_INVENTARIO =
+  'id,tipo,modo,producto_id,producto_nombre,producto_destino_id,producto_destino_nombre,'
+  + 'cantidad,stock_antes,stock_despues,stock_dest_antes,stock_dest_despues,'
+  + 'precio_antes,precio_despues,ubicacion,departamento,motivo,usuario,sucursal_id,meta,created_at';
 
 export function limiteFilasMovimientosNube({ sucursal, productoId } = {}) {
   if (productoId) return 4000;
@@ -110,8 +117,9 @@ function sanitizarTokenFiltro(v) {
 }
 
 /**
- * Carga paginada de movimientos_inventario.
+ * Carga paginada de movimientos_inventario (keyset por created_at + id).
  * Si hay sucursal, filtra en servidor (el tope cuenta por tienda, no global).
+ * Sin count exacto ni OFFSET (mejor Disk IO).
  */
 export async function fetchMovimientosInventarioNube(supabase, opts = {}) {
   const {
@@ -123,18 +131,37 @@ export async function fetchMovimientosInventarioNube(supabase, opts = {}) {
   } = opts;
   const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
   const maxRows = limiteFilasMovimientosNube({ sucursal: suc, productoId });
-  const pageSize = productoId ? Math.min(2000, TAM_PAGINA_MOV_NUBE) : TAM_PAGINA_MOV_NUBE;
+  const pageSize = TAM_PAGINA_MOV_NUBE;
   const out = [];
   let truncado = false;
   let error = null;
+  /** @type {{ created_at: string, id: string } | null} */
+  let cursor = null;
+
+  const aplicarFiltrosComunes = (query) => {
+    if (ini) query = query.gte('created_at', ini.toISOString());
+    if (fin) query = query.lte('created_at', fin.toISOString());
+    if (suc) {
+      // Ingresos/retiros en la tienda + traspasos donde figura en meta.
+      query = query.or(
+        `sucursal_id.eq.${suc},meta->>sucursal_origen.eq.${suc},meta->>sucursal_destino.eq.${suc}`,
+      );
+    }
+    if (productoId) {
+      const pid = sanitizarTokenFiltro(productoId);
+      if (pid) query = query.or(`producto_id.eq.${pid},producto_destino_id.eq.${pid}`);
+    }
+    return query;
+  };
 
   // Búsqueda directa por folio: no depende del tope semanal.
   const folio = sanitizarTokenFiltro(folioQ);
   if (folio && pareceFolioInventarioConsulta(folio)) {
     let qFolio = supabase
       .from('movimientos_inventario')
-      .select('*')
+      .select(COLS_MOVIMIENTOS_INVENTARIO)
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(500);
     qFolio = qFolio.filter('meta->>folio', 'ilike', `%${folio}%`);
     if (suc) {
@@ -154,24 +181,26 @@ export async function fetchMovimientosInventarioNube(supabase, opts = {}) {
     };
   }
 
-  for (let offset = 0; offset < maxRows; offset += pageSize) {
-    const hasta = Math.min(offset + pageSize - 1, maxRows - 1);
+  for (;;) {
+    if (out.length >= maxRows) {
+      truncado = true;
+      break;
+    }
+    const take = Math.min(pageSize, maxRows - out.length);
     let query = supabase
       .from('movimientos_inventario')
-      .select('*')
+      .select(COLS_MOVIMIENTOS_INVENTARIO)
       .order('created_at', { ascending: false })
-      .range(offset, hasta);
-    if (ini) query = query.gte('created_at', ini.toISOString());
-    if (fin) query = query.lte('created_at', fin.toISOString());
-    if (suc) {
-      // Ingresos/retiros en la tienda + traspasos donde figura en meta.
+      .order('id', { ascending: false })
+      .limit(take);
+    query = aplicarFiltrosComunes(query);
+    if (cursor?.created_at && cursor?.id) {
+      const ts = String(cursor.created_at);
+      const id = String(cursor.id);
+      // Keyset: más antiguos que el último visto (orden DESC), con desempate por id.
       query = query.or(
-        `sucursal_id.eq.${suc},meta->>sucursal_origen.eq.${suc},meta->>sucursal_destino.eq.${suc}`,
+        `created_at.lt."${ts}",and(created_at.eq."${ts}",id.lt.${id})`,
       );
-    }
-    if (productoId) {
-      const pid = sanitizarTokenFiltro(productoId);
-      if (pid) query = query.or(`producto_id.eq.${pid},producto_destino_id.eq.${pid}`);
     }
     const { data, error: err } = await query;
     if (err) {
@@ -180,11 +209,9 @@ export async function fetchMovimientosInventarioNube(supabase, opts = {}) {
     }
     const batch = data || [];
     out.push(...batch);
-    if (batch.length < pageSize) break;
-    if (out.length >= maxRows) {
-      truncado = true;
-      break;
-    }
+    if (batch.length < take) break;
+    const last = batch[batch.length - 1];
+    cursor = { created_at: last.created_at, id: last.id };
   }
 
   return {
