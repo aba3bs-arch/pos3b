@@ -6,55 +6,34 @@ import {
   fmtMonto,
   filtrarMovimientosPorFecha,
   hoyClaveNogales,
-  inicializarSeleccionLiquidacion,
   liquidarMovimientos,
-  listarAlertasRecoleccion,
   listarMercanciaEnTransitoPorRepartidor,
   listarGastosActivosParaLiquidacion,
-  listarLiquidacionesRepartidor,
   listarRepartidores,
-  marcarAlertaVista,
   reporteRecoleccionTiendaFecha,
   resumenMercanciaEnTransitoPorRepartidor,
-  resumenTotalesPorTipo,
   calcularNetosLiquidacion,
   armarAcreditacionesLiquidacion,
-  movimientosMercancia,
 } from '../lib/controlEfectivo.js';
 import {
   CUENTAS_RT_LIQUIDACION,
   cuentaRtMercanciaPorDefecto,
   etiquetaCuentaRt,
 } from '../lib/rtCuentas.js';
+import { separarCreditosYEfectivo } from '../lib/recoleccionTipos.js';
 import { repararTransitosCancelacionesAprobadas } from '../lib/rutaCancelaciones.js';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import SelectorCalendario from './SelectorCalendario.jsx';
-import DetalleTiendasLiquidacion from './DetalleTiendasLiquidacion.jsx';
+import HistorialLiquidacionesGlobal from './HistorialLiquidacionesGlobal.jsx';
 import PanelFondoServicios from './PanelFondoServicios.jsx';
 import PanelTesoreriaRuta from './PanelTesoreriaRuta.jsx';
-
-function CheckIndeterminado({ checked, indeterminate, onChange, ...rest }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = indeterminate;
-  }, [indeterminate]);
-  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} {...rest} />;
-}
-
-function estadoSeleccion(items, selIds) {
-  const sel = items.filter((m) => selIds[m.id]).length;
-  if (sel === 0) return 'none';
-  if (sel === items.length) return 'all';
-  return 'partial';
-}
+import PendientesRecolectorTiendas from './PendientesRecolectorTiendas.jsx';
 
 const PRESETS_PENDIENTE = [
   { id: 'todos', label: 'Todos los pendientes' },
   ...PRESETS_FECHA_PRODUCTO,
 ];
-
-const PRESETS_HISTORIAL = PRESETS_FECHA_PRODUCTO;
 
 /** Liquidación en oficina — administrador / gerente. */
 export default function PanelLiquidacionRecolecciones({ supabase, user, embedded = false }) {
@@ -65,7 +44,9 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [enTransito, setEnTransito] = useState([]);
   const [gastosActivos, setGastosActivos] = useState([]);
   const [selIds, setSelIds] = useState({});
-  const [alertas, setAlertas] = useState([]);
+  const [vista, setVista] = useState('recolectores');
+  const [tiendaAbierta, setTiendaAbierta] = useState(null);
+  const [cargando, setCargando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const submitLock = useRef(createSubmitLock()).current;
   const [error, setError] = useState(null);
@@ -80,7 +61,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const esFondo = modoConsulta === 'fondo';
   const esTesoreria = modoConsulta === 'tesoreria';
   const esSoloPanel = esFondo || esTesoreria;
-  const diaDe = esHistorial ? 'liquidacion' : 'recoleccion';
   const fechaLiquidacion = useMemo(() => fmtFechaClave(fechaSellado), [fechaSellado]);
   const repNombre = useMemo(() => repartidores.find((r) => r.id === repLiq)?.nombre || '', [repartidores, repLiq]);
 
@@ -102,6 +82,10 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
   const cambiarModoConsulta = (modo) => {
     setModoConsulta(modo);
+    if (modo === 'pendiente') {
+      setVista('recolectores');
+      setTiendaAbierta(null);
+    }
     if (modo === 'historial') {
       cambiarPresetFecha('mes');
     } else {
@@ -113,9 +97,12 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     setCuentaRtMercancia(cuentaRtMercanciaPorDefecto(user?.nombre));
   }, [user?.nombre]);
 
+  const cargaMovs = !esHistorial && vista !== 'recolectores';
+
   const cargar = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || esHistorial) return;
     setError(null);
+    setCargando(true);
     try {
       const reps = await listarRepartidores(supabase);
       setRepartidores(reps);
@@ -130,7 +117,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       const hasta = presetFecha === 'todos' ? '' : filtroHasta;
 
       // Cancelaciones aprobadas que dejaron efectivo en Pendientes → limpiar por folio VR.
-      if (!esHistorial) {
+      if (cargaMovs) {
         try {
           await repararTransitosCancelacionesAprobadas(supabase, { limit: 80 });
         } catch {
@@ -138,70 +125,39 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         }
       }
 
-      const [movs, alr, gastos, resumen] = await Promise.all([
-        esHistorial
-          ? listarLiquidacionesRepartidor(supabase, repId, { desde, hasta }).then((rows) =>
-              // Historial: se muestran merchandise + créditos; servicios van en RC Servicios.
-              movimientosMercancia(rows),
-            )
-          : listarMercanciaEnTransitoPorRepartidor(supabase, repId).then((rows) =>
+      const [movs, gastos, resumen] = await Promise.all([
+        cargaMovs
+          ? listarMercanciaEnTransitoPorRepartidor(supabase, repId).then((rows) =>
               filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
-            ),
-        esHistorial ? Promise.resolve([]) : listarAlertasRecoleccion(supabase),
-        esHistorial ? Promise.resolve([]) : listarGastosActivosParaLiquidacion(supabase, repId),
+            )
+          : Promise.resolve([]),
+        cargaMovs ? listarGastosActivosParaLiquidacion(supabase, repId) : Promise.resolve([]),
         // Casillas siempre: totales por recolector (Pendientes mercancía).
         resumenMercanciaEnTransitoPorRepartidor(supabase),
       ]);
       setEnTransito(movs);
       setGastosActivos(gastos);
-      setAlertas(alr);
       setResumenReps(resumen);
-      setSelIds(esHistorial ? {} : inicializarSeleccionLiquidacion(movs));
+      setSelIds(Object.fromEntries(movs.map((m) => [m.id, true])));
     } catch (e) {
       setError(e.message?.includes('repartidores') ? 'Ejecuta supabase/control_efectivo.sql en Supabase.' : e.message);
+    } finally {
+      setCargando(false);
     }
-  }, [supabase, repLiq, esHistorial, presetFecha, filtroDesde, filtroHasta]);
+  }, [supabase, repLiq, esHistorial, cargaMovs, presetFecha, filtroDesde, filtroHasta]);
 
   useEffect(() => {
     cargar();
   }, [cargar]);
 
-  const reporte = useMemo(() => reporteRecoleccionTiendaFecha(enTransito, { diaDe }), [enTransito, diaDe]);
+  const reporte = useMemo(() => reporteRecoleccionTiendaFecha(enTransito, { diaDe: 'recoleccion' }), [enTransito]);
 
   const seleccionados = useMemo(() => enTransito.filter((m) => selIds[m.id]), [enTransito, selIds]);
-  const totalSeleccionado = useMemo(() => seleccionados.reduce((a, m) => a + Number(m.monto || 0), 0), [seleccionados]);
   const totalGastosActivos = useMemo(
     () => gastosActivos.reduce((a, m) => a + Number(m.monto || 0), 0),
     [gastosActivos],
   );
-  const netosLiquidacion = useMemo(
-    () => calcularNetosLiquidacion(seleccionados, totalGastosActivos),
-    [seleccionados, totalGastosActivos],
-  );
-  /** Efectivo a recibir en oficina = mercancía (neto) + servicios. */
-  const totalARecolectar = netosLiquidacion.totalARecolectar;
-  const resumenSel = useMemo(() => resumenTotalesPorTipo(seleccionados), [seleccionados]);
-
-  const diasSeleccionados = useMemo(
-    () => reporte.resumenDias.filter((d) => d.items.some((m) => selIds[m.id])),
-    [reporte.resumenDias, selIds],
-  );
-
-  const toggleIds = (items, val) => {
-    setSelIds((prev) => {
-      const next = { ...prev };
-      items.forEach((m) => {
-        next[m.id] = val;
-      });
-      return next;
-    });
-  };
-
-  const toggleDiaGlobal = (items, val) => toggleIds(items, val);
-
-  const toggleCelda = (items, val) => toggleIds(items, val);
-
-  const celdaSeleccionada = (items) => estadoSeleccion(items, selIds);
+  const desglosePendiente = useMemo(() => separarCreditosYEfectivo(enTransito), [enTransito]);
 
   const imprimirReporte = () => {
     const rep = repNombre || 'Recolector';
@@ -229,25 +185,26 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       th,td{border:1.5px solid #000;padding:6px 8px} th{background:#eee;font-weight:900}
       h1{font-size:1.2rem;margin:0;font-weight:900} .muted{color:#000;font-size:12px;font-weight:800}</style></head><body>
       <h1>Reporte de recolección en tránsito</h1>
-      <p class="muted">Recolector: ${rep} · ${esHistorial ? 'Liquidaciones' : 'Fecha sellado'}: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
+      <p class="muted">Recolector: ${rep} · Fecha sellado: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
       <table><thead><tr><th>Tienda</th>${headDias}<th>Total tienda</th></tr></thead>
       <tbody>${filasHtml}<tr style="background:#f9f9f9"><td><strong>Total por día</strong></td>${totDia}<td><strong>${fmtMonto(reporte.granTotal)}</strong></td></tr></tbody></table>
-      <p class="muted" style="margin-top:1rem">Días seleccionados para liquidar: ${diasSeleccionados.map((d) => d.etiqueta).join(', ') || 'Ninguno'} · Bruto: ${fmtMonto(totalSeleccionado)} · Gastos: −${fmtMonto(totalGastosActivos)} · A recolectar: ${fmtMonto(totalARecolectar)}</p>
+      <p class="muted" style="margin-top:1rem">Créditos cobrados: ${fmtMonto(desglosePendiente.totalCreditos)} · Efectivo por mercancía vendida: ${fmtMonto(desglosePendiente.totalEfectivo)} · Gastos: −${fmtMonto(totalGastosActivos)}</p>
       <script>window.onload=function(){window.print();}</script></body></html>`);
     win.document.close();
   };
 
-  const confirmarLiquidacion = async () => {
+  const confirmarLiquidacion = async (items = seleccionados, alcance = '') => {
     if (!submitLock.tryBegin()) return;
     setGuardando(true);
     try {
-      const ids = seleccionados.map((m) => m.id);
-      if (!ids.length) return alert('Selecciona al menos un día o movimiento para liquidar.');
-      if (!cuentaRtMercancia && netosLiquidacion.netoMercancia > 0) {
+      const ids = items.map((m) => m.id);
+      if (!ids.length) return alert('Selecciona al menos un movimiento para liquidar.');
+      const netos = calcularNetosLiquidacion(items, totalGastosActivos);
+      if (!cuentaRtMercancia && netos.netoMercancia > 0) {
         return alert('Selecciona la cuenta RT para mercancía.');
       }
       const { acreditaciones } = armarAcreditacionesLiquidacion({
-        seleccionados,
+        seleccionados: items,
         totalGastos: totalGastosActivos,
         cuentaRtMercancia,
         cuentaRtServicios: null,
@@ -256,18 +213,18 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       // Solo mercancía aquí; cobros de servicio se liquidan en RC Servicios.
       const acredMerc = acreditaciones.filter((a) => a.tipoPartida === 'mercancia');
       if (!acredMerc.length) return alert('No hay monto neto de mercancía para acreditar. Los servicios van en RC Servicios.');
-      const diasTxt = diasSeleccionados.map((d) => d.etiqueta).join(', ');
+      const { totalCreditos, totalEfectivo } = separarCreditosYEfectivo(items);
       const lineasCuentas = acredMerc
         .map((a) => `${etiquetaCuentaRt(a.cuentaRtId)}: ${fmtMonto(a.monto)}`)
         .join('\n');
       if (
         !window.confirm(
-          `¿Sellar liquidación de mercancía del ${fechaLiquidacion}?\n\n` +
-            `Días: ${diasTxt || '—'}\n` +
-            `Mercancía bruta: ${fmtMonto(netosLiquidacion.brutoMerc)}\n` +
+          `¿Sellar liquidación ${alcance ? `de ${alcance} ` : ''}del ${fechaLiquidacion}?\n\n` +
+            `Créditos cobrados: ${fmtMonto(totalCreditos)}\n` +
+            `Efectivo por mercancía vendida: ${fmtMonto(totalEfectivo)}\n` +
             `Gastos aceptados: −${fmtMonto(totalGastosActivos)}\n\n` +
             `Acreditar:\n${lineasCuentas}\n\n` +
-            `Total neto: ${fmtMonto(netosLiquidacion.netoMercancia)} (${ids.length} movimiento(s))\n\n` +
+            `Total neto: ${fmtMonto(netos.netoMercancia)} (${ids.length} movimiento(s))\n\n` +
             'Los cobros de servicio (CFE) se liquidan en la pestaña RC Servicios.',
         )
       )
@@ -277,16 +234,17 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         adminNombre: user?.nombre || rol,
         repartidorNombre: repNombre,
         acreditaciones: acredMerc,
-        montoLiquidacion: netosLiquidacion.netoMercancia,
+        montoLiquidacion: netos.netoMercancia,
       });
       if (!res.ok) return alert(res.error);
       alert(
-        `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || netosLiquidacion.netoMercancia)} acreditados` +
+        `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || netos.netoMercancia)} acreditados` +
           (acreditaciones.length > 1
             ? ` (${acreditaciones.map((a) => `${etiquetaCuentaRt(a.cuentaRtId)} ${fmtMonto(a.monto)}`).join(' · ')})`
             : ` a ${etiquetaCuentaRt(acreditaciones[0]?.cuentaRtId)}`) +
           (totalGastosActivos > 0 ? `. Gastos descontados de mercancía: ${fmtMonto(totalGastosActivos)}.` : '.'),
       );
+      setTiendaAbierta(null);
       cargar();
     } finally {
       submitLock.end();
@@ -294,7 +252,87 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     }
   };
 
-  const multiplesDias = reporte.resumenDias.length > 1;
+  const esFlujoPendiente = !esHistorial && !esSoloPanel;
+  const enRecolectores = esFlujoPendiente && vista === 'recolectores';
+  const enTiendas = esFlujoPendiente && vista !== 'recolectores';
+
+  const abrirRecolector = (id) => {
+    setRepLiq(id);
+    setTiendaAbierta(null);
+    setVista('tiendas');
+  };
+
+  const volverARecolectores = () => {
+    setTiendaAbierta(null);
+    setVista('recolectores');
+  };
+
+  const bloqueGastos = gastosActivos.length > 0 && (
+    <div
+      style={{
+        marginTop: '1rem',
+        padding: '0.85rem',
+        borderRadius: '10px',
+        background: 'rgba(220,38,38,0.06)',
+        border: '1px solid rgba(220,38,38,0.28)',
+      }}
+    >
+      <strong style={{ color: 'var(--brand-red)' }}>Gastos (descontar al recolectar)</strong>
+      <p className="muted" style={{ margin: '0.35rem 0 0.5rem', fontSize: '0.8rem' }}>
+        Panel RT (aceptados) o registrados en Venta en Ruta → Gastos con foto. Se restan del efectivo en tránsito.
+      </p>
+      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
+        {gastosActivos.map((g) => {
+          const evid = g.evidencia_url && String(g.evidencia_url).startsWith('data:image')
+            ? g.evidencia_url
+            : null;
+          return (
+            <li key={g.id} style={{ marginBottom: '0.35rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              {evid ? (
+                <a href={evid} target="_blank" rel="noreferrer" title="Ver evidencia">
+                  <img
+                    src={evid}
+                    alt=""
+                    style={{
+                      width: 36,
+                      height: 36,
+                      objectFit: 'cover',
+                      borderRadius: 6,
+                      display: 'block',
+                      border: '1px solid rgba(0,0,0,0.12)',
+                    }}
+                  />
+                </a>
+              ) : null}
+              <span>
+                {g.descripcion_gasto || g.num_traspaso || 'Gasto'} · {g.sucursal_origen || '—'} ·{' '}
+                <strong style={{ color: 'var(--brand-red)' }}>−{fmtMonto(g.monto)}</strong>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'var(--brand-red)' }}>
+        Total gastos: −{fmtMonto(totalGastosActivos)}
+      </p>
+    </div>
+  );
+
+  const selectorCuentaRt = (
+    <label className="muted" style={{ display: 'block' }}>
+      Cuenta RT — Mercancía (traspasos, crédito cobrado)
+      <select className="select" style={{ marginTop: '0.35rem', maxWidth: 360 }} value={cuentaRtMercancia} onChange={(e) => setCuentaRtMercancia(e.target.value)}>
+        {CUENTAS_RT_LIQUIDACION.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.nombre}
+          </option>
+        ))}
+      </select>
+      <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
+        Solo mercancía / créditos. Los cobros de servicio (CFE) se liquidan en la pestaña <strong>RC Servicios</strong>.
+      </span>
+    </label>
+  );
 
   const inner = (
     <>
@@ -302,72 +340,9 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         <>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Liquidación de recolecciones</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Reporte por tienda y fecha. Consulta pendientes por liquidar o revisa liquidaciones pasadas con el calendario.
+            Elige un recolector, abre una tienda y liquida por tienda o todo el efectivo en tránsito.
           </p>
         </>
-      )}
-
-      {resumenReps.length > 0 && (
-        <div style={{ marginBottom: '0.85rem' }}>
-          <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.8rem' }}>
-            Efectivo en tránsito por recolector (toca una casilla para liquidar)
-          </p>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: '0.55rem',
-            }}
-          >
-            {resumenReps.map((r) => {
-              const activo = String(r.id) === String(repLiq);
-              const conMonto = Number(r.total) > 0;
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => {
-                    setRepLiq(r.id);
-                    if (modoConsulta !== 'pendiente') cambiarModoConsulta('pendiente');
-                  }}
-                  style={{
-                    textAlign: 'left',
-                    padding: '0.7rem 0.85rem',
-                    borderRadius: '10px',
-                    border: activo
-                      ? '2px solid var(--brand-blue)'
-                      : '1px solid rgba(15, 23, 42, 0.12)',
-                    background: activo
-                      ? 'rgba(37, 99, 235, 0.08)'
-                      : conMonto
-                        ? 'rgba(225, 153, 41, 0.08)'
-                        : 'rgba(148, 163, 184, 0.08)',
-                    cursor: 'pointer',
-                    boxShadow: activo ? '0 0 0 1px rgba(37, 99, 235, 0.2)' : 'none',
-                  }}
-                >
-                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
-                    {r.nombre}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: '0.25rem',
-                      fontSize: '1.15rem',
-                      fontWeight: 800,
-                      color: conMonto ? 'var(--brand-gold-dark, #b45309)' : 'var(--muted)',
-                      fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
-                    {fmtMonto(r.total)}
-                  </div>
-                  <div className="muted" style={{ marginTop: '0.15rem', fontSize: '0.72rem' }}>
-                    {conMonto ? `${r.count} mov. en tránsito` : 'Sin tránsito'}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
       )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
@@ -410,381 +385,126 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
       {error && !esSoloPanel && <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem' }}>{error}</p>}
 
-      {!esSoloPanel && alertas.length > 0 && !esHistorial && (
-        <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '10px', background: 'rgba(225,153,41,0.12)', border: '1px solid rgba(225,153,41,0.35)' }}>
-          <strong>Alertas de recolección ({alertas.length})</strong>
-          {alertas.map((a) => (
-            <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.85rem' }}>
-                {a.sucursal_origen} · {a.num_traspaso} · {fmtMonto(a.monto)} · {a.repartidores?.nombre || 'Recolector'}
-              </span>
-              <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => marcarAlertaVista(supabase, a.id).then(cargar)}>
-                Visto bueno
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!esSoloPanel && (
-      <>
-      <div className="grid-2" style={{ gap: '0.75rem' }}>
-        <label className="muted" style={{ display: 'block' }}>
-          Recolector a liquidar
-          <select className="select" style={{ marginTop: '0.35rem' }} value={repLiq} onChange={(e) => setRepLiq(e.target.value)}>
-            {repartidores.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.nombre}
-              </option>
-            ))}
-          </select>
-        </label>
-        {!esHistorial ? (
-          <div>
-            <SelectorCalendario
-              label="Fecha de sellado"
-              value={fechaSellado}
-              onChange={setFechaSellado}
-              max={hoyClaveNogales()}
-            />
-            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
-              Día en que recibes el efectivo del recolector.
-            </p>
-          </div>
-        ) : (
-          <div className="muted" style={{ fontSize: '0.85rem', alignSelf: 'center' }}>
-            <span className="badge" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>
-              Solo consulta · liquidaciones selladas
-            </span>
-          </div>
-        )}
-        {!esHistorial && (
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label className="muted" style={{ display: 'block' }}>
-              Cuenta RT — Mercancía (traspasos, crédito cobrado)
-              <select className="select" style={{ marginTop: '0.35rem', maxWidth: 360 }} value={cuentaRtMercancia} onChange={(e) => setCuentaRtMercancia(e.target.value)}>
-                {CUENTAS_RT_LIQUIDACION.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre}
-                  </option>
-                ))}
-              </select>
-              <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
-                Solo mercancía / créditos. Los cobros de servicio (CFE) se liquidan en la pestaña <strong>RC Servicios</strong>.
-              </span>
-            </label>
-          </div>
-        )}
-      </div>
-
-      <FiltroPeriodo
-        presets={esHistorial ? PRESETS_HISTORIAL : PRESETS_PENDIENTE}
-        preset={presetFecha}
-        onPresetChange={cambiarPresetFecha}
-        desde={filtroDesde}
-        hasta={filtroHasta}
-        onDesdeChange={setFiltroDesde}
-        onHastaChange={setFiltroHasta}
-        labelPeriodo={esHistorial ? 'Periodo de liquidación' : 'Filtrar por fecha de recolección'}
-        style={{ marginTop: '0.75rem' }}
-        mostrarResumen={presetFecha !== 'todos'}
-      />
-
-      {!enTransito.length ? (
-        <p className="muted" style={{ marginTop: '1rem' }}>
-          {esHistorial
-            ? 'Sin liquidaciones selladas en el periodo seleccionado.'
-            : 'Sin movimientos en tránsito para este recolector en el filtro actual.'}
-        </p>
-      ) : (
-        <>
-          {/* Reporte matriz tienda × fecha */}
-          <div className="card" style={{ marginTop: '1rem', padding: '0.85rem' }} id="reporte-recoleccion-panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-              <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>Reporte por tienda y fecha</h4>
-              <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} onClick={imprimirReporte}>
-                Imprimir reporte
-              </button>
-            </div>
-            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
-              {esHistorial ? (
-                <>
-                  Total liquidado: <strong>{fmtMonto(reporte.granTotal)}</strong> · {enTransito.length} movimiento(s) · {reporte.resumenDias.length} día(s)
-                </>
-              ) : (
-                <>
-                  Total en tránsito: <strong>{fmtMonto(reporte.granTotal)}</strong> · {enTransito.length} movimiento(s) · {reporte.resumenDias.length} día(s)
-                </>
-              )}
-            </p>
-            <div className="table-wrap">
-              <table className="table" style={{ fontSize: '0.85rem' }}>
-                <thead>
-                  <tr>
-                    <th>Tienda</th>
-                    {reporte.dias.map((dia) => (
-                      <th key={dia} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {fmtFechaClave(dia)}
-                        {!esHistorial && dia !== reporte.hoy && (
-                          <span style={{ display: 'block', fontWeight: 400, fontSize: '0.7rem', color: 'var(--brand-gold)' }}>pendiente</span>
-                        )}
-                        {esHistorial && (
-                          <span style={{ display: 'block', fontWeight: 400, fontSize: '0.7rem', color: 'var(--muted)' }}>liquidado</span>
-                        )}
-                      </th>
-                    ))}
-                    <th style={{ textAlign: 'right' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reporte.filas.map((f) => (
-                    <tr key={f.tienda}>
-                      <td><strong>{f.tienda}</strong></td>
-                      {reporte.dias.map((dia) => {
-                        const c = f.porDia[dia];
-                        const estado = c?.items?.length ? celdaSeleccionada(c.items) : 'none';
-                        if (!c?.count) {
-                          return (
-                            <td key={dia} style={{ textAlign: 'right', color: 'var(--muted)' }}>
-                              —
-                            </td>
-                          );
-                        }
-                        if (esHistorial) {
-                          return (
-                            <td key={dia} style={{ textAlign: 'right', padding: '6px 8px' }}>
-                              {fmtMonto(c.total)}
-                              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--muted)' }}>{c.count} mov.</span>
-                            </td>
-                          );
-                        }
-                        return (
-                          <td key={dia} style={{ textAlign: 'right', padding: 0 }}>
-                            <button
-                              type="button"
-                              title={`${c.count} mov. · Clic para ${estado === 'all' ? 'quitar' : 'seleccionar'}`}
-                              onClick={() => toggleCelda(c.items, estado !== 'all')}
-                              style={{
-                                width: '100%',
-                                padding: '6px 8px',
-                                border: 'none',
-                                background: estado === 'all' ? 'rgba(13,148,136,0.15)' : estado === 'partial' ? 'rgba(225,153,41,0.12)' : 'transparent',
-                                cursor: 'pointer',
-                                textAlign: 'right',
-                                font: 'inherit',
-                              }}
-                            >
-                              {fmtMonto(c.total)}
-                              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--muted)' }}>{c.count} mov.</span>
-                            </button>
-                          </td>
-                        );
-                      })}
-                      <td style={{ textAlign: 'right' }}><strong>{fmtMonto(f.totalTienda)}</strong></td>
-                    </tr>
-                  ))}
-                  <tr style={{ background: 'var(--surface-2)' }}>
-                    <td><strong>Total por día</strong></td>
-                    {reporte.dias.map((dia) => (
-                      <td key={dia} style={{ textAlign: 'right' }}>
-                        <strong>{fmtMonto(reporte.totalesPorDia[dia])}</strong>
-                      </td>
-                    ))}
-                    <td style={{ textAlign: 'right' }}><strong>{fmtMonto(reporte.granTotal)}</strong></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Selector de días — liquidar varios juntos */}
-          {!esHistorial && (
-          <div className="card" style={{ marginTop: '1rem', padding: '0.85rem', borderLeft: multiplesDias ? '4px solid var(--brand-gold)' : '4px solid #0d9488' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>
-                {multiplesDias ? 'Selecciona días a liquidar juntos' : 'Día a liquidar'}
-              </h4>
-              {multiplesDias && (
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => toggleDiaGlobal(enTransito, true)}>
-                    Todos los días
-                  </button>
-                  <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => toggleDiaGlobal(enTransito, false)}>
-                    Ninguno
-                  </button>
-                </div>
-              )}
-            </div>
-            {multiplesDias && (
-              <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
-                Hay {reporte.resumenDias.length} días sin liquidar. Marca uno o varios para recibir el efectivo del recolector en una sola operación.
-              </p>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
-              {reporte.resumenDias.map((d) => {
-                const estado = estadoSeleccion(d.items, selIds);
-                const selCount = d.items.filter((m) => selIds[m.id]).length;
+      {enRecolectores && (
+        <div style={{ marginBottom: '0.85rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.8rem' }}>
+            Efectivo en tránsito por recolector (toca una casilla para liquidar)
+          </p>
+          {!resumenReps.length ? (
+            <p className="muted" style={{ margin: 0 }}>{cargando ? 'Cargando recolectores…' : 'Sin recolectores activos.'}</p>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: '0.55rem',
+              }}
+            >
+              {resumenReps.map((r) => {
+                const conMonto = Number(r.total) > 0;
                 return (
-                  <label
-                    key={d.dia}
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => abrirRecolector(r.id)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.65rem',
-                      padding: '0.65rem 0.75rem',
-                      borderRadius: '8px',
-                      border: `1px solid ${estado === 'all' ? 'rgba(13,148,136,0.4)' : 'var(--border)'}`,
-                      background: estado === 'all' ? 'rgba(13,148,136,0.06)' : 'transparent',
+                      textAlign: 'left',
+                      padding: '0.7rem 0.85rem',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(15, 23, 42, 0.12)',
+                      background: conMonto ? 'rgba(225, 153, 41, 0.08)' : 'rgba(148, 163, 184, 0.08)',
                       cursor: 'pointer',
                     }}
                   >
-                    <CheckIndeterminado checked={estado === 'all'} indeterminate={estado === 'partial'} onChange={(e) => toggleDiaGlobal(d.items, e.target.checked)} />
-                    <span style={{ flex: 1 }}>
-                      <strong>{d.etiqueta}</strong>
-                      {!d.esHoy && (
-                        <span style={{ color: 'var(--brand-gold)', marginLeft: '0.35rem', fontSize: '0.8rem' }}>(día anterior sin liquidar)</span>
-                      )}
-                      <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
-                        {d.tiendas} tienda(s) · {d.count} mov. · Merc. {fmtMonto(d.resumen.mercancia)} · Serv. {fmtMonto(d.resumen.servicios)}
-                      </span>
-                    </span>
-                    <span style={{ textAlign: 'right' }}>
-                      <strong>{fmtMonto(d.total)}</strong>
-                      {estado !== 'none' && (
-                        <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
-                          sel. {fmtMonto(d.items.filter((m) => selIds[m.id]).reduce((a, m) => a + Number(m.monto || 0), 0))}
-                        </span>
-                      )}
-                      {estado === 'partial' && (
-                        <span className="muted" style={{ display: 'block', fontSize: '0.7rem' }}>
-                          {selCount}/{d.count}
-                        </span>
-                      )}
-                    </span>
-                  </label>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
+                      {r.nombre}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: '0.25rem',
+                        fontSize: '1.15rem',
+                        fontWeight: 800,
+                        color: conMonto ? 'var(--brand-gold-dark, #b45309)' : 'var(--muted)',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {fmtMonto(r.total)}
+                    </div>
+                    <div className="muted" style={{ marginTop: '0.15rem', fontSize: '0.72rem' }}>
+                      {conMonto ? `${r.count} mov. en tránsito` : 'Sin tránsito'}
+                    </div>
+                  </button>
                 );
               })}
             </div>
-          </div>
           )}
+        </div>
+      )}
 
-          {/* Gastos aceptados por el recolector */}
-          {!esHistorial && gastosActivos.length > 0 && (
-            <div
-              style={{
-                marginTop: '1rem',
-                padding: '0.85rem',
-                borderRadius: '10px',
-                background: 'rgba(220,38,38,0.06)',
-                border: '1px solid rgba(220,38,38,0.28)',
-              }}
-            >
-              <strong style={{ color: 'var(--brand-red)' }}>Gastos (descontar al recolectar)</strong>
-              <p className="muted" style={{ margin: '0.35rem 0 0.5rem', fontSize: '0.8rem' }}>
-                Panel RT (aceptados) o registrados en Venta en Ruta → Gastos con foto. Se restan del efectivo en tránsito.
-              </p>
-              <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
-                {gastosActivos.map((g) => {
-                  const evid = g.evidencia_url && String(g.evidencia_url).startsWith('data:image')
-                    ? g.evidencia_url
-                    : null;
-                  return (
-                    <li key={g.id} style={{ marginBottom: '0.35rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      {evid ? (
-                        <a href={evid} target="_blank" rel="noreferrer" title="Ver evidencia">
-                          <img
-                            src={evid}
-                            alt=""
-                            style={{
-                              width: 36,
-                              height: 36,
-                              objectFit: 'cover',
-                              borderRadius: 6,
-                              display: 'block',
-                              border: '1px solid rgba(0,0,0,0.12)',
-                            }}
-                          />
-                        </a>
-                      ) : null}
-                      <span>
-                        {g.descripcion_gasto || g.num_traspaso || 'Gasto'} · {g.sucursal_origen || '—'} ·{' '}
-                        <strong style={{ color: 'var(--brand-red)' }}>−{fmtMonto(g.monto)}</strong>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-              <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'var(--brand-red)' }}>
-                Total gastos: −{fmtMonto(totalGastosActivos)}
+      {enTiendas && (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+            <button type="button" className="btn btn-ghost" style={{ fontSize: '0.85rem' }} onClick={volverARecolectores}>
+              ← Recolectores
+            </button>
+            <strong style={{ color: 'var(--brand-blue)' }}>{repNombre || 'Recolector'}</strong>
+          </div>
+
+          <div className="grid-2" style={{ gap: '0.75rem' }}>
+            <div>
+              <SelectorCalendario
+                label="Fecha de sellado"
+                value={fechaSellado}
+                onChange={setFechaSellado}
+                max={hoyClaveNogales()}
+              />
+              <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+                Día en que recibes el efectivo del recolector.
               </p>
             </div>
-          )}
-
-          {/* Total seleccionado: solo el neto (liquidación − gastos) */}
-          {!esHistorial && (
-          <div
-            style={{
-              marginTop: '1rem',
-              padding: '1rem',
-              borderRadius: '12px',
-              background: 'rgba(13,148,136,0.1)',
-              border: '2px solid rgba(13,148,136,0.45)',
-            }}
-          >
-            <p className="muted" style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
-              Efectivo neto a acreditar (mercancía)
-            </p>
-            <div style={{ marginTop: '0.55rem', fontSize: '0.95rem', lineHeight: 1.55 }}>
-              <div>
-                Mercancía bruta: <strong>{fmtMonto(netosLiquidacion.brutoMerc)}</strong>
-                {totalGastosActivos > 0 && (
-                  <span style={{ color: 'var(--brand-red)' }}> − gastos {fmtMonto(totalGastosActivos)}</span>
-                )}
-                {' → '}
-                <strong>{fmtMonto(netosLiquidacion.netoMercancia)}</strong>
-                <span className="muted" style={{ fontSize: '0.82rem' }}> ({etiquetaCuentaRt(cuentaRtMercancia)})</span>
-              </div>
-              <div
-                style={{
-                  marginTop: '0.45rem',
-                  paddingTop: '0.45rem',
-                  borderTop: '1px dashed rgba(13,148,136,0.4)',
-                  fontWeight: 800,
-                  fontSize: '1.35rem',
-                  color: 'var(--brand-blue)',
-                }}
-              >
-                = {fmtMonto(netosLiquidacion.netoMercancia)} total
-              </div>
-            </div>
-            <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.82rem' }}>
-              Cobros de servicio (CFE) no aparecen aquí: liquídalos en <strong>RC Servicios</strong>.
-            </p>
-            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
-              {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Merc. {fmtMonto(resumenSel.mercancia)}
-            </p>
+            {selectorCuentaRt}
           </div>
-          )}
-          <DetalleTiendasLiquidacion
-            movimientos={enTransito}
-            esHistorial={esHistorial}
-            diaDe={diaDe}
-            selIds={selIds}
-            setSelIds={setSelIds}
+
+          <FiltroPeriodo
+            presets={PRESETS_PENDIENTE}
+            preset={presetFecha}
+            onPresetChange={cambiarPresetFecha}
+            desde={filtroDesde}
+            hasta={filtroHasta}
+            onDesdeChange={setFiltroDesde}
+            onHastaChange={setFiltroHasta}
+            labelPeriodo="Filtrar por fecha de recolección"
+            style={{ marginTop: '0.75rem' }}
+            mostrarResumen={presetFecha !== 'todos'}
           />
 
-          {!esHistorial && (
-          <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} disabled={guardando || seleccionados.length === 0} onClick={confirmarLiquidacion}>
-            {guardando
-              ? 'Sellando…'
-              : `Sellar y acreditar neto · ${fmtMonto(netosLiquidacion.netoMercancia)}`}
-          </button>
+          {cargando && !enTransito.length ? (
+            <p className="muted" style={{ marginTop: '1rem' }}>Cargando efectivo en tránsito…</p>
+          ) : !enTransito.length ? (
+            <p className="muted" style={{ marginTop: '1rem' }}>
+              Sin movimientos en tránsito para este recolector en el filtro actual.
+            </p>
+          ) : (
+            <>
+              <PendientesRecolectorTiendas
+                movimientos={enTransito}
+                selIds={selIds}
+                setSelIds={setSelIds}
+                tiendaAbierta={tiendaAbierta}
+                setTiendaAbierta={setTiendaAbierta}
+                totalGastos={totalGastosActivos}
+                cuentaRtLabel={etiquetaCuentaRt(cuentaRtMercancia)}
+                guardando={guardando}
+                onLiquidar={confirmarLiquidacion}
+                onImprimir={imprimirReporte}
+                bloqueGastos={bloqueGastos}
+              />
+            </>
           )}
         </>
       )}
-      </>
-      )}
+
+      {esHistorial && <HistorialLiquidacionesGlobal supabase={supabase} />}
     </>
   );
 

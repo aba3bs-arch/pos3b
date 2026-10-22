@@ -6,6 +6,7 @@ import {
   listarTiendasEfectivo,
   resumenPorTiendaConCatalogo,
 } from '../lib/controlEfectivo.js';
+import { etiquetaCobroRecoleccion } from '../lib/recoleccionTipos.js';
 
 const PERIODOS = [
   { id: 'dia', label: 'Por día' },
@@ -16,14 +17,8 @@ const PERIODOS = [
 
 function etiquetaTipo(m) {
   if (m.tipo_movimiento === 'Cobro Servicio') return 'Servicio';
-  if (m.tipo_movimiento === 'Cobro Crédito') return 'Crédito cobrado';
-  if (m.tipo_movimiento === 'Entrega Crédito') {
-    return m.estatus === 'En Tránsito' || m.estatus === 'Liquidado' ? 'Crédito cobrado' : 'Crédito';
-  }
-  if (m.tipo_movimiento === 'Venta Ruta') return 'Venta ruta';
   if (m.tipo_movimiento === 'Gasto') return 'Gasto';
-  if (/cr[eé]dito\s+cobrado/i.test(String(m.foto_url || ''))) return 'Crédito cobrado';
-  return 'Recolección';
+  return etiquetaCobroRecoleccion(m);
 }
 
 function CheckIndeterminado({ checked, indeterminate, onChange, ...rest }) {
