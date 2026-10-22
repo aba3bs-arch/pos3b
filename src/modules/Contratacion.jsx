@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon.jsx';
+import EstatusContratacionAdmin from '../components/EstatusContratacionAdmin.jsx';
+import { etiquetaEtapaActual } from '../lib/contratacionEstatus.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import {
   AVISO_FALTA_CONTRATACION,
@@ -271,6 +273,7 @@ export default function Contratacion({ supabase, user, onNavigate }) {
                 <strong style={{ display: 'block' }}>{nombreCompletoAspirante(row)}</strong>
                 <span className="muted" style={{ fontSize: '0.78rem' }}>
                   {etiquetaTipoContratacion(row.tipo)} · {etiquetaEstadoContratacion(row.estado)}
+                  {` · ${etiquetaEtapaActual(row)}`}
                   {row.edad != null ? ` · ${row.edad} años` : ''}
                   {row.evaluacion_pct != null ? ` · ${row.evaluacion_pct}%` : ''}
                 </span>
@@ -461,6 +464,22 @@ export default function Contratacion({ supabase, user, onNavigate }) {
                     Dar de alta en RH ABA3B
                   </button>
                 )}
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border, #eee)', paddingTop: '0.65rem', marginTop: '0.25rem' }}>
+                <EstatusContratacionAdmin
+                  supabase={supabase}
+                  user={user}
+                  solicitud={sel}
+                  onCambio={(fila) => {
+                    setSel(fila);
+                    setLista((prev) => prev.map((r) => (r.id === fila.id ? fila : r)));
+                  }}
+                  onEliminada={() => {
+                    setLista((prev) => prev.filter((r) => r.id !== sel.id));
+                    setSel(null);
+                  }}
+                />
               </div>
 
               {esPrincipal && (

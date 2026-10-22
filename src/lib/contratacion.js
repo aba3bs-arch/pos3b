@@ -1130,7 +1130,7 @@ export async function listarSolicitudesContratacion(supabase, user, opts = {}) {
   return { data: lista };
 }
 
-function entradaSeguimiento(user, texto, estado) {
+export function entradaSeguimiento(user, texto, estado) {
   return {
     at: new Date().toISOString(),
     por_id: user?.id || null,

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import BrandLogo from '../components/BrandLogo.jsx';
+import ContratacionEstatus from './ContratacionEstatus.jsx';
+import { esModoConsultaEstatus, urlEstatusContratacion } from '../lib/contratacionEstatus.js';
 import { leerNombreNegocio } from '../lib/branding.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
 import {
@@ -35,6 +37,11 @@ import {
  * Pasos: tipo/edad/colonia → datos → foto → perfil laboral → evaluación FA3B-003 → ok
  */
 export default function ContratacionPublica({ supabase }) {
+  if (esModoConsultaEstatus()) return <ContratacionEstatus supabase={supabase} />;
+  return <FormularioPostulacion supabase={supabase} />;
+}
+
+function FormularioPostulacion({ supabase }) {
   const brand = leerNombreNegocio();
   const vacantesUrl = useMemo(() => leerSucursalesVacanteDesdeUrl(), []);
   const sucursalVacante = useMemo(
@@ -207,6 +214,8 @@ export default function ContratacionPublica({ supabase }) {
         estado: res.solicitud?.estado || res.decision?.estado,
         pct: res.solicitud?.evaluacion_pct,
         motivo: res.decision?.motivo,
+        codigo: res.solicitud?.codigo_seguimiento || '',
+        telefono: form.telefono,
       });
       setPaso(6);
     } finally {
@@ -840,12 +849,35 @@ export default function ContratacionPublica({ supabase }) {
           <section className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <h2 style={{ marginTop: 0 }}>{msg.titulo}</h2>
             <p className="muted" style={{ fontSize: '0.95rem', lineHeight: 1.45 }}>{msg.cuerpo}</p>
+            {resultado?.codigo ? (
+              <div
+                style={{
+                  margin: '0.9rem 0',
+                  padding: '0.75rem',
+                  borderRadius: 10,
+                  background: 'rgba(212,175,55,0.14)',
+                  border: '1px solid rgba(212,175,55,0.45)',
+                }}
+              >
+                <div style={{ fontSize: '0.82rem' }}>Tu código de seguimiento</div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 700, letterSpacing: 3 }}>{resultado.codigo}</div>
+                <p className="muted" style={{ fontSize: '0.8rem', margin: '0.35rem 0 0.6rem' }}>
+                  Guárdalo. Con tu código y tu teléfono puedes ver en qué punto va tu proceso:
+                  entrevista, contratación y fecha de inicio.
+                </p>
+                <a className="btn btn-gold btn-sm" href={urlEstatusContratacion(resultado.codigo)}>
+                  Ver mi estatus
+                </a>
+              </div>
+            ) : null}
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 0 }}>Ya puedes cerrar esta ventana.</p>
           </section>
         );
       })()}
 
       <p className="muted" style={{ textAlign: 'center', fontSize: '0.75rem', marginTop: '1.5rem' }}>
+        <a href={urlEstatusContratacion()}>¿Ya te postulaste? Consulta tu estatus</a>
+        <br />
         Solo para aspirantes · No es el acceso de empleados
       </p>
     </div>
