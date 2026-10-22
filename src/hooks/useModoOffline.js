@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   contarVentasOfflinePendientes,
+  esErrorDeRed,
+  EVENTO_MODO_OFFLINE,
   EVENTO_VENTAS_OFFLINE,
   guardarCatalogoOffline,
   leerCatalogoOffline,
@@ -10,6 +12,11 @@ import {
 
 const POLL_ONLINE_MS = 45_000;
 const POLL_OFFLINE_MS = 12_000;
+
+function esFalloDeRedEnSync(r) {
+  const msg = String(r?.error || '');
+  return msg === 'Sin red.' || /perdi[oó] la red/i.test(msg) || esErrorDeRed({ message: msg });
+}
 
 /**
  * Detecta pérdida de red (navigator + sondeo Supabase), cuenta cola offline
@@ -28,6 +35,7 @@ export default function useModoOffline({
   const [ultimoSyncMsg, setUltimoSyncMsg] = useState('');
   const offlineRef = useRef(false);
   const syncingRef = useRef(false);
+  const verifyGenRef = useRef(0);
 
   const refrescarPendientes = useCallback(() => {
     setPendientes(contarVentasOfflinePendientes(sucursal));
@@ -61,6 +69,12 @@ export default function useModoOffline({
     marcarOffline(true);
   }, [marcarOffline]);
 
+  useEffect(() => {
+    const onFalloRed = () => marcarOffline(true);
+    window.addEventListener(EVENTO_MODO_OFFLINE, onFalloRed);
+    return () => window.removeEventListener(EVENTO_MODO_OFFLINE, onFalloRed);
+  }, [marcarOffline]);
+
   const intentarSync = useCallback(async () => {
     if (!supabase || syncingRef.current) return { ok: false, skipped: true };
     const n = contarVentasOfflinePendientes(sucursal);
@@ -86,26 +100,29 @@ export default function useModoOffline({
       } else {
         setUltimoSyncMsg('');
       }
+      if (r.ok === false && esFalloDeRedEnSync(r)) marcarOffline(true);
       return r;
     } finally {
       syncingRef.current = false;
       setSyncing(false);
     }
-  }, [supabase, sucursal, cargarDatos, refrescarPendientes]);
+  }, [supabase, sucursal, cargarDatos, refrescarPendientes, marcarOffline]);
 
   const verificar = useCallback(async () => {
     if (!sesion || !supabase) return;
+    const gen = ++verifyGenRef.current;
     const ok = await sondarConexionSupabase(supabase);
+    if (gen !== verifyGenRef.current) return;
     const estabaOffline = offlineRef.current;
     if (!ok) {
       marcarOffline(true);
       return;
     }
     marcarOffline(false);
-    if (estabaOffline) {
-      await intentarSync();
-    } else if (contarVentasOfflinePendientes(sucursal) > 0) {
-      await intentarSync();
+    if (estabaOffline || contarVentasOfflinePendientes(sucursal) > 0) {
+      const r = await intentarSync();
+      if (gen !== verifyGenRef.current) return;
+      if (r && r.ok === false && esFalloDeRedEnSync(r)) marcarOffline(true);
     }
   }, [sesion, supabase, marcarOffline, intentarSync, sucursal]);
 

@@ -184,9 +184,11 @@ import { useMobileLayout } from './hooks/useMobileLayout.js';
 import useModoOffline from './hooks/useModoOffline.js';
 import {
   aplicarDescuentoStockLocal,
+  esErrorDeRed,
   guardarCatalogoOffline,
   leerCatalogoOffline,
   moduloPermitidoOffline,
+  notificarFalloDeRed,
 } from './lib/ventasOffline.js';
 import { EVENTO_TEMA_INTERFAZ, aplicarTemaInterfaz, leerTemaInterfaz } from './lib/temasInterfaz.js';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
@@ -401,6 +403,7 @@ function App() {
     if (!r.ok) {
       console.error(r.error);
       // No borrar catálogo en memoria si falló por red (modo offline).
+      if (esErrorDeRed(r.error)) notificarFalloDeRed();
       return;
     }
     setInventario(r.data || []);

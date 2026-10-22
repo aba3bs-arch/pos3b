@@ -21,7 +21,7 @@ import {
   leerCarritoVenta,
   limpiarCarritoVenta,
 } from '../lib/carritoVentaPersistencia.js';
-import { encolarVentaOffline, esErrorDeRed } from '../lib/ventasOffline.js';
+import { encolarVentaOffline, esErrorDeRed, insertarVentaEnSupabase, nuevoUuidVenta } from '../lib/ventasOffline.js';
 import {
   esMetodoTarjeta,
   normalizarDigitosBaucher,
@@ -316,6 +316,7 @@ export default function Ventas({
       turno_id: turno?.id || null,
       turno_nombre: nombreTurnoLegible(turno) || null,
       created_at: vendidoEn,
+      venta_uuid: nuevoUuidVenta(),
     };
 
     const cerrarTicketLocal = async ({ offlineGuardada = false, erroresStock = [] } = {}) => {
@@ -378,32 +379,14 @@ export default function Ventas({
       return;
     }
 
-    let errorInsert = null;
-    try {
-      const { error } = await supabase.from('ventas').insert([
-        {
-          vendedor: ventaPayload.vendedor,
-          usuario_id: ventaPayload.usuario_id,
-          sucursal_id: ventaPayload.sucursal_id,
-          total: ventaPayload.total,
-          metodo_pago: ventaPayload.metodo_pago,
-          articulos: ventaPayload.articulos,
-          turno_id: ventaPayload.turno_id,
-          turno_nombre: ventaPayload.turno_nombre,
-        },
-      ]);
-      errorInsert = error;
-    } catch (e) {
-      errorInsert = e;
-    }
-
-    if (errorInsert) {
-      if (esErrorDeRed(errorInsert)) {
+    const ins = await insertarVentaEnSupabase(supabase, ventaPayload);
+    if (!ins.ok) {
+      if (ins.red || esErrorDeRed(ins.error)) {
         await guardarComoOffline();
         return;
       }
       setFinalizando(false);
-      alert(errorInsert.message || String(errorInsert));
+      alert(ins.error?.message || String(ins.error || 'No se pudo guardar la venta.'));
       return;
     }
 
