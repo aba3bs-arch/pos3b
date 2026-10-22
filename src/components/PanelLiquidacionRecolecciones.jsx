@@ -9,13 +9,11 @@ import {
   liquidarMovimientos,
   listarMercanciaEnTransitoPorRepartidor,
   listarGastosActivosParaLiquidacion,
-  listarLiquidacionesRepartidor,
   listarRepartidores,
   reporteRecoleccionTiendaFecha,
   resumenMercanciaEnTransitoPorRepartidor,
   calcularNetosLiquidacion,
   armarAcreditacionesLiquidacion,
-  movimientosMercancia,
 } from '../lib/controlEfectivo.js';
 import {
   CUENTAS_RT_LIQUIDACION,
@@ -27,7 +25,7 @@ import { repararTransitosCancelacionesAprobadas } from '../lib/rutaCancelaciones
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import SelectorCalendario from './SelectorCalendario.jsx';
-import DetalleTiendasLiquidacion from './DetalleTiendasLiquidacion.jsx';
+import HistorialLiquidacionesGlobal from './HistorialLiquidacionesGlobal.jsx';
 import PanelFondoServicios from './PanelFondoServicios.jsx';
 import PanelTesoreriaRuta from './PanelTesoreriaRuta.jsx';
 import PendientesRecolectorTiendas from './PendientesRecolectorTiendas.jsx';
@@ -36,8 +34,6 @@ const PRESETS_PENDIENTE = [
   { id: 'todos', label: 'Todos los pendientes' },
   ...PRESETS_FECHA_PRODUCTO,
 ];
-
-const PRESETS_HISTORIAL = PRESETS_FECHA_PRODUCTO;
 
 /** Liquidación en oficina — administrador / gerente. */
 export default function PanelLiquidacionRecolecciones({ supabase, user, embedded = false }) {
@@ -65,7 +61,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const esFondo = modoConsulta === 'fondo';
   const esTesoreria = modoConsulta === 'tesoreria';
   const esSoloPanel = esFondo || esTesoreria;
-  const diaDe = esHistorial ? 'liquidacion' : 'recoleccion';
   const fechaLiquidacion = useMemo(() => fmtFechaClave(fechaSellado), [fechaSellado]);
   const repNombre = useMemo(() => repartidores.find((r) => r.id === repLiq)?.nombre || '', [repartidores, repLiq]);
 
@@ -102,10 +97,10 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     setCuentaRtMercancia(cuentaRtMercanciaPorDefecto(user?.nombre));
   }, [user?.nombre]);
 
-  const cargaMovs = esHistorial || vista !== 'recolectores';
+  const cargaMovs = !esHistorial && vista !== 'recolectores';
 
   const cargar = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || esHistorial) return;
     setError(null);
     setCargando(true);
     try {
@@ -122,7 +117,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       const hasta = presetFecha === 'todos' ? '' : filtroHasta;
 
       // Cancelaciones aprobadas que dejaron efectivo en Pendientes → limpiar por folio VR.
-      if (!esHistorial && cargaMovs) {
+      if (cargaMovs) {
         try {
           await repararTransitosCancelacionesAprobadas(supabase, { limit: 80 });
         } catch {
@@ -131,28 +126,19 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       }
 
       const [movs, gastos, resumen] = await Promise.all([
-        !cargaMovs
-          ? Promise.resolve([])
-          : esHistorial
-            ? listarLiquidacionesRepartidor(supabase, repId, { desde, hasta }).then((rows) =>
-                // Historial: se muestran merchandise + créditos; servicios van en RC Servicios.
-                movimientosMercancia(rows),
-              )
-            : listarMercanciaEnTransitoPorRepartidor(supabase, repId).then((rows) =>
-                filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
-              ),
-        esHistorial || !cargaMovs ? Promise.resolve([]) : listarGastosActivosParaLiquidacion(supabase, repId),
+        cargaMovs
+          ? listarMercanciaEnTransitoPorRepartidor(supabase, repId).then((rows) =>
+              filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
+            )
+          : Promise.resolve([]),
+        cargaMovs ? listarGastosActivosParaLiquidacion(supabase, repId) : Promise.resolve([]),
         // Casillas siempre: totales por recolector (Pendientes mercancía).
         resumenMercanciaEnTransitoPorRepartidor(supabase),
       ]);
       setEnTransito(movs);
       setGastosActivos(gastos);
       setResumenReps(resumen);
-      setSelIds(
-        esHistorial
-          ? {}
-          : Object.fromEntries(movs.map((m) => [m.id, true])),
-      );
+      setSelIds(Object.fromEntries(movs.map((m) => [m.id, true])));
     } catch (e) {
       setError(e.message?.includes('repartidores') ? 'Ejecuta supabase/control_efectivo.sql en Supabase.' : e.message);
     } finally {
@@ -164,7 +150,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     cargar();
   }, [cargar]);
 
-  const reporte = useMemo(() => reporteRecoleccionTiendaFecha(enTransito, { diaDe }), [enTransito, diaDe]);
+  const reporte = useMemo(() => reporteRecoleccionTiendaFecha(enTransito, { diaDe: 'recoleccion' }), [enTransito]);
 
   const seleccionados = useMemo(() => enTransito.filter((m) => selIds[m.id]), [enTransito, selIds]);
   const totalGastosActivos = useMemo(
@@ -199,7 +185,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       th,td{border:1.5px solid #000;padding:6px 8px} th{background:#eee;font-weight:900}
       h1{font-size:1.2rem;margin:0;font-weight:900} .muted{color:#000;font-size:12px;font-weight:800}</style></head><body>
       <h1>Reporte de recolección en tránsito</h1>
-      <p class="muted">Recolector: ${rep} · ${esHistorial ? 'Liquidaciones' : 'Fecha sellado'}: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
+      <p class="muted">Recolector: ${rep} · Fecha sellado: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
       <table><thead><tr><th>Tienda</th>${headDias}<th>Total tienda</th></tr></thead>
       <tbody>${filasHtml}<tr style="background:#f9f9f9"><td><strong>Total por día</strong></td>${totDia}<td><strong>${fmtMonto(reporte.granTotal)}</strong></td></tr></tbody></table>
       <p class="muted" style="margin-top:1rem">Créditos cobrados: ${fmtMonto(desglosePendiente.totalCreditos)} · Efectivo por mercancía vendida: ${fmtMonto(desglosePendiente.totalEfectivo)} · Gastos: −${fmtMonto(totalGastosActivos)}</p>
@@ -518,118 +504,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         </>
       )}
 
-      {esHistorial && (
-        <>
-          <div className="grid-2" style={{ gap: '0.75rem' }}>
-            <label className="muted" style={{ display: 'block' }}>
-              Recolector
-              <select className="select" style={{ marginTop: '0.35rem' }} value={repLiq} onChange={(e) => setRepLiq(e.target.value)}>
-                {repartidores.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.nombre}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="muted" style={{ fontSize: '0.85rem', alignSelf: 'center' }}>
-              <span className="badge" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>
-                Solo consulta · liquidaciones selladas
-              </span>
-            </div>
-          </div>
-
-          <FiltroPeriodo
-            presets={PRESETS_HISTORIAL}
-            preset={presetFecha}
-            onPresetChange={cambiarPresetFecha}
-            desde={filtroDesde}
-            hasta={filtroHasta}
-            onDesdeChange={setFiltroDesde}
-            onHastaChange={setFiltroHasta}
-            labelPeriodo="Periodo de liquidación"
-            style={{ marginTop: '0.75rem' }}
-            mostrarResumen={presetFecha !== 'todos'}
-          />
-
-          {!enTransito.length ? (
-            <p className="muted" style={{ marginTop: '1rem' }}>
-              Sin liquidaciones selladas en el periodo seleccionado.
-            </p>
-          ) : (
-            <>
-              <div className="card" style={{ marginTop: '1rem', padding: '0.85rem' }} id="reporte-recoleccion-panel">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-                  <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>Reporte por tienda y fecha</h4>
-                  <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} onClick={imprimirReporte}>
-                    Imprimir reporte
-                  </button>
-                </div>
-                <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
-                  Total liquidado: <strong>{fmtMonto(reporte.granTotal)}</strong> · {enTransito.length} movimiento(s) · {reporte.resumenDias.length} día(s)
-                  {' · '}Créditos cobrados {fmtMonto(desglosePendiente.totalCreditos)} · Efectivo mercancía {fmtMonto(desglosePendiente.totalEfectivo)}
-                </p>
-                <div className="table-wrap">
-                  <table className="table" style={{ fontSize: '0.85rem' }}>
-                    <thead>
-                      <tr>
-                        <th>Tienda</th>
-                        {reporte.dias.map((dia) => (
-                          <th key={dia} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {fmtFechaClave(dia)}
-                            <span style={{ display: 'block', fontWeight: 400, fontSize: '0.7rem', color: 'var(--muted)' }}>liquidado</span>
-                          </th>
-                        ))}
-                        <th style={{ textAlign: 'right' }}>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {reporte.filas.map((f) => (
-                        <tr key={f.tienda}>
-                          <td><strong>{f.tienda}</strong></td>
-                          {reporte.dias.map((dia) => {
-                            const c = f.porDia[dia];
-                            if (!c?.count) {
-                              return (
-                                <td key={dia} style={{ textAlign: 'right', color: 'var(--muted)' }}>
-                                  —
-                                </td>
-                              );
-                            }
-                            return (
-                              <td key={dia} style={{ textAlign: 'right', padding: '6px 8px' }}>
-                                {fmtMonto(c.total)}
-                                <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--muted)' }}>{c.count} mov.</span>
-                              </td>
-                            );
-                          })}
-                          <td style={{ textAlign: 'right' }}><strong>{fmtMonto(f.totalTienda)}</strong></td>
-                        </tr>
-                      ))}
-                      <tr style={{ background: 'var(--surface-2)' }}>
-                        <td><strong>Total por día</strong></td>
-                        {reporte.dias.map((dia) => (
-                          <td key={dia} style={{ textAlign: 'right' }}>
-                            <strong>{fmtMonto(reporte.totalesPorDia[dia])}</strong>
-                          </td>
-                        ))}
-                        <td style={{ textAlign: 'right' }}><strong>{fmtMonto(reporte.granTotal)}</strong></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <DetalleTiendasLiquidacion
-                movimientos={enTransito}
-                esHistorial
-                diaDe={diaDe}
-                selIds={selIds}
-                setSelIds={setSelIds}
-              />
-            </>
-          )}
-        </>
-      )}
+      {esHistorial && <HistorialLiquidacionesGlobal supabase={supabase} />}
     </>
   );
 
