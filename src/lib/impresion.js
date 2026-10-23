@@ -414,6 +414,51 @@ export function htmlPreinventario(data) {
   </body></html>`;
 }
 
+export function htmlAuditoriaRuta(data) {
+  const cfg = leerConfigImpresion();
+  const r = data.resumen || {};
+  const deptos = data.deptos || [];
+  const difs = (data.lineas || []).filter((l) => l.contado != null && l.diferencia !== 0);
+  const fechaTxt = data.fecha
+    ? (() => {
+      try {
+        return new Date(data.fecha).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+      } catch {
+        return String(data.fecha);
+      }
+    })()
+    : fmtFecha();
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Inventario operativo</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
+    ${cabeceraDoc('INVENTARIO OPERATIVO · RUTA', { usuario: data.usuario, folio: data.folio, fecha: fechaTxt })}
+    ${data.recolector ? `<div>Recolector: <strong>${esc(data.recolector)}</strong></div>` : ''}
+    ${data.camion ? `<div>Camión: <strong>${esc(data.camion)}</strong></div>` : ''}
+    <div class="sep"></div>
+    <div class="bold">Departamentos cerrados</div>
+    ${htmlTablaLineas(deptos, [
+      { label: 'Depto.', key: 'etiqueta' },
+      { label: 'Prod.', key: 'productos', align: 'right' },
+      { label: 'Falt.', key: 'piezasFaltantes', align: 'right' },
+      { label: 'Sobr.', key: 'piezasSobrantes', align: 'right' },
+      { label: '$ Costo', key: 'perdidaCosto', align: 'right', fmt: (d) => fmtMoney(d.perdidaCosto) },
+    ])}
+    <div class="sep"></div>
+    <div>Productos contados: <strong>${r.contados || 0}</strong> · Pzas contadas: ${r.piezasContadas || 0} / teór. ${r.piezasTeoricas || 0}</div>
+    <div>Faltante: <strong>${r.piezasFaltantes || 0} pzs</strong></div>
+    <div>Sobrante: <strong>${r.piezasSobrantes || 0} pzs</strong></div>
+    <div>Pérdida a costo: <strong>${fmtMoney(r.perdidaCosto)}</strong></div>
+    <div class="bold">Pérdida a precio público: ${fmtMoney(r.perdidaPublico)}</div>
+    <div class="sep"></div>
+    ${difs.length ? `<div class="bold">Diferencias</div>${htmlTablaLineas(difs, [
+      { label: 'Producto', key: 'nombre' },
+      { label: 'Teór.', key: 'teorico', align: 'right' },
+      { label: 'Cont.', key: 'contado', align: 'right' },
+      { label: 'Dif.', key: 'diferencia', align: 'right', fmt: (row) => (row.diferencia > 0 ? `+${row.diferencia}` : String(row.diferencia)) },
+    ])}` : '<div class="muted">Sin diferencias: todo cuadra.</div>'}
+    <div style="margin-top:28px;border-top:1px solid #000;text-align:center;padding-top:2px">Firma recolector</div>
+    ${pieDoc('Inventario operativo independiente. No modifica el stock de sucursales ni del camión.')}
+  </body></html>`;
+}
+
 export function htmlReporte(data) {
   const cfg = leerConfigImpresion();
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Reporte</title><style>${estilosImpresion(cfg.ancho === '58mm' ? 'carta' : cfg.ancho)}</style></head><body>
@@ -494,6 +539,7 @@ const GENERADORES = {
   carga_camion: htmlCargaCamion,
   ajuste_inventario: htmlAjusteInventario,
   preinventario: htmlPreinventario,
+  auditoria_ruta: htmlAuditoriaRuta,
   reporte: htmlReporte,
   corte: htmlCorteCaja,
 };
@@ -667,6 +713,10 @@ export function imprimirCargaCamion(datos, opts = {}) {
 
 export function imprimirAjusteInventario(datos) {
   return imprimirDocumento('ajuste_inventario', datos, { forzar: true });
+}
+
+export function imprimirAuditoriaRuta(datos) {
+  return imprimirDocumento('auditoria_ruta', datos, { forzar: true, titulo: 'Inventario operativo ruta' });
 }
 
 export function imprimirPreinventario(datos) {
