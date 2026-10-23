@@ -18,7 +18,7 @@ import { obtenerIdDispositivoLocal } from './dispositivoUsuario.js';
 import { esEmpleadoIndirectoOMain } from './empleadosVisibles.js';
 import { normalizarRol } from './roles.js';
 import { detenerSirenaAsalto } from './sonidosPos.js';
-import { dispararPushRemoto } from './webPush.js';
+import { dispararPushRemoto, programarRefuerzoPushAsalto, pushAsaltoSinReintento } from './webPush.js';
 
 /** Mínimo de teclas simultáneas (3 = fiable en teclados con ghosting). */
 export const TECLAS_MIN_ASALTO = 3;
@@ -279,7 +279,7 @@ export async function dispararAlertaAsalto(supabase, {
 
     const broadcast = await difundirAlertaAsaltoBroadcast(supabase, detailRemoto);
 
-    const push = await dispararPushRemoto(supabase, {
+    const pushPayload = {
       id: notif.id,
       titulo,
       mensaje,
@@ -288,7 +288,12 @@ export async function dispararAlertaAsalto(supabase, {
       modo: 'asalto',
       sucursalId: sucursal || null,
       excluirDispositivoId: obtenerIdDispositivoLocal(),
-    });
+    };
+    const push = await dispararPushRemoto(supabase, pushPayload);
+    // El celular con la app cerrada a veces tira el primer push. Se reenvía a los 12 s y 35 s.
+    if (!pushAsaltoSinReintento(push)) {
+      programarRefuerzoPushAsalto(supabase, pushPayload);
+    }
 
     return {
       ok: Boolean(notif.ok !== false),

@@ -18,6 +18,11 @@ function leerCredencialesSupabase() {
   return { url, key };
 }
 
+/** URL y anon key ya públicas en el cliente. El service worker las usa para renovar el push con la app cerrada. */
+export function credencialesSupabasePublicas() {
+  return leerCredencialesSupabase();
+}
+
 /** Cliente Supabase; se inicializa en main.jsx tras cargar pos3b-config.js */
 export let supabase = null;
 export let supabaseConfigured = false;

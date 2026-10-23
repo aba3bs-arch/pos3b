@@ -201,17 +201,16 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
         .subscribe();
     }
 
-    // Antes 3s/8s; Realtime + eventos cubren la urgencia. Menos Disk IO en Nano.
+    // También con la app en segundo plano (pantalla bloqueada o en otra app): el intervalo
+    // sigue hasta que el sistema congele la página. El push cubre cuando ya está cerrada.
     const pollMs = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 900px)')?.matches
       ? 8_000
       : 20_000;
     const iv = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       void cargarPendiente();
     }, pollMs);
 
     const onVisible = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       void cargarPendiente();
     };
     document.addEventListener('visibilitychange', onVisible);
