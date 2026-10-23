@@ -7,6 +7,10 @@ import {
   progresoDepartamentosAuditoria,
   resolverCamionDeRecolector,
   resumirAuditoriaCamion,
+  armarCierreAuditoria,
+  folioAuditoriaRuta,
+  resumirDepartamentoAuditoria,
+  siguienteIndicePendiente,
 } from './auditoriaCamionRuta.js';
 
 {
@@ -82,3 +86,38 @@ import {
 }
 
 console.log('auditoriaCamionRuta.test.mjs ok');
+
+{
+  const inv = [
+    { id: 'A', nombre: 'A', cat: 'BEBIDAS', _disp_camion: 10, precio: 20, precio_compra_sin: 8 },
+    { id: 'B', nombre: 'B', cat: 'BEBIDAS', _disp_camion: 5, precio: 10, precio_compra_sin: 4 },
+    { id: 'C', nombre: 'C', cat: 'CIGARROS', _disp_camion: 3, precio: 50, precio_compra_sin: 40 },
+  ];
+  const lineas = construirLineasAuditoriaCamion(inv, { A: '8', B: '5', C: '1' });
+  const beb = lineasAuditoriaPorDepartamento(lineas, 'BEBIDAS');
+  const rd = resumirDepartamentoAuditoria(beb);
+  assert.equal(rd.listoParaCerrar, true);
+  assert.equal(rd.piezasFaltantes, 2);
+  assert.equal(rd.cuadran, 1);
+  assert.equal(rd.piezasContadas, 13);
+  assert.equal(rd.piezasTeoricas, 15);
+
+  const pend = construirLineasAuditoriaCamion(inv, { A: '8' });
+  const bebP = lineasAuditoriaPorDepartamento(pend, 'BEBIDAS');
+  assert.equal(resumirDepartamentoAuditoria(bebP).listoParaCerrar, false);
+  assert.equal(siguienteIndicePendiente(bebP, 0), 1);
+  assert.equal(siguienteIndicePendiente(bebP, 1), -1);
+  assert.equal(siguienteIndicePendiente(lineasAuditoriaPorDepartamento(construirLineasAuditoriaCamion(inv, {}), 'BEBIDAS'), 1), 0);
+
+  const cierre = armarCierreAuditoria(lineas, ['BEBIDAS']);
+  assert.equal(cierre.lineas.length, 2);
+  assert.equal(cierre.deptos.length, 1);
+  assert.equal(cierre.resumen.piezasFaltantes, 2);
+  assert.equal(cierre.resumen.perdidaCosto, 16);
+  assert.equal(cierre.resumen.perdidaPublico, 40);
+
+  const f = new Date(2026, 9, 22, 10, 0);
+  assert.equal(folioAuditoriaRuta([], f), 'INV-RT-261022-001');
+  assert.equal(folioAuditoriaRuta([{ folio: 'INV-RT-261022-001' }, { folio: 'INV-RT-261021-009' }], f), 'INV-RT-261022-002');
+}
+console.log('auditoriaCamionRuta (flujo por departamento) OK');

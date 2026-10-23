@@ -1,13 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import Icon from '../components/Icon.jsx';
 import {
+  armarCierreAuditoria,
+  borrarBorradorAuditoria,
   construirLineasAuditoriaCamion,
+  folioAuditoriaRuta,
   guardarAuditoriaCamionLocal,
+  guardarBorradorAuditoria,
+  leerBorradorAuditoria,
   lineasAuditoriaPorDepartamento,
   listarAuditoriasCamionLocal,
   progresoDepartamentosAuditoria,
   resolverCamionDeRecolector,
-  resumirAuditoriaCamion,
+  resumirDepartamentoAuditoria,
+  siguienteIndicePendiente,
 } from '../lib/auditoriaCamionRuta.js';
 import {
   inventarioCamionDesdeLineas,
@@ -22,12 +29,160 @@ import {
 import { etiquetaDepartamento } from '../lib/departamentos.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
+import { imprimirAuditoriaRuta } from '../lib/impresion.js';
 import './VentaEnRuta.css';
+
+const cajaKpi = {
+  padding: '0.65rem',
+  borderRadius: 10,
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+};
+const etiquetaKpi = { fontSize: '0.68rem', textTransform: 'uppercase' };
+
+function Kpi({ titulo, valor, extra, tono }) {
+  const color = tono === 'mal' ? 'var(--brand-red)' : tono === 'bien' ? 'var(--brand-green)' : tono === 'aviso' ? 'var(--brand-gold-dark)' : undefined;
+  const fondo = tono === 'mal' ? 'rgba(220,53,69,0.06)' : tono === 'aviso' ? 'rgba(225,153,41,0.08)' : undefined;
+  return (
+    <div style={{ ...cajaKpi, ...(fondo ? { background: fondo } : {}) }}>
+      <div className="muted" style={etiquetaKpi}>{titulo}</div>
+      <div style={{ fontWeight: 700, color }}>{valor}</div>
+      {extra ? <div className="muted" style={{ fontSize: '0.75rem', color }}>{extra}</div> : null}
+    </div>
+  );
+}
+
+function KpisResumen({ r }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.65rem' }}>
+      <Kpi titulo="Artículos" valor={r.productos ?? r.contados} extra={r.pendientes != null ? `${r.pendientes} pendientes` : undefined} />
+      <Kpi
+        titulo="Piezas contadas"
+        valor={r.piezasContadas ?? '—'}
+        extra={r.piezasTeoricas != null ? `Teórico: ${r.piezasTeoricas}` : undefined}
+      />
+      <Kpi
+        titulo="Faltante"
+        valor={`${r.piezasFaltantes} pzs`}
+        extra={`Costo ${fmtMonto(r.perdidaCosto)} · Público ${fmtMonto(r.perdidaPublico)}`}
+        tono={r.piezasFaltantes ? 'mal' : undefined}
+      />
+      <Kpi titulo="Sobrante" valor={`${r.piezasSobrantes} pzs`} tono={r.piezasSobrantes ? 'aviso' : undefined} />
+      {r.cuadran != null && <Kpi titulo="Cuadran" valor={`${r.cuadran} SKU`} tono="bien" />}
+    </div>
+  );
+}
+
+function textoDiferencia(l) {
+  if (l.contado == null) return '—';
+  if (l.diferencia === 0) return 'Cuadra';
+  return l.diferencia > 0 ? `+${l.diferencia} sobrante` : `${l.diferencia} faltante`;
+}
+
+function colorDiferencia(l) {
+  if (l.contado == null) return 'inherit';
+  if (l.diferencia === 0) return 'var(--brand-green)';
+  return l.diferencia > 0 ? 'var(--brand-gold-dark)' : 'var(--brand-red)';
+}
+
+function fmtFechaHora(iso) {
+  try {
+    return new Date(iso).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    return String(iso || '').slice(0, 16).replace('T', ' ');
+  }
+}
+
+/** Ticket con el resultado del inventario (pantalla + impresión). */
+function TicketResultado({ registro, onImprimir, onCerrar, cerrarLabel }) {
+  const r = registro.resumen || {};
+  const difs = (registro.lineas || []).filter((l) => l.contado != null && l.diferencia !== 0);
+  return (
+    <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
+      <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-green)' }}>Inventario cerrado</h4>
+      <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--brand-blue)', fontFamily: 'ui-monospace, monospace' }}>
+        {registro.folio || '—'}
+      </div>
+      <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.88rem' }}>
+        {registro.recolector_nombre || '—'} · {registro.camion_etiqueta || '—'} · {fmtFechaHora(registro.created_at)}
+        {registro.usuario_nombre ? ` · ${registro.usuario_nombre}` : ''}
+      </p>
+
+      <KpisResumen r={r} />
+
+      <h5 style={{ margin: '0.9rem 0 0.4rem' }}>Departamentos cerrados</h5>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Departamento</th>
+              <th>Prod.</th>
+              <th>Faltante</th>
+              <th>Sobrante</th>
+              <th>$ Costo</th>
+              <th>$ Público</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(registro.deptos || registro.progreso_deptos || []).map((d) => (
+              <tr key={d.departamento}>
+                <td>{d.etiqueta}</td>
+                <td>{d.productos}</td>
+                <td style={{ color: d.piezasFaltantes ? 'var(--brand-red)' : undefined, fontWeight: 600 }}>{d.piezasFaltantes} pzs</td>
+                <td>{d.piezasSobrantes ?? 0} pzs</td>
+                <td>{fmtMonto(d.perdidaCosto)}</td>
+                <td>{fmtMonto(d.perdidaPublico)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h5 style={{ margin: '0.9rem 0 0.4rem' }}>Diferencias</h5>
+      {difs.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>Sin diferencias: todo cuadra.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Teórico</th>
+                <th>Contado</th>
+                <th>Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {difs.map((l) => (
+                <tr key={l.id}>
+                  <td>{l.nombre}</td>
+                  <td>{l.teorico}</td>
+                  <td>{l.contado}</td>
+                  <td style={{ fontWeight: 600, color: colorDiferencia(l) }}>{textoDiferencia(l)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-primary" onClick={() => onImprimir(registro)}>
+          Imprimir ticket
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={onCerrar}>
+          {cerrarLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Venta en Ruta → Inv-op / Auditorías.
- * 1) Seleccionar recolector → 2) inventariar por departamento → 3) cerrar.
- * No modifica inventario.
+ * Igual que el conteo físico de sucursales, pero independiente (no toca stock):
+ * 1) recolector → 2) departamentos → 3) conteo artículo por artículo
+ * → 4) cerrar cada departamento → 5) ticket con el resultado + historial.
  */
 export default function AuditoriaCamionRuta({
   supabase,
@@ -37,7 +192,7 @@ export default function AuditoriaCamionRuta({
   setAviso,
   onVolver,
 }) {
-  const [paso, setPaso] = useState('recolector'); // recolector | deptos | conteo
+  const [paso, setPaso] = useState('recolector'); // recolector | deptos | conteo | ticket
   const [recolectores, setRecolectores] = useState([]);
   const [camiones, setCamiones] = useState([]);
   const [recolectorId, setRecolectorId] = useState('');
@@ -47,12 +202,18 @@ export default function AuditoriaCamionRuta({
   const [cargando, setCargando] = useState(true);
   const [cargandoLista, setCargandoLista] = useState(true);
   const [conteos, setConteos] = useState({});
+  const [cerrados, setCerrados] = useState({});
+  const [deptosSel, setDeptosSel] = useState([]);
+  const [qDepto, setQDepto] = useState('');
+  const [deptoActivo, setDeptoActivo] = useState('');
+  const [indice, setIndice] = useState(0);
+  const [mostrarResumen, setMostrarResumen] = useState(false);
   const [codigo, setCodigo] = useState('');
   const [historial, setHistorial] = useState([]);
   const [guardando, setGuardando] = useState(false);
-  const [soloFaltantes, setSoloFaltantes] = useState(false);
-  const [deptoActivo, setDeptoActivo] = useState('');
-  const [flashId, setFlashId] = useState('');
+  const [ticket, setTicket] = useState(null);
+  const [borradorCamion, setBorradorCamion] = useState('');
+  const contadaRef = useRef(null);
 
   const cargarListas = useCallback(async () => {
     setCargandoLista(true);
@@ -123,13 +284,47 @@ export default function AuditoriaCamionRuta({
     void refrescarCargas();
   }, [refrescarCargas]);
 
+  const refrescarHistorial = useCallback(() => {
+    setHistorial(listarAuditoriasCamionLocal({ limit: 15 }).data || []);
+  }, []);
+
   useEffect(() => {
-    setConteos({});
+    setTicket(null);
     setDeptoActivo('');
-    setPaso(recolectorId && camionId ? 'deptos' : 'recolector');
-    const h = listarAuditoriasCamionLocal({ camionId: camionId || undefined, limit: 8 });
-    setHistorial(h.data || []);
-  }, [camionId, recolectorId]);
+    setIndice(0);
+    setMostrarResumen(false);
+    const draft = recolectorId && camionId ? leerBorradorAuditoria(camionId) : null;
+    setConteos(draft?.conteos && typeof draft.conteos === 'object' ? draft.conteos : {});
+    setCerrados(draft?.cerrados && typeof draft.cerrados === 'object' ? draft.cerrados : {});
+    setDeptosSel(Array.isArray(draft?.deptosSel) ? draft.deptosSel : []);
+    if (draft?.paso === 'conteo' && draft.deptoActivo) {
+      setDeptoActivo(draft.deptoActivo);
+      setIndice(Number(draft.indice) || 0);
+      setPaso('conteo');
+    } else {
+      setPaso(recolectorId && camionId ? 'deptos' : 'recolector');
+    }
+    setBorradorCamion(recolectorId && camionId ? camionId : '');
+    refrescarHistorial();
+  }, [camionId, recolectorId, refrescarHistorial]);
+
+  useEffect(() => {
+    if (!camionId || borradorCamion !== camionId || paso === 'ticket') return;
+    const hayAlgo = Object.keys(conteos).length || Object.keys(cerrados).length;
+    if (!hayAlgo) {
+      borrarBorradorAuditoria(camionId);
+      return;
+    }
+    guardarBorradorAuditoria(camionId, {
+      conteos,
+      cerrados,
+      deptosSel,
+      deptoActivo,
+      indice,
+      paso: paso === 'conteo' ? 'conteo' : 'deptos',
+      recolector_id: recolectorId,
+    });
+  }, [camionId, borradorCamion, conteos, cerrados, deptosSel, deptoActivo, indice, paso, recolectorId]);
 
   const inventarioCamion = useMemo(
     () => inventarioCamionDesdeLineas(lineasCarga, { productoPorId, inventario }),
@@ -141,84 +336,159 @@ export default function AuditoriaCamionRuta({
     [inventarioCamion, conteos],
   );
 
-  const resumen = useMemo(() => resumirAuditoriaCamion(lineas), [lineas]);
   const progresoDeptos = useMemo(() => progresoDepartamentosAuditoria(lineas), [lineas]);
 
-  const lineasDepto = useMemo(() => {
-    const base = lineasAuditoriaPorDepartamento(lineas, deptoActivo);
-    if (!soloFaltantes) return base;
-    return base.filter((l) => (Number(l.faltante) || 0) > 0 || (l.contado != null && (Number(l.diferencia) || 0) < 0));
-  }, [lineas, deptoActivo, soloFaltantes]);
-
-  const progresoDeptoActivo = useMemo(
-    () => progresoDeptos.find((d) => d.departamento === deptoActivo) || null,
-    [progresoDeptos, deptoActivo],
+  const lineasDepto = useMemo(
+    () => lineasAuditoriaPorDepartamento(lineas, deptoActivo),
+    [lineas, deptoActivo],
   );
+  const resumenDepto = useMemo(() => resumirDepartamentoAuditoria(lineasDepto), [lineasDepto]);
+  const articuloActual = lineasDepto[indice] || null;
+  const deptoCerrado = deptoActivo ? cerrados[deptoActivo] : null;
+
+  const deptosFiltrados = useMemo(() => {
+    const t = qDepto.trim().toLowerCase();
+    if (!t) return progresoDeptos;
+    return progresoDeptos.filter(
+      (d) => d.etiqueta.toLowerCase().includes(t) || d.departamento.toLowerCase().includes(t),
+    );
+  }, [progresoDeptos, qDepto]);
 
   const camionSel = camiones.find((c) => String(c.id) === String(camionId));
+  const nCerrados = Object.keys(cerrados).length;
+
+  useEffect(() => {
+    if (paso === 'conteo' && !mostrarResumen && !deptoCerrado) contadaRef.current?.focus();
+  }, [paso, indice, mostrarResumen, deptoCerrado, deptoActivo]);
 
   const setContado = (id, valor) => {
+    if (cerrados[deptoActivo]) return;
     setConteos((prev) => ({ ...prev, [id]: valor }));
   };
 
-  const ajustarContado = (id, delta) => {
-    setConteos((prev) => {
-      const actual = prev[id];
-      const base = actual === null || actual === undefined || String(actual).trim() === ''
-        ? 0
-        : Math.max(0, Math.floor(Number(actual) || 0));
-      return { ...prev, [id]: String(Math.max(0, base + delta)) };
-    });
-    setFlashId(String(id));
-    window.setTimeout(() => setFlashId((cur) => (cur === String(id) ? '' : cur)), 420);
+  const entrarDepto = (dept, lineasBase = lineas) => {
+    const delDepto = lineasAuditoriaPorDepartamento(lineasBase, dept);
+    const primero = delDepto.findIndex((l) => l.contado == null);
+    setDeptoActivo(dept);
+    setIndice(primero >= 0 ? primero : 0);
+    setMostrarResumen(primero < 0 && delDepto.length > 0);
+    setCodigo('');
+    setPaso('conteo');
   };
 
-  const registrarEscaneo = (raw) => {
-    const code = String(raw || codigo || '').trim();
+  const toggleDepto = (d) => {
+    setDeptosSel((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  };
+
+  const confirmarDeptos = () => {
+    const cola = progresoDeptos
+      .map((d) => d.departamento)
+      .filter((d) => deptosSel.includes(d) && !cerrados[d]);
+    if (!cola.length) return;
+    entrarDepto(cola[0]);
+  };
+
+  const siguienteArticulo = () => {
+    if (!articuloActual || deptoCerrado) return;
+    const id = articuloActual.id;
+    const raw = conteos[id];
+    const final = raw === undefined || String(raw).trim() === '' ? String(articuloActual.teorico) : String(raw);
+    const nextConteos = { ...conteos, [id]: final };
+    setConteos(nextConteos);
+    const lineasNext = lineasAuditoriaPorDepartamento(
+      construirLineasAuditoriaCamion(inventarioCamion, nextConteos),
+      deptoActivo,
+    );
+    const next = siguienteIndicePendiente(lineasNext, indice);
+    if (next >= 0) setIndice(next);
+    else setMostrarResumen(true);
+  };
+
+  const procesarEscaneo = (raw) => {
+    const code = String(raw ?? codigo).trim();
     if (!code) return;
     const rCamion = buscarProductoInventario(inventarioCamion, code);
     const hit = rCamion?.producto
       || buscarProductoInventario(inventario, code)?.producto
       || inventarioCamion.find((p) => String(p.id) === code);
+    setCodigo('');
     if (!hit || !inventarioCamion.some((p) => String(p.id) === String(hit.id))) {
-      setAviso?.(`No está en el camión: ${code}`);
-      setCodigo('');
+      return alert(`No está en el camión: ${code}`);
+    }
+    const idx = lineasDepto.findIndex((l) => String(l.id) === String(hit.id));
+    if (idx < 0) {
+      return alert(`"${hit.nombre}" pertenece a ${etiquetaDepartamento(hit.cat)}, no a ${etiquetaDepartamento(deptoActivo)}.`);
+    }
+    setIndice(idx);
+    setMostrarResumen(false);
+    contadaRef.current?.focus();
+    contadaRef.current?.select();
+  };
+
+  const cerrarDepartamento = () => {
+    if (!resumenDepto.listoParaCerrar) {
+      return alert(`Aún faltan ${resumenDepto.pendientes} producto(s) por contar. Usa "Siguiente artículo" en cada uno.`);
+    }
+    const msg = resumenDepto.piezasFaltantes || resumenDepto.piezasSobrantes
+      ? `¿Cerrar ${etiquetaDepartamento(deptoActivo)}?\n\nFaltante: ${resumenDepto.piezasFaltantes} pzs (costo ${fmtMonto(resumenDepto.perdidaCosto)} · público ${fmtMonto(resumenDepto.perdidaPublico)})\nSobrante: ${resumenDepto.piezasSobrantes} pzs`
+      : `¿Cerrar ${etiquetaDepartamento(deptoActivo)} sin diferencias?`;
+    if (!confirm(`${msg}\n\nNo modifica el inventario del camión.`)) return;
+
+    const cerradoAhora = { ...cerrados, [deptoActivo]: { at: new Date().toISOString(), por: user?.nombre || null } };
+    setCerrados(cerradoAhora);
+    const resto = progresoDeptos
+      .map((d) => d.departamento)
+      .filter((d) => deptosSel.includes(d) && !cerradoAhora[d]);
+    setDeptosSel(resto);
+    if (resto.length) {
+      entrarDepto(resto[0]);
       return;
     }
-    const id = String(hit.id);
-    const cat = String(hit.cat || 'GENERAL').toUpperCase();
-    if (paso !== 'conteo' || deptoActivo !== cat) {
-      setDeptoActivo(cat);
-      setPaso('conteo');
-    }
-    ajustarContado(id, 1);
-    setCodigo('');
+    setDeptoActivo('');
+    setMostrarResumen(false);
+    setPaso('deptos');
   };
 
-  const elegirRecolector = (id) => {
-    setRecolectorId(String(id || ''));
+  const reabrirDepartamento = () => {
+    if (!deptoActivo || !confirm(`¿Reabrir ${etiquetaDepartamento(deptoActivo)} para corregir el conteo?`)) return;
+    setCerrados((prev) => {
+      const n = { ...prev };
+      delete n[deptoActivo];
+      return n;
+    });
+    setMostrarResumen(false);
+    setIndice(0);
   };
 
-  const entrarDepto = (dept) => {
-    setDeptoActivo(dept);
-    setSoloFaltantes(false);
-    setPaso('conteo');
+  const cancelarInventario = () => {
+    if (!confirm('¿Cancelar el inventario en curso? Se borran los conteos y los departamentos cerrados de este equipo.')) return;
+    borrarBorradorAuditoria(camionId);
+    setConteos({});
+    setCerrados({});
+    setDeptosSel([]);
+    setDeptoActivo('');
+    setMostrarResumen(false);
+    setPaso('deptos');
   };
 
-  const cerrarAuditoria = async () => {
+  const terminarInventario = () => {
     if (!camionId) return alert('Selecciona un recolector con camión asignado.');
-    if (!resumen.contados) return alert('Captura al menos un conteo.');
-    const nombreRec = recolectorSel?.nombre || '—';
+    const cerradosIds = Object.keys(cerrados);
+    if (!cerradosIds.length) return alert('Cierra al menos un departamento para generar el ticket.');
+    const abiertosConConteo = progresoDeptos.filter((d) => !cerrados[d.departamento] && d.contados > 0);
+    const avisoAbiertos = abiertosConConteo.length
+      ? `\n\nOJO: ${abiertosConConteo.map((d) => d.etiqueta).join(', ')} tiene conteo sin cerrar y NO entra al ticket.`
+      : '';
     if (!confirm(
-      `¿Cerrar auditoría de ${etiquetaCamion(camionSel)}?\n`
-      + `Recolector: ${nombreRec}\n\n`
-      + `Faltantes: ${resumen.piezasFaltantes} pza\n`
-      + `Pérdida a costo: ${fmtMonto(resumen.perdidaCosto)}\n`
-      + `Pérdida a precio público: ${fmtMonto(resumen.perdidaPublico)}\n\n`
-      + 'No modifica el inventario del camión.',
+      `¿Terminar inventario con ${cerradosIds.length} departamento(s) cerrado(s)?\n\nSe genera el ticket con el resultado y se guarda en el historial.${avisoAbiertos}`,
     )) return;
+
+    const cierre = armarCierreAuditoria(lineas, cerradosIds);
+    const nombreRec = recolectorSel?.nombre || '—';
     setGuardando(true);
+    const folio = folioAuditoriaRuta(listarAuditoriasCamionLocal({ limit: 200 }).data || []);
     const r = guardarAuditoriaCamionLocal({
+      folio,
       camion_id: camionId,
       camion_etiqueta: etiquetaCamion(camionSel),
       recolector_id: recolectorSel?.repartidor_id || recolectorSel?.id || null,
@@ -226,18 +496,55 @@ export default function AuditoriaCamionRuta({
       usuario_nombre: user?.nombre || null,
       usuario_id: user?.id || null,
       cargas: cargas.map((c) => ({ id: c.id, folio: c.folio })),
-      resumen,
-      progreso_deptos: progresoDeptos,
-      lineas: lineas.filter((l) => l.contado != null || (Number(l.faltante) || 0) > 0),
+      resumen: cierre.resumen,
+      deptos: cierre.deptos,
+      progreso_deptos: cierre.deptos,
+      cerrados,
+      lineas: cierre.lineas.filter((l) => l.contado != null),
     });
     setGuardando(false);
     if (!r.ok) return alert(r.error || 'No se pudo guardar.');
-    setAviso?.(`Auditoría guardada · faltante ${resumen.piezasFaltantes} pza · público ${fmtMonto(resumen.perdidaPublico)}`);
-    setHistorial(listarAuditoriasCamionLocal({ camionId, limit: 8 }).data || []);
-    setPaso('deptos');
+
+    borrarBorradorAuditoria(camionId);
+    setConteos({});
+    setCerrados({});
+    setDeptosSel([]);
+    setDeptoActivo('');
+    setMostrarResumen(false);
+    setTicket(r.data);
+    setPaso('ticket');
+    refrescarHistorial();
+    setAviso?.(`Inventario ${folio} guardado · faltante ${cierre.resumen.piezasFaltantes} pza · público ${fmtMonto(cierre.resumen.perdidaPublico)}`);
+    void imprimirAuditoriaRuta(datosImpresion(r.data));
   };
 
-  const deptosCompletos = progresoDeptos.filter((d) => d.completo).length;
+  const datosImpresion = (reg) => ({
+    folio: reg.folio,
+    fecha: reg.created_at,
+    usuario: reg.usuario_nombre,
+    recolector: reg.recolector_nombre,
+    camion: reg.camion_etiqueta,
+    resumen: reg.resumen,
+    deptos: reg.deptos || reg.progreso_deptos || [],
+    lineas: reg.lineas || [],
+  });
+
+  const imprimir = async (reg) => {
+    const r = await imprimirAuditoriaRuta(datosImpresion(reg));
+    if (r && r.ok === false && r.error) alert(r.error);
+  };
+
+  const verTicketHistorial = (reg) => {
+    setTicket(reg);
+    setPaso('ticket');
+  };
+
+  const cerrarTicket = () => {
+    setTicket(null);
+    setPaso(recolectorId && camionId ? 'deptos' : 'recolector');
+  };
+
+  const etapaActiva = paso === 'ticket' ? 4 : paso === 'conteo' ? 3 : paso === 'deptos' ? 2 : 1;
 
   return (
     <div className="ruta-invop">
@@ -246,8 +553,8 @@ export default function AuditoriaCamionRuta({
           <p className="ruta-invop-kicker">Inv-op · Venta en ruta</p>
           <h3>Inventario operativo por departamento</h3>
           <p className="ruta-invop-lead">
-            Elige el recolector, abre un departamento y cuenta en el celular.
-            No modifica el stock del camión.
+            Igual que el inventario de sucursales, pero independiente: cuenta artículo por artículo,
+            cierra cada departamento y al final obtén tu ticket. No modifica el stock.
           </p>
         </div>
         {onVolver && (
@@ -260,7 +567,7 @@ export default function AuditoriaCamionRuta({
       <nav className="ruta-invop-steps" aria-label="Pasos">
         <button
           type="button"
-          className={`ruta-invop-step${paso === 'recolector' ? ' activo' : ''}${recolectorId ? ' hecho' : ''}`}
+          className={`ruta-invop-step${etapaActiva === 1 ? ' activo' : ''}${recolectorId ? ' hecho' : ''}`}
           onClick={() => setPaso('recolector')}
         >
           <span className="ruta-invop-step-n">1</span>
@@ -268,7 +575,7 @@ export default function AuditoriaCamionRuta({
         </button>
         <button
           type="button"
-          className={`ruta-invop-step${paso === 'deptos' ? ' activo' : ''}${deptosCompletos > 0 ? ' hecho' : ''}`}
+          className={`ruta-invop-step${etapaActiva === 2 ? ' activo' : ''}${nCerrados > 0 ? ' hecho' : ''}`}
           onClick={() => recolectorId && camionId && setPaso('deptos')}
           disabled={!recolectorId || !camionId}
         >
@@ -277,12 +584,21 @@ export default function AuditoriaCamionRuta({
         </button>
         <button
           type="button"
-          className={`ruta-invop-step${paso === 'conteo' ? ' activo' : ''}`}
+          className={`ruta-invop-step${etapaActiva === 3 ? ' activo' : ''}`}
           onClick={() => deptoActivo && setPaso('conteo')}
           disabled={!deptoActivo}
         >
           <span className="ruta-invop-step-n">3</span>
           Conteo
+        </button>
+        <button
+          type="button"
+          className={`ruta-invop-step${etapaActiva === 4 ? ' activo' : ''}`}
+          onClick={() => ticket && setPaso('ticket')}
+          disabled={!ticket}
+        >
+          <span className="ruta-invop-step-n">4</span>
+          Ticket
         </button>
       </nav>
 
@@ -310,13 +626,11 @@ export default function AuditoriaCamionRuta({
                     key={r.id}
                     type="button"
                     className={`ruta-invop-rec-card${activo ? ' activo' : ''}${cam ? '' : ' sin-camion'}`}
-                    onClick={() => elegirRecolector(r.id)}
+                    onClick={() => setRecolectorId(String(r.id || ''))}
                   >
                     <span className="ruta-invop-rec-name">{r.nombre}</span>
                     <span className="ruta-invop-rec-meta">
-                      {cam
-                        ? `Camión ${etiquetaCamion(cam)}`
-                        : 'Sin camión asignado'}
+                      {cam ? `Camión ${etiquetaCamion(cam)}` : 'Sin camión asignado'}
                     </span>
                   </button>
                 );
@@ -324,230 +638,355 @@ export default function AuditoriaCamionRuta({
             </div>
           )}
 
-          {recolectorSel && (
+          {recolectorSel && !camionResuelto && (
             <div className="ruta-invop-rec-footer">
-              {!camionResuelto ? (
-                <p className="ruta-invop-warn">
-                  {recolectorSel.nombre} no tiene camión activo. Asígnalo en Camiones.
-                </p>
-              ) : (
-                <>
-                  <p className="muted">
-                    {recolectorSel.nombre} · {etiquetaCamion(camionResuelto)}
-                    {cargando ? ' · cargando mercancía…' : cargas.length
-                      ? ` · ${cargas.length} carga(s) · ${inventarioCamion.length} producto(s)`
-                      : ' · sin cargas en ruta'}
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={!camionResuelto || cargando || !cargas.length}
-                    onClick={() => setPaso('deptos')}
-                  >
-                    Continuar a departamentos
-                  </button>
-                </>
-              )}
+              <p className="ruta-invop-warn">
+                {recolectorSel.nombre} no tiene camión activo. Asígnalo en Camiones.
+              </p>
             </div>
           )}
         </section>
       )}
 
       {paso === 'deptos' && camionId && (
-        <section className="ruta-invop-panel ruta-invop-panel--in">
-          <div className="ruta-invop-panel-head">
-            <div>
-              <h4>Departamentos del camión</h4>
-              <p className="muted ruta-invop-sub">
-                {recolectorSel?.nombre || '—'} · {etiquetaCamion(camionSel)}
-              </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'flex-start' }}>
+              <div>
+                <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Departamentos</h4>
+                <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  {recolectorSel?.nombre || '—'} · {etiquetaCamion(camionSel)}
+                </p>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={() => void refrescarCargas()} disabled={cargando}>
+                Actualizar
+              </button>
             </div>
-            <button type="button" className="btn btn-ghost" onClick={() => void refrescarCargas()} disabled={cargando}>
-              Actualizar
-            </button>
-          </div>
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+              Marca los departamentos que vas a contar y pulsa Siguiente. Cuentas pieza por pieza, cierras
+              cada departamento y al final se genera el ticket. El progreso se guarda solo en este equipo.
+            </p>
 
-          {cargando ? (
-            <p className="muted">Cargando inventario del camión…</p>
-          ) : !cargas.length ? (
-            <p className="muted">Sin cargas en ruta para este recolector.</p>
-          ) : (
-            <>
-              <div className="ruta-invop-kpi-row">
-                <div className="ruta-invop-kpi">
-                  <span>Avance</span>
-                  <strong>{resumen.contados}/{resumen.productos}</strong>
+            {cargando ? (
+              <p className="muted">Cargando inventario del camión…</p>
+            ) : !cargas.length ? (
+              <p className="muted">Sin cargas en ruta para este recolector.</p>
+            ) : (
+              <>
+                <div className="prod-search-row" style={{ margin: '0.75rem 0' }}>
+                  <Icon name="search" size={16} />
+                  <input className="input" value={qDepto} onChange={(e) => setQDepto(e.target.value)} placeholder="Buscar" />
                 </div>
-                <div className="ruta-invop-kpi">
-                  <span>Deptos listos</span>
-                  <strong>{deptosCompletos}/{progresoDeptos.length}</strong>
+                <div className="prod-modal-deptos-list">
+                  {deptosFiltrados.map((d) => {
+                    const cerrado = cerrados[d.departamento];
+                    return (
+                      <label key={d.departamento} className="prod-modal-depto-item" style={{ alignItems: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={cerrado ? true : deptosSel.includes(d.departamento)}
+                          disabled={Boolean(cerrado)}
+                          onChange={() => toggleDepto(d.departamento)}
+                        />
+                        <span style={{ flex: 1 }}>
+                          {d.etiqueta}
+                          <small className="muted" style={{ display: 'block' }}>
+                            {d.productos} artículos · {d.contados}/{d.productos} contados
+                            {cerrado && d.piezasFaltantes > 0 ? ` · ${d.piezasFaltantes} faltantes` : ''}
+                          </small>
+                        </span>
+                        {cerrado ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem' }}
+                            onClick={(e) => { e.preventDefault(); entrarDepto(d.departamento); }}
+                          >
+                            Cerrado · ver
+                          </button>
+                        ) : d.contados > 0 ? (
+                          <span className="badge">{d.pct}%</span>
+                        ) : null}
+                      </label>
+                    );
+                  })}
                 </div>
-                <div className={`ruta-invop-kpi${resumen.piezasFaltantes ? ' alerta' : ''}`}>
-                  <span>Faltantes</span>
-                  <strong>{resumen.piezasFaltantes}</strong>
-                </div>
-                <div className={`ruta-invop-kpi${resumen.perdidaPublico ? ' alerta' : ''}`}>
-                  <span>$ público</span>
-                  <strong>{fmtMonto(resumen.perdidaPublico)}</strong>
-                </div>
-              </div>
-
-              <div className="ruta-invop-depto-grid">
-                {progresoDeptos.map((d) => (
-                  <button
-                    key={d.departamento}
-                    type="button"
-                    className={`ruta-invop-depto-card${d.completo ? ' completo' : ''}${d.contados > 0 && !d.completo ? ' parcial' : ''}`}
-                    onClick={() => entrarDepto(d.departamento)}
-                  >
-                    <div className="ruta-invop-depto-top">
-                      <strong>{d.etiqueta}</strong>
-                      <span className="ruta-invop-depto-pct">{d.pct}%</span>
-                    </div>
-                    <div className="ruta-invop-depto-bar" aria-hidden>
-                      <i style={{ width: `${d.pct}%` }} />
-                    </div>
-                    <div className="ruta-invop-depto-meta">
-                      <span>{d.contados}/{d.productos} prod.</span>
-                      <span>{d.piezasTeoricas} pza teor.</span>
-                      {d.piezasFaltantes > 0 && (
-                        <span className="ruta-invop-falt">{d.piezasFaltantes} falt.</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <div className="ruta-invop-actions">
-                <button type="button" className="btn btn-ghost" onClick={() => setPaso('recolector')}>
-                  Cambiar recolector
-                </button>
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={guardando || !resumen.contados}
-                  onClick={() => void cerrarAuditoria()}
+                  style={{ width: '100%', marginTop: '0.75rem' }}
+                  disabled={!deptosSel.filter((d) => !cerrados[d]).length}
+                  onClick={confirmarDeptos}
                 >
-                  {guardando ? 'Guardando…' : 'Cerrar auditoría'}
+                  SIGUIENTE{deptosSel.filter((d) => !cerrados[d]).length ? ` (${deptosSel.filter((d) => !cerrados[d]).length})` : ''}
+                </button>
+              </>
+            )}
+          </div>
+
+          {nCerrados > 0 && (
+            <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
+              <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-green)' }}>
+                {nCerrados} departamento(s) cerrado(s)
+              </h4>
+              <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+                Cuando termines con todos los departamentos que quieras inventariar, genera el ticket con el resultado.
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-success" disabled={guardando} onClick={terminarInventario}>
+                  {guardando ? 'Guardando…' : 'Terminar inventario y generar ticket'}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={cancelarInventario}>
+                  Cancelar inventario
                 </button>
               </div>
-            </>
+            </div>
           )}
-        </section>
+
+          <div>
+            <button type="button" className="btn btn-ghost" onClick={() => setPaso('recolector')}>
+              Cambiar recolector
+            </button>
+          </div>
+        </div>
       )}
 
       {paso === 'conteo' && deptoActivo && (
-        <section className="ruta-invop-panel ruta-invop-panel--in ruta-invop-conteo">
-          <div className="ruta-invop-conteo-head sticky">
-            <button type="button" className="btn btn-ghost" onClick={() => setPaso('deptos')}>
-              ← Deptos
-            </button>
-            <div className="ruta-invop-conteo-title">
-              <h4>{etiquetaDepartamento(deptoActivo)}</h4>
-              <p className="muted">
-                {progresoDeptoActivo
-                  ? `${progresoDeptoActivo.contados}/${progresoDeptoActivo.productos} · ${progresoDeptoActivo.pct}%`
-                  : '—'}
-              </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setPaso('deptos')}>
+                ← Departamentos
+              </button>
+              <h4 style={{ margin: 0, color: 'var(--brand-blue)', flex: 1 }}>
+                Conteo físico · {etiquetaDepartamento(deptoActivo)}
+              </h4>
+              {deptoCerrado && <span className="badge">Cerrado</span>}
             </div>
-            <label className="ruta-invop-check">
-              <input type="checkbox" checked={soloFaltantes} onChange={(e) => setSoloFaltantes(e.target.checked)} />
-              Faltantes
-            </label>
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+              {recolectorSel?.nombre || '—'} · {etiquetaCamion(camionSel)} · Cuenta pieza por pieza y al terminar cierra el departamento.
+            </p>
           </div>
 
-          <div className="ruta-invop-scan">
-            <CampoCodigo
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value)}
-              onEscanear={registrarEscaneo}
-              beepAlEnter
-              placeholder="Escanear o escribir código…"
-              tituloCamara={`Auditar · ${etiquetaDepartamento(deptoActivo)}`}
-            />
-          </div>
+          {!deptoCerrado && !mostrarResumen && (
+            <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>
+                  Artículo {indice + 1} de {lineasDepto.length}
+                </h4>
+                <span className="badge">{etiquetaDepartamento(deptoActivo)}</span>
+              </div>
 
-          <div className="ruta-invop-prod-list">
-            {lineasDepto.length === 0 ? (
-              <p className="muted" style={{ padding: '0.75rem' }}>
-                {soloFaltantes ? 'Sin faltantes en este departamento.' : 'Sin productos en este departamento.'}
-              </p>
-            ) : lineasDepto.map((l) => {
-              const estado = l.contado == null
-                ? 'pendiente'
-                : l.faltante > 0
-                  ? 'faltante'
-                  : l.sobrante > 0
-                    ? 'sobrante'
-                    : 'ok';
-              return (
-                <article
-                  key={l.id}
-                  className={`ruta-invop-prod${flashId === String(l.id) ? ' flash' : ''} estado-${estado}`}
+              <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Icon name="scan" size={16} />
+                  Escanear código
+                </span>
+                <div style={{ marginTop: '0.35rem' }}>
+                  <CampoCodigo
+                    value={codigo}
+                    onChange={(e) => setCodigo(e.target.value)}
+                    onEscanear={procesarEscaneo}
+                    beepAlEnter
+                    placeholder="Escanea para saltar al producto…"
+                    tituloCamara={`Inventario · ${etiquetaDepartamento(deptoActivo)}`}
+                    inputStyle={{ fontSize: '1.05rem', letterSpacing: '0.04em' }}
+                  />
+                </div>
+              </label>
+
+              {articuloActual ? (
+                <div style={{ padding: '1rem', borderRadius: 12, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{articuloActual.nombre}</div>
+                  <div className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
+                    Código / barras: <strong>{articuloActual.id}</strong>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.65rem', marginTop: '0.85rem' }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>En el camión</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--brand-blue)' }}>{articuloActual.teorico}</div>
+                    </div>
+                    <div>
+                      <div className="muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>Cantidad contada</div>
+                      <input
+                        ref={contadaRef}
+                        className="input"
+                        type="number"
+                        min={0}
+                        inputMode="numeric"
+                        style={{ marginTop: '0.2rem', fontSize: '1.35rem', fontWeight: 700, padding: '0.5rem' }}
+                        value={conteos[articuloActual.id] ?? ''}
+                        onChange={(e) => setContado(articuloActual.id, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            siguienteArticulo();
+                          }
+                        }}
+                        placeholder={String(articuloActual.teorico)}
+                      />
+                    </div>
+                    <div>
+                      <div className="muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>Diferencia</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '0.35rem', color: colorDiferencia(articuloActual) }}>
+                        {textoDiferencia(articuloActual)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>Valor dif. (público)</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '0.35rem' }}>
+                        {articuloActual.perdidaPublico > 0 ? fmtMonto(articuloActual.perdidaPublico) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.78rem' }}>
+                    Si dejas vacío y pulsas Siguiente, se asume que coincide con lo que hay en el camión ({articuloActual.teorico}).
+                  </p>
+                </div>
+              ) : (
+                <p className="muted">Sin productos en este departamento.</p>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary" onClick={siguienteArticulo} disabled={!articuloActual}>
+                  Siguiente artículo
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setIndice((i) => Math.max(0, i - 1))}
+                  disabled={indice <= 0}
                 >
-                  <div className="ruta-invop-prod-info">
-                    <strong>{l.nombre}</strong>
-                    <span className="ruta-invop-sku">{l.id}</span>
-                    <div className="ruta-invop-prod-nums">
-                      <span>Teórico <b>{l.teorico}</b></span>
-                      {l.contado != null && (
-                        <span className={l.faltante > 0 ? 'falt' : ''}>
-                          {l.faltante > 0 ? `Falt. ${l.faltante}` : l.sobrante > 0 ? `Sobra ${l.sobrante}` : 'OK'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="ruta-invop-stepper">
-                    <button type="button" aria-label="Menos" onClick={() => ajustarContado(l.id, -1)}>−</button>
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      inputMode="numeric"
-                      value={conteos[l.id] ?? ''}
-                      onChange={(e) => setContado(l.id, e.target.value)}
-                      placeholder="0"
-                    />
-                    <button type="button" aria-label="Más" onClick={() => ajustarContado(l.id, 1)}>+</button>
-                  </div>
-                  {l.contado != null && l.faltante > 0 && (
-                    <div className="ruta-invop-prod-loss">
-                      Costo {fmtMonto(l.perdidaCosto)} · Público {fmtMonto(l.perdidaPublico)}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-
-          <footer className="ruta-invop-conteo-bar">
-            <div>
-              <span className="muted">Faltantes depto</span>
-              <strong>{progresoDeptoActivo?.piezasFaltantes ?? 0}</strong>
+                  Anterior
+                </button>
+                <button type="button" className="btn btn-gold" onClick={() => setMostrarResumen(true)}>
+                  Ver resumen
+                </button>
+              </div>
             </div>
-            <button type="button" className="btn btn-primary" onClick={() => setPaso('deptos')}>
-              Listo · otro depto
-            </button>
-          </footer>
-        </section>
+          )}
+
+          {(mostrarResumen || deptoCerrado) && (
+            <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
+              <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>
+                Resumen · {etiquetaDepartamento(deptoActivo)}
+              </h4>
+              <KpisResumen r={resumenDepto} />
+              {resumenDepto.pendientes > 0 && !deptoCerrado && (
+                <p className="muted" style={{ margin: '0.75rem 0 0', color: 'var(--brand-gold-dark)' }}>
+                  Faltan {resumenDepto.pendientes} producto(s) por contar antes de cerrar el departamento.
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
+                {deptoCerrado ? (
+                  <>
+                    <button type="button" className="btn btn-ghost" onClick={reabrirDepartamento}>
+                      Reabrir departamento
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={() => setPaso('deptos')}>
+                      Volver a departamentos
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-success"
+                      onClick={cerrarDepartamento}
+                      disabled={!resumenDepto.listoParaCerrar}
+                    >
+                      Cerrar departamento
+                    </button>
+                    <button type="button" className="btn btn-ghost" onClick={() => setMostrarResumen(false)}>
+                      Seguir contando
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="card">
+            <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Listado del departamento</h4>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Artículo</th>
+                    <th>Camión</th>
+                    <th>Contada</th>
+                    <th>Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineasDepto.map((l, idx) => (
+                    <tr
+                      key={l.id}
+                      style={{
+                        background: idx === indice && !deptoCerrado ? 'rgba(59,105,181,0.08)' : undefined,
+                        cursor: deptoCerrado ? 'default' : 'pointer',
+                      }}
+                      onClick={() => {
+                        if (deptoCerrado) return;
+                        setIndice(idx);
+                        setMostrarResumen(false);
+                      }}
+                    >
+                      <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.82rem' }}>{l.id}</td>
+                      <td>{l.nombre}</td>
+                      <td>{l.teorico}</td>
+                      <td>
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          disabled={Boolean(deptoCerrado)}
+                          style={{ width: '4.5rem', padding: '0.25rem 0.4rem', fontSize: '0.85rem' }}
+                          value={conteos[l.id] ?? ''}
+                          onChange={(e) => setContado(l.id, e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                      <td style={{ fontWeight: 600, color: colorDiferencia(l) }}>{textoDiferencia(l)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paso === 'ticket' && ticket && (
+        <TicketResultado
+          registro={ticket}
+          onImprimir={imprimir}
+          onCerrar={cerrarTicket}
+          cerrarLabel="Nuevo inventario"
+        />
       )}
 
       {historial.length > 0 && paso !== 'conteo' && (
         <section className="ruta-invop-panel">
-          <h4 style={{ margin: '0 0 0.5rem' }}>Últimas auditorías (este dispositivo)</h4>
+          <h4 style={{ margin: '0 0 0.5rem' }}>Historial de inventarios (este dispositivo)</h4>
           <div className="ruta-invop-hist">
             {historial.map((a) => (
               <div key={a.id} className="ruta-invop-hist-row">
                 <div>
-                  <strong>{a.recolector_nombre || a.camion_etiqueta || '—'}</strong>
+                  <strong>{a.folio ? `${a.folio} · ` : ''}{a.recolector_nombre || a.camion_etiqueta || '—'}</strong>
                   <span className="muted">
-                    {String(a.created_at || '').slice(0, 16).replace('T', ' ')}
+                    {fmtFechaHora(a.created_at)}
                     {a.camion_etiqueta ? ` · ${a.camion_etiqueta}` : ''}
+                    {Array.isArray(a.deptos) && a.deptos.length ? ` · ${a.deptos.length} depto(s)` : ''}
                   </span>
                 </div>
                 <div className="ruta-invop-hist-nums">
                   <span className="falt">{a.resumen?.piezasFaltantes ?? 0} pza</span>
                   <span>{fmtMonto(a.resumen?.perdidaPublico)}</span>
+                  <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem' }} onClick={() => verTicketHistorial(a)}>
+                    Ver ticket
+                  </button>
                 </div>
               </div>
             ))}

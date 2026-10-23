@@ -10,6 +10,7 @@ import { costoUnitarioInventario } from './valorInventario.js';
 import { etiquetaDepartamento, normalizarDepartamento } from './departamentos.js';
 
 const LS_AUDITORIAS = 'pos3b_ruta_auditorias';
+const LS_BORRADOR = 'pos3b_ruta_auditoria_borrador_';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -164,6 +165,8 @@ export function resumirAuditoriaCamion(lineas) {
   let perdidaCosto = 0;
   let perdidaPublico = 0;
   let perdidaRuta = 0;
+  let piezasContadas = 0;
+  let piezasTeoricas = 0;
   let valorTeoricoCosto = 0;
   let valorTeoricoPublico = 0;
   for (const l of todas) {
@@ -171,6 +174,8 @@ export function resumirAuditoriaCamion(lineas) {
     valorTeoricoPublico = round2(valorTeoricoPublico + (Number(l.valorTeoricoPublico) || 0));
   }
   for (const l of contadas) {
+    piezasContadas += Number(l.contado) || 0;
+    piezasTeoricas += Number(l.teorico) || 0;
     piezasFaltantes += Number(l.faltante) || 0;
     piezasSobrantes += Number(l.sobrante) || 0;
     perdidaCosto = round2(perdidaCosto + (Number(l.perdidaCosto) || 0));
@@ -180,6 +185,8 @@ export function resumirAuditoriaCamion(lineas) {
   return {
     productos: todas.length,
     contados: contadas.length,
+    piezasContadas,
+    piezasTeoricas,
     piezasFaltantes,
     piezasSobrantes,
     perdidaCosto,
@@ -228,4 +235,86 @@ export function listarAuditoriasCamionLocal({ camionId, limit = 30 } = {}) {
     list = list.filter((a) => String(a.camion_id || '') === String(camionId));
   }
   return { data: list.slice(0, limit) };
+}
+
+/** Resumen de un departamento para el cierre (conteo artículo por artículo). */
+export function resumirDepartamentoAuditoria(lineasDepto = []) {
+  const base = resumirAuditoriaCamion(lineasDepto);
+  const pendientes = base.productos - base.contados;
+  const cuadran = (lineasDepto || []).filter((l) => l.contado != null && l.diferencia === 0).length;
+  return {
+    ...base,
+    pendientes,
+    cuadran,
+    listoParaCerrar: base.productos > 0 && pendientes === 0,
+  };
+}
+
+/**
+ * Siguiente artículo por contar después de `indice` (o el primero pendiente).
+ * @returns {number} -1 si ya no queda ninguno.
+ */
+export function siguienteIndicePendiente(lineasDepto = [], indice = 0) {
+  const despues = lineasDepto.findIndex((l, i) => i > indice && l.contado == null);
+  if (despues >= 0) return despues;
+  return lineasDepto.findIndex((l, i) => i !== indice && l.contado == null);
+}
+
+/**
+ * Cierre final: solo cuentan los departamentos cerrados.
+ * @param {Array} lineas — todas las líneas (construirLineasAuditoriaCamion)
+ * @param {string[]} deptosCerrados
+ */
+export function armarCierreAuditoria(lineas = [], deptosCerrados = []) {
+  const set = new Set((deptosCerrados || []).map((d) => normalizarDepartamento(d) || 'GENERAL'));
+  const cerradas = (lineas || []).filter(
+    (l) => set.has(normalizarDepartamento(l.cat || 'GENERAL') || 'GENERAL'),
+  );
+  const deptos = progresoDepartamentosAuditoria(cerradas).map((d) => {
+    const lineasD = lineasAuditoriaPorDepartamento(cerradas, d.departamento);
+    return { ...d, piezasSobrantes: resumirAuditoriaCamion(lineasD).piezasSobrantes };
+  });
+  return {
+    lineas: cerradas,
+    deptos,
+    resumen: resumirAuditoriaCamion(cerradas),
+  };
+}
+
+/** Folio legible: INV-RT-AAMMDD-NNN (consecutivo del día en este dispositivo). */
+export function folioAuditoriaRuta(historial = [], ahora = new Date()) {
+  const y = String(ahora.getFullYear()).slice(2);
+  const m = String(ahora.getMonth() + 1).padStart(2, '0');
+  const d = String(ahora.getDate()).padStart(2, '0');
+  const pref = `INV-RT-${y}${m}${d}-`;
+  const n = (historial || []).filter((a) => String(a.folio || '').startsWith(pref)).length + 1;
+  return `${pref}${String(n).padStart(3, '0')}`;
+}
+
+export function guardarBorradorAuditoria(camionId, datos) {
+  if (!camionId) return;
+  try {
+    localStorage.setItem(`${LS_BORRADOR}${camionId}`, JSON.stringify({ ...datos, guardado_at: new Date().toISOString() }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function leerBorradorAuditoria(camionId) {
+  if (!camionId) return null;
+  try {
+    const j = JSON.parse(localStorage.getItem(`${LS_BORRADOR}${camionId}`) || 'null');
+    return j && typeof j === 'object' ? j : null;
+  } catch {
+    return null;
+  }
+}
+
+export function borrarBorradorAuditoria(camionId) {
+  if (!camionId) return;
+  try {
+    localStorage.removeItem(`${LS_BORRADOR}${camionId}`);
+  } catch {
+    /* ignore */
+  }
 }
