@@ -71,6 +71,7 @@ export function construirLineasAuditoriaCamion(inventarioCamion, conteos = {}) {
       perdidaRuta: round2(faltante * (Number(precioRuta) || 0)),
       valorTeoricoCosto: round2(teorico * costoU),
       valorTeoricoPublico: round2(teorico * precioPub),
+      valorTeoricoRuta: round2(teorico * (Number(precioRuta) || 0)),
     };
   });
 }
@@ -106,11 +107,17 @@ export function progresoDepartamentosAuditoria(lineas = []) {
         piezasFaltantes: 0,
         perdidaCosto: 0,
         perdidaPublico: 0,
+        valorCosto: 0,
+        valorPublico: 0,
+        valorRuta: 0,
       });
     }
     const row = map.get(cat);
     row.productos += 1;
     row.piezasTeoricas += Number(l.teorico) || 0;
+    row.valorCosto = round2(row.valorCosto + (Number(l.valorTeoricoCosto) || 0));
+    row.valorPublico = round2(row.valorPublico + (Number(l.valorTeoricoPublico) || 0));
+    row.valorRuta = round2(row.valorRuta + (Number(l.valorTeoricoRuta) || 0));
     if (l.contado != null) {
       row.contados += 1;
       row.piezasFaltantes += Number(l.faltante) || 0;
@@ -169,7 +176,9 @@ export function resumirAuditoriaCamion(lineas) {
   let piezasTeoricas = 0;
   let valorTeoricoCosto = 0;
   let valorTeoricoPublico = 0;
+  let valorTeoricoRuta = 0;
   for (const l of todas) {
+    valorTeoricoRuta = round2(valorTeoricoRuta + (Number(l.valorTeoricoRuta) || 0));
     valorTeoricoCosto = round2(valorTeoricoCosto + (Number(l.valorTeoricoCosto) || 0));
     valorTeoricoPublico = round2(valorTeoricoPublico + (Number(l.valorTeoricoPublico) || 0));
   }
@@ -196,6 +205,7 @@ export function resumirAuditoriaCamion(lineas) {
     margenPerdidoPublico: round2(Math.max(0, perdidaPublico - perdidaCosto)),
     valorTeoricoCosto,
     valorTeoricoPublico,
+    valorTeoricoRuta,
   };
 }
 
@@ -265,10 +275,12 @@ export function siguienteIndicePendiente(lineasDepto = [], indice = 0) {
  * @param {Array} lineas — todas las líneas (construirLineasAuditoriaCamion)
  * @param {string[]} deptosCerrados
  */
-export function armarCierreAuditoria(lineas = [], deptosCerrados = []) {
+export function armarCierreAuditoria(lineas = [], deptosCerrados = [], idsLibres = []) {
   const set = new Set((deptosCerrados || []).map((d) => normalizarDepartamento(d) || 'GENERAL'));
+  const libres = new Set((idsLibres || []).map(String));
   const cerradas = (lineas || []).filter(
-    (l) => set.has(normalizarDepartamento(l.cat || 'GENERAL') || 'GENERAL'),
+    (l) => set.has(normalizarDepartamento(l.cat || 'GENERAL') || 'GENERAL')
+      || (libres.has(String(l.id)) && l.contado != null),
   );
   const deptos = progresoDepartamentosAuditoria(cerradas).map((d) => {
     const lineasD = lineasAuditoriaPorDepartamento(cerradas, d.departamento);
@@ -317,4 +329,63 @@ export function borrarBorradorAuditoria(camionId) {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Valor del inventario de un camión (referencia del inventario operativo):
+ * a costo, a precio de ruta y a precio público, con desglose por departamento.
+ * @param {Array} lineas — salida de construirLineasAuditoriaCamion
+ */
+export function resumirValorCamion(lineas = []) {
+  const conStock = (lineas || []).filter((l) => (Number(l.teorico) || 0) > 0);
+  let piezas = 0;
+  let valorCosto = 0;
+  let valorPublico = 0;
+  let valorRuta = 0;
+  let sinCosto = 0;
+  for (const l of conStock) {
+    piezas += Number(l.teorico) || 0;
+    valorCosto = round2(valorCosto + (Number(l.valorTeoricoCosto) || 0));
+    valorPublico = round2(valorPublico + (Number(l.valorTeoricoPublico) || 0));
+    valorRuta = round2(valorRuta + (Number(l.valorTeoricoRuta) || 0));
+    if (!(Number(l.costoUnit) > 0)) sinCosto += 1;
+  }
+  const deptos = progresoDepartamentosAuditoria(conStock)
+    .map((d) => ({
+      departamento: d.departamento,
+      etiqueta: d.etiqueta,
+      productos: d.productos,
+      piezas: d.piezasTeoricas,
+      valorCosto: d.valorCosto,
+      valorPublico: d.valorPublico,
+      valorRuta: d.valorRuta,
+    }))
+    .sort((a, b) => b.valorPublico - a.valorPublico || a.etiqueta.localeCompare(b.etiqueta, 'es'));
+  return {
+    productos: conStock.length,
+    piezas,
+    sinCosto,
+    valorCosto,
+    valorPublico,
+    valorRuta,
+    margenPotencial: round2(valorPublico - valorCosto),
+    deptos,
+  };
+}
+
+/** Borradores de inventario en espera (uno por camión) guardados en este equipo. */
+export function listarBorradoresAuditoria() {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(LS_BORRADOR)) continue;
+      const d = JSON.parse(localStorage.getItem(k) || 'null');
+      if (!d || typeof d !== 'object') continue;
+      out.push({ ...d, camion_id: k.slice(LS_BORRADOR.length) });
+    }
+  } catch {
+    /* ignore */
+  }
+  return out.sort((a, b) => String(b.guardado_at || '').localeCompare(String(a.guardado_at || '')));
 }

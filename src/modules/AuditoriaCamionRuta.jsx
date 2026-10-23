@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import ConteoLibreRuta from '../components/ConteoLibreRuta.jsx';
 import Icon from '../components/Icon.jsx';
 import {
   armarCierreAuditoria,
@@ -9,11 +10,13 @@ import {
   guardarAuditoriaCamionLocal,
   guardarBorradorAuditoria,
   leerBorradorAuditoria,
+  listarBorradoresAuditoria,
   lineasAuditoriaPorDepartamento,
   listarAuditoriasCamionLocal,
   progresoDepartamentosAuditoria,
   resolverCamionDeRecolector,
   resumirDepartamentoAuditoria,
+  resumirValorCamion,
   siguienteIndicePendiente,
 } from '../lib/auditoriaCamionRuta.js';
 import {
@@ -93,6 +96,64 @@ function fmtFechaHora(iso) {
   }
 }
 
+/** Valor del inventario del camión: referencia para el inventario operativo. */
+function ValorCamion({ valor, camion, recolector, cargas }) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <section
+      className="card"
+      style={{ borderTop: '4px solid var(--brand-gold)', padding: '0.85rem' }}
+      aria-label="Valor del inventario del camión"
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <strong style={{ color: 'var(--brand-blue)' }}>Valor del inventario · {camion}</strong>
+        <span className="muted" style={{ fontSize: '0.78rem' }}>
+          {recolector ? `${recolector} · ` : ''}{cargas} carga(s) en ruta
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem', marginTop: '0.6rem' }}>
+        <Kpi titulo="A precio público" valor={fmtMonto(valor.valorPublico)} extra={`${valor.piezas} pza · ${valor.productos} prod.`} />
+        <Kpi titulo="A precio ruta" valor={fmtMonto(valor.valorRuta)} />
+        <Kpi titulo="A costo" valor={fmtMonto(valor.valorCosto)} extra={valor.sinCosto ? `${valor.sinCosto} sin costo` : undefined} tono={valor.sinCosto ? 'aviso' : undefined} />
+        <Kpi titulo="Margen potencial" valor={fmtMonto(valor.margenPotencial)} tono="bien" />
+      </div>
+      {valor.deptos.length > 0 && (
+        <>
+          <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '0.55rem' }} onClick={() => setAbierto((v) => !v)}>
+            {abierto ? 'Ocultar departamentos' : 'Ver por departamento'}
+          </button>
+          {abierto && (
+            <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Departamento</th>
+                    <th>Pzas</th>
+                    <th>Público</th>
+                    <th>Ruta</th>
+                    <th>Costo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {valor.deptos.map((d) => (
+                    <tr key={d.departamento}>
+                      <td>{d.etiqueta}</td>
+                      <td>{d.piezas}</td>
+                      <td>{fmtMonto(d.valorPublico)}</td>
+                      <td>{fmtMonto(d.valorRuta)}</td>
+                      <td>{fmtMonto(d.valorCosto)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 /** Ticket con el resultado del inventario (pantalla + impresión). */
 function TicketResultado({ registro, onImprimir, onCerrar, cerrarLabel }) {
   const r = registro.resumen || {};
@@ -108,9 +169,31 @@ function TicketResultado({ registro, onImprimir, onCerrar, cerrarLabel }) {
         {registro.usuario_nombre ? ` · ${registro.usuario_nombre}` : ''}
       </p>
 
+      {registro.modo === 'libre' && <p className="muted" style={{ margin: '0 0 0.5rem' }}>Inventario libre</p>}
+      {registro.valor_camion && (
+        <div style={{ ...cajaKpi, marginBottom: '0.75rem', background: 'rgba(212,175,55,0.08)' }}>
+          <div className="muted" style={etiquetaKpi}>Valor del inventario del camión (referencia)</div>
+          <div style={{ fontWeight: 800, fontSize: '1.15rem', color: 'var(--brand-blue)' }}>
+            {fmtMonto(registro.valor_camion.valorPublico)} <span className="muted" style={{ fontSize: '0.78rem', fontWeight: 500 }}>a precio público</span>
+          </div>
+          <div className="muted" style={{ fontSize: '0.8rem' }}>
+            Ruta {fmtMonto(registro.valor_camion.valorRuta)} · Costo {fmtMonto(registro.valor_camion.valorCosto)} · {registro.valor_camion.piezas} pza
+          </div>
+          {registro.valor_camion.valorPublico > 0 && (
+            <div style={{ fontSize: '0.85rem', marginTop: '0.35rem' }}>
+              Inventariado: <strong>{Math.round(((r.valorTeoricoPublico || 0) / registro.valor_camion.valorPublico) * 1000) / 10}%</strong> del camión
+              {' · '}
+              Pérdida: <strong style={{ color: r.perdidaPublico ? 'var(--brand-red)' : undefined }}>
+                {Math.round(((r.perdidaPublico || 0) / registro.valor_camion.valorPublico) * 1000) / 10}%
+              </strong>
+            </div>
+          )}
+        </div>
+      )}
+
       <KpisResumen r={r} />
 
-      <h5 style={{ margin: '0.9rem 0 0.4rem' }}>Departamentos cerrados</h5>
+      <h5 style={{ margin: '0.9rem 0 0.4rem' }}>Departamentos {registro.modo === 'libre' ? 'contados' : 'cerrados'}</h5>
       <div className="table-wrap">
         <table className="data">
           <thead>
@@ -212,6 +295,9 @@ export default function AuditoriaCamionRuta({
   const [historial, setHistorial] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [ticket, setTicket] = useState(null);
+  const [libreIds, setLibreIds] = useState([]);
+  const [tickBorr, setTickBorr] = useState(0);
+  const rootRef = useRef(null);
   const [borradorCamion, setBorradorCamion] = useState('');
   const contadaRef = useRef(null);
 
@@ -297,7 +383,10 @@ export default function AuditoriaCamionRuta({
     setConteos(draft?.conteos && typeof draft.conteos === 'object' ? draft.conteos : {});
     setCerrados(draft?.cerrados && typeof draft.cerrados === 'object' ? draft.cerrados : {});
     setDeptosSel(Array.isArray(draft?.deptosSel) ? draft.deptosSel : []);
-    if (draft?.paso === 'conteo' && draft.deptoActivo) {
+    setLibreIds(Array.isArray(draft?.libreIds) ? draft.libreIds : []);
+    if (draft?.paso === 'libre') {
+      setPaso('libre');
+    } else if (draft?.paso === 'conteo' && draft.deptoActivo) {
       setDeptoActivo(draft.deptoActivo);
       setIndice(Number(draft.indice) || 0);
       setPaso('conteo');
@@ -310,7 +399,7 @@ export default function AuditoriaCamionRuta({
 
   useEffect(() => {
     if (!camionId || borradorCamion !== camionId || paso === 'ticket') return;
-    const hayAlgo = Object.keys(conteos).length || Object.keys(cerrados).length;
+    const hayAlgo = Object.keys(conteos).length || Object.keys(cerrados).length || libreIds.length;
     if (!hayAlgo) {
       borrarBorradorAuditoria(camionId);
       return;
@@ -319,12 +408,16 @@ export default function AuditoriaCamionRuta({
       conteos,
       cerrados,
       deptosSel,
+      libreIds,
       deptoActivo,
       indice,
-      paso: paso === 'conteo' ? 'conteo' : 'deptos',
+      paso: paso === 'conteo' || paso === 'libre' ? paso : 'deptos',
       recolector_id: recolectorId,
+      recolector_nombre: recolectorSel?.nombre || '',
+      camion_etiqueta: camionSel ? etiquetaCamion(camionSel) : '',
     });
-  }, [camionId, borradorCamion, conteos, cerrados, deptosSel, deptoActivo, indice, paso, recolectorId]);
+    setTickBorr((n) => n + 1);
+  }, [camionId, borradorCamion, conteos, cerrados, deptosSel, libreIds, deptoActivo, indice, paso, recolectorId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const inventarioCamion = useMemo(
     () => inventarioCamionDesdeLineas(lineasCarga, { productoPorId, inventario }),
@@ -337,6 +430,7 @@ export default function AuditoriaCamionRuta({
   );
 
   const progresoDeptos = useMemo(() => progresoDepartamentosAuditoria(lineas), [lineas]);
+  const valorCamion = useMemo(() => resumirValorCamion(lineas), [lineas]);
 
   const lineasDepto = useMemo(
     () => lineasAuditoriaPorDepartamento(lineas, deptoActivo),
@@ -345,6 +439,10 @@ export default function AuditoriaCamionRuta({
   const resumenDepto = useMemo(() => resumirDepartamentoAuditoria(lineasDepto), [lineasDepto]);
   const articuloActual = lineasDepto[indice] || null;
   const deptoCerrado = deptoActivo ? cerrados[deptoActivo] : null;
+  const valorDepto = useMemo(
+    () => progresoDeptos.find((d) => d.departamento === deptoActivo) || null,
+    [progresoDeptos, deptoActivo],
+  );
 
   const deptosFiltrados = useMemo(() => {
     const t = qDepto.trim().toLowerCase();
@@ -355,6 +453,11 @@ export default function AuditoriaCamionRuta({
   }, [progresoDeptos, qDepto]);
 
   const camionSel = camiones.find((c) => String(c.id) === String(camionId));
+  const borradores = useMemo(
+    () => listarBorradoresAuditoria().filter((b) => paso === 'recolector' || String(b.camion_id) !== String(camionId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [paso, camionId, tickBorr, ticket],
+  );
   const nCerrados = Object.keys(cerrados).length;
 
   useEffect(() => {
@@ -364,6 +467,28 @@ export default function AuditoriaCamionRuta({
   const setContado = (id, valor) => {
     if (cerrados[deptoActivo]) return;
     setConteos((prev) => ({ ...prev, [id]: valor }));
+  };
+
+  const setConteoLibre = (id, valor) => {
+    setConteos((prev) => ({ ...prev, [id]: valor }));
+  };
+
+  const continuarBorrador = (b) => {
+    const rec = recolectores.find((r) => String(r.id) === String(b.recolector_id));
+    if (!rec) return alert('No se encontró el recolector de este inventario en espera.');
+    setRecolectorId(String(rec.id));
+  };
+
+  const eliminarBorrador = (b) => {
+    if (!confirm(`¿Eliminar el inventario en espera de ${b.camion_etiqueta || 'este camión'}? Se pierden sus conteos.`)) return;
+    borrarBorradorAuditoria(b.camion_id);
+    if (String(b.camion_id) === String(camionId)) {
+      setConteos({});
+      setCerrados({});
+      setDeptosSel([]);
+      setLibreIds([]);
+    }
+    setTickBorr((n) => n + 1);
   };
 
   const entrarDepto = (dept, lineasBase = lineas) => {
@@ -466,6 +591,7 @@ export default function AuditoriaCamionRuta({
     setConteos({});
     setCerrados({});
     setDeptosSel([]);
+    setLibreIds([]);
     setDeptoActivo('');
     setMostrarResumen(false);
     setPaso('deptos');
@@ -474,21 +600,32 @@ export default function AuditoriaCamionRuta({
   const terminarInventario = () => {
     if (!camionId) return alert('Selecciona un recolector con camión asignado.');
     const cerradosIds = Object.keys(cerrados);
-    if (!cerradosIds.length) return alert('Cierra al menos un departamento para generar el ticket.');
+    const libresContados = libreIds.filter((id) => conteos[id] != null && String(conteos[id]).trim() !== '');
+    if (!cerradosIds.length && !libresContados.length) {
+      return alert('Cierra al menos un departamento (o agrega productos al inventario libre) para generar el ticket.');
+    }
     const abiertosConConteo = progresoDeptos.filter((d) => !cerrados[d.departamento] && d.contados > 0);
     const avisoAbiertos = abiertosConConteo.length
       ? `\n\nOJO: ${abiertosConConteo.map((d) => d.etiqueta).join(', ')} tiene conteo sin cerrar y NO entra al ticket.`
       : '';
     if (!confirm(
-      `¿Terminar inventario con ${cerradosIds.length} departamento(s) cerrado(s)?\n\nSe genera el ticket con el resultado y se guarda en el historial.${avisoAbiertos}`,
+      `¿Terminar inventario con ${cerradosIds.length} departamento(s) cerrado(s)${libresContados.length ? ` y ${libresContados.length} producto(s) libres` : ''}?\n\nSe genera el ticket con el resultado y se guarda en el historial.${avisoAbiertos}`,
     )) return;
 
-    const cierre = armarCierreAuditoria(lineas, cerradosIds);
+    const cierre = armarCierreAuditoria(lineas, cerradosIds, libresContados);
     const nombreRec = recolectorSel?.nombre || '—';
     setGuardando(true);
     const folio = folioAuditoriaRuta(listarAuditoriasCamionLocal({ limit: 200 }).data || []);
     const r = guardarAuditoriaCamionLocal({
       folio,
+      modo: cerradosIds.length ? 'departamentos' : 'libre',
+      valor_camion: {
+        valorCosto: valorCamion.valorCosto,
+        valorRuta: valorCamion.valorRuta,
+        valorPublico: valorCamion.valorPublico,
+        piezas: valorCamion.piezas,
+        productos: valorCamion.productos,
+      },
       camion_id: camionId,
       camion_etiqueta: etiquetaCamion(camionSel),
       recolector_id: recolectorSel?.repartidor_id || recolectorSel?.id || null,
@@ -509,6 +646,7 @@ export default function AuditoriaCamionRuta({
     setConteos({});
     setCerrados({});
     setDeptosSel([]);
+    setLibreIds([]);
     setDeptoActivo('');
     setMostrarResumen(false);
     setTicket(r.data);
@@ -524,6 +662,8 @@ export default function AuditoriaCamionRuta({
     usuario: reg.usuario_nombre,
     recolector: reg.recolector_nombre,
     camion: reg.camion_etiqueta,
+    modo: reg.modo,
+    valorCamion: reg.valor_camion || null,
     resumen: reg.resumen,
     deptos: reg.deptos || reg.progreso_deptos || [],
     lineas: reg.lineas || [],
@@ -544,10 +684,14 @@ export default function AuditoriaCamionRuta({
     setPaso(recolectorId && camionId ? 'deptos' : 'recolector');
   };
 
-  const etapaActiva = paso === 'ticket' ? 4 : paso === 'conteo' ? 3 : paso === 'deptos' ? 2 : 1;
+  useEffect(() => {
+    if (paso === 'ticket') rootRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [paso, ticket]);
+
+  const etapaActiva = paso === 'ticket' ? 4 : paso === 'conteo' || paso === 'libre' ? 3 : paso === 'deptos' ? 2 : 1;
 
   return (
-    <div className="ruta-invop">
+    <div className="ruta-invop" ref={rootRef}>
       <header className="ruta-invop-hero">
         <div className="ruta-invop-hero-text">
           <p className="ruta-invop-kicker">Inv-op · Venta en ruta</p>
@@ -585,8 +729,8 @@ export default function AuditoriaCamionRuta({
         <button
           type="button"
           className={`ruta-invop-step${etapaActiva === 3 ? ' activo' : ''}`}
-          onClick={() => deptoActivo && setPaso('conteo')}
-          disabled={!deptoActivo}
+          onClick={() => (paso === 'libre' ? null : deptoActivo && setPaso('conteo'))}
+          disabled={!deptoActivo && paso !== 'libre'}
         >
           <span className="ruta-invop-step-n">3</span>
           Conteo
@@ -601,6 +745,40 @@ export default function AuditoriaCamionRuta({
           Ticket
         </button>
       </nav>
+
+      {camionId && lineasCarga.length > 0 && (
+        <ValorCamion
+          valor={valorCamion}
+          camion={etiquetaCamion(camionSel)}
+          recolector={recolectorSel?.nombre}
+          cargas={cargas.length}
+        />
+      )}
+
+      {borradores.length > 0 && (paso === 'recolector' || paso === 'deptos') && (
+        <section className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
+          <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Inventarios en espera</h4>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            {borradores.map((b) => (
+              <div key={b.camion_id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 180px' }}>
+                  <strong>{b.recolector_nombre || '—'}</strong>
+                  <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                    {b.camion_etiqueta || ''} · {Object.keys(b.cerrados || {}).length} depto(s) cerrado(s) · {Object.keys(b.conteos || {}).length} contado(s)
+                    {b.guardado_at ? ` · ${fmtFechaHora(b.guardado_at)}` : ''}
+                  </span>
+                </div>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => continuarBorrador(b)}>
+                  Continuar
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => eliminarBorrador(b)}>
+                  Eliminar
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {paso === 'recolector' && (
         <section className="ruta-invop-panel ruta-invop-panel--in">
@@ -691,7 +869,7 @@ export default function AuditoriaCamionRuta({
                         <span style={{ flex: 1 }}>
                           {d.etiqueta}
                           <small className="muted" style={{ display: 'block' }}>
-                            {d.productos} artículos · {d.contados}/{d.productos} contados
+                            {d.productos} artículos · {d.contados}/{d.productos} contados · {fmtMonto(d.valorPublico)}
                             {cerrado && d.piezasFaltantes > 0 ? ` · ${d.piezasFaltantes} faltantes` : ''}
                           </small>
                         </span>
@@ -713,8 +891,17 @@ export default function AuditoriaCamionRuta({
                 </div>
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="btn btn-ghost"
                   style={{ width: '100%', marginTop: '0.75rem' }}
+                  onClick={() => setPaso('libre')}
+                >
+                  Inventario libre (escanear productos sueltos)
+                  {libreIds.length ? ` · ${libreIds.length} en lista` : ''}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: '100%', marginTop: '0.5rem' }}
                   disabled={!deptosSel.filter((d) => !cerrados[d]).length}
                   onClick={confirmarDeptos}
                 >
@@ -724,10 +911,10 @@ export default function AuditoriaCamionRuta({
             )}
           </div>
 
-          {nCerrados > 0 && (
+          {(nCerrados > 0 || libreIds.length > 0) && (
             <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
               <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-green)' }}>
-                {nCerrados} departamento(s) cerrado(s)
+                {nCerrados} departamento(s) cerrado(s){libreIds.length ? ` · ${libreIds.length} producto(s) libres` : ''}
               </h4>
               <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
                 Cuando termines con todos los departamentos que quieras inventariar, genera el ticket con el resultado.
@@ -766,6 +953,13 @@ export default function AuditoriaCamionRuta({
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
               {recolectorSel?.nombre || '—'} · {etiquetaCamion(camionSel)} · Cuenta pieza por pieza y al terminar cierra el departamento.
             </p>
+            {valorDepto && (
+              <p style={{ margin: '0.4rem 0 0', fontSize: '0.85rem' }}>
+                Valor del departamento en el camión: <strong>{fmtMonto(valorDepto.valorPublico)}</strong> público
+                {' · '}{fmtMonto(valorDepto.valorCosto)} costo
+                {valorCamion.valorPublico > 0 ? ` · ${Math.round((valorDepto.valorPublico / valorCamion.valorPublico) * 1000) / 10}% del camión` : ''}
+              </p>
+            )}
           </div>
 
           {!deptoCerrado && !mostrarResumen && (
@@ -958,6 +1152,21 @@ export default function AuditoriaCamionRuta({
         </div>
       )}
 
+      {paso === 'libre' && camionId && (
+        <ConteoLibreRuta
+          lineas={lineas}
+          inventarioCamion={inventarioCamion}
+          inventario={inventario}
+          libreIds={libreIds}
+          setLibreIds={setLibreIds}
+          conteos={conteos}
+          setConteo={setConteoLibre}
+          onTerminar={terminarInventario}
+          onVolver={() => setPaso('deptos')}
+          guardando={guardando}
+        />
+      )}
+
       {paso === 'ticket' && ticket && (
         <TicketResultado
           registro={ticket}
@@ -967,7 +1176,7 @@ export default function AuditoriaCamionRuta({
         />
       )}
 
-      {historial.length > 0 && paso !== 'conteo' && (
+      {historial.length > 0 && paso !== 'conteo' && paso !== 'libre' && (
         <section className="ruta-invop-panel">
           <h4 style={{ margin: '0 0 0.5rem' }}>Historial de inventarios (este dispositivo)</h4>
           <div className="ruta-invop-hist">

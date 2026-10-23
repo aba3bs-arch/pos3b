@@ -7,6 +7,7 @@ import {
   progresoDepartamentosAuditoria,
   resolverCamionDeRecolector,
   resumirAuditoriaCamion,
+  resumirValorCamion,
   armarCierreAuditoria,
   folioAuditoriaRuta,
   resumirDepartamentoAuditoria,
@@ -121,3 +122,30 @@ console.log('auditoriaCamionRuta.test.mjs ok');
   assert.equal(folioAuditoriaRuta([{ folio: 'INV-RT-261022-001' }, { folio: 'INV-RT-261021-009' }], f), 'INV-RT-261022-002');
 }
 console.log('auditoriaCamionRuta (flujo por departamento) OK');
+
+{
+  const inv = [
+    { id: 'A', nombre: 'A', cat: 'BEBIDAS', _disp_camion: 10, precio: 20, precio_ruta: 15, precio_compra_sin: 8 },
+    { id: 'B', nombre: 'B', cat: 'CIGARROS', _disp_camion: 2, precio: 50, precio_ruta: 45, precio_compra_sin: 40 },
+    { id: 'C', nombre: 'C', cat: 'CIGARROS', _disp_camion: 0, precio: 99, precio_compra_sin: 1 },
+  ];
+  const lineas = construirLineasAuditoriaCamion(inv, {});
+  const v = resumirValorCamion(lineas);
+  assert.equal(v.productos, 2);
+  assert.equal(v.piezas, 12);
+  assert.equal(v.valorCosto, 160);
+  assert.equal(v.valorPublico, 300);
+  assert.equal(v.valorRuta, 240);
+  assert.equal(v.margenPotencial, 140);
+  assert.equal(v.deptos[0].departamento, 'BEBIDAS');
+  assert.equal(v.deptos[0].valorPublico, 200);
+
+  const conteo = construirLineasAuditoriaCamion(inv, { A: '9', B: '2' });
+  const libre = armarCierreAuditoria(conteo, [], ['A']);
+  assert.equal(libre.lineas.length, 1);
+  assert.equal(libre.resumen.piezasFaltantes, 1);
+  const mixto = armarCierreAuditoria(conteo, ['CIGARROS'], ['A', 'B']);
+  assert.equal(mixto.lineas.length, 3);
+  assert.equal(mixto.resumen.valorTeoricoPublico, 300 - 0);
+}
+console.log('auditoriaCamionRuta (valor camión y libre) OK');

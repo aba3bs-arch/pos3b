@@ -419,6 +419,10 @@ export function htmlAuditoriaRuta(data) {
   const r = data.resumen || {};
   const deptos = data.deptos || [];
   const difs = (data.lineas || []).filter((l) => l.contado != null && l.diferencia !== 0);
+  const vc = data.valorCamion || null;
+  const pctDe = (parte, total) => (Number(total) > 0 ? Math.round((Number(parte) / Number(total)) * 1000) / 10 : null);
+  const pctInv = vc ? pctDe(r.valorTeoricoPublico, vc.valorPublico) : null;
+  const pctPerdida = vc ? pctDe(r.perdidaPublico, vc.valorPublico) : null;
   const fechaTxt = data.fecha
     ? (() => {
       try {
@@ -432,8 +436,16 @@ export function htmlAuditoriaRuta(data) {
     ${cabeceraDoc('INVENTARIO OPERATIVO · RUTA', { usuario: data.usuario, folio: data.folio, fecha: fechaTxt })}
     ${data.recolector ? `<div>Recolector: <strong>${esc(data.recolector)}</strong></div>` : ''}
     ${data.camion ? `<div>Camión: <strong>${esc(data.camion)}</strong></div>` : ''}
+    ${data.modo === 'libre' ? '<div class="muted">Inventario libre</div>' : ''}
+    ${vc ? `<div class="sep"></div>
+    <div class="bold">Valor inventario del camión (referencia)</div>
+    <div>Piezas: ${vc.piezas || 0} · Productos: ${vc.productos || 0}</div>
+    <div>A costo: <strong>${fmtMoney(vc.valorCosto)}</strong></div>
+    <div>A precio ruta: <strong>${fmtMoney(vc.valorRuta)}</strong></div>
+    <div>A precio público: <strong>${fmtMoney(vc.valorPublico)}</strong></div>
+    <div>Inventariado (teórico público): ${fmtMoney(r.valorTeoricoPublico)}${pctInv != null ? ` · ${pctInv}% del camión` : ''}</div>` : ''}
     <div class="sep"></div>
-    <div class="bold">Departamentos cerrados</div>
+    <div class="bold">${data.modo === 'libre' ? 'Departamentos contados' : 'Departamentos cerrados'}</div>
     ${htmlTablaLineas(deptos, [
       { label: 'Depto.', key: 'etiqueta' },
       { label: 'Prod.', key: 'productos', align: 'right' },
@@ -447,6 +459,7 @@ export function htmlAuditoriaRuta(data) {
     <div>Sobrante: <strong>${r.piezasSobrantes || 0} pzs</strong></div>
     <div>Pérdida a costo: <strong>${fmtMoney(r.perdidaCosto)}</strong></div>
     <div class="bold">Pérdida a precio público: ${fmtMoney(r.perdidaPublico)}</div>
+    ${pctPerdida != null ? `<div>Pérdida = ${pctPerdida}% del valor del camión (público)</div>` : ''}
     <div class="sep"></div>
     ${difs.length ? `<div class="bold">Diferencias</div>${htmlTablaLineas(difs, [
       { label: 'Producto', key: 'nombre' },
