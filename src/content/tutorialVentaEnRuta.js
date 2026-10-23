@@ -24,6 +24,7 @@ export const TUTORIAL_VENTA_EN_RUTA = {
       notas: [
         'Cada persona ve solo los botones de su privilegio. Administrador ve el hub completo.',
         'Hay un tutorial aparte solo de cobro de servicios → Tesorería.',
+        'Proceso operativo del Encargado de Abastecimiento: Tutorial → «Proceso de abasto a tiendas (Venta en Ruta)».',
       ],
     },
     {
