@@ -1,5 +1,9 @@
 import { obtenerIdDispositivoLocal } from './dispositivoUsuario.js';
 import { puedeRecibirNotificacionesDispositivo, registrarServiceWorkerNotificaciones } from './notificacionesDispositivo.js';
+import { credencialesSupabasePublicas } from './supabase.js';
+
+/** Reenvíos de la alarma por si el celular tenía la app cerrada y el primer push no se mostró. */
+export const DEMORAS_REFUERZO_ASALTO_MS = [12_000, 35_000];
 
 export const AVISO_SIN_TABLA_PUSH =
   'Falta la tabla pos_push_subscriptions. Ejecuta supabase/fix_push_subscriptions.sql';
@@ -99,6 +103,12 @@ export async function suscribirWebPush(supabase, { usuarioNombre, usuarioId, rol
   };
 
   const { error } = await supabase.from('pos_push_subscriptions').upsert(row, { onConflict: 'endpoint' });
+  void publicarConfigPushEnServiceWorker({
+    usuarioNombre: row.usuario_nombre,
+    usuarioId: row.usuario_id,
+    rol: row.rol,
+    dispositivoId: row.dispositivo_id,
+  });
   if (error) {
     if (faltaTablaPush(error)) return { ok: false, error: AVISO_SIN_TABLA_PUSH, sinTabla: true };
     return { ok: false, error: error.message };
@@ -106,7 +116,43 @@ export async function suscribirWebPush(supabase, { usuarioNombre, usuarioId, rol
   return { ok: true, endpoint };
 }
 
-/** Invoca Edge Function enviar-push (no bloquea al usuario si falla). */
+/**
+ * Deja en el service worker la config para renovar la suscripción y revisar
+ * alarmas aunque esta pestaña ya no esté abierta.
+ */
+export async function publicarConfigPushEnServiceWorker({
+  usuarioNombre = null,
+  usuarioId = null,
+  rol = null,
+  dispositivoId = null,
+} = {}) {
+  if (typeof navigator === 'undefined' || !navigator.serviceWorker) return { ok: false };
+  const { url, key } = credencialesSupabasePublicas();
+  if (!url || !key) return { ok: false, error: 'Sin credenciales de Supabase.' };
+  try {
+    const reg = await registrarServiceWorkerNotificaciones();
+    const sw = reg?.active || navigator.serviceWorker.controller;
+    if (!sw) return { ok: false, error: 'Service worker inactivo.' };
+    sw.postMessage({
+      type: 'pos3b-push-config',
+      supabaseUrl: url,
+      supabaseKey: key,
+      vapidPublic: vapidPublicKey(),
+      usuarioNombre,
+      usuarioId,
+      rol,
+      dispositivoId: dispositivoId || obtenerIdDispositivoLocal(),
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+/**
+ * Invoca Edge Function enviar-push.
+ * No exige la clave VAPID en el build: suscribir sí la necesita, enviar la tiene el servidor.
+ */
 export async function dispararPushRemoto(supabase, {
   titulo,
   mensaje,
@@ -116,8 +162,9 @@ export async function dispararPushRemoto(supabase, {
   modo = null,
   sucursalId = null,
   excluirDispositivoId = null,
+  refuerzo = false,
 } = {}) {
-  if (!supabase || !vapidPublicKey()) return { ok: false, skipped: true, error: 'Sin VAPID / conexión.' };
+  if (!supabase) return { ok: false, skipped: true, error: 'Sin conexión.' };
   try {
     const { data, error } = await supabase.functions.invoke('enviar-push', {
       body: {
@@ -129,6 +176,7 @@ export async function dispararPushRemoto(supabase, {
         modo: modo || null,
         sucursal_id: sucursalId != null ? String(sucursalId) : null,
         excluir_dispositivo_id: excluirDispositivoId != null ? String(excluirDispositivoId) : null,
+        refuerzo: Boolean(refuerzo),
       },
     });
     if (error) return { ok: false, error: error.message || String(error), data: data || null };
@@ -136,4 +184,33 @@ export async function dispararPushRemoto(supabase, {
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
+}
+
+const refuerzosAsalto = new Map();
+
+/** El servidor no tiene push configurado: reintentar no lo arregla. */
+export function pushAsaltoSinReintento(res) {
+  const err = String(res?.error || res?.data?.error || '');
+  return /faltan secrets|vapid_private_key|function not found|failed to fetch the function/i.test(err);
+}
+
+/**
+ * Vuelve a enviar la alarma a los 12 s y a los 35 s.
+ * Si el celular tenía la app cerrada y el primer aviso no se mostró, el siguiente sí entra
+ * (misma etiqueta: no se acumulan, vuelve a sonar).
+ */
+export function programarRefuerzoPushAsalto(supabase, payload, deps = {}) {
+  if (!supabase || !payload) return { ok: false };
+  const delays = deps.delays || DEMORAS_REFUERZO_ASALTO_MS;
+  const enviar = deps.enviar || dispararPushRemoto;
+  const schedule = deps.schedule || ((fn, ms) => setTimeout(fn, ms));
+  const clear = deps.clear || ((t) => clearTimeout(t));
+  const clave = String(payload.id || payload.titulo || 'asalto');
+  const prev = refuerzosAsalto.get(clave);
+  if (prev) prev.forEach((t) => clear(t));
+  const timers = delays.map((ms) => schedule(() => {
+    void enviar(supabase, { ...payload, refuerzo: true, modo: payload.modo || 'asalto' });
+  }, ms));
+  refuerzosAsalto.set(clave, timers);
+  return { ok: true, veces: timers.length };
 }

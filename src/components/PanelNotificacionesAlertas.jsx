@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  androidMataSegundoPlano,
   detectarIos,
   detectarMobile,
   enviarNotificacionPrueba,
@@ -9,7 +10,7 @@ import {
   registrarServiceWorkerNotificaciones,
   solicitarPermisoNotificacionesDispositivo,
 } from '../lib/notificacionesDispositivo.js';
-import { suscribirWebPush, vapidPublicKey, webPushDisponible } from '../lib/webPush.js';
+import { publicarConfigPushEnServiceWorker, suscribirWebPush, vapidPublicKey, webPushDisponible } from '../lib/webPush.js';
 import {
   TECLAS_MIN_ASALTO,
   ESC_TAPS_ASALTO,
@@ -45,7 +46,13 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
   }, [refrescar]);
 
   useEffect(() => {
-    if (!supabase || !user || permiso !== 'granted' || !vapidOk) return undefined;
+    if (!supabase || !user || permiso !== 'granted') return undefined;
+    void publicarConfigPushEnServiceWorker({
+      usuarioNombre: user?.nombre,
+      usuarioId: user?.id,
+      rol: user?.rol,
+    });
+    if (!vapidOk) return undefined;
     void suscribirWebPush(supabase, {
       usuarioNombre: user?.nombre,
       usuarioId: user?.id,
@@ -102,8 +109,21 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
       <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Alertas del dispositivo</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
         Reciba en el celular avisos de vales, préstamos, consumos, incidencias, cobros y{' '}
-        <strong>alarma de asalto</strong>. Administrador, Gerente e indirectos MAIN.
+        <strong>alarma de asalto</strong>, también con la app cerrada. Administrador, Gerente e indirectos MAIN.
+        La alarma se reenvía a los 12 y 35 segundos por si el celular no mostró el primer aviso.
       </p>
+      {esIos && !pwa && (
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--brand-red)' }}>
+          En iPhone la alarma no llega con Safari cerrado. Instale el POS en la pantalla de inicio
+          (Compartir → Añadir a inicio) y active las alertas desde ahí.
+        </p>
+      )}
+      {androidMataSegundoPlano() && (
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--brand-gold-dark)' }}>
+          Este Android suele cerrar Chrome en segundo plano. En Ajustes → Batería, deje Chrome
+          (o la app POS) sin restricciones. Si no, la alarma silenciosa no suena con la app cerrada.
+        </p>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
         <span className="badge" style={{ fontWeight: 700, color: estado.color }}>
@@ -166,7 +186,8 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
                   + (pushErr
                     ? `Push: ${pushErr}`
                     : `Push enviados: ${pushEnv ?? '—'} / suscripciones: ${pushTotal ?? '—'}`)
-                  + '\n\nEn MAIN/celulares con «Activar alertas» debe sonar la sirena.',
+                  + '\n\nSe reenvía a los 12 s y a los 35 s por si el celular está fuera de la app.'
+                  + '\nEn MAIN/celulares con «Activar alertas» debe sonar la sirena.',
                 );
               }
             } finally {
