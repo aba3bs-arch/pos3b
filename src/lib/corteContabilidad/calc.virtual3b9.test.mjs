@@ -66,8 +66,8 @@ assert.equal(
   true,
 );
 const fantasma = calcularVirtual(abiertoPegado, []);
-assert.equal(fantasma.venta, 5408);
-assert.equal(fantasma.cajaActual, 9735);
+assert.equal(fantasma.venta, 0);
+assert.equal(fantasma.cajaActual, 4327);
 
 const turnoNuevo = { id: 'diurno', nombre: 'Turno diurno', hora_inicio: '07:00', hora_fin: '19:00' };
 const reparado = reponerEstadoTrasCierreVirtual(abiertoPegado, cierreV200, {
@@ -101,14 +101,37 @@ assert.equal(lecturaMonedaFinalVirtual(borrada).capturada, false);
 assert.equal(calcularVirtual(borrada, []).venta, 0);
 assert.equal(calcularVirtual(borrada, []).cajaActual, 5302);
 
-// Cajero que sí cuenta cero: la venta es toda la moneda inicial.
-const enCero = {
+// Pantalla de 3B9: moneda final en 0 no es venta. No se suma la MI a la caja.
+const pantallaCero = {
   moneda_inicial_turno: 5408,
   moneda_final: 0,
   moneda_final_editada: true,
-  caja_anterior: 100,
+  caja_anterior: 4327,
 };
-assert.equal(calcularVirtual(enCero, []).venta, 5408);
+assert.equal(calcularVirtual(pantallaCero, []).venta, 0);
+assert.equal(calcularVirtual(pantallaCero, []).cajaActual, 4327);
+const gastosTurno = [
+  { monto: 1646, estado_aprobacion: 'aprobado' },
+  { monto: 400, estado_aprobacion: 'aprobado' },
+];
+const conGastos = calcularVirtual(pantallaCero, gastosTurno);
+assert.equal(conGastos.venta, 0);
+assert.equal(conGastos.gastosTotal, 2046);
+assert.equal(conGastos.subtotal, -2046);
+assert.equal(conGastos.cajaActual, 2281);
+
+// Con la caja ya arrastrada del V-200 (5,302), los gastos nuevos dejan 3,256.
+const cajaBien = calcularVirtual(
+  {
+    moneda_inicial_turno: 4359,
+    moneda_final: 0,
+    moneda_final_editada: true,
+    caja_anterior: 5302,
+  },
+  gastosTurno,
+);
+assert.equal(cajaBien.venta, 0);
+assert.equal(cajaBien.cajaActual, 3256);
 
 // Turno sin movimiento: solo avanza el folio, no reinventa la caja.
 const cierreQuieto = {

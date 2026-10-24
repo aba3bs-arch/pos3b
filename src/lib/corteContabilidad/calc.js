@@ -165,15 +165,16 @@ export function monedaInicialTurnoEfectiva(estado) {
 
 /**
  * Lectura de moneda final del corte abierto.
- * Vacío no es un conteo: si no, borrar el campo cuenta la venta como MI − 0.
- * Cero sí cuenta cuando el cajero lo capturó (máquina en cero).
+ * Vacío o 0 no es un conteo: la pantalla arranca en 0 y, si se toma como
+ * máquina vacía, la venta se vuelve toda la MI y la caja chica se infla
+ * (anterior + MI). La venta solo entra cuando hay una moneda final mayor a 0.
  */
 export function lecturaMonedaFinalVirtual(estado) {
   const raw = estado?.moneda_final;
   if (raw == null || raw === '') return { capturada: false, mf: 0 };
   const mf = round2(raw);
-  const capturada = Boolean(estado?.moneda_final_editada) || mf > 0;
-  return { capturada, mf };
+  if (!(mf > 0)) return { capturada: false, mf: 0 };
+  return { capturada: true, mf };
 }
 
 /** Tras cerrar turno: la moneda final pasa a ser la moneda inicial del siguiente corte. */
