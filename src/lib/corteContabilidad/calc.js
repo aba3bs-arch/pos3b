@@ -163,12 +163,130 @@ export function monedaInicialTurnoEfectiva(estado) {
   return round2(estado?.moneda_inicial);
 }
 
+/**
+ * Lectura de moneda final del corte abierto.
+ * Vacío no es un conteo: si no, borrar el campo cuenta la venta como MI − 0.
+ * Cero sí cuenta cuando el cajero lo capturó (máquina en cero).
+ */
+export function lecturaMonedaFinalVirtual(estado) {
+  const raw = estado?.moneda_final;
+  if (raw == null || raw === '') return { capturada: false, mf: 0 };
+  const mf = round2(raw);
+  const capturada = Boolean(estado?.moneda_final_editada) || mf > 0;
+  return { capturada, mf };
+}
+
 /** Tras cerrar turno: la moneda final pasa a ser la moneda inicial del siguiente corte. */
 export function siguienteMonedaInicialTurnoVirtual(estado) {
-  if (estado?.moneda_final_editada) return round2(estado.moneda_final);
-  const mf = round2(estado?.moneda_final);
-  if (mf > 0) return mf;
+  const { capturada, mf } = lecturaMonedaFinalVirtual(estado);
+  if (capturada) return mf;
   return monedaInicialTurnoEfectiva(estado);
+}
+
+function folioCorteTexto(estadoOCierre) {
+  return String(estadoOCierre?.folio || estadoOCierre?.detalle?.folio || '').trim();
+}
+
+/**
+ * El corte abierto sigue parado en un turno que ya se guardó en historial
+ * (otro equipo pisó el estado al cerrar). Mismo folio y misma MI/caja de apertura.
+ */
+export function estadoVirtualQuedoEnCierreAnterior(estado, cierre) {
+  if (!estado || !cierre || cierre.deleted_at) return false;
+  const d = cierre.detalle || {};
+  const tipo = String(d.tipo_cierre || '').toLowerCase();
+  if (tipo === 'recoleccion' || tipo === 'recoleccion_temporal') return false;
+  if (!tipo && String(cierre.turno || '').toUpperCase().includes('RECOLEC')) return false;
+
+  const folioAbierto = String(estado.folio || '').trim();
+  const folioCierre = folioCorteTexto(cierre);
+  if (!folioAbierto || !folioCierre || folioAbierto !== folioCierre) return false;
+
+  const miAbierto = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
+  const miCierre = round2(d.moneda_inicial_turno ?? d.moneda_inicial);
+  const cajaAbierto = round2(estado.caja_anterior);
+  const cajaCierre = round2(d.caja_anterior);
+  if (Math.abs(miAbierto - miCierre) > 0.001) return false;
+  if (Math.abs(cajaAbierto - cajaCierre) > 0.001) return false;
+  return true;
+}
+
+/**
+ * Arma el corte abierto que debió quedar después de ese cierre:
+ * MI = MF, caja chica = caja del cierre, moneda final sin capturar, folio siguiente.
+ */
+export function reponerEstadoTrasCierreVirtual(estado, cierre, { folioSiguiente, turnoSesion } = {}) {
+  const d = cierre?.detalle || {};
+  const mf = round2(d.moneda_final);
+  const mi = round2(d.moneda_inicial_turno ?? d.moneda_inicial);
+  const cajaAnt = round2(d.caja_anterior);
+  const cajaFin = round2(
+    cierre?.caja_actual != null && cierre?.caja_actual !== ''
+      ? cierre.caja_actual
+      : cajaAnt + round2(d.subtotal),
+  );
+  const folio = folioSiguiente || estado?.folio || '';
+  const turno = turnoSesion !== undefined ? turnoSesion : (estado?.turno_sesion ?? null);
+  const sinMovimiento = Math.abs(mi - mf) <= 0.001 && Math.abs(cajaAnt - cajaFin) <= 0.001;
+
+  if (sinMovimiento) {
+    return {
+      ...estado,
+      folio,
+      moneda_final: '',
+      moneda_final_editada: false,
+      venta_manual: '',
+      subtotal_manual: '',
+      caja_actual_manual: '',
+      comentarios: '',
+      recoleccion: 0,
+      recoleccion_turno: 0,
+      turno_sesion: turno,
+      _post_recoleccion: false,
+      _mi_turno_inicializado: true,
+    };
+  }
+
+  const base = {
+    ...ESTADO_VIRTUAL_DEFAULT,
+    fondo: round2(d.fondo ?? estado?.fondo),
+    moneda_inicial: round2(d.moneda_inicial),
+    moneda_inicial_turno: mi,
+    moneda_turno_base: round2(
+      d.moneda_turno_base != null && d.moneda_turno_base !== '' ? d.moneda_turno_base : mi,
+    ),
+    moneda_inyectada: Boolean(d.moneda_inyectada),
+    moneda_inyectada_monto: round2(d.moneda_inyectada_monto),
+    moneda_final: mf,
+    moneda_final_editada: true,
+    caja_anterior: cajaAnt,
+    faltante: round2(d.faltante),
+    _mi_turno_inicializado: true,
+    _post_recoleccion: Boolean(d._post_recoleccion),
+    folio,
+  };
+  const subtotal = round2(
+    d.subtotal != null && d.subtotal !== ''
+      ? d.subtotal
+      : round2(cierre?.ventas) - round2(d.gastos_total),
+  );
+  const next = prepararTrasCierreVirtual(base, { cajaActual: cajaFin, subtotal });
+  next.folio = folio;
+  next.turno_sesion = turno;
+  if (d.alerta_recup_pico != null || estado?.alerta_recup_pico != null) {
+    next.alerta_recup_pico = d.alerta_recup_pico ?? estado?.alerta_recup_pico;
+  }
+  if (d.alerta_recup_liquidada != null || estado?.alerta_recup_liquidada != null) {
+    next.alerta_recup_liquidada = Boolean(d.alerta_recup_liquidada ?? estado?.alerta_recup_liquidada);
+  }
+  delete next.gastos;
+  delete next.gastos_ids;
+  delete next.gastos_total;
+  delete next.tipo_cierre;
+  delete next.subtotal;
+  delete next.venta_neta;
+  delete next._rev;
+  return next;
 }
 
 /** Asegura moneda_inicial_turno / base en datos guardados antes de la separación tope/corte. */
@@ -213,8 +331,7 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 export function calcularVirtual(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
   const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
-  const mf = round2(estado.moneda_final);
-  const capturada = Boolean(estado.moneda_final_editada) || mf > 0;
+  const { capturada, mf } = lecturaMonedaFinalVirtual(estado);
   const ventaCalc = capturada ? round2(mi - mf) : 0;
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const fondo = round2(estado.fondo);
@@ -268,9 +385,9 @@ export function cajaVirtualEnNegativo(estado, calc) {
   if ((calc?.cajaActual ?? 0) < -0.001) return true;
   if ((calc?.subtotal ?? 0) < -0.001) return true;
   if ((calc?.venta ?? 0) < -0.001) return true;
-  if (!estado?.moneda_final_editada && !(round2(estado?.moneda_final) > 0)) return false;
+  const { capturada, mf } = lecturaMonedaFinalVirtual(estado);
+  if (!capturada) return false;
   const mi = monedaInicialTurnoEfectiva(estado);
-  const mf = round2(estado.moneda_final);
   return mf > mi + 0.001;
 }
 
@@ -290,10 +407,9 @@ export function monedaAInyectarVirtual(estado, monedaFinal) {
   let mf;
   if (monedaFinal != null && monedaFinal !== '') {
     mf = round2(monedaFinal);
-  } else if (estado?.moneda_final_editada || round2(estado?.moneda_final) > 0) {
-    mf = round2(estado.moneda_final);
   } else {
-    mf = monedaInicialTurnoEfectiva(estado);
+    const lectura = lecturaMonedaFinalVirtual(estado);
+    mf = lectura.capturada ? lectura.mf : monedaInicialTurnoEfectiva(estado);
   }
   if (!(tope > 0)) return 0;
   return round2(Math.max(0, tope - mf));
@@ -307,9 +423,8 @@ export function monedaAInyectarVirtual(estado, monedaFinal) {
  * 3) MI del corte abierto (= MF del cierre anterior tras prepararTrasCierre)
  */
 export function monedaFinalParaInyectarVirtual(estado = {}, historial = []) {
-  if (estado?.moneda_final_editada || round2(estado?.moneda_final) > 0) {
-    return round2(estado.moneda_final);
-  }
+  const lectura = lecturaMonedaFinalVirtual(estado);
+  if (lectura.capturada) return lectura.mf;
 
   const lista = [...(historial || [])].sort((a, b) => {
     const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
@@ -331,8 +446,8 @@ export function monedaFinalParaInyectarVirtual(estado = {}, historial = []) {
 
 /** Efectivo físico que queda en portal al recolectar (= MF capturada). */
 export function monedaTrasRecoleccionVirtual(estado) {
-  const mf = round2(estado?.moneda_final);
-  if (estado?.moneda_final_editada || mf > 0) return mf;
+  const lectura = lecturaMonedaFinalVirtual(estado);
+  if (lectura.capturada) return lectura.mf;
   return monedaInicialTurnoEfectiva(estado);
 }
 
@@ -359,7 +474,7 @@ export function prepararTrasRecoleccionVirtual(estado) {
     moneda_turno_base: mf,
     moneda_inyectada: hayInyeccion,
     moneda_inyectada_monto: hayInyeccion ? inyectar : 0,
-    moneda_final: 0,
+    moneda_final: '',
     moneda_final_editada: false,
     precoleccion: 0,
     _precoleccion_editada: false,
@@ -387,7 +502,7 @@ export function prepararTrasCierreVirtual(estado, calc) {
     ...estado,
     fondo: round2(estado.fondo),
     caja_anterior: cajaNueva,
-    moneda_final: 0,
+    moneda_final: '',
     moneda_final_editada: false,
     moneda_inicial: round2(estado.moneda_inicial),
     moneda_inicial_turno: turnoSiguiente,

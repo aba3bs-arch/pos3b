@@ -422,11 +422,32 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   return { estado, soloLocal: false, aviso: avisoRecupero || undefined };
 }
 
-export async function guardarEstadoCorte(supabase, sucursal, modulo, estado) {
+function revEstadoCorte(estado) {
+  const n = Number(estado?._rev);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+export async function guardarEstadoCorte(supabase, sucursal, modulo, estado, opts = {}) {
   const sid = sucursalIdCorte(sucursal);
   if (!supabase) {
     localStorage.setItem(lsKey(sid, modulo, 'estado'), JSON.stringify(estado));
     return { ok: true, soloLocal: true };
+  }
+  const conRevision = opts.baseRev != null && opts.baseRev !== '';
+  const baseRev = conRevision ? revEstadoCorte({ _rev: opts.baseRev }) : null;
+  if (conRevision) {
+    const { data: cur, error: errCur } = await supabase
+      .from('cortes_contabilidad_estado')
+      .select('estado')
+      .eq('sucursal_id', sid)
+      .eq('modulo', modulo)
+      .maybeSingle();
+    if (errCur && !faltaTabla(errCur, 'cortes_contabilidad')) {
+      return { ok: false, error: errCur.message };
+    }
+    if (!errCur && cur && revEstadoCorte(cur.estado) !== baseRev) {
+      return { ok: false, stale: true, estado: cur.estado, error: 'El corte cambió en otro equipo.' };
+    }
   }
   const row = {
     sucursal_id: sid,
