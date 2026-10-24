@@ -61,6 +61,10 @@ const abiertoPegado = {
 };
 
 assert.equal(estadoVirtualQuedoEnCierreAnterior(abiertoPegado, cierreV200), true);
+assert.equal(
+  estadoVirtualQuedoEnCierreAnterior({ ...abiertoPegado, moneda_inicial_turno: 5308 }, cierreV200),
+  true,
+);
 const fantasma = calcularVirtual(abiertoPegado, []);
 assert.equal(fantasma.venta, 5408);
 assert.equal(fantasma.cajaActual, 9735);
