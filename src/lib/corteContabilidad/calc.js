@@ -188,8 +188,9 @@ function folioCorteTexto(estadoOCierre) {
 }
 
 /**
- * El corte abierto sigue parado en un turno que ya se guardó en historial
- * (otro equipo pisó el estado al cerrar). Mismo folio y misma MI/caja de apertura.
+ * El corte abierto sigue en un folio que ya se guardó en historial
+ * (otro equipo pisó el estado al cerrar, o editaron MI/caja encima).
+ * El turno siguiente usa otro folio; si el folio coincide, este turno ya cerró.
  */
 export function estadoVirtualQuedoEnCierreAnterior(estado, cierre) {
   if (!estado || !cierre || cierre.deleted_at) return false;
@@ -201,13 +202,6 @@ export function estadoVirtualQuedoEnCierreAnterior(estado, cierre) {
   const folioAbierto = String(estado.folio || '').trim();
   const folioCierre = folioCorteTexto(cierre);
   if (!folioAbierto || !folioCierre || folioAbierto !== folioCierre) return false;
-
-  const miAbierto = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
-  const miCierre = round2(d.moneda_inicial_turno ?? d.moneda_inicial);
-  const cajaAbierto = round2(estado.caja_anterior);
-  const cajaCierre = round2(d.caja_anterior);
-  if (Math.abs(miAbierto - miCierre) > 0.001) return false;
-  if (Math.abs(cajaAbierto - cajaCierre) > 0.001) return false;
   return true;
 }
 
