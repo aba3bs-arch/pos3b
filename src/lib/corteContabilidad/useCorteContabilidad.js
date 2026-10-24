@@ -6,12 +6,14 @@ import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js'
 import { gastoRequiereEmpleado } from './catalogoGastos.js';
 import {
   detalleRecoleccionParaIe,
+  estadoVirtualQuedoEnCierreAnterior,
   gastosIdsDesdeUltimaRecoleccion,
   gastosListaDesdeUltimaRecoleccion,
   gastosPeriodoDesdeUltimaRecoleccion,
   monedaAInyectarVirtual,
   monedaFinalParaInyectarVirtual,
   monedaTopeVirtual,
+  reponerEstadoTrasCierreVirtual,
   round2,
 } from './calc.js';
 import {
@@ -111,6 +113,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const [empleados, setEmpleados] = useState([]);
   const [usuariosRawCorte, setUsuariosRawCorte] = useState([]);
   const saveTimer = useRef(null);
+  /** Invalida autoguardados viejos cuando otro cierre ya escribió el estado. */
+  const saveSeq = useRef(0);
+  const revRef = useRef(0);
   /** Candado síncrono: evita doble clic en Cerrar corte / Recolectar. */
   const accionLock = useRef(createSubmitLock()).current;
   const perm = useMemo(
@@ -160,20 +165,84 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const liquidarPrestamoDesdeCorte = useCallback(async () => {}, []);
   const generarPagareDesdeCorte = useCallback(async () => {}, []);
 
-  const persistir = useCallback(
-    async (nextEstado) => {
-      const res = await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
+  const invalidarAutoguardado = useCallback(() => {
+    saveSeq.current += 1;
+    clearTimeout(saveTimer.current);
+  }, []);
+
+  const commitEstado = useCallback(
+    async (nextEstado, seq) => {
+      if (seq != null && seq !== saveSeq.current) return { ok: false, skipped: true };
+      const base = revRef.current;
+      const payload = { ...nextEstado, _rev: base + 1 };
+      const res = await guardarEstadoCorte(supabase, sucursal, modulo, payload, { baseRev: base });
+      if (seq != null && seq !== saveSeq.current) return { ok: false, skipped: true, wrote: res.ok };
+      if (res.stale) return res;
+      if (res.ok) {
+        revRef.current = base + 1;
+        setEstado((prev) => (prev && prev._rev === payload._rev ? prev : { ...prev, _rev: payload._rev }));
+      }
       if (res.aviso) setAviso(res.aviso);
+      return res;
     },
     [supabase, sucursal, modulo],
   );
 
+  const commitEstadoReintento = useCallback(
+    async (nextEstado) => {
+      let res = await commitEstado(nextEstado);
+      if (!res?.stale) return res;
+      const otra = await cargarEstadoCorte(supabase, sucursal, modulo);
+      const nRev = Number(otra?.estado?._rev);
+      revRef.current = Number.isFinite(nRev) && nRev > 0 ? Math.floor(nRev) : 0;
+      return commitEstado(nextEstado);
+    },
+    [commitEstado, supabase, sucursal, modulo],
+  );
+
+  const persistir = useCallback(
+    async (nextEstado, seq) => {
+      if (seq != null && seq !== saveSeq.current) return;
+      let payload = nextEstado;
+      if (modulo === 'virtual') {
+        const hist = await listarCierresCorte(supabase, sucursal, modulo, 1);
+        const ultimo = hist.data?.[0];
+        if (seq != null && seq !== saveSeq.current) return;
+        if (estadoVirtualQuedoEnCierreAnterior(nextEstado, ultimo)) {
+          const folioSiguiente = await peekFolio(supabase, sucursal, modulo);
+          payload = reponerEstadoTrasCierreVirtual(nextEstado, ultimo, {
+            folioSiguiente,
+            turnoSesion: snapshotTurno(),
+          });
+          setFolio(payload.folio || folioSiguiente);
+          setEstado(payload);
+          setAviso(
+            'El último cierre ya estaba guardado y esta pantalla seguía en ese turno. Se avanzó la moneda inicial y la caja chica.',
+          );
+        }
+      }
+      if (seq != null && seq !== saveSeq.current) return;
+      const res = await commitEstado(payload, seq);
+      if (res?.stale) {
+        setAviso(res.error || 'El corte cambió en otro equipo. Se recargó.');
+        await cargarRef.current?.();
+      }
+    },
+    [commitEstado, modulo, sucursal, supabase],
+  );
+
+  const cargarRef = useRef(null);
+
   const patchEstado = useCallback(
     (patch) => {
+      saveSeq.current += 1;
+      const seq = saveSeq.current;
       setEstado((prev) => {
         const next = { ...prev, ...patch };
         clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(() => persistir(next), 400);
+        saveTimer.current = setTimeout(() => {
+          void persistir(next, seq);
+        }, 400);
         return next;
       });
     },
@@ -287,12 +356,25 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       setAviso((prev) => prev || `Empleados: ${empRes.error.message || empRes.error}`);
     }
     let nextEstado = estRes.estado || {};
+    const revCargada = Number(nextEstado?._rev);
+    revRef.current = Number.isFinite(revCargada) && revCargada > 0 ? Math.floor(revCargada) : 0;
     const nextGastos = gasRes.data || [];
-    if (modulo === 'virtual' && !nextEstado.turno_sesion) {
+    let reparadoVirtual = false;
+    if (modulo === 'virtual' && estadoVirtualQuedoEnCierreAnterior(nextEstado, histRes.data?.[0])) {
+      const folioSiguiente = await peekFolio(supabase, sucursal, modulo);
+      nextEstado = reponerEstadoTrasCierreVirtual(nextEstado, histRes.data[0], {
+        folioSiguiente,
+        turnoSesion: snapshotTurno(),
+      });
+      const guardado = await commitEstado(nextEstado);
+      if (guardado?.ok) nextEstado = { ...nextEstado, _rev: revRef.current };
+      reparadoVirtual = true;
+    } else if (modulo === 'virtual' && !nextEstado.turno_sesion) {
       const sesion = resolverTurnoSesion(nextEstado, nextGastos);
       if (sesion) {
         nextEstado = { ...nextEstado, turno_sesion: sesion };
-        await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
+        const guardado = await commitEstado(nextEstado);
+        if (guardado?.ok) nextEstado = { ...nextEstado, _rev: revRef.current };
       }
     }
     setEstado(nextEstado);
@@ -310,6 +392,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     } else {
       setHistorialEliminados([]);
     }
+    if (reparadoVirtual) {
+      setAviso(
+        'El último cierre ya estaba guardado y la pantalla seguía en ese turno. Se avanzó la moneda inicial y la caja chica.',
+      );
+    }
     if (nextEstado?.folio) {
       setFolio(nextEstado.folio);
     } else {
@@ -318,11 +405,16 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       if (modulo === 'abarrotes' && f) {
         nextEstado = { ...nextEstado, folio: f };
         setEstado(nextEstado);
-        await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
+        const guardado = await commitEstado(nextEstado);
+        if (guardado?.ok) nextEstado = { ...nextEstado, _rev: revRef.current };
       }
     }
     setCargando(false);
-  }, [supabase, sucursal, modulo, user, perm.editarTodo]);
+  }, [commitEstado, supabase, sucursal, modulo, user, perm.editarTodo]);
+
+  useEffect(() => {
+    cargarRef.current = cargar;
+  }, [cargar]);
 
   useEffect(() => {
     cargar();
@@ -387,10 +479,32 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (!accionLock.tryBegin()) {
       return { ok: false, skipped: true, error: 'Ya hay un cierre o recolección en curso.' };
     }
+    invalidarAutoguardado();
     setCargando(true);
     try {
     if (!perm.guardar) {
       return alert('No tiene permiso para cerrar este corte.');
+    }
+
+    if (modulo === 'virtual') {
+      const histPrev = await listarCierresCorte(supabase, sucursal, modulo, 1);
+      const ultimoPrev = histPrev.data?.[0];
+      if (estadoVirtualQuedoEnCierreAnterior(estado, ultimoPrev)) {
+        const folioSiguiente = await peekFolio(supabase, sucursal, modulo);
+        const reparado = reponerEstadoTrasCierreVirtual(estado, ultimoPrev, {
+          folioSiguiente,
+          turnoSesion: snapshotTurno(),
+        });
+        const guardado = await commitEstado(reparado);
+        if (guardado?.ok) {
+          setEstado({ ...reparado, _rev: revRef.current });
+          setFolio(reparado.folio || folioSiguiente);
+        }
+        alert(
+          'Este turno ya estaba cerrado. Se recuperó el corte siguiente con la moneda inicial y la caja chica correctas.\n\nCapture la moneda final del turno nuevo.',
+        );
+        return { ok: false, reparado: true };
+      }
     }
 
     // Queda a nombre del turno donde se hicieron los registros (sesión abierta),
@@ -444,8 +558,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const nuevoFolio = await folioTrasCierre(supabase, sucursal, modulo, folioCierre);
     setFolio(nuevoFolio);
     nuevoEstado.folio = nuevoFolio;
-    await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
-    setEstado(nuevoEstado);
+    await commitEstadoReintento(nuevoEstado);
+    setEstado({ ...nuevoEstado, _rev: revRef.current });
 
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
     const quedan = gas.data || [];
@@ -490,10 +604,32 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (!accionLock.tryBegin()) {
       return { ok: false, skipped: true, error: 'Ya hay un cierre o recolección en curso.' };
     }
+    invalidarAutoguardado();
     setCargando(true);
     try {
     if (!perm.recoleccion) {
       return alert('Solo el administrador o recolector con privilegio puede registrar recolección.');
+    }
+
+    if (modulo === 'virtual') {
+      const histPrev = await listarCierresCorte(supabase, sucursal, modulo, 1);
+      const ultimoPrev = histPrev.data?.[0];
+      if (estadoVirtualQuedoEnCierreAnterior(estado, ultimoPrev)) {
+        const folioSiguiente = await peekFolio(supabase, sucursal, modulo);
+        const reparado = reponerEstadoTrasCierreVirtual(estado, ultimoPrev, {
+          folioSiguiente,
+          turnoSesion: snapshotTurno(),
+        });
+        const guardado = await commitEstado(reparado);
+        if (guardado?.ok) {
+          setEstado({ ...reparado, _rev: revRef.current });
+          setFolio(reparado.folio || folioSiguiente);
+        }
+        alert(
+          'Este turno ya estaba cerrado. No se recolectó.\n\nSe recuperó el corte siguiente con la moneda inicial y la caja chica correctas.',
+        );
+        return { ok: false, reparado: true };
+      }
     }
 
     if (modulo === 'garage') {
@@ -599,7 +735,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         maquinasEnCero,
         montoRecoleccion: calcRec,
       });
-      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      await commitEstadoReintento(nuevoEstado);
       setEstado(nuevoEstado);
       const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
       setHistorial(hist.data || []);
@@ -719,7 +855,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         montoRecoleccion: calcRec,
       });
       nuevoEstado.turno_sesion = snapshotTurno() || turnoActual();
-      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      await commitEstadoReintento(nuevoEstado);
       setEstado(nuevoEstado);
       const gasRec = await listarGastosTurno(supabase, sucursal, modulo);
       setGastos(gasRec.data || []);
@@ -821,7 +957,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         recoleccion: 0,
         recoleccion_turno: 0,
       };
-      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      await commitEstadoReintento(nuevoEstado);
       setEstado(nuevoEstado);
       const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
       setHistorial(hist.data || []);
@@ -932,7 +1068,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       monedaTope,
       monedaInyectar,
     });
-    await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+    await commitEstadoReintento(nuevoEstado);
     setEstado(nuevoEstado);
     const gasPost = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gasPost.data || []);

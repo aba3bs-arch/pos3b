@@ -482,7 +482,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
               label="Moneda final"
               value={estado.moneda_final ?? ''}
               editable={puedeMonedaFinal && puedeEditar}
-              onChange={(v) => patchEstado({ moneda_final: moneyNum(v), moneda_final_editada: true })}
+              onChange={(v) => {
+                const n = moneyNum(v);
+                const vacio = n === '' || n == null;
+                patchEstado({
+                  moneda_final: vacio ? '' : n,
+                  moneda_final_editada: !vacio,
+                });
+              }}
             />
             <CampoCorte
               label="Venta efectivo"
