@@ -168,3 +168,33 @@ assert.equal(repQuieto.moneda_final, '');
 assert.equal(repQuieto.moneda_final_editada, false);
 assert.equal(calcularVirtual(repQuieto, []).venta, 0);
 assert.equal(calcularVirtual(repQuieto, []).cajaActual, 80);
+
+// La fórmula no mira la sucursal. Fusión (y 3B2, 3B5, …) fallaban igual:
+// moneda final en 0 + un gasto inflaba la venta con toda la moneda inicial.
+const fusionSinContar = {
+  moneda_inicial: 10000,
+  moneda_inicial_turno: 8200,
+  moneda_final: 0,
+  moneda_final_editada: true,
+  caja_anterior: 1500,
+};
+const fusionGasto = [{ monto: 350, estado_aprobacion: 'aprobado', categoria: 'NOMINA' }];
+const fusionMal = calcularVirtual(fusionSinContar, fusionGasto);
+assert.equal(fusionMal.venta, 0);
+assert.equal(fusionMal.gastosTotal, 350);
+assert.equal(fusionMal.subtotal, -350);
+assert.equal(fusionMal.cajaActual, 1150);
+
+const fusionContada = calcularVirtual(
+  { ...fusionSinContar, moneda_final: 7000, moneda_final_editada: true },
+  fusionGasto,
+);
+assert.equal(fusionContada.venta, 1200);
+assert.equal(fusionContada.subtotal, 850);
+assert.equal(fusionContada.cajaActual, 2350);
+
+// Campo vacío (no el número 0 marcado como capturado) tampoco es un conteo.
+assert.equal(
+  calcularVirtual({ ...fusionSinContar, moneda_final: '', moneda_final_editada: false }, fusionGasto).cajaActual,
+  1150,
+);
