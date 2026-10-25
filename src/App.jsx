@@ -331,7 +331,12 @@ function App() {
       // Re-registrar SW y renovar Web Push si ya tenían permiso (móviles admin).
       void registrarServiceWorkerNotificaciones().then(() => {
         if (!supabase) return;
-        void import('./lib/webPush.js').then(({ suscribirWebPush }) => {
+        void import('./lib/webPush.js').then(({ publicarConfigPushEnServiceWorker, suscribirWebPush }) => {
+          void publicarConfigPushEnServiceWorker({
+            usuarioNombre: data?.nombre,
+            usuarioId: data?.id,
+            rol: data?.rol,
+          });
           void suscribirWebPush(supabase, {
             usuarioNombre: data?.nombre,
             usuarioId: data?.id,

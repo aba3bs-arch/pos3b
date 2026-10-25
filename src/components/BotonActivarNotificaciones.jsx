@@ -6,7 +6,7 @@ import {
   registrarServiceWorkerNotificaciones,
   solicitarPermisoNotificacionesDispositivo,
 } from '../lib/notificacionesDispositivo.js';
-import { suscribirWebPush, vapidPublicKey, webPushDisponible } from '../lib/webPush.js';
+import { publicarConfigPushEnServiceWorker, suscribirWebPush, vapidPublicKey, webPushDisponible } from '../lib/webPush.js';
 
 export default function BotonActivarNotificaciones({ supabase, user }) {
   const [permiso, setPermiso] = useState(() => permisoNotificacionesDispositivo());
@@ -25,6 +25,11 @@ export default function BotonActivarNotificaciones({ supabase, user }) {
   // Si ya tenía permiso, re-suscribir push al entrar (renueva endpoint).
   useEffect(() => {
     if (!supabase || !user || permiso !== 'granted') return undefined;
+    void publicarConfigPushEnServiceWorker({
+      usuarioNombre: user?.nombre,
+      usuarioId: user?.id,
+      rol: user?.rol,
+    });
     void suscribirWebPush(supabase, {
       usuarioNombre: user?.nombre,
       usuarioId: user?.id,

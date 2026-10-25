@@ -113,30 +113,31 @@ Deno.serve(async (req) => {
       silent: false,
       asalto: esAsalto,
       sucursal_id: sucursalId,
+      refuerzo: Boolean(body.refuerzo),
     });
 
     let enviados = 0;
     const eliminados = [];
     const fallos = [];
 
+    // Asalto: urgencia alta, 6 h de vida (el celular puede estar sin datos) y topic
+    // para que un reintento reemplace el aviso que aún no se entregó, en vez de perderse.
+    const opcionesEnvio = esAsalto
+      ? { TTL: 60 * 60 * 6, urgency: 'high' as const, topic: 'asalto3b' }
+      : { TTL: 60 * 60 * 12, urgency: 'high' as const };
+
     for (const s of lista) {
       const subscription = {
         endpoint: s.endpoint,
         keys: { p256dh: s.p256dh, auth: s.auth },
       };
-      try {
-        await webpush.sendNotification(subscription, payload, {
-          TTL: esAsalto ? 60 * 60 * 2 : 60 * 60 * 12,
-          urgency: 'high',
-        });
+      const r = await enviarConReintento(subscription, payload, opcionesEnvio);
+      if (r.ok) {
         enviados += 1;
-      } catch (e) {
-        const status = e?.statusCode || e?.status;
-        if (status === 404 || status === 410) {
-          eliminados.push(s.id);
-        } else {
-          fallos.push({ id: s.id, error: String(e?.message || e) });
-        }
+      } else if (r.status === 404 || r.status === 410) {
+        eliminados.push(s.id);
+      } else {
+        fallos.push({ id: s.id, error: r.error || 'error' });
       }
     }
 
@@ -157,6 +158,37 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 });
+
+function statusDe(e: { statusCode?: number; status?: number } | null) {
+  return Number(e?.statusCode || e?.status || 0);
+}
+
+function falloTransitorio(status: number) {
+  return status === 408 || status === 429 || (status >= 500 && status <= 599);
+}
+
+async function enviarConReintento(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payload: string,
+  opciones: { TTL: number; urgency: 'high' | 'normal'; topic?: string },
+) {
+  try {
+    await webpush.sendNotification(subscription, payload, opciones);
+    return { ok: true as const, status: 201 };
+  } catch (e: any) {
+    const status = statusDe(e);
+    if (!falloTransitorio(status)) {
+      return { ok: false as const, status, error: String(e?.message || e) };
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    try {
+      await webpush.sendNotification(subscription, payload, opciones);
+      return { ok: true as const, status: 201 };
+    } catch (e2: any) {
+      return { ok: false as const, status: statusDe(e2) || status, error: String(e2?.message || e2) };
+    }
+  }
+}
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {

@@ -21,6 +21,17 @@ export function detectarMobile() {
   return false;
 }
 
+/**
+ * Android que suele cerrar Chrome en segundo plano (Honor, Huawei, Xiaomi, etc.).
+ * Sin permiso de batería, el Web Push de la alarma no llega con la app cerrada.
+ */
+export function androidMataSegundoPlano() {
+  if (typeof navigator === 'undefined') return false;
+  return /Huawei|Honor|HarmonyOS|MagicOS|OPPO|vivo|Xiaomi|Redmi|POCO|Realme|HONOR/i.test(
+    String(navigator.userAgent || ''),
+  );
+}
+
 export function detectarIos() {
   if (typeof navigator === 'undefined') return false;
   const ua = String(navigator.userAgent || '');
