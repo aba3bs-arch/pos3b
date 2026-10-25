@@ -12,6 +12,12 @@ import {
   folioAuditoriaRuta,
   resumirDepartamentoAuditoria,
   siguienteIndicePendiente,
+  accionPersistenciaBorradorAuditoria,
+  borradorAuditoriaTieneProgreso,
+  guardarBorradorAuditoria,
+  leerBorradorAuditoria,
+  listarBorradoresAuditoria,
+  borrarBorradorAuditoria,
 } from './auditoriaCamionRuta.js';
 
 {
@@ -149,3 +155,87 @@ console.log('auditoriaCamionRuta (flujo por departamento) OK');
   assert.equal(mixto.resumen.valorTeoricoPublico, 300 - 0);
 }
 console.log('auditoriaCamionRuta (valor camión y libre) OK');
+
+{
+  assert.equal(borradorAuditoriaTieneProgreso(null), false);
+  assert.equal(borradorAuditoriaTieneProgreso({ conteos: {}, deptosSel: [], paso: 'deptos' }), false);
+  assert.equal(borradorAuditoriaTieneProgreso({ deptosSel: ['BEBIDAS'] }), true);
+  assert.equal(borradorAuditoriaTieneProgreso({ paso: 'conteo', deptoActivo: 'BEBIDAS' }), true);
+  assert.equal(borradorAuditoriaTieneProgreso({ conteos: { A: '4' } }), true);
+
+  // La pantalla vacía al volver no debe borrar el conteo ya guardado.
+  assert.equal(accionPersistenciaBorradorAuditoria({
+    camionId: 'cam-1',
+    borradorCamion: 'cam-1',
+    paso: 'recolector',
+    datos: { conteos: {}, cerrados: {}, deptosSel: [], libreIds: [], paso: 'deptos' },
+  }), 'omitir');
+  assert.equal(accionPersistenciaBorradorAuditoria({
+    camionId: 'cam-1',
+    borradorCamion: '',
+    paso: 'deptos',
+    datos: { conteos: { A: '1' }, paso: 'deptos' },
+  }), 'omitir');
+  assert.equal(accionPersistenciaBorradorAuditoria({
+    camionId: 'cam-1',
+    borradorCamion: 'cam-1',
+    paso: 'ticket',
+    datos: { conteos: { A: '1' } },
+  }), 'omitir');
+  assert.equal(accionPersistenciaBorradorAuditoria({
+    camionId: 'cam-1',
+    borradorCamion: 'cam-1',
+    paso: 'deptos',
+    datos: { conteos: {}, deptosSel: ['BEBIDAS'], paso: 'deptos' },
+  }), 'guardar');
+  assert.equal(accionPersistenciaBorradorAuditoria({
+    camionId: 'cam-1',
+    borradorCamion: 'cam-1',
+    paso: 'conteo',
+    datos: { conteos: { A: '9' }, paso: 'conteo', deptoActivo: 'BEBIDAS', indice: 3 },
+  }), 'guardar');
+}
+
+{
+  const data = {};
+  globalThis.localStorage = Object.create({
+    getItem(k) { return Object.prototype.hasOwnProperty.call(this, k) ? this[k] : null; },
+    setItem(k, v) { this[k] = String(v); },
+    removeItem(k) { delete this[k]; },
+    key(i) { return Object.keys(this)[i] ?? null; },
+    get length() { return Object.keys(this).length; },
+  });
+  Object.assign(localStorage, data);
+
+  guardarBorradorAuditoria('cam-1', {
+    conteos: { A: '9' },
+    paso: 'conteo',
+    deptoActivo: 'BEBIDAS',
+    indice: 2,
+    deptosSel: ['BEBIDAS'],
+    recolector_id: 'r1',
+    recolector_nombre: 'Ruta 1',
+  });
+  const leido = leerBorradorAuditoria('cam-1');
+  assert.equal(leido.conteos.A, '9');
+  assert.equal(leido.deptoActivo, 'BEBIDAS');
+  assert.equal(leido.indice, 2);
+
+  const accionVacio = accionPersistenciaBorradorAuditoria({
+    camionId: 'cam-1',
+    borradorCamion: 'cam-1',
+    paso: 'recolector',
+    datos: { conteos: {}, paso: 'deptos' },
+  });
+  assert.equal(accionVacio, 'omitir');
+  assert.equal(leerBorradorAuditoria('cam-1').conteos.A, '9');
+
+  const lista = listarBorradoresAuditoria();
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].camion_id, 'cam-1');
+
+  borrarBorradorAuditoria('cam-1');
+  assert.equal(leerBorradorAuditoria('cam-1'), null);
+  assert.equal(listarBorradoresAuditoria().length, 0);
+}
+console.log('auditoriaCamionRuta (no borrar al salir) OK');

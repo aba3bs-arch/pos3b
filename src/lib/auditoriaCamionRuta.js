@@ -332,6 +332,35 @@ export function borrarBorradorAuditoria(camionId) {
 }
 
 /**
+ * Hay conteo, departamentos elegidos o un paso de conteo abierto.
+ * Seleccionar departamentos también cuenta: si no, salir de la app
+ * antes del primer artículo perdía todo el avance.
+ */
+export function borradorAuditoriaTieneProgreso(datos) {
+  if (!datos || typeof datos !== 'object') return false;
+  if (datos.conteos && typeof datos.conteos === 'object' && Object.keys(datos.conteos).length) return true;
+  if (datos.cerrados && typeof datos.cerrados === 'object' && Object.keys(datos.cerrados).length) return true;
+  if (Array.isArray(datos.libreIds) && datos.libreIds.length) return true;
+  if (Array.isArray(datos.deptosSel) && datos.deptosSel.length) return true;
+  if (datos.paso === 'conteo' || datos.paso === 'libre') return true;
+  if (datos.deptoActivo) return true;
+  return false;
+}
+
+/**
+ * Qué hacer al cambiar el conteo en memoria.
+ * Nunca borra: al salir de la app la pantalla arranca vacía un instante
+ * y eso eliminaba el inventario que ya estaba guardado en el equipo.
+ * Borrar solo con Cancelar, Eliminar o al generar el ticket.
+ * @returns {'guardar' | 'omitir'}
+ */
+export function accionPersistenciaBorradorAuditoria({ camionId, borradorCamion, paso, datos } = {}) {
+  if (!camionId || String(borradorCamion || '') !== String(camionId) || paso === 'ticket') return 'omitir';
+  if (!borradorAuditoriaTieneProgreso(datos)) return 'omitir';
+  return 'guardar';
+}
+
+/**
  * Valor del inventario de un camión (referencia del inventario operativo):
  * a costo, a precio de ruta y a precio público, con desglose por departamento.
  * @param {Array} lineas — salida de construirLineasAuditoriaCamion
@@ -382,6 +411,7 @@ export function listarBorradoresAuditoria() {
       if (!k || !k.startsWith(LS_BORRADOR)) continue;
       const d = JSON.parse(localStorage.getItem(k) || 'null');
       if (!d || typeof d !== 'object') continue;
+      if (!borradorAuditoriaTieneProgreso(d)) continue;
       out.push({ ...d, camion_id: k.slice(LS_BORRADOR.length) });
     }
   } catch {

@@ -68,6 +68,9 @@ function debePreservar(clave) {
   if (clave.startsWith('pos3b_carrito_venta_')) return true;
   // Carrito POS venta en ruta (por vendedor)
   if (clave.startsWith('pos3b_carrito_pos_ruta_')) return true;
+  // Inventario operativo de ruta en curso (uno por camión) e historial de tickets
+  if (clave.startsWith('pos3b_ruta_auditoria_borrador_')) return true;
+  if (clave === 'pos3b_ruta_auditorias') return true;
   // Favoritos por sucursal (respaldo si falta columna en nube)
   if (clave === 'pos3b_favoritos_sucursales_v1') return true;
   if (clave === 'pos3b_favoritos_sucursales_col_missing') return true;
@@ -138,4 +141,4 @@ export function formatoBytesAprox(bytes) {
 export const TEXTO_AYUDA_LIMPIEZA =
   'Se borran copias locales temporales y caché del navegador, y la pantalla se recarga para cargar la versión nueva. ' +
   'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios, vínculo del equipo, ' +
-  'ni el carrito de venta (caja o ruta) en curso.';
+  'el carrito de venta (caja o ruta) en curso, ni el inventario operativo que sigue abierto.';

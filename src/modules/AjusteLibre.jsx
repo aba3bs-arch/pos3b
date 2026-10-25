@@ -130,7 +130,7 @@ export default function AjusteLibre({
       const saved = guardarAjusteEnEspera(draft);
       if (saved?.id && saved.id !== borradorId) setBorradorId(saved.id);
     },
-    { enabled: !folioAplicado },
+    { enabled: !folioAplicado, deps: [ordenIds, conteos, sucursal, user?.nombre] },
   );
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);

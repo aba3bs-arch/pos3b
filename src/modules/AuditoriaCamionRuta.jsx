@@ -3,8 +3,10 @@ import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoLibreRuta from '../components/ConteoLibreRuta.jsx';
 import Icon from '../components/Icon.jsx';
 import {
+  accionPersistenciaBorradorAuditoria,
   armarCierreAuditoria,
   borrarBorradorAuditoria,
+  borradorAuditoriaTieneProgreso,
   construirLineasAuditoriaCamion,
   folioAuditoriaRuta,
   guardarAuditoriaCamionLocal,
@@ -297,9 +299,12 @@ export default function AuditoriaCamionRuta({
   const [ticket, setTicket] = useState(null);
   const [libreIds, setLibreIds] = useState([]);
   const [tickBorr, setTickBorr] = useState(0);
+  const [avisoRecuperado, setAvisoRecuperado] = useState(false);
   const rootRef = useRef(null);
   const [borradorCamion, setBorradorCamion] = useState('');
   const contadaRef = useRef(null);
+  const draftRef = useRef(null);
+  const reanudadoRef = useRef(false);
 
   const cargarListas = useCallback(async () => {
     setCargandoLista(true);
@@ -375,36 +380,64 @@ export default function AuditoriaCamionRuta({
   }, []);
 
   useEffect(() => {
+    refrescarHistorial();
+  }, [refrescarHistorial]);
+
+  // No vaciar el conteo si el camión aún no está resuelto: al volver a la app
+  // la lista tarda y ese vacío borraba el inventario guardado.
+  useEffect(() => {
+    if (!recolectorId || !camionId) return;
+    if (borradorCamion === camionId) return;
+    const draft = leerBorradorAuditoria(camionId);
+    const conteosD = draft?.conteos && typeof draft.conteos === 'object' ? draft.conteos : {};
+    const cerradosD = draft?.cerrados && typeof draft.cerrados === 'object' ? draft.cerrados : {};
+    const deptosD = Array.isArray(draft?.deptosSel) ? draft.deptosSel : [];
+    const libresD = Array.isArray(draft?.libreIds) ? draft.libreIds : [];
     setTicket(null);
-    setDeptoActivo('');
-    setIndice(0);
     setMostrarResumen(false);
-    const draft = recolectorId && camionId ? leerBorradorAuditoria(camionId) : null;
-    setConteos(draft?.conteos && typeof draft.conteos === 'object' ? draft.conteos : {});
-    setCerrados(draft?.cerrados && typeof draft.cerrados === 'object' ? draft.cerrados : {});
-    setDeptosSel(Array.isArray(draft?.deptosSel) ? draft.deptosSel : []);
-    setLibreIds(Array.isArray(draft?.libreIds) ? draft.libreIds : []);
+    setConteos(conteosD);
+    setCerrados(cerradosD);
+    setDeptosSel(deptosD);
+    setLibreIds(libresD);
     if (draft?.paso === 'libre') {
+      setDeptoActivo('');
+      setIndice(0);
       setPaso('libre');
     } else if (draft?.paso === 'conteo' && draft.deptoActivo) {
       setDeptoActivo(draft.deptoActivo);
       setIndice(Number(draft.indice) || 0);
       setPaso('conteo');
     } else {
-      setPaso(recolectorId && camionId ? 'deptos' : 'recolector');
+      setDeptoActivo('');
+      setIndice(0);
+      setPaso('deptos');
     }
-    setBorradorCamion(recolectorId && camionId ? camionId : '');
-    refrescarHistorial();
-  }, [camionId, recolectorId, refrescarHistorial]);
+    setBorradorCamion(camionId);
+    setAvisoRecuperado(borradorAuditoriaTieneProgreso({
+      ...draft,
+      conteos: conteosD,
+      cerrados: cerradosD,
+      deptosSel: deptosD,
+      libreIds: libresD,
+    }));
+  }, [camionId, recolectorId, borradorCamion]);
 
   useEffect(() => {
-    if (!camionId || borradorCamion !== camionId || paso === 'ticket') return;
-    const hayAlgo = Object.keys(conteos).length || Object.keys(cerrados).length || libreIds.length;
-    if (!hayAlgo) {
-      borrarBorradorAuditoria(camionId);
+    if (reanudadoRef.current || recolectorId || cargandoLista) return;
+    const drafts = listarBorradoresAuditoria().filter((b) => borradorAuditoriaTieneProgreso(b));
+    if (!drafts.length) {
+      reanudadoRef.current = true;
       return;
     }
-    guardarBorradorAuditoria(camionId, {
+    const rec = recolectores.find((r) => String(r.id) === String(drafts[0].recolector_id));
+    if (!rec) return;
+    reanudadoRef.current = true;
+    setRecolectorId(String(rec.id));
+  }, [cargandoLista, recolectores, recolectorId]);
+
+  useEffect(() => {
+    const cam = camiones.find((c) => String(c.id) === String(camionId));
+    const datos = {
       conteos,
       cerrados,
       deptosSel,
@@ -414,10 +447,13 @@ export default function AuditoriaCamionRuta({
       paso: paso === 'conteo' || paso === 'libre' ? paso : 'deptos',
       recolector_id: recolectorId,
       recolector_nombre: recolectorSel?.nombre || '',
-      camion_etiqueta: camionSel ? etiquetaCamion(camionSel) : '',
-    });
+      camion_etiqueta: cam ? etiquetaCamion(cam) : '',
+    };
+    const accion = accionPersistenciaBorradorAuditoria({ camionId, borradorCamion, paso, datos });
+    if (accion !== 'guardar') return;
+    guardarBorradorAuditoria(camionId, datos);
     setTickBorr((n) => n + 1);
-  }, [camionId, borradorCamion, conteos, cerrados, deptosSel, libreIds, deptoActivo, indice, paso, recolectorId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [camionId, borradorCamion, conteos, cerrados, deptosSel, libreIds, deptoActivo, indice, paso, recolectorId, camiones, recolectorSel]);
 
   const inventarioCamion = useMemo(
     () => inventarioCamionDesdeLineas(lineasCarga, { productoPorId, inventario }),
@@ -453,6 +489,52 @@ export default function AuditoriaCamionRuta({
   }, [progresoDeptos, qDepto]);
 
   const camionSel = camiones.find((c) => String(c.id) === String(camionId));
+  draftRef.current = {
+    camionId,
+    borradorCamion,
+    conteos,
+    cerrados,
+    deptosSel,
+    libreIds,
+    deptoActivo,
+    indice,
+    paso,
+    recolector_id: recolectorId,
+    recolector_nombre: recolectorSel?.nombre || '',
+    camion_etiqueta: camionSel ? etiquetaCamion(camionSel) : '',
+  };
+
+  useEffect(() => {
+    const flush = () => {
+      const d = draftRef.current;
+      if (!d?.camionId) return;
+      const datos = {
+        ...d,
+        paso: d.paso === 'conteo' || d.paso === 'libre' ? d.paso : 'deptos',
+      };
+      const accion = accionPersistenciaBorradorAuditoria({
+        camionId: d.camionId,
+        borradorCamion: d.borradorCamion,
+        paso: d.paso,
+        datos,
+      });
+      if (accion !== 'guardar') return;
+      guardarBorradorAuditoria(d.camionId, datos);
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      flush();
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
+
   const borradores = useMemo(
     () => listarBorradoresAuditoria().filter((b) => paso === 'recolector' || String(b.camion_id) !== String(camionId)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -699,6 +781,7 @@ export default function AuditoriaCamionRuta({
           <p className="ruta-invop-lead">
             Igual que el inventario de sucursales, pero independiente: cuenta artículo por artículo,
             cierra cada departamento y al final obtén tu ticket. No modifica el stock.
+            Si sales de la app, el conteo sigue en este equipo.
           </p>
         </div>
         {onVolver && (
@@ -745,6 +828,24 @@ export default function AuditoriaCamionRuta({
           Ticket
         </button>
       </nav>
+
+      {avisoRecuperado && paso !== 'ticket' && (
+        <p
+          style={{
+            margin: 0,
+            padding: '0.55rem 0.65rem',
+            borderRadius: 8,
+            background: 'rgba(34,197,94,0.1)',
+            border: '1px solid rgba(34,197,94,0.35)',
+            fontSize: '0.85rem',
+          }}
+        >
+          Se recuperó el inventario en curso. Sigue donde lo dejaste.
+          <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.5rem', padding: '0.2rem 0.45rem', fontSize: '0.8rem' }} onClick={() => setAvisoRecuperado(false)}>
+            Entendido
+          </button>
+        </p>
+      )}
 
       {camionId && lineasCarga.length > 0 && (
         <ValorCamion
@@ -842,7 +943,7 @@ export default function AuditoriaCamionRuta({
             </div>
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
               Marca los departamentos que vas a contar y pulsa Siguiente. Cuentas pieza por pieza, cierras
-              cada departamento y al final se genera el ticket. El progreso se guarda solo en este equipo.
+              cada departamento y al final se genera el ticket. Si sales de la app, el conteo queda en este equipo.
             </p>
 
             {cargando ? (

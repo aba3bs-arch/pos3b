@@ -114,7 +114,10 @@ export default function ConteoPorDepartamento({
       const saved = guardarAjusteEnEspera(draft);
       if (saved?.id && saved.id !== borradorId) setBorradorId(saved.id);
     },
-    { enabled: Boolean(conteoActivo && !folioAplicado) },
+    {
+      enabled: Boolean(conteoActivo && !folioAplicado),
+      deps: [conteos, indiceActual, departamento, sucursal, user?.nombre],
+    },
   );
 
   const iniciarConteo = () => {

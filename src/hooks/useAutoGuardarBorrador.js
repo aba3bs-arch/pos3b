@@ -3,7 +3,8 @@ import { useEffect, useRef } from 'react';
 /**
  * Guarda un borrador al cambiar datos y al salir de la pestaña (llamada, app switch, etc.).
  * `getDraft` debe devolver el objeto a persistir o null si no hay nada que guardar.
- * Pasa `deps` (p. ej. líneas) para reprogramar el guardado cuando cambian.
+ * Pasa `deps` con los conteos: si no, el celular mata la app sin avisar y se pierde
+ * todo lo capturado después del primer guardado.
  */
 export function useAutoGuardarBorrador(getDraft, guardarFn, { enabled = true, debounceMs = 400, deps = [] } = {}) {
   const getDraftRef = useRef(getDraft);
