@@ -583,7 +583,7 @@ export default function PanelFondoServicios({ supabase, user }) {
         </h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
           Disponible en cuenta Servicios: <strong>{fmtMonto(saldoServicios)}</strong>.
-          También puedes hacerlo desde la pestaña Tesorería.
+          También puedes hacerlo desde Contabilidad → Tesorería.
         </p>
         <div className="grid-2" style={{ gap: '0.55rem' }}>
           <label className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>

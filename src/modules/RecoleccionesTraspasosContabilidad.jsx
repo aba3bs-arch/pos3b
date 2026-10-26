@@ -1305,7 +1305,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Servicios → Tesorería</h3>
             <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0, marginBottom: 0 }}>
               La cuenta <strong>Servicios</strong> es solo para recolección de servicios (no mercancía).
-              Para transferir ese saldo a Cheche usa RC/VentaRuta → <strong>Fondo</strong> o <strong>Tesorería</strong>.
+              Para transferir ese saldo a Cheche usa RC/VentaRuta → <strong>RC Servicios</strong> o Contabilidad → <strong>Tesorería</strong>.
               No hay transferencia mixta con Francisco.
             </p>
           </div>

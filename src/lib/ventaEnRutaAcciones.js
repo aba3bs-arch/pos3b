@@ -43,7 +43,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
     icon: 'trash',
     grupo: 'oper',
   },
-  { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios / Tesorería', icon: 'register', grupo: 'admin' },
+  { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios', icon: 'register', grupo: 'admin' },
 ];
 
 /** Defaults por rol cuando no hay checkbox en Configuración. */

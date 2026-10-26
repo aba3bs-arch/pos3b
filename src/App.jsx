@@ -21,6 +21,7 @@ import Reportes from './modules/Reportes.jsx';
 import Nomina from './modules/Nomina.jsx';
 import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
 import Contabilidad from './modules/Contabilidad.jsx';
+import Tesoreria from './modules/Tesoreria.jsx';
 import ContVirtual from './modules/ContVirtual.jsx';
 import VentaEnRuta from './modules/VentaEnRuta.jsx';
 import CreditoRuta from './modules/CreditoRuta.jsx';
@@ -1817,6 +1818,12 @@ function App() {
           )}
           {vista === VISTA_HUB_CONTABILIDAD && (
             <Contabilidad submodulosVisibles={subContabilidad} onNavigate={irAModulo} />
+          )}
+          {vista === 'Tesorería' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <Tesoreria supabase={supabase} user={user} />
+            </>
           )}
           {vista === 'Liquidación recolecciones' && (
             <>

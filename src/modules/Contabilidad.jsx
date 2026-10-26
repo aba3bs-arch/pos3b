@@ -4,6 +4,10 @@ import { colorDeModulo, iconoDeModulo } from '../lib/moduloIcons.js';
 import { SUBMODULOS_CONTABILIDAD } from '../lib/roles.js';
 
 const DESCRIPCIONES = {
+  Tesorería: {
+    desc: 'Fondos de servicios, saldo y egresos de Cheche',
+    ayuda: 'Transfiere fondos de la cuenta Servicios a Tesorería (Cheche), registra egresos y consulta sus movimientos.',
+  },
   Nómina: {
     desc: 'Periodos, sueldos, asistencia y recibos',
     ayuda: 'Arma periodos de nómina, registra asistencia, calcula sueldos y genera recibos por empleado.',

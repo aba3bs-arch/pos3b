@@ -105,7 +105,7 @@ export const TUTORIAL_COBRO_SERVICIOS = {
       id: 'tesoreria',
       titulo: '8. Traspaso a Tesorería (Cheche)',
       cuerpo: [
-        'Desde **RC Servicios** (bloque Transferir) o la pestaña **Tesorería**.',
+        'Desde **RC Servicios** (bloque Transferir) o **Contabilidad → Tesorería**.',
         'Captura el monto (por defecto el saldo de Servicios) y opcionalmente una nota.',
         'Pulsa **Enviar a Tesorería (Cheche)** — solo admin / gerente / Cheche.',
         'Cheche ve el saldo en Tesorería y el historial de movimientos. No se mezcla con mercancía.',

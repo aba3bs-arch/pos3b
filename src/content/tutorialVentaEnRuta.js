@@ -155,7 +155,7 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         '**Corte de caja** (ruta): admin cierra el turno del vendedor, revisa efectivo/crédito y **imprime**.',
         'El corte puede mostrar **desglose por tienda**.',
         '**RC/VentaRuta → Pendientes por liquidar**: solo mercancía / créditos de venta (Francisco).',
-        'Pestañas aparte: **RC Servicios** y **Tesorería** (fondos de CFE/servicios).',
+        'Pestaña aparte: **RC Servicios** (fondos de CFE/servicios). Tesorería se opera desde **Contabilidad → Tesorería**.',
         'Si queda Disp. al liquidar la carga, el resto **vuelve a CEDIS**.',
       ],
       imagen: `${IMG}/10-corte-liquidacion.svg`,

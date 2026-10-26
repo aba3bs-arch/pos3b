@@ -112,6 +112,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Nómina',
   'Panel RT',
   'Liquidación recolecciones',
+  'Tesorería',
   'Conciliaciones',
   'Consolidación',
   'Compras vs inventario',

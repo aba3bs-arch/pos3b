@@ -27,7 +27,6 @@ import FiltroPeriodo from './FiltroPeriodo.jsx';
 import SelectorCalendario from './SelectorCalendario.jsx';
 import HistorialLiquidacionesGlobal from './HistorialLiquidacionesGlobal.jsx';
 import PanelFondoServicios from './PanelFondoServicios.jsx';
-import PanelTesoreriaRuta from './PanelTesoreriaRuta.jsx';
 import PendientesRecolectorTiendas from './PendientesRecolectorTiendas.jsx';
 
 const PRESETS_PENDIENTE = [
@@ -59,8 +58,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
   const esHistorial = modoConsulta === 'historial';
   const esFondo = modoConsulta === 'fondo';
-  const esTesoreria = modoConsulta === 'tesoreria';
-  const esSoloPanel = esFondo || esTesoreria;
+  const esSoloPanel = esFondo;
   const fechaLiquidacion = useMemo(() => fmtFechaClave(fechaSellado), [fechaSellado]);
   const repNombre = useMemo(() => repartidores.find((r) => r.id === repLiq)?.nombre || '', [repartidores, repLiq]);
 
@@ -370,18 +368,9 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         >
           RC Servicios
         </button>
-        <button
-          type="button"
-          className={`btn ${esTesoreria ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ fontSize: '0.85rem' }}
-          onClick={() => cambiarModoConsulta('tesoreria')}
-        >
-          Tesorería
-        </button>
       </div>
 
       {esFondo && <PanelFondoServicios supabase={supabase} user={user} />}
-      {esTesoreria && <PanelTesoreriaRuta supabase={supabase} user={user} />}
 
       {error && !esSoloPanel && <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem' }}>{error}</p>}
 
