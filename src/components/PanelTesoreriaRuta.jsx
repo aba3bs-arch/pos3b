@@ -21,7 +21,7 @@ import VisorTutorialModal from './VisorTutorialModal.jsx';
 import { TUTORIAL_COBRO_SERVICIOS } from '../content/tutorialCobroServicios.js';
 
 /**
- * RC/VentaRuta → Tesorería.
+ * Contabilidad → Tesorería.
  * Cuenta Servicios → Cheche con fondos de pagos de servicio.
  * Separado de mercancía (Francisco).
  */
