@@ -2878,7 +2878,7 @@ function VistaConsultas({ supabase, user, sucursal, setAviso, cargarDatos, fusio
           setRows(r.data || []);
         } else if (tab === 'creditos_tienda') {
           const r = await listarCreditosPendientesRuta(supabase, {
-            limit: 300,
+            todos: true,
             sucursalId: sucFiltro,
           });
           if (cancel) return;

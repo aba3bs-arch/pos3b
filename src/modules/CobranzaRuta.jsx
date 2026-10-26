@@ -42,6 +42,8 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   /** Folios marcados para pagar (ids). Vacío = ninguno. */
   const [foliosSel, setFoliosSel] = useState(() => new Set());
   const syncGen = useRef(0);
+  const pagoEnCurso = useRef(false);
+  const solicitudPago = useRef(null);
   const puedeEliminar = puedeEliminarCreditosRuta(user?.rol);
 
   const sucActiva = normalizarCodigoTienda(sucursal || user?.sucursal_id || '') || '';
@@ -53,6 +55,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     const msgs = [];
     if (r?.aviso) msgs.push(r.aviso);
     if (r?.error) msgs.push(r.error);
+    if (r?.sync?.error) msgs.push(r.sync.error);
     if (r?.sync?.creados > 0 || r?.sync?.reabiertos > 0) {
       const partes = [];
       if (r.sync.creados) partes.push(`${r.sync.creados} nuevos`);
@@ -90,7 +93,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     // 1) Lectura rápida de CxC (sin sync bloqueante).
     const r = await listarCreditosPendientesRuta(supabase, {
       sucursalId: verTodasLasTiendas ? undefined : sucActiva,
-      limit: 1500,
+      todos: true,
       sync: 'skip',
     });
     if (gen !== syncGen.current) return;
@@ -122,10 +125,11 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
         skipReparar: true,
       });
       if (gen !== syncGen.current) return;
+      if (sync?.error) setAviso((prev) => [prev, sync.error].filter(Boolean).join(' · '));
       if (sync?.creados > 0 || sync?.reabiertos > 0 || sync?.corregidos > 0) {
         const r2 = await listarCreditosPendientesRuta(supabase, {
           sucursalId: verTodasLasTiendas ? undefined : sucActiva,
-          limit: 1500,
+          todos: true,
           sync: 'skip',
         });
         if (gen !== syncGen.current) return;
@@ -306,6 +310,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   };
 
   const pagar = async () => {
+    if (pagoEnCurso.current) return;
     if (!grupoSel || !idsSeleccionados.length) {
       return alert('Marca al menos un folio para pagar.');
     }
@@ -321,15 +326,29 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       + `\nSaldo tienda ${fmtMonto(totalTienda)}\n\n`
       + 'Gasto abarrotes en ESA tienda + efectivo a tránsito.',
     )) return;
+    const firma = JSON.stringify([idsSeleccionados.map(String).sort(), monto, grupoSel.id || sucActiva, cajero?.nombre]);
+    if (solicitudPago.current?.firma !== firma) {
+      solicitudPago.current = { firma, id: crypto.randomUUID() };
+    }
+    pagoEnCurso.current = true;
     setGuardando(true);
-    const r = await pagarCreditosRutaConPin(supabase, {
-      movimientoIds: idsSeleccionados,
-      sucursal: grupoSel.id || sucActiva,
-      cajeroUser: cajero,
-      montoPagar: monto,
-    });
-    setGuardando(false);
+    let r;
+    try {
+      r = await pagarCreditosRutaConPin(supabase, {
+        movimientoIds: idsSeleccionados,
+        sucursal: grupoSel.id || sucActiva,
+        cajeroUser: cajero,
+        montoPagar: monto,
+        solicitudId: solicitudPago.current.id,
+      });
+    } catch {
+      r = { ok: false, error: 'No se confirmó el pago. Conserva la selección y reintenta la misma operación.' };
+    } finally {
+      pagoEnCurso.current = false;
+      setGuardando(false);
+    }
     if (!r.ok) return alert(r.error);
+    solicitudPago.current = null;
     const extra = r.parcial ? ' (parcial; queda saldo pendiente)' : '';
     alert(`Pagado ${fmtMonto(r.montoPagado || monto)} · ${grupoSel.label} · ${r.cajero}.${extra}`);
     setFoliosSel(new Set());
