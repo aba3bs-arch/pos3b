@@ -19,6 +19,11 @@ function mockSupabase({ carga, lineas = [], updateCarga, updateLinea } = {}) {
   return {
     state,
     from(table) {
+      // El reporte consulta primero eventos; este escenario valida el respaldo por carga.
+      if (table === 'ruta_carga_eventos') {
+        return { select() { return this; }, order() { return this; },
+          limit: async () => ({ data: [], error: null }) };
+      }
       if (table === 'ruta_cargas') {
         return {
           select() {

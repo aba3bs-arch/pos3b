@@ -7,7 +7,6 @@
 import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { normalizarRol, rolSistemaEfectivo } from './roles.js';
-import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 
 /** Prefijo carga_id / notas para créditos nacidos en Recolecciones. */
 export const PREFIJO_CXC_RECOLECCION = 'rec:';
@@ -53,12 +52,8 @@ function guardarLocal(lista) {
   }
 }
 
-function uid() {
-  return `cxc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function claveCliente(tipo, id) {
-  return `${String(tipo || 'sucursal')}:${String(id || '')}`;
+  return `${String(tipo || 'sucursal')}:${idCliente(tipo, id)}`;
 }
 
 /** @deprecated — usar precioRutaEspecial de ventaEnRuta.js */
@@ -75,43 +70,38 @@ function esCargoPendienteCxc(m) {
   return est === 'pendiente' || est === '' || est === 'null';
 }
 
-export async function listarMovimientosCxc(supabase, { clienteTipo, clienteId, limit = 500, soloPendientes } = {}) {
+/** Lee todas las páginas; nunca recorta antes de filtrar tienda/estado. */
+async function leerPaginas(crearQuery) {
+  const rows = [];
+  for (;;) {
+    const { data, error } = await crearQuery().range(rows.length, rows.length + 499);
+    if (error) return { data: [], error };
+    if (!data?.length) return { data: rows };
+    rows.push(...data);
+  }
+}
+
+function idCliente(tipo, id) {
+  return tipo === 'externo' ? String(id || '') : normalizarCodigoTienda(id);
+}
+
+export async function listarMovimientosCxc(supabase, { clienteTipo, clienteId, limit = 500, soloPendientes, todos = false } = {}) {
+  let rows;
   if (!supabase) {
-    let list = leerLocal();
-    if (clienteId) {
-      list = list.filter(
-        (m) => String(m.cliente_tipo) === String(clienteTipo || m.cliente_tipo) && String(m.cliente_id) === String(clienteId),
-      );
-    }
-    if (soloPendientes) list = list.filter(esCargoPendienteCxc);
-    return { data: list.slice(0, limit) };
+    return { data: [], error: 'Sin conexión. Los créditos requieren conexión con la base de datos.' };
   }
-  // Con pendientes: traer cargos y filtrar en cliente (incluye estatus null / sin columna).
-  let q = supabase.from('ruta_cxc_movimientos').select('*').order('created_at', { ascending: false }).limit(soloPendientes ? Math.max(limit, 1000) : limit);
-  if (clienteId) {
-    q = q.eq('cliente_id', String(clienteId));
+  const result = await leerPaginas(() => {
+    let q = supabase.from('ruta_cxc_movimientos').select('*')
+      .order('created_at', { ascending: false }).order('id', { ascending: false });
+    if (soloPendientes) q = q.eq('tipo', 'cargo');
     if (clienteTipo) q = q.eq('cliente_tipo', clienteTipo);
-  }
-  if (soloPendientes) {
-    q = q.eq('tipo', 'cargo');
-  }
-  const { data, error } = await q;
-  if (error && faltaTabla(error)) {
-    let list = leerLocal();
-    if (soloPendientes) list = list.filter(esCargoPendienteCxc);
-    return { data: list.slice(0, limit), aviso: AVISO_FALTA_CXC };
-  }
-  if (error && errorColumnaCxc(error)) {
-    const retry = await supabase.from('ruta_cxc_movimientos').select('*').order('created_at', { ascending: false }).limit(soloPendientes ? Math.max(limit, 1000) : limit);
-    if (retry.error) return { data: [], error: retry.error.message };
-    let rows = retry.data || [];
-    if (soloPendientes) rows = rows.filter(esCargoPendienteCxc);
-    return { data: rows.slice(0, limit), aviso: AVISO_FALTA_CXC };
-  }
-  if (error) return { data: [], error: error.message };
-  let rows = data || [];
+    return q;
+  });
+  if (result.error) return { data: [], error: faltaTabla(result.error) ? AVISO_FALTA_CXC : result.error.message };
+  rows = result.data;
+  if (clienteId) rows = rows.filter((m) => idCliente(m.cliente_tipo, m.cliente_id) === idCliente(clienteTipo || m.cliente_tipo, clienteId));
   if (soloPendientes) rows = rows.filter(esCargoPendienteCxc);
-  return { data: rows.slice(0, limit) };
+  return { data: todos ? rows : rows.slice(0, limit) };
 }
 
 /** Extrae id de tránsito de un cargo CxC nacido en Recolecciones. */
@@ -196,12 +186,13 @@ export async function asegurarCargoCxcDesdeRecoleccion(supabase, credito) {
 
   const resolverExistente = async (hit) => {
     if (!hit) return null;
-    await asegurarTiendaCargoCxc(supabase, hit, suc);
+    if (!(await asegurarTiendaCargoCxc(supabase, hit, suc)).ok) return { ok: false, error: 'No se pudo asignar el crédito a su sucursal.' };
     const reopen = await reabrirCargoCxcSiSiguePorCobrar(supabase, hit, {
       transitoId,
       suc,
       monto: credito.monto,
     });
+    if (reopen.error) return { ok: false, error: reopen.error };
     if (reopen.yaPagadoReal) {
       return { ok: true, data: reopen.cargo, yaExistia: true, yaPagado: true };
     }
@@ -270,15 +261,15 @@ export async function asegurarCargoCxcDesdeRecoleccion(supabase, credito) {
 
 /** Asegura que un cargo CxC apunte a la tienda correcta. */
 async function asegurarTiendaCargoCxc(supabase, cargo, suc) {
-  if (!supabase || !cargo?.id || !suc) return false;
+  if (!supabase || !cargo?.id || !suc) return { ok: false };
   const cidActual = normalizarCodigoTienda(cargo.cliente_id) || String(cargo.cliente_id || '').trim();
   const nombreOk = etiquetaTienda(suc) || suc;
-  if (cidActual === suc && String(cargo.cliente_nombre || '') === nombreOk) return false;
+  if (cidActual === suc && String(cargo.cliente_nombre || '') === nombreOk) return { ok: true, cambiado: false };
   const { error } = await supabase
     .from('ruta_cxc_movimientos')
     .update({ cliente_tipo: 'sucursal', cliente_id: suc, cliente_nombre: nombreOk })
     .eq('id', cargo.id);
-  return !error;
+  return { ok: !error, cambiado: !error };
 }
 
 /**
@@ -314,43 +305,25 @@ export async function repararTiendaCargosCxcRecoleccion(supabase, { limit = 800 
 
     const suc = normalizarCodigoTienda(tr.sucursal_origen) || String(tr.sucursal_origen).trim();
     if (!suc) continue;
-    if (await asegurarTiendaCargoCxc(supabase, cargo, suc)) corregidos += 1;
+    if ((await asegurarTiendaCargoCxc(supabase, cargo, suc)).cambiado) corregidos += 1;
   }
   return { ok: true, corregidos };
 }
 
 /**
- * Índice de cargos CxC de Recolecciones ya en DB (una sola query).
+ * Índice paginado de cargos CxC de Recolecciones ya en DB.
  * Evita N selects .eq('carga_id') al sincronizar.
  */
-async function cargarMapaCargosRecoleccionCxc(supabase, { limit = 2000 } = {}) {
+async function cargarMapaCargosRecoleccionCxc(supabase) {
   const map = new Map();
   if (!supabase) return map;
-  const { data, error } = await supabase
-    .from('ruta_cxc_movimientos')
-    .select('id, estatus, tipo, carga_id, pagado_at, cliente_id, cliente_nombre, monto, notas')
-    .eq('tipo', 'cargo')
-    .like('carga_id', `${PREFIJO_CXC_RECOLECCION}%`)
-    .limit(limit);
-  if (!error) {
-    for (const c of data || []) {
-      if (c?.carga_id) map.set(String(c.carga_id), c);
-    }
-    return map;
-  }
-  // Sin columna carga_id: índice por notas transito:…
-  if (/carga_id|schema cache/i.test(String(error.message || ''))) {
-    const retry = await supabase
-      .from('ruta_cxc_movimientos')
-      .select('id, estatus, tipo, pagado_at, cliente_id, cliente_nombre, monto, notas')
-      .eq('tipo', 'cargo')
-      .limit(limit);
-    if (!retry.error) {
-      for (const c of retry.data || []) {
-        const tid = transitoIdDesdeCargoRecoleccion(c);
-        if (tid) map.set(`${PREFIJO_CXC_RECOLECCION}${tid}`, c);
-      }
-    }
+  const { data, error } = await leerPaginas(() => supabase
+    .from('ruta_cxc_movimientos').select('*').eq('tipo', 'cargo')
+    .order('id', { ascending: true }));
+  if (error) throw new Error(error.message || 'No se pudo leer el índice de créditos.');
+  for (const c of data) {
+    const tid = transitoIdDesdeCargoRecoleccion(c);
+    if (tid) map.set(`${PREFIJO_CXC_RECOLECCION}${tid}`, c);
   }
   return map;
 }
@@ -362,18 +335,18 @@ async function cargarMapaCargosRecoleccionCxc(supabase, { limit = 2000 } = {}) {
  * - Reasigna a la tienda correcta
  * - Migra cargos locales (localStorage) que aún existan en tránsito
  *
+ * Lee todas las páginas de tránsito; limit solo limita la reparación auxiliar.
  * @param {{ limit?: number, skipReparar?: boolean }} [opts]
  *   skipReparar: true en sync de apertura (más rápido; la tienda se corrige al crear/omitar).
  */
 export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500, skipReparar = false } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', creados: 0, reabiertos: 0, omitidos: 0 };
-  const { data, error } = await supabase
+  const { data, error } = await leerPaginas(() => supabase
     .from('transito_efectivo')
     .select('id, num_traspaso, monto, cajero_nombre, fecha_hora, sucursal_origen, repartidor_id, estatus, tipo_movimiento')
     .eq('estatus', 'Por Cobrar')
     .eq('tipo_movimiento', 'Entrega Crédito')
-    .order('fecha_hora', { ascending: true })
-    .limit(limit);
+    .order('fecha_hora', { ascending: true }).order('id', { ascending: true }));
   if (error) {
     if (error.code === '42P01') {
       return { ok: false, error: 'Falta tabla transito_efectivo.', creados: 0, reabiertos: 0, omitidos: 0 };
@@ -387,10 +360,13 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
   const porTienda = {};
   const errores = [];
 
-  // Una sola lectura de CxC existentes → evita N round-trips por folio.
-  const mapaExistentes = await cargarMapaCargosRecoleccionCxc(supabase, {
-    limit: Math.max(2000, (Number(limit) || 1500) * 2),
-  });
+  // Índice completo de CxC existentes → evita N búsquedas por folio.
+  let mapaExistentes;
+  try {
+    mapaExistentes = await cargarMapaCargosRecoleccionCxc(supabase);
+  } catch (e) {
+    return { ok: false, error: e.message, creados: 0, reabiertos: 0, omitidos: 0 };
+  }
 
   for (const row of data || []) {
     const suc = normalizarCodigoTienda(row.sucursal_origen) || String(row.sucursal_origen || '—');
@@ -403,9 +379,9 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
     if (hit && esCargoPendienteCxc(hit)) {
       // Ya pendiente: solo corregir tienda si hace falta (sin re-select).
       try {
-        await asegurarTiendaCargoCxc(supabase, hit, suc);
-      } catch {
-        /* ignore */
+        if (!(await asegurarTiendaCargoCxc(supabase, hit, suc)).ok) errores.push(`No se pudo corregir la sucursal del folio ${row.num_traspaso || row.id}`);
+      } catch (e) {
+        errores.push(e?.message || 'Error al corregir sucursal.');
       }
       omitidos += 1;
       continue;
@@ -432,6 +408,7 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
       (m) => m.tipo === 'cargo' && esCargoPendienteCxc(m) && esCargoDesdeRecoleccion(m),
     );
     if (locales.length) {
+      const migrados = new Set();
       for (const loc of locales) {
         const tid = transitoIdDesdeCargoRecoleccion(loc);
         if (!tid) continue;
@@ -444,6 +421,7 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
           .maybeSingle();
         if (!tr) continue;
         const r = await asegurarCargoCxcDesdeRecoleccion(supabase, tr);
+        if (r.ok) migrados.add(String(loc.id));
         if (r.ok && !r.yaExistia && !r.yaPagado) {
           migradosLocal += 1;
           creados += 1;
@@ -453,7 +431,7 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
         }
       }
       // Quitar del local los que ya están en DB (evita doble conteo en fallback).
-      const idsLocal = new Set(locales.map((m) => String(m.id)));
+      const idsLocal = migrados;
       guardarLocal(leerLocal().filter((m) => !idsLocal.has(String(m.id))));
     }
   } catch {
@@ -471,7 +449,8 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
   }
 
   return {
-    ok: true,
+    ok: errores.length === 0,
+    error: errores.length ? `${errores.length} crédito(s) no se sincronizaron: ${errores.slice(0, 3).join(' · ')}` : undefined,
     creados,
     reabiertos,
     omitidos,
@@ -524,6 +503,7 @@ export async function listarCreditosPendientesRuta(supabase, {
   montoMax,
   limit = 200,
   sync = 'skip',
+  todos = false,
 } = {}) {
   const limSync = Math.max(200, Math.min(2000, Number(limit) || 1500));
   let syncRes = null;
@@ -535,7 +515,7 @@ export async function listarCreditosPendientesRuta(supabase, {
       syncRes = { ok: false, error: e?.message || String(e), creados: 0, omitidos: 0 };
     }
   }
-  const { data, error, aviso } = await listarMovimientosCxc(supabase, { soloPendientes: true, limit: limSync });
+  const { data, error, aviso } = await listarMovimientosCxc(supabase, { soloPendientes: true, todos: true });
   if (error) return { data: [], error, aviso, sync: syncRes };
   let rows = (data || []).filter(esCargoPendienteCxc);
   if (sucursalId) {
@@ -562,7 +542,8 @@ export async function listarCreditosPendientesRuta(supabase, {
   if (montoMax != null && montoMax !== '') {
     rows = rows.filter((m) => Number(m.monto) <= Number(montoMax));
   }
-  return { data: rows.slice(0, limit), aviso, sync: syncRes };
+  return { data: todos ? rows : rows.slice(0, limit), total: rows.length,
+    aviso: !todos && rows.length > limit ? `Se muestran ${limit} de ${rows.length} créditos; acota los filtros para ver el resto.` : aviso, sync: syncRes };
 }
 
 /** Créditos ya cobrados (pagados con PIN de cajero) — reporte de consultas. */
@@ -573,18 +554,19 @@ export async function listarCreditosCobradosRuta(supabase, {
   fechaHasta,
   limit = 200,
 } = {}) {
-  const { data, error, aviso } = await listarMovimientosCxc(supabase, { limit: 2000 });
+  const { data, error, aviso } = await listarMovimientosCxc(supabase, { todos: true });
   if (error) return { data: [], error, aviso };
-  let rows = (data || []).filter((m) => {
-    if (m.tipo !== 'cargo') return false;
-    const est = String(m.estatus || '').toLowerCase();
-    if (est === 'pagado') return true;
-    if (m.pagado_at) return true;
-    return false;
-  });
+  const abonos = (data || []).filter((m) => m.tipo === 'abono');
+  const vinculados = new Set(abonos.map((m) => m.cargo_id).filter(Boolean).map(String));
+  const claves = new Set(abonos.filter((m) => m.venta_id || m.folio_venta || m.carga_id)
+    .map((m) => `${claveCliente(m.cliente_tipo, m.cliente_id)}:${m.venta_id || m.folio_venta || m.carga_id}`));
+  let rows = [...abonos, ...(data || []).filter((m) => m.tipo === 'cargo'
+    && (m.pagado_at || String(m.estatus).toLowerCase() === 'pagado')
+    && !vinculados.has(String(m.id))
+    && !claves.has(`${claveCliente(m.cliente_tipo, m.cliente_id)}:${m.venta_id || m.folio_venta || m.carga_id}`))];
   if (sucursalId) {
-    const suc = String(sucursalId).toUpperCase();
-    rows = rows.filter((m) => String(m.cliente_tipo) === 'sucursal' && String(m.cliente_id).toUpperCase() === suc);
+    const suc = normalizarCodigoTienda(sucursalId);
+    rows = rows.filter((m) => m.cliente_tipo === 'sucursal' && normalizarCodigoTienda(m.cliente_id) === suc);
   }
   if (folio) {
     const f = String(folio).trim().toUpperCase();
@@ -601,11 +583,12 @@ export async function listarCreditosCobradosRuta(supabase, {
     rows = rows.filter((m) => String(m.pagado_at || m.created_at || '').slice(0, 10) <= fechaHasta);
   }
   rows.sort((a, b) => String(b.pagado_at || b.created_at || '').localeCompare(String(a.pagado_at || a.created_at || '')));
-  return { data: rows.slice(0, limit), aviso };
+  return { data: rows.slice(0, limit), total: rows.length,
+    aviso: rows.length > limit ? `Se muestran ${limit} de ${rows.length} pagos; acota los filtros para ver el resto.` : aviso };
 }
 
 export async function saldosCxcPorCliente(supabase) {
-  const { data, error, aviso } = await listarMovimientosCxc(supabase, { limit: 3000 });
+  const { data, error, aviso } = await listarMovimientosCxc(supabase, { todos: true });
   if (error) return { data: [], error, aviso };
   const map = new Map();
   const orden = [...(data || [])].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
@@ -614,7 +597,7 @@ export async function saldosCxcPorCliente(supabase) {
     if (!map.has(k)) {
       map.set(k, {
         cliente_tipo: m.cliente_tipo,
-        cliente_id: m.cliente_id,
+        cliente_id: idCliente(m.cliente_tipo, m.cliente_id),
         cliente_nombre: m.cliente_nombre || m.cliente_id,
         cargos: 0,
         abonos: 0,
@@ -622,6 +605,9 @@ export async function saldosCxcPorCliente(supabase) {
       });
     }
     const row = map.get(k);
+    // El cargo conserva el remanente tras un parcial; no restar el abono otra vez.
+    if (esCargoPendienteCxc(m)) row.saldo = round2(row.saldo + Number(m.monto));
+    if (m.tipo === 'ajuste') row.saldo = round2(row.saldo + Number(m.monto));
     const monto = round2(m.monto);
     if (m.tipo === 'cargo' || m.tipo === 'ajuste') {
       if (m.tipo === 'ajuste' && Number(m.monto) < 0) row.abonos = round2(row.abonos + Math.abs(monto));
@@ -631,7 +617,7 @@ export async function saldosCxcPorCliente(supabase) {
     }
     if (m.cliente_nombre) row.cliente_nombre = m.cliente_nombre;
   }
-  const out = [...map.values()].map((r) => ({ ...r, saldo: round2(r.cargos - r.abonos) }));
+  const out = [...map.values()].map((r) => ({ ...r, cargos: round2(Math.max(r.cargos, r.saldo + r.abonos)) }));
   out.sort((a, b) => b.saldo - a.saldo || String(a.cliente_nombre).localeCompare(String(b.cliente_nombre), 'es'));
   return { data: out, aviso };
 }
@@ -639,20 +625,20 @@ export async function saldosCxcPorCliente(supabase) {
 export async function saldoClienteCxc(supabase, clienteTipo, clienteId) {
   const { data } = await saldosCxcPorCliente(supabase);
   const row = (data || []).find(
-    (r) => String(r.cliente_tipo) === String(clienteTipo) && String(r.cliente_id) === String(clienteId),
+    (r) => String(r.cliente_tipo) === String(clienteTipo) && idCliente(r.cliente_tipo, r.cliente_id) === idCliente(clienteTipo, clienteId),
   );
   return round2(row?.saldo || 0);
 }
 
 async function insertarMovimiento(supabase, payload) {
-  if (!supabase) {
-    const list = leerLocal();
-    const row = { ...payload, id: uid(), created_at: new Date().toISOString() };
-    list.unshift(row);
-    guardarLocal(list);
-    return { ok: true, data: row, soloLocal: true };
-  }
+  if (!supabase) return { ok: false, error: 'Sin conexión. No se guardó el crédito.' };
   const { data, error } = await supabase.from('ruta_cxc_movimientos').insert([payload]).select('*').single();
+  if (error?.code === '23505' && payload.tipo === 'cargo' && (payload.venta_id || String(payload.carga_id || '').startsWith(PREFIJO_CXC_RECOLECCION))) {
+    const campo = payload.venta_id ? 'venta_id' : 'carga_id';
+    const existente = await supabase.from('ruta_cxc_movimientos').select('*')
+      .eq('tipo', 'cargo').eq(campo, payload[campo]).limit(1).maybeSingle();
+    if (!existente.error && existente.data) return { ok: true, data: existente.data, yaExistia: true };
+  }
   // Primero columnas faltantes (carga_id/estatus/…) — NUNCA localStorage por schema cache de columna.
   if (error && errorColumnaCxc(error)) {
     const slim = { ...payload };
@@ -673,7 +659,7 @@ async function insertarMovimiento(supabase, payload) {
       delete slim.carga_id;
     }
     const retry = await supabase.from('ruta_cxc_movimientos').insert([slim]).select('*').single();
-    if (retry.error && faltaTabla(retry.error)) return insertarMovimiento(null, payload);
+    if (retry.error && faltaTabla(retry.error)) return { ok: false, error: AVISO_FALTA_CXC };
     if (retry.error && errorColumnaCxc(retry.error)) {
       // Segundo intento: solo columnas base del ledger.
       const base = {
@@ -694,7 +680,7 @@ async function insertarMovimiento(supabase, payload) {
     if (retry.error) return { ok: false, error: retry.error.message };
     return { ok: true, data: retry.data, aviso: AVISO_FALTA_CXC };
   }
-  if (error && faltaTabla(error)) return insertarMovimiento(null, payload);
+  if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CXC };
   if (error) return { ok: false, error: error.message };
   return { ok: true, data };
 }
@@ -713,7 +699,10 @@ export async function registrarCargoCreditoRuta(supabase, {
   const m = round2(monto);
   if (!(m > 0)) return { ok: false, error: 'Monto de crédito inválido.' };
   if (!clienteId) return { ok: false, error: 'Cliente inválido.' };
-  const saldoAntes = await saldoClienteCxc(supabase, clienteTipo || 'sucursal', clienteId);
+  clienteId = idCliente(clienteTipo, clienteId);
+  const saldoRes = await saldosCxcPorCliente(supabase);
+  if (saldoRes.error) return { ok: false, error: saldoRes.error };
+  const saldoAntes = (saldoRes.data || []).find((r) => claveCliente(r.cliente_tipo, r.cliente_id) === claveCliente(clienteTipo, clienteId))?.saldo || 0;
   const saldoDespues = round2(saldoAntes + m);
   return insertarMovimiento(supabase, {
     cliente_tipo: clienteTipo === 'externo' ? 'externo' : 'sucursal',
@@ -820,6 +809,7 @@ export async function pagarCreditosRutaConPin(supabase, {
   cajeroUser = null,
   /** Monto a liquidar (parcial permitido). Si se omite, paga todo lo seleccionado. */
   montoPagar = null,
+  solicitudId = globalThis.crypto.randomUUID(),
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const ids = [...new Set((movimientoIds || []).map(String).filter(Boolean))];
@@ -832,193 +822,27 @@ export async function pagarCreditosRutaConPin(supabase, {
     if (!auth.ok) return auth;
   }
 
-  const { data: movs, error } = await supabase.from('ruta_cxc_movimientos').select('*').in('id', ids);
-  if (error) return { ok: false, error: error.message };
-  const pendientes = (movs || []).filter(
-    (m) => m.tipo === 'cargo' && String(m.estatus || 'pendiente') === 'pendiente',
-  );
-  if (!pendientes.length) return { ok: false, error: 'No hay créditos pendientes en la selección.' };
-
-  const totalSel = round2(pendientes.reduce((s, c) => s + (Number(c.monto) || 0), 0));
-  const montoObj = montoPagar == null || montoPagar === ''
-    ? totalSel
-    : round2(montoPagar);
-  const reparto = repartirMontoEntreCargos(pendientes, montoObj);
-  if (!reparto.ok) return reparto;
-
-  const resultados = [];
-  for (const parte of reparto.partes) {
-    const cargo = parte.cargo;
-    const monto = parte.monto;
-    const parcial = parte.parcial;
-    const sucGasto = String(cargo.cliente_tipo) === 'sucursal' ? String(cargo.cliente_id) : sucursal;
-    const folio = cargo.folio_venta || cargo.venta_id || cargo.id;
-    const desdeRecoleccion = esCargoDesdeRecoleccion(cargo);
-    const transitoRecId = transitoIdDesdeCargoRecoleccion(cargo);
-    const etiqueta = parcial
-      ? (desdeRecoleccion ? 'CREDITO COBRADO parcial' : 'credito liquidado parcial')
-      : (desdeRecoleccion ? 'CREDITO COBRADO' : 'credito liquidado');
-
-    // 1) Gasto en corte abarrotes
-    const gastoPayload = desdeRecoleccion
-      ? {
-          sucursal_id: sucGasto,
-          modulo: 'abarrotes',
-          categoria: 'CREDITO',
-          subcategoria: 'COBRADO',
-          comentario: `${etiqueta} · FICHA ${folio}${parcial ? ' · PARCIAL' : ''} · ${auth.user?.nombre || ''}`.trim().toUpperCase(),
-          monto,
-          usuario_nombre: auth.user?.nombre || null,
-          cerrado: false,
-          descontado_nomina: false,
-          estado_aprobacion: 'aprobado',
-          solicitado_por: auth.user?.nombre || null,
-        }
-      : {
-          sucursal_id: sucGasto,
-          modulo: 'abarrotes',
-          categoria: 'CREDITO RUTA',
-          subcategoria: 'LIQUIDADO',
-          comentario: `${etiqueta} · ${folio} · ${cargo.cliente_nombre || ''}`.trim(),
-          monto,
-          usuario_nombre: auth.user?.nombre || null,
-          cerrado: false,
-          descontado_nomina: false,
-          estado_aprobacion: 'aprobado',
-          solicitado_por: auth.user?.nombre || null,
-        };
-    let { data: gasto, error: eGasto } = await supabase
-      .from('cortes_contabilidad_gastos')
-      .insert([gastoPayload])
-      .select('id')
-      .single();
-    if (eGasto && /estado_aprobacion|solicitado_por|descontado_nomina/i.test(String(eGasto.message || ''))) {
-      const slim = { ...gastoPayload };
-      delete slim.estado_aprobacion;
-      delete slim.solicitado_por;
-      delete slim.descontado_nomina;
-      ({ data: gasto, error: eGasto } = await supabase.from('cortes_contabilidad_gastos').insert([slim]).select('id').single());
-    }
-    if (eGasto) return { ok: false, error: `Gasto corte: ${eGasto.message}` };
-
-    // 2) Efectivo cobrado → tránsito
-    // Recolecciones: reutiliza la ficha Entrega Crédito (evita doble conteo).
-    let transitoId = null;
-    if (desdeRecoleccion && transitoRecId && !parcial) {
-      const { TIPO_COBRO_CREDITO, ahoraIsoNogales } = await import('./controlEfectivo.js');
-      const { error: eUp } = await supabase
-        .from('transito_efectivo')
-        .update({
-          estatus: 'En Tránsito',
-          cajero_nombre: auth.user?.nombre || null,
-          foto_url: `Crédito cobrado en Créditos por pagar · ficha ${folio}`,
-          tipo_movimiento: TIPO_COBRO_CREDITO,
-          descripcion_gasto: 'Crédito cobrado',
-          usuario_liquida: 'No Leído',
-          fecha_hora: ahoraIsoNogales(),
-        })
-        .eq('id', transitoRecId)
-        .eq('estatus', 'Por Cobrar')
-        .eq('tipo_movimiento', 'Entrega Crédito');
-      if (eUp) return { ok: false, error: `Tránsito recolección: ${eUp.message}` };
-      transitoId = transitoRecId;
-    } else if (desdeRecoleccion && transitoRecId && parcial) {
-      // Parcial: deja ficha original y registra el tramo cobrado en tránsito ruta.
-      const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
-        sucursalOrigen: sucGasto,
-        monto,
-        folioVenta: `CXC-REC-${folio}-P`,
-        vendedorId: cargo.usuario_nombre || 'ruta',
-        vendedorNombre: auth.user?.nombre,
-        nota: `Crédito recolección parcial ${folio} · cajero ${auth.user?.nombre}`,
-      });
-      if (!tr.ok) return { ok: false, error: tr.error || 'No se registró en tránsito.' };
-      transitoId = tr.id;
-    } else {
-      const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
-        sucursalOrigen: sucGasto,
-        monto,
-        folioVenta: `CXC-${folio}${parcial ? '-P' : ''}`,
-        vendedorId: cargo.usuario_nombre || 'ruta',
-        vendedorNombre: auth.user?.nombre,
-        nota: `Crédito ${parcial ? 'parcial' : 'liquidado'} ${folio} · cajero ${auth.user?.nombre}`,
-      });
-      if (!tr.ok) return { ok: false, error: tr.error || 'No se registró en tránsito.' };
-      transitoId = tr.id;
-    }
-
-    // 3) Actualizar cargo + abono
-    const saldoAntes = await saldoClienteCxc(supabase, cargo.cliente_tipo, cargo.cliente_id);
-    const saldoDespues = round2(Math.max(0, saldoAntes - monto));
-    const ahora = new Date().toISOString();
-
-    if (parcial) {
-      const restoCargo = round2(Number(cargo.monto) - monto);
-      let { error: ePatch } = await supabase
-        .from('ruta_cxc_movimientos')
-        .update({
-          monto: restoCargo,
-          notas: `${cargo.notas || 'Venta en ruta a crédito'} · abono parcial ${monto.toFixed(2)}`.trim(),
-        })
-        .eq('id', cargo.id);
-      if (ePatch) return { ok: false, error: ePatch.message };
-    } else {
-      const patchCargo = {
-        estatus: 'pagado',
-        pagado_por: auth.user?.nombre || null,
-        pagado_at: ahora,
-        gasto_id: gasto?.id || null,
-      };
-      let { error: ePatch } = await supabase.from('ruta_cxc_movimientos').update(patchCargo).eq('id', cargo.id);
-      if (ePatch && /estatus|pagado|gasto_id/i.test(String(ePatch.message || ''))) {
-        ePatch = null; // columnas faltantes: seguir con abono
-      }
-      if (ePatch) return { ok: false, error: ePatch.message };
-    }
-
-    await insertarMovimiento(supabase, {
-      cliente_tipo: cargo.cliente_tipo,
-      cliente_id: cargo.cliente_id,
-      cliente_nombre: cargo.cliente_nombre,
-      tipo: 'abono',
-      monto,
-      saldo_despues: saldoDespues,
-      venta_id: cargo.venta_id,
-      carga_id: cargo.carga_id,
-      folio_venta: cargo.folio_venta || folio,
-      metodo_pago: 'efectivo',
-      estatus: 'pagado',
-      notas: `Pago cajero · ${etiqueta} · ${folio}${desdeRecoleccion ? ' · recolección' : ''}`,
-      usuario_nombre: auth.user?.nombre || null,
-      pagado_por: auth.user?.nombre || null,
-      pagado_at: ahora,
-      gasto_id: gasto?.id || null,
+  // Una sola transacción: gasto, tránsito, cargo y abono se confirman juntos.
+  // La misma solicitud puede repetirse tras una pérdida de conexión sin volver a cobrar.
+  try {
+    const { data, error } = await supabase.rpc('pagar_creditos_ruta_atomico', {
+      p_solicitud: solicitudId,
+      p_ids: ids,
+      p_monto: montoPagar == null || montoPagar === '' ? null : round2(montoPagar),
+      p_sucursal: normalizarCodigoTienda(sucursal),
+      p_cajero: auth.user?.nombre || '',
     });
-
-    if (!parcial && cargo.venta_id && !String(cargo.venta_id).startsWith(PREFIJO_CXC_RECOLECCION)) {
-      await supabase
-        .from('ruta_ventas')
-        .update({ estado_credito: 'pagado', transito_id: String(transitoId) })
-        .eq('id', cargo.venta_id);
+    if (error) {
+      const faltaRpc = error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message || '');
+      return { ok: false, error: faltaRpc
+        ? 'Falta activar los pagos seguros en la base de datos. Aplica supabase/fix_ruta_cxc_pagos_atomicos.sql. No se realizó ningún cargo.'
+        : `No se confirmó el pago: ${error.message}. Reintenta la misma operación para consultar su resultado sin duplicarla.` };
     }
-
-    resultados.push({
-      cargoId: cargo.id,
-      gastoId: gasto?.id,
-      transitoId,
-      monto,
-      parcial,
-      desdeRecoleccion,
-    });
+    if (!data?.ok) return { ok: false, error: data?.error || 'No se recibió confirmación del pago. Reintenta la misma operación.' };
+    return data;
+  } catch {
+    return { ok: false, error: 'Se perdió la conexión. Reintenta la misma operación para confirmar el resultado sin duplicar el pago.' };
   }
-
-  return {
-    ok: true,
-    pagados: resultados,
-    cajero: auth.user?.nombre,
-    montoPagado: reparto.montoAplicado,
-    parcial: resultados.some((r) => r.parcial) || round2(reparto.montoAplicado) < totalSel,
-  };
 }
 
 /** Solo Administrador puede borrar créditos pendientes (corrección de errores). */

@@ -42,6 +42,7 @@ function mockSupabaseCargaIdMissingThenOk() {
     eq() { return this; },
     order() { return this; },
     limit() { return Promise.resolve(result); },
+    range() { return Promise.resolve(result); },
     single() { return Promise.resolve(result); },
     then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
   });
