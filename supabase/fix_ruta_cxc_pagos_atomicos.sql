@@ -1,7 +1,7 @@
 -- Créditos por pagar (todas las tiendas, incluida FUSION).
--- Crea la tabla si falta y activa el cobro atómico. Seguro para volver a ejecutar.
--- No borra ni reconstruye movimientos históricos.
-begin;
+-- Crea las tablas que falten (CxC, tránsito, gastos, ventas) y activa el cobro.
+-- Cada sentencia se confirma sola: si una política falla, las tablas ya creadas se quedan.
+-- Seguro para volver a ejecutar. No borra ni reconstruye movimientos históricos.
 
 create table if not exists public.ruta_cxc_movimientos (
   id uuid primary key default gen_random_uuid(),
@@ -71,7 +71,7 @@ create table if not exists public.transito_efectivo (
   id uuid primary key default gen_random_uuid(),
   fecha_hora timestamptz default now(),
   sucursal_origen varchar(50) not null,
-  repartidor_id varchar(50) references public.repartidores(id),
+  repartidor_id varchar(50),
   cajero_nombre varchar(100) not null,
   monto numeric(10,2) not null check (monto > 0),
   num_traspaso varchar(50),
@@ -83,6 +83,11 @@ create table if not exists public.transito_efectivo (
   usuario_liquida varchar(100)
 );
 
+alter table public.transito_efectivo add column if not exists fecha_hora timestamptz default now();
+alter table public.transito_efectivo add column if not exists sucursal_origen varchar(50);
+alter table public.transito_efectivo add column if not exists repartidor_id varchar(50);
+alter table public.transito_efectivo add column if not exists cajero_nombre varchar(100);
+alter table public.transito_efectivo add column if not exists monto numeric(10,2);
 alter table public.transito_efectivo add column if not exists num_traspaso varchar(50);
 alter table public.transito_efectivo add column if not exists tipo_movimiento varchar(50);
 alter table public.transito_efectivo add column if not exists descripcion_gasto varchar(200);
@@ -380,4 +385,3 @@ end $$;
 revoke all on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) from public;
 grant execute on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) to anon, authenticated;
 notify pgrst, 'reload schema';
-commit;

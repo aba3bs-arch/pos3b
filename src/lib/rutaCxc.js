@@ -348,8 +348,14 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
     .eq('tipo_movimiento', 'Entrega Crédito')
     .order('fecha_hora', { ascending: true }).order('id', { ascending: true }));
   if (error) {
-    if (error.code === '42P01') {
-      return { ok: false, error: 'Falta tabla transito_efectivo.', creados: 0, reabiertos: 0, omitidos: 0 };
+    if (error.code === '42P01' || /transito_efectivo/i.test(String(error.message || '')) && /does not exist|could not find the table/i.test(String(error.message || ''))) {
+      return {
+        ok: false,
+        error: 'Falta la tabla transito_efectivo. En Supabase → SQL Editor ejecuta supabase/fix_ruta_cxc_pagos_atomicos.sql.',
+        creados: 0,
+        reabiertos: 0,
+        omitidos: 0,
+      };
     }
     return { ok: false, error: error.message, creados: 0, reabiertos: 0, omitidos: 0 };
   }
