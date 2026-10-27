@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { huellaGastoCorte, MODULOS_CORTE, etiquetaModuloCorte } from './store.js';
+import {
+  huellaGastoCorte,
+  MODULOS_CORTE,
+  etiquetaModuloCorte,
+  gastoLigadoAOtroFolioCompra,
+} from './store.js';
 
 test('MODULOS_CORTE tiene los tres cortes', () => {
   assert.deepEqual(MODULOS_CORTE, ['virtual', 'abarrotes', 'garage']);
@@ -34,4 +39,16 @@ test('huellaGastoCorte normaliza acentos y monto', () => {
   assert.equal(a.subcategoria, 'CONSUMO');
   assert.equal(a.monto, b.monto);
   assert.equal(a.usuario_id, b.usuario_id);
+});
+
+test('gasto de otra compra (otro CMP) no cuenta como duplicado de esta compra', () => {
+  const previo = { comentario: 'COMPRA VENTA EN RUTA · CMP-FUS-AAAA1111-E · VENTA EN RUTA' };
+  assert.equal(gastoLigadoAOtroFolioCompra(previo, 'CMP-FUS-BBBB2222-E'), true);
+  assert.equal(gastoLigadoAOtroFolioCompra(previo, 'CMP-FUS-AAAA1111'), false);
+  assert.equal(gastoLigadoAOtroFolioCompra(previo, 'CMP-FUS-AAAA1111-E'), false);
+});
+
+test('gasto manual sin folio sigue contando como duplicado', () => {
+  assert.equal(gastoLigadoAOtroFolioCompra({ comentario: 'otros' }, 'CMP-FUS-BBBB2222-E'), false);
+  assert.equal(gastoLigadoAOtroFolioCompra({ comentario: 'x' }, null), false);
 });

@@ -16,6 +16,7 @@ import {
   validarSustentoSmokingGasto,
 } from './smokingSustentoInventario.js';
 import { normalizarFolioTrp } from '../foliosInventario.js';
+import { validarGastoManualSinFuga } from './gastoManualSinFuga.js';
 import { buscarTraspasoParaGasto } from '../traspasosInventario.js';
 import {
   esEmpleadoIndirectoOMain,
@@ -110,6 +111,24 @@ export function huellaGastoCorte(gasto) {
   };
 }
 
+const RE_FOLIO_CMP = /\bCMP-[A-Z0-9]+(?:-[A-F0-9]{6,12})?/gi;
+
+function baseFolioCmp(f) {
+  return String(f || '').toUpperCase().replace(/-(ME|MC|E|C|M)$/, '');
+}
+
+/** El gasto ya está ligado a otra compra (otro folio CMP) distinta a `folioPropio`. */
+export function gastoLigadoAOtroFolioCompra(gasto, folioPropio) {
+  const propio = baseFolioCmp(folioPropio);
+  if (!propio) return false;
+  const folios = String(gasto?.comentario || '').match(RE_FOLIO_CMP) || [];
+  if (!folios.length) return false;
+  return !folios.some((f) => {
+    const b = baseFolioCmp(f);
+    return b === propio || propio.startsWith(`${b}-`) || b.startsWith(`${propio}-`);
+  });
+}
+
 function mismoGastoHuella(a, b) {
   if (!a || !b) return false;
   if (a.monto !== b.monto) return false;
@@ -130,6 +149,7 @@ export async function buscarGastosDuplicadosEntreModulos(supabase, {
   moduloOrigen,
   gasto,
   horasVentana = 48,
+  folioPropio = null,
 } = {}) {
   const origen = String(moduloOrigen || '').toLowerCase();
   if (origen !== 'abarrotes') return [];
@@ -171,7 +191,9 @@ export async function buscarGastosDuplicadosEntreModulos(supabase, {
     }
   }
 
-  return candidatos.filter((g) => mismoGastoHuella(huella, huellaGastoCorte(g)));
+  return candidatos.filter(
+    (g) => mismoGastoHuella(huella, huellaGastoCorte(g)) && !gastoLigadoAOtroFolioCompra(g, folioPropio),
+  );
 }
 
 function mensajeGastoDuplicado(duplicados, moduloDestino) {
@@ -555,6 +577,12 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     }
   }
 
+  // Abarrotes: mercancía / venta en ruta no se captura a mano como «Otros» (fuga).
+  if (!opts.folioCompraPropio && !opts.omitirValidacionFuga) {
+    const fuga = await validarGastoManualSinFuga(supabase, { sucursal, modulo, gasto });
+    if (!fuga.ok) return fuga;
+  }
+
   // Solo Abarrotes: evita el mismo gasto (proveedores/compras) dos veces en el corte.
   // Virtual y Garage no manejan compras ni folios de inventario.
   if (
@@ -566,6 +594,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       sucursal,
       moduloOrigen: modulo,
       gasto,
+      folioPropio: opts.folioCompraPropio || null,
     });
     if (duplicados.length) {
       return {
