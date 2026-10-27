@@ -1,6 +1,7 @@
 -- Créditos por pagar (todas las tiendas, incluida FUSION).
--- Crea las tablas que falten (CxC, tránsito, gastos, ventas) y activa el cobro.
--- Cada sentencia se confirma sola: si una política falla, las tablas ya creadas se quedan.
+-- Si en Table Editor no ves las tablas, ejecuta primero fix_tabla_creditos.sql.
+-- Este archivo crea lo que falte y activa el cobro. La última consulta lista
+-- transito_efectivo, ruta_cxc_movimientos y ruta_cxc_pagos_solicitudes.
 -- Seguro para volver a ejecutar. No borra ni reconstruye movimientos históricos.
 
 create table if not exists public.ruta_cxc_movimientos (
@@ -384,4 +385,17 @@ begin
 end $$;
 revoke all on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) from public;
 grant execute on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) to anon, authenticated;
-notify pgrst, 'reload schema';
+do $$
+begin
+  perform pg_notify('pgrst', 'reload schema');
+exception when others then
+  raise notice 'reload schema: %', sqlerrm;
+end $$;
+
+select n.nspname as schema, c.relname as tabla
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relkind = 'r'
+  and c.relname in ('transito_efectivo', 'ruta_cxc_movimientos', 'ruta_cxc_pagos_solicitudes')
+order by c.relname;

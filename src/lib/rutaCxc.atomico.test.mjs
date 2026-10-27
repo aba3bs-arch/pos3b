@@ -126,5 +126,19 @@ assert.equal(pago3b.montoPagado, 15);
 assert.equal((await limpio.query(`select sucursal_id n from cortes_contabilidad_gastos where monto=40`)).rows[0].n, 'FUSION');
 assert.equal((await limpio.query(`select sucursal_id n from cortes_contabilidad_gastos where monto=15`)).rows[0].n, '3B5');
 await limpio.close();
+// Sin roles anon/authenticated: el SQL corto deja las 3 tablas y las lista.
+const soloTablas = new PGlite();
+const tablasSql = await readFile(new URL('../../supabase/fix_tabla_creditos.sql', import.meta.url), 'utf8');
+await soloTablas.exec(tablasSql);
+const listadas = (await soloTablas.query(`
+select c.relname as tabla
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relkind = 'r'
+  and c.relname in ('transito_efectivo', 'ruta_cxc_movimientos', 'ruta_cxc_pagos_solicitudes')
+order by c.relname`)).rows.map((r) => r.tabla);
+assert.deepEqual(listadas, ['ruta_cxc_movimientos', 'ruta_cxc_pagos_solicitudes', 'transito_efectivo']);
+await soloTablas.exec(tablasSql);
+await soloTablas.close();
 console.log('rutaCxc SQL: transacción, reintentos, lotes, parciales y sucursales OK');
 } finally { await db.close(); }
