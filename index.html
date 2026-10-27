@@ -31,8 +31,9 @@
         }
         function recargarUnaVez() {
           try {
-            if (sessionStorage.getItem(KEY)) return;
-            sessionStorage.setItem(KEY, '1');
+            var ultimo = Number(sessionStorage.getItem(KEY) || 0);
+            if (ultimo && Date.now() - ultimo < 60000) return;
+            sessionStorage.setItem(KEY, String(Date.now()));
           } catch (e) {
             /* ignore */
           }
@@ -67,5 +68,64 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      /* Escape sin login: abrir la dirección con ?limpiar=1 borra el caché del navegador y recarga. */
+      (function () {
+        try {
+          var u = new URL(window.location.href);
+          if (u.searchParams.get('limpiar') !== '1') return;
+          u.searchParams.delete('limpiar');
+          var seguir = function () { window.location.replace(u.toString()); };
+          if (window.caches && caches.keys) {
+            caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }).then(seguir, seguir);
+          } else {
+            seguir();
+          }
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
+    <script>
+      /* Si tras 8 s no pintó nada (JS que no cargó / navegador viejo / caché dañado), ofrecer recargar. */
+      (function () {
+        function raizVacia() {
+          var r = document.getElementById('root');
+          return !r || r.childElementCount === 0;
+        }
+        function quitar() {
+          var f = document.getElementById('pos3b-pantalla-blanca');
+          if (f && f.parentNode) f.parentNode.removeChild(f);
+        }
+        function mostrar() {
+          if (document.getElementById('pos3b-pantalla-blanca')) return;
+          var d = document.createElement('div');
+          d.id = 'pos3b-pantalla-blanca';
+          d.style.cssText =
+            'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:1rem;background:#fff;color:#111;font-family:system-ui,sans-serif;z-index:99999;text-align:center';
+          d.innerHTML =
+            '<div style="max-width:420px"><h2 style="margin:0 0 .5rem">POS 3B no terminó de cargar</h2>' +
+            '<p style="margin:0 0 1rem;color:#555">Revisa el internet y pulsa el botón. Tu tienda y este equipo no se pierden.</p>' +
+            '<button id="pos3b-pb-recargar" style="padding:.7rem 1.2rem;font-size:1rem;border:0;border-radius:8px;background:#3b66b5;color:#fff">Limpiar y recargar</button></div>';
+          document.body.appendChild(d);
+          document.getElementById('pos3b-pb-recargar').onclick = function () {
+            var hecho = function () {
+              var u = new URL(window.location.href);
+              u.searchParams.set('_r', String(Date.now()));
+              window.location.replace(u.toString());
+            };
+            try {
+              if (window.caches && caches.keys) {
+                caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }).then(hecho, hecho);
+                return;
+              }
+            } catch (e) { /* ignore */ }
+            hecho();
+          };
+        }
+        setTimeout(function () {
+          if (raizVacia()) mostrar();
+          setInterval(function () { if (!raizVacia()) quitar(); }, 2000);
+        }, 8000);
+      })();
+    </script>
   </body>
 </html>

@@ -5,6 +5,7 @@ import SelectorTemaInterfaz from './SelectorTemaInterfaz.jsx';
 import SelectorSucursal from './SelectorSucursal.jsx';
 import Icon, { BtnLabel } from './Icon.jsx';
 import BotonInstalarApp from './BotonInstalarApp.jsx';
+import BotonLimpiarCache from './BotonLimpiarCache.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { detectarMobile } from '../lib/notificacionesDispositivo.js';
 
@@ -378,6 +379,13 @@ export default function PantallaLogin({
 
         <div className="login-tema-picker">
           <SelectorTemaInterfaz compact />
+        </div>
+
+        <div style={{ marginTop: '0.75rem', textAlign: 'center' }}>
+          <BotonLimpiarCache className="btn btn-ghost" style={{ fontSize: '0.8rem' }} />
+          <p className="muted login-hint-sm" style={{ margin: '0.25rem 0 0' }}>
+            ¿Pantalla lenta, vieja o con errores? Limpia el caché: no cambia la tienda ni el equipo.
+          </p>
         </div>
       </div>
     </div>
