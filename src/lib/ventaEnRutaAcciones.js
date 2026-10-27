@@ -7,6 +7,7 @@ import { normalizarRol, puedeVerModulo } from './roles.js';
  * Checkbox explícito (true/false) manda sobre el default del rol.
  */
 export const SUBCOMANDOS_VENTA_RUTA = [
+  { id: 'ruta_consolidacion', vista: 'consolidacion', label: 'Consolidación', desc: 'Por repartidor · mercancía, efectivo y créditos', icon: 'search', grupo: 'admin' },
   { id: 'ruta_camiones', vista: 'camiones', label: 'Camiones', desc: 'Alta y asignación a repartidor', icon: 'truck', grupo: 'admin' },
   { id: 'ruta_carga', vista: 'carga', label: 'Carga de camión', desc: `Repartidor · descuenta CEDIS`, icon: 'package', grupo: 'admin' },
   { id: 'ruta_precios', vista: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar', grupo: 'admin' },
@@ -53,7 +54,7 @@ export const ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL = {
   Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
   Cajero: ['ruta_creditos', 'ruta_cancelacion'],
   Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
-  Auditor: ['ruta_auditorias', 'ruta_consultas', 'ruta_preinventario'],
+  Auditor: ['ruta_consolidacion', 'ruta_auditorias', 'ruta_consultas', 'ruta_preinventario'],
 };
 
 function lecturaExplicitaAccion(data, accionId, rol, userId) {

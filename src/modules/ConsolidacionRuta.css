@@ -1,0 +1,27 @@
+.ruta-consol { border-top: 4px solid #0f766e; }
+.ruta-consol h3 { margin: .35rem 0; color: var(--brand-blue); font-size: 1.45rem; }
+.ruta-consol-ceja { color: #0f766e; letter-spacing: .15em; font-size: .7rem; font-weight: 800; }
+.ruta-consol-filtros { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem; margin: 1rem 0; }
+.ruta-consol-filtros label { display: grid; gap: .35rem; font-size: .85rem; }
+.ruta-consol-filtros .ruta-consol-checkbox { display: flex; align-items: center; padding: .6rem 0; }
+.ruta-consol-nota { background: var(--surface); border-left: 3px solid var(--brand-gold); padding: .8rem; font-size: .85rem; }
+.ruta-consol-grupo { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 1.25rem 0; padding: 1rem; }
+.ruta-consol-titulo { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: baseline; gap: .5rem; border-bottom: 1px solid var(--border); }
+.ruta-consol-titulo h4 { font-size: 1.2rem; margin: 0 0 .75rem; }
+.ruta-consol-titulo span { font-size: .8rem; }
+.ruta-consol-indicadores { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.ruta-consol-indicador { display: grid; align-content: start; gap: .35rem; padding: .7rem; border-left: 2px solid #0f766e; background: var(--surface); }
+.ruta-consol-indicador > span { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+.ruta-consol-indicador strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.ruta-consol-indicador small { font-size: .75rem; }
+.ruta-consol-alerta { border-color: var(--brand-gold); }
+.ruta-consol-rojo { color: var(--brand-red, #b42318); }
+.ruta-consol-verde { color: var(--brand-green, #187443); }
+.ruta-consol details { padding: .8rem 0; border-top: 1px solid var(--border); }
+.ruta-consol summary { cursor: pointer; font-weight: 600; }
+.ruta-consol-entrega summary { display: flex; gap: .75rem; flex-wrap: wrap; align-items: baseline; }
+.ruta-consol-entrega summary strong { font-family: monospace; }
+.ruta-consol-entrega summary b { margin-left: auto; font-size: .78rem; }
+.ruta-consol table { font-variant-numeric: tabular-nums; }
+.ruta-consol-cargando { min-height: 140px; display: grid; place-content: center; background: var(--surface); color: #0f766e; }
+@media (max-width: 600px) { .ruta-consol-filtros label { flex: 1 1 100%; } .ruta-consol-grupo { padding: .75rem; } .ruta-consol-entrega summary b { margin-left: 0; } }
