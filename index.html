@@ -69,6 +69,22 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
+      /* Escape sin login: abrir la dirección con ?limpiar=1 borra el caché del navegador y recarga. */
+      (function () {
+        try {
+          var u = new URL(window.location.href);
+          if (u.searchParams.get('limpiar') !== '1') return;
+          u.searchParams.delete('limpiar');
+          var seguir = function () { window.location.replace(u.toString()); };
+          if (window.caches && caches.keys) {
+            caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }).then(seguir, seguir);
+          } else {
+            seguir();
+          }
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
+    <script>
       /* Si tras 8 s no pintó nada (JS que no cargó / navegador viejo / caché dañado), ofrecer recargar. */
       (function () {
         function raizVacia() {
