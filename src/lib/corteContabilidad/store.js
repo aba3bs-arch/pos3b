@@ -16,6 +16,7 @@ import {
   validarSustentoSmokingGasto,
 } from './smokingSustentoInventario.js';
 import { normalizarFolioTrp } from '../foliosInventario.js';
+import { validarGastoManualSinFuga } from './gastoManualSinFuga.js';
 import { buscarTraspasoParaGasto } from '../traspasosInventario.js';
 import {
   esEmpleadoIndirectoOMain,
@@ -574,6 +575,12 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
         };
       }
     }
+  }
+
+  // Abarrotes: mercancía / venta en ruta no se captura a mano como «Otros» (fuga).
+  if (!opts.folioCompraPropio && !opts.omitirValidacionFuga) {
+    const fuga = await validarGastoManualSinFuga(supabase, { sucursal, modulo, gasto });
+    if (!fuga.ok) return fuga;
   }
 
   // Solo Abarrotes: evita el mismo gasto (proveedores/compras) dos veces en el corte.
