@@ -1,6 +1,6 @@
 # Arquitectura: Conciliación de Venta en Ruta (control de fugas por alertas)
 
-**Estado:** propuesta de diseño (sin código de aplicación todavía)
+**Estado:** diseño aprobado en lo esencial · **fase 1 implementada** (ver sección 11)
 **Objetivo:** que cada venta de ruta quede comprobada contra inventario, efectivo, crédito y gasto de Abarrotes, y que cualquier diferencia genere una **alerta persistente** con responsable y seguimiento.
 
 ---
@@ -248,10 +248,32 @@ Las pruebas siguen el patrón existente (`node:assert`, `.mjs`, datos en memoria
 5. **Volumen:** las consultas deben acotarse por fecha y paginarse; el barrido no debe leer todo el historial (cuidado con el Disk IO ya documentado en `supabase/diagnostico_disk_io.sql`).
 6. **Falsos positivos:** cada alerta debe permitir "justificada" con nota; de lo contrario el equipo dejará de confiar en el tablero.
 
-### Preguntas abiertas
+### Decisiones tomadas
 
-- ¿Se **evoluciona** el subcomando Consolidación actual o se crea **Conciliación** aparte y se retira aquel?
-- ¿Ventanas de gracia sugeridas (24 h recepción, 48 h tránsito, 15 días crédito) son correctas?
-- ¿Quién recibe push de alertas críticas: solo Admin o también Gerente de cada sucursal?
-- ¿Un faltante de inventario a partir de qué monto se considera crítico?
-- ¿Las alertas deben bloquear algo (por ejemplo, cerrar la carga o liquidar efectivo) o solo avisar?
+- **Crédito sin cobrar:** 15 días (`DIAS_CREDITO_VENCIDO`, control C8 de la fase 2).
+- **Push:** lo reciben Administrador y Gerente (destinatarios por defecto de `enviar-push`).
+- **Las alertas solo avisan:** no bloquean ventas, cobros, liquidaciones ni cierre de carga.
+- **Se evoluciona "Consolidación"** en lugar de crear un subcomando aparte: conserva el id `ruta_consolidacion` y sus privilegios; ahora se llama "Conciliación" y tiene dos pestañas (Consolidación y Alertas).
+- Ventanas de recepción (24 h) y tránsito (48 h): valores sugeridos, ajustables en `src/lib/rutaConciliacion/config.js`.
+
+### Pendiente de definir
+
+- Monto a partir del cual un faltante de inventario es crítico (C12, fase 2). Mientras tanto C9 es severidad alta.
+
+---
+
+## 11. Estado de implementación
+
+**Fase 1 (hecha):**
+
+- `supabase/fix_ruta_conciliacion.sql`: tablas `ruta_conciliacion_alertas` y `ruta_conciliacion_corridas`.
+- `src/lib/rutaConciliacion/`: `config.js`, `motor.js` (hallazgos con importes, severidad y ventana de recepción), `plan.js` (sincronización idempotente, auto-resolución, reapertura, permisos), `alertas.js` (base de datos y aviso push).
+- Controles activos: C1, C2, C4, C5, C6, C7, C9, C10, C13. Cualquier texto nuevo de `consolidarRuta` entra como C0 sin perderse.
+- Al pulsar **Consolidar** se guardan las alertas del periodo y se avisa de las críticas nuevas con una sola notificación a Administrador y Gerente.
+- Pestaña **Alertas**: abrir, tomar en revisión, justificar, resolver y reabrir, con nota obligatoria. Las críticas solo las gestiona un Administrador; el Gerente gestiona las demás; el Auditor solo lee.
+- Una alerta se cierra sola cuando la venta vuelve a cuadrar en una corrida completa.
+- Pruebas: `src/lib/rutaConciliacion/*.test.mjs`.
+
+**Para activarla:** ejecutar `supabase/fix_ruta_conciliacion.sql` en el SQL Editor de Supabase.
+
+**Siguiente (fase 2):** barrido automático y disparo por evento, resumen diario de alertas altas, C3, C8, C14, C15, y auditorías físicas del camión en la nube (C11, C12).

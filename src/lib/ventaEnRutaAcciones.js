@@ -7,7 +7,7 @@ import { normalizarRol, puedeVerModulo } from './roles.js';
  * Checkbox explícito (true/false) manda sobre el default del rol.
  */
 export const SUBCOMANDOS_VENTA_RUTA = [
-  { id: 'ruta_consolidacion', vista: 'consolidacion', label: 'Consolidación', desc: 'Por repartidor · mercancía, efectivo y créditos', icon: 'search', grupo: 'admin' },
+  { id: 'ruta_consolidacion', vista: 'consolidacion', label: 'Conciliación', desc: 'Por repartidor · mercancía, efectivo y créditos · alertas', icon: 'search', grupo: 'admin' },
   { id: 'ruta_camiones', vista: 'camiones', label: 'Camiones', desc: 'Alta y asignación a repartidor', icon: 'truck', grupo: 'admin' },
   { id: 'ruta_carga', vista: 'carga', label: 'Carga de camión', desc: `Repartidor · descuenta CEDIS`, icon: 'package', grupo: 'admin' },
   { id: 'ruta_precios', vista: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar', grupo: 'admin' },

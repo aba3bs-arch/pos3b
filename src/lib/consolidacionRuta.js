@@ -99,6 +99,8 @@ export function consolidarRuta({ ventas = [], cargas = [], compras = [], movimie
       if (productos.some((p) => Math.abs(p.diferencia) > 0.001)) alertas.push('Mercancía vendida distinta a la ingresada');
     }
     return { id: v.id, folio: v.folio, fecha: v.created_at, cargaId: v.carga_id,
+      clienteId: v.cliente_id, compraId: pedidos[0]?.id || v.compra_id || null,
+      cobrosTransitoTotal: suma(cobros, 'monto'),
       repartidorId: String(carga?.vendedor_id || `nombre:${v.vendedor_nombre || 'sin-asignar'}`),
       cargaIds: [...new Set([v.carga_id, ...articulos.flatMap((a) => (a._lineas_camion || []).map((l) => l.cargaId))].filter(Boolean).map(String))],
       repartidor: carga?.vendedor_nombre || v.vendedor_nombre || 'Sin repartidor',

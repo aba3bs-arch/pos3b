@@ -322,7 +322,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         </>
       )}
       {vista === 'consolidacion' && puede('ruta_consolidacion') && (
-        <ConsolidacionRuta supabase={supabase} onAuditoria={puede('ruta_auditorias') ? () => ir('auditorias') : null} />
+        <ConsolidacionRuta supabase={supabase} user={user} onAuditoria={puede('ruta_auditorias') ? () => ir('auditorias') : null} />
       )}
       {vista === 'camiones' && puede('ruta_camiones') && (
         <VistaCamiones
