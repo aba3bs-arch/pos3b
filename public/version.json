@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "cc33410",
-  "branch": "cursor/graficas-inventario-datos-manual-682d",
-  "builtAt": "2026-09-29T22:13:01.495Z",
+  "buildId": "f4f2591",
+  "branch": "cursor/quitar-modulo-recolecciones-682d",
+  "builtAt": "2026-10-27T05:51:23.849Z",
   "title": "Gráficas con captura manual del auditor",
   "summary": "Reportes → Gráficas usa solo el faltante/total que captura el auditor (bono), no los conteos del sistema. Pareto entre todas las tiendas.",
   "changes": [
@@ -10,11 +10,11 @@
     "Pareto entre sucursales por faltante capturado",
     "Por tienda: cada captura guardada como columna",
     "Ya no se mezclan faltantes del conteo del sistema",
-    "feat(reportes): gráficas Pareto solo con captura manual del auditor",
-    "chore(app): version.json build 95d5a65",
-    "chore(app): release notes y badge de build en Gráficas Pareto",
-    "chore(app): forzar aviso de update por gráficas Pareto",
-    "fix(reportes): aclarar gráficas Pareto sin selector de tienda",
-    "fix(reportes): quitar XR y Pareto de todas las sucursales"
+    "Login: botón Limpiar caché y escape ?limpiar=1 para cajas con pantalla vieja o en blanco",
+    "Evitar pantalla en blanco: ErrorBoundary con limpiar/recargar, reporte a auditoría y aviso si la app no carga",
+    "Corte Abarrotes: bloquear mercancía/venta en ruta capturada como gasto manual «Otros» (anti fuga)",
+    "Gasto compra venta en ruta: no tratar como duplicado un gasto de otra compra (mismo monto/proveedor)",
+    "Move treasury tab to accounting module in ruta-rc/ventaruta (6adfce9b1dbe17270f090764)",
+    "Fix syntax error in JSX file causing build failure (6adfc10ba9fc68da25e07f86)"
   ]
 }

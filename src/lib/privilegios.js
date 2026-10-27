@@ -5,7 +5,6 @@ export const MODULOS_IDS = [
   'Ventas',
   'Escáner caja',
   'Corte de caja',
-  'Recolecciones',
   'Liquidación recolecciones',
   'Tesorería',
   'Conciliaciones',
