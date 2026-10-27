@@ -94,5 +94,44 @@ await db.exec('grant insert on transito_efectivo to anon; set role anon;');
 assert.equal((await pagar([failAbono],20)).ok,true);
 await db.exec('reset role;');
 await db.exec(await readFile(new URL('../../supabase/auditoria_ruta_cxc.sql',import.meta.url),'utf8'));
+
+// Sin tabla previa: el script la crea y deja FUSION cobrable igual que 3B5.
+const limpio = new PGlite();
+await limpio.exec(`
+create role anon; create role authenticated;
+create table repartidores(id text primary key,nombre text,activo boolean default true);
+create table ruta_cargas(id uuid primary key,vendedor_id text);
+create table ruta_ventas(id uuid primary key,estado_credito text,transito_id text);
+create table cortes_contabilidad_gastos(id uuid primary key default gen_random_uuid(),sucursal_id text,modulo text,
+ categoria text,subcategoria text,comentario text,monto numeric check(monto>0),usuario_nombre text,cerrado boolean);
+create table transito_efectivo(id uuid primary key default gen_random_uuid(),sucursal_origen text,
+ repartidor_id text references repartidores(id),cajero_nombre text,monto numeric check(monto>0),num_traspaso varchar(50),foto_url text,
+ estatus text,tipo_movimiento text,descripcion_gasto text,fecha_hora timestamptz,usuario_liquida text);
+insert into repartidores values('rep_luis','Luis',true);
+insert into transito_efectivo(sucursal_origen,repartidor_id,cajero_nombre,monto,estatus,tipo_movimiento)
+ values('Fusión','rep_luis','Cajera',40,'Por Cobrar','Entrega Crédito');
+`);
+await limpio.exec(migration);
+assert.equal((await limpio.query(`select to_regclass('public.ruta_cxc_movimientos')::text n`)).rows[0].n, 'ruta_cxc_movimientos');
+assert.equal((await limpio.query(`select sucursal_origen n from transito_efectivo`)).rows[0].n, 'FUSION');
+const ventaFusion = crypto.randomUUID();
+const venta3b = crypto.randomUUID();
+await limpio.query(`insert into ruta_ventas(id,estado_credito) values($1,'pendiente'),($2,'pendiente')`, [ventaFusion, venta3b]);
+await limpio.query(`insert into ruta_cxc_movimientos(cliente_tipo,cliente_id,tipo,monto,venta_id,usuario_nombre)
+ values('sucursal','Fusión','cargo',40,$1,'Luis'),('sucursal','3B5','cargo',15,$2,'Luis')`, [ventaFusion, venta3b]);
+await limpio.exec(migration);
+assert.equal((await limpio.query(`select cliente_id n from ruta_cxc_movimientos where venta_id=$1`, [ventaFusion])).rows[0].n, 'FUSION');
+assert.equal((await limpio.query(`select cliente_id n from ruta_cxc_movimientos where venta_id=$1`, [venta3b])).rows[0].n, '3B5');
+const idFusion = (await limpio.query(`select id n from ruta_cxc_movimientos where venta_id=$1`, [ventaFusion])).rows[0].n;
+const id3b = (await limpio.query(`select id n from ruta_cxc_movimientos where venta_id=$1`, [venta3b])).rows[0].n;
+const pagoFusion = (await limpio.query('select pagar_creditos_ruta_atomico($1,$2::uuid[],$3,$4,$5) n', [crypto.randomUUID(), [idFusion], 40, 'FUSION', 'Cajera'])).rows[0].n;
+const pago3b = (await limpio.query('select pagar_creditos_ruta_atomico($1,$2::uuid[],$3,$4,$5) n', [crypto.randomUUID(), [id3b], 15, '3B5', 'Cajera'])).rows[0].n;
+assert.equal(pagoFusion.ok, true);
+assert.equal(pagoFusion.montoPagado, 40);
+assert.equal(pago3b.ok, true);
+assert.equal(pago3b.montoPagado, 15);
+assert.equal((await limpio.query(`select sucursal_id n from cortes_contabilidad_gastos where monto=40`)).rows[0].n, 'FUSION');
+assert.equal((await limpio.query(`select sucursal_id n from cortes_contabilidad_gastos where monto=15`)).rows[0].n, '3B5');
+await limpio.close();
 console.log('rutaCxc SQL: transacción, reintentos, lotes, parciales y sucursales OK');
 } finally { await db.close(); }

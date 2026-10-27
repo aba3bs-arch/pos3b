@@ -1,8 +1,50 @@
--- Ejecutar en Supabase SQL Editor después de fix_venta_ruta_pos_v2.sql.
--- No borra ni reconstruye movimientos históricos. Seguro para volver a ejecutar.
+-- Créditos por pagar (todas las tiendas, incluida FUSION).
+-- Crea la tabla si falta y activa el cobro atómico. Seguro para volver a ejecutar.
+-- No borra ni reconstruye movimientos históricos.
 begin;
+
+create table if not exists public.ruta_cxc_movimientos (
+  id uuid primary key default gen_random_uuid(),
+  cliente_tipo text not null,
+  cliente_id text not null,
+  cliente_nombre text,
+  tipo text not null,
+  monto numeric(12,2) not null check (monto > 0),
+  saldo_despues numeric(12,2) not null default 0,
+  venta_id text,
+  carga_id text,
+  metodo_pago text,
+  notas text,
+  usuario_nombre text,
+  created_at timestamptz default now()
+);
+
+alter table public.ruta_cxc_movimientos add column if not exists carga_id text;
+alter table public.ruta_cxc_movimientos add column if not exists estatus text default 'pendiente';
+alter table public.ruta_cxc_movimientos add column if not exists pagado_por text;
+alter table public.ruta_cxc_movimientos add column if not exists pagado_at timestamptz;
+alter table public.ruta_cxc_movimientos add column if not exists gasto_id uuid;
+alter table public.ruta_cxc_movimientos add column if not exists folio_venta text;
 alter table public.ruta_cxc_movimientos add column if not exists cargo_id uuid;
+
+create index if not exists idx_ruta_cxc_cliente
+  on public.ruta_cxc_movimientos (cliente_tipo, cliente_id, created_at desc);
+create index if not exists idx_ruta_cxc_fecha
+  on public.ruta_cxc_movimientos (created_at desc);
+create index if not exists idx_ruta_cxc_venta
+  on public.ruta_cxc_movimientos (venta_id)
+  where venta_id is not null;
+create index if not exists idx_ruta_cxc_estatus
+  on public.ruta_cxc_movimientos (estatus, created_at desc);
+create index if not exists idx_ruta_cxc_folio
+  on public.ruta_cxc_movimientos (folio_venta);
 create index if not exists idx_ruta_cxc_cargo on public.ruta_cxc_movimientos(cargo_id);
+
+alter table public.ruta_cxc_movimientos enable row level security;
+drop policy if exists "ruta_cxc_movimientos_anon" on public.ruta_cxc_movimientos;
+create policy "ruta_cxc_movimientos_anon" on public.ruta_cxc_movimientos
+  for all to anon, authenticated using (true) with check (true);
+grant select, insert, update, delete on public.ruta_cxc_movimientos to anon, authenticated;
 
 create table if not exists public.ruta_cxc_pagos_solicitudes (
   id uuid primary key,
@@ -25,7 +67,8 @@ language sql immutable strict set search_path = public as $$
        "CEDIS_CENTRAL":"CEDIS","ALMACEN_CENTRAL":"CEDIS","ALMACEN":"CEDIS",
        "DEL_VALLE":"3B7","DELVALLE":"3B7","PUEBLO_NUEVO":"3B2","PUEBLONUEVO":"3B2",
        "PETROLEOS":"3B3","LOMAS_DOS":"3B5","LOMASDOS":"3B5","SOLIDARIDAD":"3B6",
-       "BUENOS_AIRES":"3B9","BUENOSAIRES":"3B9","EL_MEZQUITE":"3B10","ELMEZQUITE":"3B10","MEZQUITE":"3B10"}'::jsonb)->>c,
+       "BUENOS_AIRES":"3B9","BUENOSAIRES":"3B9","EL_MEZQUITE":"3B10","ELMEZQUITE":"3B10","MEZQUITE":"3B10",
+       "FUSION":"FUSION","ABARROTES_FUSION":"FUSION"}'::jsonb)->>c,
     substring(c from '^(3B[0-9]+)'), c) from codigo;
 $$;
 
@@ -204,6 +247,29 @@ begin
   return resultado;
 end;
 $$;
+
+-- Misma tienda en todas: Fusión/FUSIÓN/Del Valle/… pasan al código canónico (FUSION, 3B7, …).
+update public.ruta_cxc_movimientos
+set cliente_id = public.ruta_cxc_codigo(cliente_id)
+where cliente_tipo = 'sucursal'
+  and nullif(trim(cliente_id), '') is not null
+  and public.ruta_cxc_codigo(cliente_id) in (
+    'FUSION','MAIN','CEDIS','3B2','3B3','3B5','3B6','3B7','3B9','3B10'
+  )
+  and cliente_id is distinct from public.ruta_cxc_codigo(cliente_id);
+
+do $$
+begin
+  if to_regclass('public.transito_efectivo') is not null then
+    update public.transito_efectivo
+    set sucursal_origen = public.ruta_cxc_codigo(sucursal_origen)
+    where nullif(trim(sucursal_origen), '') is not null
+      and public.ruta_cxc_codigo(sucursal_origen) in (
+        'FUSION','MAIN','CEDIS','3B2','3B3','3B5','3B6','3B7','3B9','3B10'
+      )
+      and sucursal_origen is distinct from public.ruta_cxc_codigo(sucursal_origen);
+  end if;
+end $$;
 revoke all on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) from public;
 grant execute on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) to anon, authenticated;
 notify pgrst, 'reload schema';

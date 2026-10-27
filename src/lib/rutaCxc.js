@@ -14,7 +14,7 @@ export const PREFIJO_CXC_RECOLECCION = 'rec:';
 const LS_CXC = 'pos3b_ruta_cxc_movimientos';
 
 export const AVISO_FALTA_CXC =
-  'Falta la tabla de crédito/cobranza. En Supabase ejecuta supabase/fix_autofin_y_venta_ruta_completo.sql (o fix_precio_ruta_y_cxc.sql + fix_venta_ruta_pos_v2.sql).';
+  'Falta la tabla de crédito/cobranza. En Supabase → SQL Editor ejecuta supabase/fix_ruta_cxc_pagos_atomicos.sql (crea ruta_cxc_movimientos y el cobro, igual en FUSION y en las demás tiendas).';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -835,7 +835,7 @@ export async function pagarCreditosRutaConPin(supabase, {
     if (error) {
       const faltaRpc = error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message || '');
       return { ok: false, error: faltaRpc
-        ? 'Falta activar los pagos seguros en la base de datos. Aplica supabase/fix_ruta_cxc_pagos_atomicos.sql. No se realizó ningún cargo.'
+        ? 'Falta la tabla o la función de cobro. En Supabase ejecuta supabase/fix_ruta_cxc_pagos_atomicos.sql. No se realizó ningún cargo.'
         : `No se confirmó el pago: ${error.message}. Reintenta la misma operación para consultar su resultado sin duplicarla.` };
     }
     if (!data?.ok) return { ok: false, error: data?.error || 'No se recibió confirmación del pago. Reintenta la misma operación.' };
