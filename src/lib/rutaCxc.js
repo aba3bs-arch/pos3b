@@ -14,7 +14,7 @@ export const PREFIJO_CXC_RECOLECCION = 'rec:';
 const LS_CXC = 'pos3b_ruta_cxc_movimientos';
 
 export const AVISO_FALTA_CXC =
-  'Falta la tabla de crédito/cobranza. En Supabase ejecuta supabase/fix_autofin_y_venta_ruta_completo.sql (o fix_precio_ruta_y_cxc.sql + fix_venta_ruta_pos_v2.sql).';
+  'Falta la tabla de crédito/cobranza. En Supabase → SQL Editor ejecuta supabase/fix_tabla_creditos.sql. Al final deben salir transito_efectivo, ruta_cxc_movimientos y ruta_cxc_pagos_solicitudes. Después ejecuta supabase/fix_ruta_cxc_pagos_atomicos.sql.';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -348,8 +348,14 @@ export async function restaurarCreditosRecoleccionACxc(supabase, { limit = 1500,
     .eq('tipo_movimiento', 'Entrega Crédito')
     .order('fecha_hora', { ascending: true }).order('id', { ascending: true }));
   if (error) {
-    if (error.code === '42P01') {
-      return { ok: false, error: 'Falta tabla transito_efectivo.', creados: 0, reabiertos: 0, omitidos: 0 };
+    if (error.code === '42P01' || /transito_efectivo/i.test(String(error.message || '')) && /does not exist|could not find the table/i.test(String(error.message || ''))) {
+      return {
+        ok: false,
+        error: 'Falta la tabla transito_efectivo. En Supabase → SQL Editor ejecuta supabase/fix_tabla_creditos.sql (la última consulta debe listarla).',
+        creados: 0,
+        reabiertos: 0,
+        omitidos: 0,
+      };
     }
     return { ok: false, error: error.message, creados: 0, reabiertos: 0, omitidos: 0 };
   }
@@ -835,7 +841,7 @@ export async function pagarCreditosRutaConPin(supabase, {
     if (error) {
       const faltaRpc = error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message || '');
       return { ok: false, error: faltaRpc
-        ? 'Falta activar los pagos seguros en la base de datos. Aplica supabase/fix_ruta_cxc_pagos_atomicos.sql. No se realizó ningún cargo.'
+        ? 'Falta la tabla o la función de cobro. En Supabase ejecuta supabase/fix_tabla_creditos.sql y después supabase/fix_ruta_cxc_pagos_atomicos.sql. No se realizó ningún cargo.'
         : `No se confirmó el pago: ${error.message}. Reintenta la misma operación para consultar su resultado sin duplicarla.` };
     }
     if (!data?.ok) return { ok: false, error: data?.error || 'No se recibió confirmación del pago. Reintenta la misma operación.' };

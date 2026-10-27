@@ -1,8 +1,51 @@
--- Ejecutar en Supabase SQL Editor después de fix_venta_ruta_pos_v2.sql.
--- No borra ni reconstruye movimientos históricos. Seguro para volver a ejecutar.
-begin;
+-- Créditos por pagar (todas las tiendas, incluida FUSION).
+-- Si en Table Editor no ves las tablas, ejecuta primero fix_tabla_creditos.sql.
+-- Este archivo crea lo que falte y activa el cobro. La última consulta lista
+-- transito_efectivo, ruta_cxc_movimientos y ruta_cxc_pagos_solicitudes.
+-- Seguro para volver a ejecutar. No borra ni reconstruye movimientos históricos.
+
+create table if not exists public.ruta_cxc_movimientos (
+  id uuid primary key default gen_random_uuid(),
+  cliente_tipo text not null,
+  cliente_id text not null,
+  cliente_nombre text,
+  tipo text not null,
+  monto numeric(12,2) not null check (monto > 0),
+  saldo_despues numeric(12,2) not null default 0,
+  venta_id text,
+  carga_id text,
+  metodo_pago text,
+  notas text,
+  usuario_nombre text,
+  created_at timestamptz default now()
+);
+
+alter table public.ruta_cxc_movimientos add column if not exists carga_id text;
+alter table public.ruta_cxc_movimientos add column if not exists estatus text default 'pendiente';
+alter table public.ruta_cxc_movimientos add column if not exists pagado_por text;
+alter table public.ruta_cxc_movimientos add column if not exists pagado_at timestamptz;
+alter table public.ruta_cxc_movimientos add column if not exists gasto_id uuid;
+alter table public.ruta_cxc_movimientos add column if not exists folio_venta text;
 alter table public.ruta_cxc_movimientos add column if not exists cargo_id uuid;
+
+create index if not exists idx_ruta_cxc_cliente
+  on public.ruta_cxc_movimientos (cliente_tipo, cliente_id, created_at desc);
+create index if not exists idx_ruta_cxc_fecha
+  on public.ruta_cxc_movimientos (created_at desc);
+create index if not exists idx_ruta_cxc_venta
+  on public.ruta_cxc_movimientos (venta_id)
+  where venta_id is not null;
+create index if not exists idx_ruta_cxc_estatus
+  on public.ruta_cxc_movimientos (estatus, created_at desc);
+create index if not exists idx_ruta_cxc_folio
+  on public.ruta_cxc_movimientos (folio_venta);
 create index if not exists idx_ruta_cxc_cargo on public.ruta_cxc_movimientos(cargo_id);
+
+alter table public.ruta_cxc_movimientos enable row level security;
+drop policy if exists "ruta_cxc_movimientos_anon" on public.ruta_cxc_movimientos;
+create policy "ruta_cxc_movimientos_anon" on public.ruta_cxc_movimientos
+  for all to anon, authenticated using (true) with check (true);
+grant select, insert, update, delete on public.ruta_cxc_movimientos to anon, authenticated;
 
 create table if not exists public.ruta_cxc_pagos_solicitudes (
   id uuid primary key,
@@ -17,6 +60,118 @@ create policy ruta_cxc_pagos_acceso on public.ruta_cxc_pagos_solicitudes
   for all to anon, authenticated using (true) with check (true);
 grant select, insert on public.ruta_cxc_pagos_solicitudes to anon, authenticated;
 
+-- El cobro escribe en estas tablas. %ROWTYPE de transito_efectivo falla si la tabla no existe.
+create table if not exists public.repartidores (
+  id varchar(50) primary key,
+  nombre varchar(100) not null,
+  pin varchar(4),
+  activo boolean default true
+);
+
+create table if not exists public.transito_efectivo (
+  id uuid primary key default gen_random_uuid(),
+  fecha_hora timestamptz default now(),
+  sucursal_origen varchar(50) not null,
+  repartidor_id varchar(50),
+  cajero_nombre varchar(100) not null,
+  monto numeric(10,2) not null check (monto > 0),
+  num_traspaso varchar(50),
+  foto_url text,
+  estatus varchar(30) default 'En Tránsito',
+  tipo_movimiento varchar(50),
+  descripcion_gasto varchar(200),
+  fecha_liquidacion timestamptz,
+  usuario_liquida varchar(100)
+);
+
+alter table public.transito_efectivo add column if not exists fecha_hora timestamptz default now();
+alter table public.transito_efectivo add column if not exists sucursal_origen varchar(50);
+alter table public.transito_efectivo add column if not exists repartidor_id varchar(50);
+alter table public.transito_efectivo add column if not exists cajero_nombre varchar(100);
+alter table public.transito_efectivo add column if not exists monto numeric(10,2);
+alter table public.transito_efectivo add column if not exists num_traspaso varchar(50);
+alter table public.transito_efectivo add column if not exists tipo_movimiento varchar(50);
+alter table public.transito_efectivo add column if not exists descripcion_gasto varchar(200);
+alter table public.transito_efectivo add column if not exists fecha_liquidacion timestamptz;
+alter table public.transito_efectivo add column if not exists usuario_liquida varchar(100);
+alter table public.transito_efectivo add column if not exists foto_url text;
+alter table public.transito_efectivo add column if not exists evidencia_url text;
+alter table public.transito_efectivo add column if not exists estatus varchar(30) default 'En Tránsito';
+
+create table if not exists public.cortes_contabilidad_gastos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id text not null default 'MAIN',
+  modulo text not null check (modulo in ('virtual', 'abarrotes', 'garage')),
+  categoria text not null default 'GENERAL',
+  subcategoria text default '',
+  comentario text,
+  monto numeric(12,2) not null default 0,
+  usuario_id text,
+  usuario_nombre text,
+  cerrado boolean not null default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.ruta_cargas (
+  id uuid primary key default gen_random_uuid(),
+  folio text not null,
+  vendedor_id text,
+  vendedor_nombre text,
+  fecha date not null default current_date,
+  estado text not null default 'armada',
+  notas text,
+  created_at timestamptz default now(),
+  liquidada_at timestamptz
+);
+
+create table if not exists public.ruta_ventas (
+  id uuid primary key default gen_random_uuid(),
+  carga_id uuid references public.ruta_cargas(id),
+  folio text,
+  cliente_tipo text,
+  cliente_id text,
+  cliente_nombre text,
+  metodo_pago text,
+  total numeric(12,2) not null default 0,
+  articulos jsonb not null default '[]',
+  vendedor_nombre text,
+  estado_credito text,
+  transito_id text,
+  created_at timestamptz default now()
+);
+
+alter table public.ruta_ventas add column if not exists estado_credito text;
+alter table public.ruta_ventas add column if not exists transito_id text;
+alter table public.ruta_ventas add column if not exists compra_id uuid;
+
+alter table public.repartidores enable row level security;
+alter table public.transito_efectivo enable row level security;
+alter table public.cortes_contabilidad_gastos enable row level security;
+alter table public.ruta_cargas enable row level security;
+alter table public.ruta_ventas enable row level security;
+
+drop policy if exists cxc_pagos_repartidores on public.repartidores;
+create policy cxc_pagos_repartidores on public.repartidores
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_transito on public.transito_efectivo;
+create policy cxc_pagos_transito on public.transito_efectivo
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_gastos on public.cortes_contabilidad_gastos;
+create policy cxc_pagos_gastos on public.cortes_contabilidad_gastos
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_cargas on public.ruta_cargas;
+create policy cxc_pagos_cargas on public.ruta_cargas
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_ventas on public.ruta_ventas;
+create policy cxc_pagos_ventas on public.ruta_ventas
+  for all to anon, authenticated using (true) with check (true);
+
+grant select, insert, update, delete on public.repartidores to anon, authenticated;
+grant select, insert, update, delete on public.transito_efectivo to anon, authenticated;
+grant select, insert, update on public.cortes_contabilidad_gastos to anon, authenticated;
+grant select, insert, update on public.ruta_cargas to anon, authenticated;
+grant select, insert, update on public.ruta_ventas to anon, authenticated;
+
 create or replace function public.ruta_cxc_codigo(p text) returns text
 language sql immutable strict set search_path = public as $$
   with codigo as (select regexp_replace(translate(upper(trim(p)), 'ÁÉÍÓÚÜÑ', 'AEIOUUN'), '\s+', '_', 'g') c)
@@ -25,7 +180,8 @@ language sql immutable strict set search_path = public as $$
        "CEDIS_CENTRAL":"CEDIS","ALMACEN_CENTRAL":"CEDIS","ALMACEN":"CEDIS",
        "DEL_VALLE":"3B7","DELVALLE":"3B7","PUEBLO_NUEVO":"3B2","PUEBLONUEVO":"3B2",
        "PETROLEOS":"3B3","LOMAS_DOS":"3B5","LOMASDOS":"3B5","SOLIDARIDAD":"3B6",
-       "BUENOS_AIRES":"3B9","BUENOSAIRES":"3B9","EL_MEZQUITE":"3B10","ELMEZQUITE":"3B10","MEZQUITE":"3B10"}'::jsonb)->>c,
+       "BUENOS_AIRES":"3B9","BUENOSAIRES":"3B9","EL_MEZQUITE":"3B10","ELMEZQUITE":"3B10","MEZQUITE":"3B10",
+       "FUSION":"FUSION","ABARROTES_FUSION":"FUSION"}'::jsonb)->>c,
     substring(c from '^(3B[0-9]+)'), c) from codigo;
 $$;
 
@@ -204,7 +360,42 @@ begin
   return resultado;
 end;
 $$;
+
+-- Misma tienda en todas: Fusión/FUSIÓN/Del Valle/… pasan al código canónico (FUSION, 3B7, …).
+update public.ruta_cxc_movimientos
+set cliente_id = public.ruta_cxc_codigo(cliente_id)
+where cliente_tipo = 'sucursal'
+  and nullif(trim(cliente_id), '') is not null
+  and public.ruta_cxc_codigo(cliente_id) in (
+    'FUSION','MAIN','CEDIS','3B2','3B3','3B5','3B6','3B7','3B9','3B10'
+  )
+  and cliente_id is distinct from public.ruta_cxc_codigo(cliente_id);
+
+do $$
+begin
+  if to_regclass('public.transito_efectivo') is not null then
+    update public.transito_efectivo
+    set sucursal_origen = public.ruta_cxc_codigo(sucursal_origen)
+    where nullif(trim(sucursal_origen), '') is not null
+      and public.ruta_cxc_codigo(sucursal_origen) in (
+        'FUSION','MAIN','CEDIS','3B2','3B3','3B5','3B6','3B7','3B9','3B10'
+      )
+      and sucursal_origen is distinct from public.ruta_cxc_codigo(sucursal_origen);
+  end if;
+end $$;
 revoke all on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) from public;
 grant execute on function public.pagar_creditos_ruta_atomico(uuid,uuid[],numeric,text,text) to anon, authenticated;
-notify pgrst, 'reload schema';
-commit;
+do $$
+begin
+  perform pg_notify('pgrst', 'reload schema');
+exception when others then
+  raise notice 'reload schema: %', sqlerrm;
+end $$;
+
+select n.nspname as schema, c.relname as tabla
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relkind = 'r'
+  and c.relname in ('transito_efectivo', 'ruta_cxc_movimientos', 'ruta_cxc_pagos_solicitudes')
+order by c.relname;
