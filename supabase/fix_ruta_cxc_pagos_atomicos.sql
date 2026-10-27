@@ -59,6 +59,113 @@ create policy ruta_cxc_pagos_acceso on public.ruta_cxc_pagos_solicitudes
   for all to anon, authenticated using (true) with check (true);
 grant select, insert on public.ruta_cxc_pagos_solicitudes to anon, authenticated;
 
+-- El cobro escribe en estas tablas. %ROWTYPE de transito_efectivo falla si la tabla no existe.
+create table if not exists public.repartidores (
+  id varchar(50) primary key,
+  nombre varchar(100) not null,
+  pin varchar(4),
+  activo boolean default true
+);
+
+create table if not exists public.transito_efectivo (
+  id uuid primary key default gen_random_uuid(),
+  fecha_hora timestamptz default now(),
+  sucursal_origen varchar(50) not null,
+  repartidor_id varchar(50) references public.repartidores(id),
+  cajero_nombre varchar(100) not null,
+  monto numeric(10,2) not null check (monto > 0),
+  num_traspaso varchar(50),
+  foto_url text,
+  estatus varchar(30) default 'En Tránsito',
+  tipo_movimiento varchar(50),
+  descripcion_gasto varchar(200),
+  fecha_liquidacion timestamptz,
+  usuario_liquida varchar(100)
+);
+
+alter table public.transito_efectivo add column if not exists num_traspaso varchar(50);
+alter table public.transito_efectivo add column if not exists tipo_movimiento varchar(50);
+alter table public.transito_efectivo add column if not exists descripcion_gasto varchar(200);
+alter table public.transito_efectivo add column if not exists fecha_liquidacion timestamptz;
+alter table public.transito_efectivo add column if not exists usuario_liquida varchar(100);
+alter table public.transito_efectivo add column if not exists foto_url text;
+alter table public.transito_efectivo add column if not exists evidencia_url text;
+alter table public.transito_efectivo add column if not exists estatus varchar(30) default 'En Tránsito';
+
+create table if not exists public.cortes_contabilidad_gastos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id text not null default 'MAIN',
+  modulo text not null check (modulo in ('virtual', 'abarrotes', 'garage')),
+  categoria text not null default 'GENERAL',
+  subcategoria text default '',
+  comentario text,
+  monto numeric(12,2) not null default 0,
+  usuario_id text,
+  usuario_nombre text,
+  cerrado boolean not null default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.ruta_cargas (
+  id uuid primary key default gen_random_uuid(),
+  folio text not null,
+  vendedor_id text,
+  vendedor_nombre text,
+  fecha date not null default current_date,
+  estado text not null default 'armada',
+  notas text,
+  created_at timestamptz default now(),
+  liquidada_at timestamptz
+);
+
+create table if not exists public.ruta_ventas (
+  id uuid primary key default gen_random_uuid(),
+  carga_id uuid references public.ruta_cargas(id),
+  folio text,
+  cliente_tipo text,
+  cliente_id text,
+  cliente_nombre text,
+  metodo_pago text,
+  total numeric(12,2) not null default 0,
+  articulos jsonb not null default '[]',
+  vendedor_nombre text,
+  estado_credito text,
+  transito_id text,
+  created_at timestamptz default now()
+);
+
+alter table public.ruta_ventas add column if not exists estado_credito text;
+alter table public.ruta_ventas add column if not exists transito_id text;
+alter table public.ruta_ventas add column if not exists compra_id uuid;
+
+alter table public.repartidores enable row level security;
+alter table public.transito_efectivo enable row level security;
+alter table public.cortes_contabilidad_gastos enable row level security;
+alter table public.ruta_cargas enable row level security;
+alter table public.ruta_ventas enable row level security;
+
+drop policy if exists cxc_pagos_repartidores on public.repartidores;
+create policy cxc_pagos_repartidores on public.repartidores
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_transito on public.transito_efectivo;
+create policy cxc_pagos_transito on public.transito_efectivo
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_gastos on public.cortes_contabilidad_gastos;
+create policy cxc_pagos_gastos on public.cortes_contabilidad_gastos
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_cargas on public.ruta_cargas;
+create policy cxc_pagos_cargas on public.ruta_cargas
+  for all to anon, authenticated using (true) with check (true);
+drop policy if exists cxc_pagos_ventas on public.ruta_ventas;
+create policy cxc_pagos_ventas on public.ruta_ventas
+  for all to anon, authenticated using (true) with check (true);
+
+grant select, insert, update, delete on public.repartidores to anon, authenticated;
+grant select, insert, update, delete on public.transito_efectivo to anon, authenticated;
+grant select, insert, update on public.cortes_contabilidad_gastos to anon, authenticated;
+grant select, insert, update on public.ruta_cargas to anon, authenticated;
+grant select, insert, update on public.ruta_ventas to anon, authenticated;
+
 create or replace function public.ruta_cxc_codigo(p text) returns text
 language sql immutable strict set search_path = public as $$
   with codigo as (select regexp_replace(translate(upper(trim(p)), 'ÁÉÍÓÚÜÑ', 'AEIOUUN'), '\s+', '_', 'g') c)

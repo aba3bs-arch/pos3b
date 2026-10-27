@@ -95,24 +95,17 @@ assert.equal((await pagar([failAbono],20)).ok,true);
 await db.exec('reset role;');
 await db.exec(await readFile(new URL('../../supabase/auditoria_ruta_cxc.sql',import.meta.url),'utf8'));
 
-// Sin tabla previa: el script la crea y deja FUSION cobrable igual que 3B5.
+// Base vacía: el script crea CxC, tránsito, gastos y ventas, y cobra FUSION igual que 3B5.
 const limpio = new PGlite();
-await limpio.exec(`
-create role anon; create role authenticated;
-create table repartidores(id text primary key,nombre text,activo boolean default true);
-create table ruta_cargas(id uuid primary key,vendedor_id text);
-create table ruta_ventas(id uuid primary key,estado_credito text,transito_id text);
-create table cortes_contabilidad_gastos(id uuid primary key default gen_random_uuid(),sucursal_id text,modulo text,
- categoria text,subcategoria text,comentario text,monto numeric check(monto>0),usuario_nombre text,cerrado boolean);
-create table transito_efectivo(id uuid primary key default gen_random_uuid(),sucursal_origen text,
- repartidor_id text references repartidores(id),cajero_nombre text,monto numeric check(monto>0),num_traspaso varchar(50),foto_url text,
- estatus text,tipo_movimiento text,descripcion_gasto text,fecha_hora timestamptz,usuario_liquida text);
-insert into repartidores values('rep_luis','Luis',true);
-insert into transito_efectivo(sucursal_origen,repartidor_id,cajero_nombre,monto,estatus,tipo_movimiento)
- values('Fusión','rep_luis','Cajera',40,'Por Cobrar','Entrega Crédito');
-`);
+await limpio.exec(`create role anon; create role authenticated;`);
 await limpio.exec(migration);
-assert.equal((await limpio.query(`select to_regclass('public.ruta_cxc_movimientos')::text n`)).rows[0].n, 'ruta_cxc_movimientos');
+for (const tabla of ['ruta_cxc_movimientos', 'ruta_cxc_pagos_solicitudes', 'transito_efectivo', 'repartidores', 'cortes_contabilidad_gastos', 'ruta_cargas', 'ruta_ventas']) {
+  assert.equal((await limpio.query(`select to_regclass('public.${tabla}')::text n`)).rows[0].n, tabla);
+}
+await limpio.query(`insert into repartidores(id,nombre) values('rep_luis','Luis')`);
+await limpio.query(`insert into transito_efectivo(sucursal_origen,repartidor_id,cajero_nombre,monto,estatus,tipo_movimiento)
+ values('Fusión','rep_luis','Cajera',40,'Por Cobrar','Entrega Crédito')`);
+await limpio.exec(migration);
 assert.equal((await limpio.query(`select sucursal_origen n from transito_efectivo`)).rows[0].n, 'FUSION');
 const ventaFusion = crypto.randomUUID();
 const venta3b = crypto.randomUUID();
