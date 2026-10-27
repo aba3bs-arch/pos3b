@@ -372,6 +372,7 @@ export async function cargarGastoCompraACorteAbarrotes(supabase, {
   const res = await agregarGastoTurno(supabase, sid, 'abarrotes', gasto, {
     nombreActor: usuarioNombre || null,
     rolActor: rolActor || null,
+    folioCompraPropio: folio,
   });
   if (!res.ok) {
     if (res.duplicado) {
