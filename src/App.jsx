@@ -38,7 +38,6 @@ import Configuracion from './modules/Configuracion.jsx';
 import Buzon from './modules/Buzon.jsx';
 import Ayuda from './modules/Ayuda.jsx';
 import Tutorial from './modules/Tutorial.jsx';
-import Recolecciones from './modules/Recolecciones.jsx';
 import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
 import Conciliaciones from './modules/Conciliaciones.jsx';
 import Consolidacion from './modules/Consolidacion.jsx';
@@ -1812,9 +1811,6 @@ function App() {
           )}
           {vista === 'Corte de caja' && (
             <CorteCaja supabase={supabase} sucursal={sucursal} user={user} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} />
-          )}
-          {vista === 'Recolecciones' && (
-            <Recolecciones supabase={supabase} sucursal={sucursal} user={user} />
           )}
           {vista === VISTA_HUB_CONTABILIDAD && (
             <Contabilidad submodulosVisibles={subContabilidad} onNavigate={irAModulo} />

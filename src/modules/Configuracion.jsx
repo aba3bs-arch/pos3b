@@ -1976,13 +1976,6 @@ export default function Configuracion({
               void aplicarModulos([...sinCortes, ...MODULOS_CORTES]);
             };
 
-            const marcarRecolecciones = () => {
-              if (!privKey) return;
-              const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
-              if (actual.includes('Recolecciones')) return;
-              void aplicarModulos([...actual, 'Recolecciones']);
-            };
-
             return (
               <>
                 {privKey && (
@@ -2040,9 +2033,6 @@ export default function Configuracion({
                 </div>
                 {privKey && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
-                    <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={marcarRecolecciones}>
-                      + Recolecciones
-                    </button>
                     <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={marcarSoloCortes}>
                       Marcar cortes (Virtual, Abarrotes, Garage)
                     </button>
