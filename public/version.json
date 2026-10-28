@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "cc33410",
-  "branch": "cursor/graficas-inventario-datos-manual-682d",
-  "builtAt": "2026-09-29T22:13:01.495Z",
+  "buildId": "4d2f0f5",
+  "branch": "cursor/ruta-rc-ventas-por-tienda-682d",
+  "builtAt": "2026-10-28T16:26:22.108Z",
   "title": "Gráficas con captura manual del auditor",
   "summary": "Reportes → Gráficas usa solo el faltante/total que captura el auditor (bono), no los conteos del sistema. Pareto entre todas las tiendas.",
   "changes": [
@@ -10,11 +10,11 @@
     "Pareto entre sucursales por faltante capturado",
     "Por tienda: cada captura guardada como columna",
     "Ya no se mezclan faltantes del conteo del sistema",
-    "feat(reportes): gráficas Pareto solo con captura manual del auditor",
-    "chore(app): version.json build 95d5a65",
-    "chore(app): release notes y badge de build en Gráficas Pareto",
-    "chore(app): forzar aviso de update por gráficas Pareto",
-    "fix(reportes): aclarar gráficas Pareto sin selector de tienda",
-    "fix(reportes): quitar XR y Pareto de todas las sucursales"
+    "RC/VentaRuta: pestaña Ventas por tienda (efectivo y crédito) con filtro de fechas",
+    "Créditos por pagar: el vendedor de ruta aprueba con su PIN el cobro que solicita el cajero",
+    "Reporte de inventario: el PIN temporal del CT puede firmar de conformidad en su tienda y turno",
+    "Conciliación de ruta fase 1: alertas persistentes, pestaña Alertas y aviso a Admin/Gerente",
+    "Docs: arquitectura del submódulo de conciliación de Venta en Ruta",
+    "Cobro de créditos: listar las tablas al ejecutar el SQL"
   ]
 }

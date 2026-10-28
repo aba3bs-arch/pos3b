@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango } from './ventasRutaPorTienda.js';
+import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango } from './ventasRutaPorTienda.js';
 
 const ventas = [
   { id: 1, cliente_tipo: 'sucursal', cliente_id: '3b2', cliente_nombre: 'Las 3B 2', metodo_pago: 'efectivo', total: 100 },
@@ -56,6 +56,30 @@ const ventas = [
   assert.equal(r.data.length, 1500);
   assert.equal(llamadas[0][2], '2026-10-01T07:00:00.000Z');
   assert.equal(llamadas[1][2], '2026-10-08T06:59:59.999Z');
+}
+
+assert.equal(totalGastos([{ monto: 100 }, { monto: '50.25' }, { monto: 999, estatus: 'Cancelado' }, {}]), 150.25);
+
+{
+  const q = { filtros: [] };
+  const supabase = {
+    from(tabla) {
+      q.tabla = tabla;
+      const c = {
+        select: () => c,
+        eq: (k, v) => { q.filtros.push([k, v]); return c; },
+        gte: () => c,
+        lte: () => c,
+        order: () => c,
+        range: async () => ({ data: [{ id: 1, monto: 40 }], error: null }),
+      };
+      return c;
+    },
+  };
+  const r = await listarGastosRutaPorRango(supabase, { desde: '2026-10-01', hasta: '2026-10-02' });
+  assert.equal(q.tabla, 'transito_efectivo');
+  assert.deepEqual(q.filtros, [['tipo_movimiento', 'Gasto']]);
+  assert.equal(totalGastos(r.data), 40);
 }
 
 console.log('ventasRutaPorTienda: ok');
