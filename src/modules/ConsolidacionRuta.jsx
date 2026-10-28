@@ -1,9 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cargarConsolidacionRuta } from '../lib/consolidacionRuta.js';
 import { hoyClaveNogales } from '../lib/controlEfectivo.js';
 import { ymdNogalesFromDate } from '../lib/corteCaja.js';
 import { listarAuditoriasCamionLocal } from '../lib/auditoriaCamionRuta.js';
 import { fmtMonto } from '../lib/consultasUi.js';
+import { construirHallazgos } from '../lib/rutaConciliacion/motor.js';
+import { contarAlertasActivas, sincronizarAlertas } from '../lib/rutaConciliacion/alertas.js';
+import AlertasConciliacionRuta from './AlertasConciliacionRuta.jsx';
 import './ConsolidacionRuta.css';
 
 const monto = (v) => v == null ? 'Sin desglose' : fmtMonto(v);
@@ -41,7 +44,11 @@ function DetalleVenta({ e }) {
     </tbody></table></div>}
   </details>;
 }
-export default function ConsolidacionRuta({ supabase, onAuditoria }) {
+export default function ConsolidacionRuta({ supabase, user, onAuditoria }) {
+  const [pestana, setPestana] = useState('consolidacion');
+  const [resumenAlertas, setResumenAlertas] = useState(null);
+  const [conteo, setConteo] = useState({ total: 0, criticas: 0 });
+  const [refrescoAlertas, setRefrescoAlertas] = useState(0);
   const [tipo, setTipo] = useState('dia');
   const [fechas, setFechas] = useState(() => rango('dia', hoyClaveNogales()));
   const [datos, setDatos] = useState(null);
@@ -52,6 +59,11 @@ export default function ConsolidacionRuta({ supabase, onAuditoria }) {
   const [error, setError] = useState('');
   const solicitud = useRef(0);
   useEffect(() => () => { solicitud.current += 1; }, []);
+  const actualizarConteo = useCallback(async () => {
+    const c = await contarAlertasActivas(supabase);
+    if (c.ok) setConteo({ total: c.total, criticas: c.criticas });
+  }, [supabase]);
+  useEffect(() => { actualizarConteo(); }, [actualizarConteo]);
   async function consultar(event) {
     event?.preventDefault();
     const id = ++solicitud.current;
@@ -67,6 +79,11 @@ export default function ConsolidacionRuta({ supabase, onAuditoria }) {
         return { ...g, auditoria };
       });
       setDatos(resultado); setPeriodo({ ...fechas }); setRepartidor('');
+      const { hallazgos, enProceso } = construirHallazgos(resultado.entregas);
+      const guardado = await sincronizarAlertas(supabase, { hallazgos, entregas: resultado.entregas, ...fechas, usuario: user });
+      if (id !== solicitud.current) return;
+      setResumenAlertas({ ...guardado, enProceso: enProceso.length, hallazgos: hallazgos.length });
+      if (guardado.ok) { setRefrescoAlertas((n) => n + 1); actualizarConteo(); }
     } catch (e) { if (id === solicitud.current) setError(`No se pudo completar la consolidación: ${e.message}. Reintenta cuando estén disponibles todas las fuentes.`); }
     finally { if (id === solicitud.current) setCargando(false); }
   }
@@ -82,6 +99,13 @@ export default function ConsolidacionRuta({ supabase, onAuditoria }) {
   const modificado = periodo && (periodo.desde !== fechas.desde || periodo.hasta !== fechas.hasta);
   return <section className="card ruta-consol">
     <header><div className="ruta-consol-ceja">CONTROL DE OPERACIÓN</div><h3>Consolidación de ruta</h3><p className="muted">Venta → ingreso de mercancía → gasto o crédito → liquidación</p></header>
+    <div className="ruta-consol-pestanas" role="tablist">
+      <button type="button" role="tab" aria-selected={pestana === 'consolidacion'} onClick={() => setPestana('consolidacion')}>Consolidación</button>
+      <button type="button" role="tab" aria-selected={pestana === 'alertas'} onClick={() => setPestana('alertas')}>
+        Alertas{conteo.total > 0 && <span className="ruta-consol-contador">{conteo.total}</span>}</button>
+    </div>
+    {pestana === 'alertas' && <AlertasConciliacionRuta supabase={supabase} user={user} refrescar={refrescoAlertas} onCambio={actualizarConteo} />}
+    {pestana === 'consolidacion' && <>
     <form className="ruta-consol-filtros" onSubmit={consultar}>
       <label>Periodo<select className="input" value={tipo} onChange={(e) => { setTipo(e.target.value); if (e.target.value !== 'rango') setFechas(rango(e.target.value, fechas.desde)); }}><option value="dia">Día</option><option value="semana">Semana (lunes a domingo)</option><option value="rango">Rango de fechas</option></select></label>
       <label>{tipo === 'semana' ? 'Semana que contiene' : 'Desde'}<input required className="input" type="date" value={fechas.desde} onChange={(e) => setFechas(tipo === 'rango' ? { ...fechas, desde: e.target.value } : rango(tipo, e.target.value))} /></label>
@@ -89,6 +113,11 @@ export default function ConsolidacionRuta({ supabase, onAuditoria }) {
       <button className="btn btn-primary" disabled={cargando}>{cargando ? 'Consultando…' : 'Consolidar'}</button>
     </form>
     {error && <p role="alert" className="ruta-consol-rojo">{error}</p>}
+    {resumenAlertas && !cargando && (resumenAlertas.ok
+      ? <p className="ruta-consol-resumen">Alertas guardadas: <strong>{resumenAlertas.nuevas}</strong> nuevas, <strong>{resumenAlertas.resueltas}</strong> que ya cuadran{resumenAlertas.enProceso > 0 && <>, <strong>{resumenAlertas.enProceso}</strong> en proceso (dentro del plazo de recepción)</>}.
+        {resumenAlertas.notificadas > 0 && ` Se avisó a Administrador y Gerente de ${resumenAlertas.notificadas} crítica(s).`}
+        {' '}<button type="button" className="btn btn-ghost" onClick={() => setPestana('alertas')}>Ver alertas</button></p>
+      : <p role="alert" className="ruta-consol-rojo">{resumenAlertas.error}</p>)}
     {cargando && <div role="status" className="ruta-consol-cargando">Cruzando ventas, recepciones, gastos, créditos y cortes…</div>}
     {!datos && !cargando && !error && <p className="ruta-consol-nota">Elige el periodo de las ventas y pulsa Consolidar. La consulta utiliza registros de la nube.</p>}
     {datos && <>
@@ -122,6 +151,7 @@ export default function ConsolidacionRuta({ supabase, onAuditoria }) {
         {soloAlertas && !g.incidencias && <p className="ruta-consol-verde">Sin alertas documentales en las entregas de este repartidor.</p>}
       </article>)}
       <p className="muted">Una diferencia negativa indica menos registro que lo esperado; una positiva indica exceso. El crédito pendiente no exige un gasto de efectivo hasta su cobro. Los enlaces se verifican por identificador o folio, sin aproximaciones por importe o nombre.</p>
+    </>}
     </>}
   </section>;
 }
