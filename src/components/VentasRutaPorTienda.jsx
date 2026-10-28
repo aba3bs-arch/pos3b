@@ -73,22 +73,15 @@ export default function VentasRutaPorTienda({ supabase }) {
     return () => { cancel = true; };
   }, [supabase, rango, tick]);
 
-  const pendiente = useMemo(() => resumirCreditoPendiente(cargosPendientes), [cargosPendientes]);
-  const tiendas = useMemo(() => {
-    const lista = tiendasDeVentas(ventas);
-    const claves = new Set(lista.map((t) => t.clave));
-    for (const p of pendiente.porTienda.values()) {
-      if (!claves.has(p.clave)) lista.push({ clave: p.clave, nombre: p.nombre });
-    }
-    return lista.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  }, [ventas, pendiente]);
+  const pendiente = useMemo(() => resumirCreditoPendiente(cargosPendientes, ventas), [cargosPendientes, ventas]);
+  const tiendas = useMemo(() => tiendasDeVentas(ventas), [ventas]);
   const tiendaActiva = tiendas.some((t) => t.clave === tienda) ? tienda : '';
   const { filas: filasVentas, total } = useMemo(
     () => resumirVentasPorTienda(ventas, { tienda: tiendaActiva }),
     [ventas, tiendaActiva],
   );
   const filas = useMemo(
-    () => combinarVentasYPendiente(filasVentas, pendiente, { tienda: tiendaActiva }),
+    () => combinarVentasYPendiente(filasVentas, pendiente),
     [filasVentas, pendiente, tiendaActiva],
   );
   const creditoPendiente = pendienteMostrado(pendiente, tiendaActiva);
@@ -159,7 +152,7 @@ export default function VentasRutaPorTienda({ supabase }) {
         <div>
           <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#9a3412' }}>{etiquetaPendiente}</div>
           <div className="muted" style={{ fontSize: '0.74rem' }}>
-            Saldo por cobrar en Créditos por pagar (todas las fechas, no solo el periodo).
+            De las ventas a crédito de este periodo, lo que aún no se cobra en Créditos por pagar.
           </div>
         </div>
         <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c2410c' }}>{fmtMonto(creditoPendiente)}</div>
