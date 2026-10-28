@@ -4,12 +4,15 @@ import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInvent
 import { fmtMonto } from '../lib/consultasUi.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import {
+  cargarContextoLiquidacion,
   gastoVigente,
+  gastosPosterioresALiquidacion,
   listarGastosRutaPorRango,
   listarVentasRutaPorRango,
   resumirVentasPorTienda,
   totalGastos,
   tiendasDeVentas,
+  ventasPosterioresALiquidacion,
 } from '../lib/ventasRutaPorTienda.js';
 
 const PRESETS = PRESETS_FECHA_PRODUCTO.filter((p) => ['hoy', 'semana', '7d', 'mes', 'mes_ant', 'rango'].includes(p.id));
@@ -30,8 +33,10 @@ export default function VentasRutaPorTienda({ supabase }) {
   const [desde, setDesde] = useState(hoy);
   const [hasta, setHasta] = useState(hoy);
   const [tienda, setTienda] = useState('');
-  const [ventas, setVentas] = useState([]);
-  const [gastos, setGastos] = useState([]);
+  const [ventasRango, setVentasRango] = useState([]);
+  const [gastosRango, setGastosRango] = useState([]);
+  const [contexto, setContexto] = useState({ repartidores: [], cortes: new Map(), cargasPorId: new Map() });
+  const [soloPostLiquidacion, setSoloPostLiquidacion] = useState(true);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [abierta, setAbierta] = useState(null);
@@ -54,16 +59,36 @@ export default function VentasRutaPorTienda({ supabase }) {
     void Promise.all([
       listarVentasRutaPorRango(supabase, rango),
       listarGastosRutaPorRango(supabase, rango),
-    ]).then(([rv, rg]) => {
+    ]).then(async ([rv, rg]) => {
+      const ctx = await cargarContextoLiquidacion(supabase, rv.data || []).catch(() => null);
       if (cancel) return;
-      setVentas(rv.data || []);
-      setGastos(rg.data || []);
+      setVentasRango(rv.data || []);
+      setGastosRango(rg.data || []);
+      if (ctx) setContexto(ctx);
       if (rv.error || rg.error) setError(rv.error || `Gastos: ${rg.error}`);
       setCargando(false);
     });
     return () => { cancel = true; };
   }, [supabase, rango, tick]);
 
+  const corte = useMemo(
+    () => (soloPostLiquidacion
+      ? ventasPosterioresALiquidacion(ventasRango, contexto)
+      : { ventas: ventasRango, excluidas: 0, sinRecolector: 0 }),
+    [soloPostLiquidacion, ventasRango, contexto],
+  );
+  const ventas = corte.ventas;
+  const gastos = useMemo(
+    () => (soloPostLiquidacion ? gastosPosterioresALiquidacion(gastosRango, contexto.cortes) : gastosRango),
+    [soloPostLiquidacion, gastosRango, contexto],
+  );
+  const cortesVisibles = useMemo(
+    () => contexto.repartidores
+      .filter((r) => contexto.cortes.has(String(r.id)))
+      .map((r) => ({ id: r.id, nombre: r.nombre, iso: contexto.cortes.get(String(r.id)) }))
+      .sort((a, b) => String(b.iso).localeCompare(String(a.iso))),
+    [contexto],
+  );
   const tiendas = useMemo(() => tiendasDeVentas(ventas), [ventas]);
   const tiendaActiva = tiendas.some((t) => t.clave === tienda) ? tienda : '';
   const { filas, total } = useMemo(
@@ -123,6 +148,27 @@ export default function VentasRutaPorTienda({ supabase }) {
             <div style={{ fontSize: '1.15rem', fontWeight: 700, color }}>{valor}</div>
           </div>
         ))}
+      </div>
+      <div style={{ fontSize: '0.78rem', margin: '0 0 0.6rem' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={soloPostLiquidacion}
+            onChange={(e) => setSoloPostLiquidacion(e.target.checked)}
+          />
+          <span>Contar solo lo posterior a la última liquidación de cada recolector</span>
+        </label>
+        {soloPostLiquidacion ? (
+          <div className="muted" style={{ marginTop: '0.2rem' }}>
+            {corte.excluidas > 0
+              ? `${corte.excluidas} venta(s) ya liquidadas no se cuentan. `
+              : 'No hay ventas ya liquidadas en este periodo. '}
+            {cortesVisibles.length
+              ? `Última liquidación: ${cortesVisibles.map((c) => `${c.nombre || c.id} ${fmtFecha(c.iso)}`).join(' · ')}.`
+              : 'Aún no hay liquidaciones registradas.'}
+            {corte.sinRecolector > 0 ? ` ${corte.sinRecolector} venta(s) sin recolector identificado se cuentan completas.` : ''}
+          </div>
+        ) : null}
       </div>
       {todasLasTiendas ? (
         <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>

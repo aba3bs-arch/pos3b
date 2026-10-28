@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango } from './ventasRutaPorTienda.js';
+import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango, repartidorDeCarga, ventasPosterioresALiquidacion, gastosPosterioresALiquidacion, cargarContextoLiquidacion } from './ventasRutaPorTienda.js';
 
 const ventas = [
   { id: 1, cliente_tipo: 'sucursal', cliente_id: '3b2', cliente_nombre: 'Las 3B 2', metodo_pago: 'efectivo', total: 100 },
@@ -80,6 +80,62 @@ assert.equal(totalGastos([{ monto: 100 }, { monto: '50.25' }, { monto: 999, esta
   assert.equal(q.tabla, 'transito_efectivo');
   assert.deepEqual(q.filtros, [['tipo_movimiento', 'Gasto']]);
   assert.equal(totalGastos(r.data), 40);
+}
+
+{
+  const repartidores = [{ id: 'r1', nombre: 'Juan Pérez' }, { id: 'r2', nombre: 'Luis Soto' }];
+  assert.equal(repartidorDeCarga({ vendedor_id: 'rt:r1' }, repartidores), 'r1');
+  assert.equal(repartidorDeCarga({ vendedor_id: 'uuid-x', vendedor_nombre: 'luis soto' }, repartidores), 'r2');
+  assert.equal(repartidorDeCarga({ vendedor_id: 'zzz', vendedor_nombre: 'Nadie' }, repartidores), null);
+
+  const cargasPorId = new Map([
+    ['c1', { id: 'c1', vendedor_id: 'rt:r1' }],
+    ['c2', { id: 'c2', vendedor_id: 'rt:r2' }],
+  ]);
+  // Juan liquidó el 26 a las 12:00 (Nogales = 19:00Z); Luis nunca.
+  const cortes = new Map([['r1', '2026-10-26T19:00:00.000Z']]);
+  const vs = [
+    { id: 'a', carga_id: 'c1', created_at: '2026-10-26T18:59:59.000Z' },
+    { id: 'b', carga_id: 'c1', created_at: '2026-10-26T19:00:00.000Z' },
+    { id: 'c', carga_id: 'c1', created_at: '2026-10-26T19:00:01.000Z' },
+    { id: 'd', carga_id: 'c2', created_at: '2026-10-20T10:00:00.000Z' },
+    { id: 'e', carga_id: 'sin-carga', created_at: '2026-10-20T10:00:00.000Z' },
+  ];
+  const r = ventasPosterioresALiquidacion(vs, { cargasPorId, repartidores, cortes });
+  assert.deepEqual(r.ventas.map((v) => v.id), ['c', 'd', 'e']);
+  assert.equal(r.excluidas, 2);
+  assert.equal(r.sinRecolector, 1);
+
+  const gs = [
+    { id: 'g1', repartidor_id: 'r1', fecha_hora: '2026-10-26T10:00:00.000Z' },
+    { id: 'g2', repartidor_id: 'r1', fecha_hora: '2026-10-26T20:00:00.000Z' },
+    { id: 'g3', repartidor_id: 'r2', fecha_hora: '2026-10-01T20:00:00.000Z' },
+  ];
+  assert.deepEqual(gastosPosterioresALiquidacion(gs, cortes).map((g) => g.id), ['g2', 'g3']);
+
+  const datos = {
+    repartidores: [{ id: 'r1', nombre: 'Juan' }, { id: 'r2', nombre: 'Luis' }],
+    transito_efectivo: { r1: { fecha_liquidacion: '2026-10-26T19:00:00.000Z' } },
+    ruta_cargas: [{ id: 'c1', vendedor_id: 'rt:r1' }],
+  };
+  const supabase = {
+    from(tabla) {
+      const f = {};
+      const c = {
+        select: () => c,
+        eq: (k, v) => { f[k] = v; return c; },
+        neq: () => c, not: () => c, order: () => c, limit: () => c,
+        in: () => ({ then: (res) => res({ data: datos.ruta_cargas }) }),
+        maybeSingle: async () => ({ data: datos.transito_efectivo[f.repartidor_id] || null }),
+        then: (res) => res({ data: tabla === 'repartidores' ? datos.repartidores : [] }),
+      };
+      return c;
+    },
+  };
+  const ctx = await cargarContextoLiquidacion(supabase, [{ carga_id: 'c1' }]);
+  assert.equal(ctx.cortes.get('r1'), '2026-10-26T19:00:00.000Z');
+  assert.equal(ctx.cortes.has('r2'), false);
+  assert.equal(ctx.cargasPorId.get('c1').vendedor_id, 'rt:r1');
 }
 
 console.log('ventasRutaPorTienda: ok');
