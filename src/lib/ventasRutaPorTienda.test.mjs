@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, resumirCreditoAcumulado, acumuladoMostrado } from './ventasRutaPorTienda.js';
+import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, resumirCreditoAcumulado, acumuladoMostrado, totalGastos, listarGastosRutaPorRango } from './ventasRutaPorTienda.js';
 
 const ventas = [
   { id: 1, cliente_tipo: 'sucursal', cliente_id: '3b2', cliente_nombre: 'Las 3B 2', metodo_pago: 'efectivo', total: 100 },
@@ -82,6 +82,30 @@ const ventas = [
   const antes = JSON.stringify(resumirVentasPorTienda(ventas));
   resumirCreditoAcumulado(cargos);
   assert.equal(JSON.stringify(resumirVentasPorTienda(ventas)), antes);
+}
+
+assert.equal(totalGastos([{ monto: 100 }, { monto: '50.25' }, { monto: 999, estatus: 'Cancelado' }, {}]), 150.25);
+
+{
+  const q = { filtros: [] };
+  const supabase = {
+    from(tabla) {
+      q.tabla = tabla;
+      const c = {
+        select: () => c,
+        eq: (k, v) => { q.filtros.push([k, v]); return c; },
+        gte: () => c,
+        lte: () => c,
+        order: () => c,
+        range: async () => ({ data: [{ id: 1, monto: 40 }], error: null }),
+      };
+      return c;
+    },
+  };
+  const r = await listarGastosRutaPorRango(supabase, { desde: '2026-10-01', hasta: '2026-10-02' });
+  assert.equal(q.tabla, 'transito_efectivo');
+  assert.deepEqual(q.filtros, [['tipo_movimiento', 'Gasto']]);
+  assert.equal(totalGastos(r.data), 40);
 }
 
 console.log('ventasRutaPorTienda: ok');
