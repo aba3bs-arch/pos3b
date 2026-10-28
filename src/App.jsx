@@ -68,7 +68,7 @@ import {
   esCentralAdmin,
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente, esRolRepartidor } from './lib/roles.js';
 import { inventarioParaSucursal, asegurarMapaStock } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -146,6 +146,7 @@ import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
 import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
 import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOverlay.jsx';
+import AlertaAprobacionCobroRutaOverlay from './components/AlertaAprobacionCobroRutaOverlay.jsx';
 import AlertaExtensionTurnoOverlay from './components/AlertaExtensionTurnoOverlay.jsx';
 import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
@@ -2146,6 +2147,12 @@ function App() {
         ) : null}
         {user && !user.esCtMovil ? (
           <AlertaCancelacionRutaOverlay
+            supabase={supabase}
+            user={user}
+          />
+        ) : null}
+        {user && !user.esCtMovil && esRolRepartidor(user.rol) ? (
+          <AlertaAprobacionCobroRutaOverlay
             supabase={supabase}
             user={user}
           />

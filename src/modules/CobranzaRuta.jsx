@@ -8,6 +8,12 @@ import {
   sincronizarCreditosRecoleccionACxc,
   verificarPinCajero,
 } from '../lib/rutaCxc.js';
+import {
+  cancelarSolicitudCobro,
+  listarSolicitudesCajero,
+  solicitarCobroCreditos,
+  solicitudRequiereAccion,
+} from '../lib/rutaCxcAprobacion.js';
 import { fmtFechaCorta, fmtMonto } from '../lib/consultasUi.js';
 import {
   esCentralAdmin,
@@ -24,7 +30,8 @@ import {
  * - Solo se selecciona y paga UNA tienda a la vez.
  * - Se pueden marcar folios concretos y/o pagar un monto parcial (FIFO).
  * - Administrador puede eliminar créditos por error.
- * - Al pagar: gasto abarrotes + efectivo a tránsito (recolección reusa la ficha).
+ * - Al pagar el cajero SOLICITA el cobro; el vendedor de ruta lo aprueba con su PIN y
+ *   entonces se registra: gasto abarrotes + efectivo a tránsito (recolección reusa la ficha).
  * - Carga rápida de CxC + sync Recolecciones en segundo plano.
  */
 export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo }) {
@@ -44,6 +51,8 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const syncGen = useRef(0);
   const pagoEnCurso = useRef(false);
   const solicitudPago = useRef(null);
+  const [solicitudes, setSolicitudes] = useState([]);
+  const solicitudesPrevias = useRef(new Map());
   const puedeEliminar = puedeEliminarCreditosRuta(user?.rol);
 
   const sucActiva = normalizarCodigoTienda(sucursal || user?.sucursal_id || '') || '';
@@ -152,6 +161,39 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     if (!cajero) return;
     void cargar({ conSyncFondo: true });
   }, [cargar, cajero]);
+
+  const cargarSolicitudes = useCallback(async () => {
+    if (!supabase) return;
+    const r = await listarSolicitudesCajero(supabase, { sucursal: sucActiva });
+    if (!r.ok) return;
+    const previas = solicitudesPrevias.current;
+    const cambioAAprobada = r.data.some((x) => x.estado === 'aprobada' && x.aplicada_at && previas.get(x.id) && previas.get(x.id) !== 'aplicada');
+    solicitudesPrevias.current = new Map(r.data.map((x) => [x.id, x.estado === 'aprobada' && x.aplicada_at ? 'aplicada' : x.estado]));
+    setSolicitudes(r.data);
+    if (cambioAAprobada) void cargar({ conSyncFondo: false });
+  }, [supabase, sucActiva, cargar]);
+
+  useEffect(() => {
+    if (!cajero) return undefined;
+    void cargarSolicitudes();
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void cargarSolicitudes();
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [cajero, cargarSolicitudes]);
+
+  const idsEnAprobacion = useMemo(
+    () => new Set(solicitudes.filter(solicitudRequiereAccion).flatMap((x) => (x.movimiento_ids || []).map(String))),
+    [solicitudes],
+  );
+
+  const cancelarSolicitud = async (sol) => {
+    if (!confirm(`¿Cancelar la solicitud de ${fmtMonto(sol.monto)} para ${sol.vendedor_nombre || 'el vendedor'}?`)) return;
+    const r = await cancelarSolicitudCobro(supabase, { solicitudId: sol.id, cajeroNombre: cajero?.nombre });
+    if (!r.ok) alert(r.error);
+    await cargarSolicitudes();
+  };
 
   const grupos = useMemo(() => {
     const map = new Map();
@@ -319,12 +361,16 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     if (monto > totalFoliosSel + 0.009) {
       return alert(`El monto no puede superar los folios marcados (${fmtMonto(totalFoliosSel)}).`);
     }
+    if (idsSeleccionados.some((id) => idsEnAprobacion.has(String(id)))) {
+      return alert('Alguno de los folios marcados ya espera la aprobación del vendedor. Cancela esa solicitud o desmárcalo.');
+    }
     if (!confirm(
-      `¿Pagar ${fmtMonto(monto)} de ${grupoSel.label}?\n`
+      `¿Solicitar el cobro de ${fmtMonto(monto)} de ${grupoSel.label}?\n`
       + `${idsSeleccionados.length} folio(s) marcado(s) · ${fmtMonto(totalFoliosSel)}`
       + (monto < totalFoliosSel - 0.001 ? ' · parcial FIFO' : '')
       + `\nSaldo tienda ${fmtMonto(totalTienda)}\n\n`
-      + 'Gasto abarrotes en ESA tienda + efectivo a tránsito.',
+      + 'El vendedor de ruta recibirá un aviso y debe aprobarlo con su PIN. '
+      + 'Hasta entonces no se registra gasto, efectivo ni abono.',
     )) return;
     const firma = JSON.stringify([idsSeleccionados.map(String).sort(), monto, grupoSel.id || sucActiva, cajero?.nombre]);
     if (solicitudPago.current?.firma !== firma) {
@@ -334,21 +380,39 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     setGuardando(true);
     let r;
     try {
-      r = await pagarCreditosRutaConPin(supabase, {
-        movimientoIds: idsSeleccionados,
-        sucursal: grupoSel.id || sucActiva,
-        cajeroUser: cajero,
-        montoPagar: monto,
-        solicitudId: solicitudPago.current.id,
+      const sucPago = grupoSel.id || sucActiva;
+      const sol = await solicitarCobroCreditos(supabase, {
+        movimientoIds: idsSeleccionados, monto, sucursal: sucPago, cajeroUser: cajero,
       });
+      if (!sol.ok) {
+        r = sol;
+      } else if (sol.modo === 'directo') {
+        r = await pagarCreditosRutaConPin(supabase, {
+          movimientoIds: idsSeleccionados,
+          sucursal: sucPago,
+          cajeroUser: cajero,
+          montoPagar: monto,
+          solicitudId: solicitudPago.current.id,
+        });
+      } else {
+        r = { ok: true, solicitadas: sol.solicitudes };
+      }
     } catch {
-      r = { ok: false, error: 'No se confirmó el pago. Conserva la selección y reintenta la misma operación.' };
+      r = { ok: false, error: 'No se confirmó la operación. Conserva la selección y reintenta.' };
     } finally {
       pagoEnCurso.current = false;
       setGuardando(false);
     }
     if (!r.ok) return alert(r.error);
     solicitudPago.current = null;
+    if (r.solicitadas) {
+      const quienes = [...new Set(r.solicitadas.map((x) => x.vendedor_nombre).filter(Boolean))].join(', ');
+      alert(`Solicitud enviada a ${quienes || 'el vendedor'} por ${fmtMonto(monto)} · ${grupoSel.label}.\nEl pago se registra cuando el vendedor lo apruebe con su PIN.`);
+      setFoliosSel(new Set());
+      setMontoPagarStr('');
+      await cargarSolicitudes();
+      return;
+    }
     const extra = r.parcial ? ' (parcial; queda saldo pendiente)' : '';
     alert(`Pagado ${fmtMonto(r.montoPagado || monto)} · ${grupoSel.label} · ${r.cajero}.${extra}`);
     setFoliosSel(new Set());
@@ -418,6 +482,33 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           {puedeEliminar ? ' · Admin: puedes eliminar folios marcados por error.' : ''}
         </p>
       </div>
+      {solicitudes.length > 0 && (
+        <div className="card" style={{ margin: 0, padding: '0.6rem 0.8rem', borderLeft: '4px solid #0f766e' }}>
+          <strong style={{ fontSize: '0.85rem' }}>Solicitudes de cobro (aprobación del vendedor)</strong>
+          <div style={{ display: 'grid', gap: '0.35rem', marginTop: '0.4rem' }}>
+            {solicitudes.slice(0, 8).map((sol) => {
+              const aplicada = sol.estado === 'aprobada' && sol.aplicada_at;
+              const etiqueta = aplicada ? 'Aprobada y cobrada'
+                : sol.estado === 'aprobada' ? 'Aprobada · registrando pago'
+                  : { pendiente: 'Esperando al vendedor', rechazada: 'Rechazada', cancelada: 'Cancelada' }[sol.estado] || sol.estado;
+              const color = aplicada ? '#187443' : sol.estado === 'rechazada' ? '#b42318' : sol.estado === 'pendiente' ? '#b45309' : '#64748b';
+              return (
+                <div key={sol.id} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'baseline', fontSize: '0.82rem' }}>
+                  <strong>{fmtMonto(sol.monto)}</strong>
+                  <span>{sol.tienda || sol.sucursal_id}</span>
+                  <span className="muted">→ {sol.vendedor_nombre || 'vendedor'}</span>
+                  <span style={{ color, fontWeight: 700 }}>{etiqueta}</span>
+                  {sol.estado === 'rechazada' && sol.motivo ? <span className="muted">Motivo: {sol.motivo}</span> : null}
+                  <span className="muted">{fmtFechaCorta(sol.created_at)}</span>
+                  {sol.estado === 'pendiente' && (
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => void cancelarSolicitud(sol)}>Cancelar</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {aviso && <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>{aviso}</div>}
       {(cargando || syncBg) && (
         <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
@@ -565,6 +656,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
                                 </td>
                                 <td>
                                   <strong>{m.folio_venta || m.venta_id || '—'}</strong>
+                                  {idsEnAprobacion.has(String(m.id)) ? (
+                                    <span style={{ marginLeft: 6, fontSize: '0.68rem', fontWeight: 700, color: '#b45309' }}>En aprobación</span>
+                                  ) : null}
                                   {m.notas ? (
                                     <div className="muted" style={{ fontSize: '0.72rem', maxWidth: 280 }}>
                                       {String(m.notas).length > 72 ? `${String(m.notas).slice(0, 72)}…` : m.notas}
@@ -692,10 +786,10 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
             style={{ flexShrink: 0 }}
           >
             {guardando
-              ? 'Pagando…'
+              ? 'Enviando…'
               : montoPagarNum > 0
-                ? `Pagar ${fmtMonto(montoPagarNum)}`
-                : `Pagar ${idsSeleccionados.length || 0}`}
+                ? `Solicitar cobro ${fmtMonto(montoPagarNum)}`
+                : `Solicitar cobro ${idsSeleccionados.length || 0}`}
           </button>
           {puedeEliminar && (
             <button

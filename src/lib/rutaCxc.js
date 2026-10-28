@@ -63,7 +63,7 @@ export function precioCedisRuta(producto) {
   return null;
 }
 
-function esCargoPendienteCxc(m) {
+export function esCargoPendienteCxc(m) {
   if (!m || m.tipo !== 'cargo') return false;
   if (m.pagado_at) return false;
   const est = String(m.estatus || 'pendiente').toLowerCase();
