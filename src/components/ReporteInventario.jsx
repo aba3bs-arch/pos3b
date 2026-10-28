@@ -35,9 +35,10 @@ import {
   parseNumInventario,
 } from '../lib/resultadoInventario.js';
 import {
-  buscarUsuarioPorPinYSucursal,
-  mensajePinSucursalIncorrecta,
-} from '../lib/usuariosAuth.js';
+  firmaInventarioDesdeFirmante,
+  firmaInventarioYaRegistrada,
+  resolverFirmanteInventario,
+} from '../lib/firmaInventarioPin.js';
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -451,35 +452,18 @@ export default function ReporteInventario({
     setFirmandoIdx(idx);
     setAvisoFirma('');
     try {
-      const r = await buscarUsuarioPorPinYSucursal(supabase, pin, tiendaResultado, {
-        aceptarPersonalCentral: true,
-      });
-      if (r.error) {
+      const r = await resolverFirmanteInventario(supabase, pin, tiendaResultado);
+      if (!r.ok) {
         setAvisoFirma(r.error);
         return;
       }
-      if (r.avisoSucursal || !r.user) {
-        setAvisoFirma(
-          r.avisoSucursal
-            ? mensajePinSucursalIncorrecta(tiendaResultado, r.sucursalReal)
-            : 'PIN no válido.',
-        );
-        return;
-      }
-      const nombre = String(r.user.nombre || r.user.email || '').trim() || 'Usuario';
-      const uid = r.user.id || null;
-      const yaFirmo = firmasConformidad.some(
-        (f, i) => i !== idx && f?.nombre && uid && f.usuario_id && String(f.usuario_id) === String(uid),
-      );
-      if (yaFirmo) {
+      const { firmante } = r;
+      const nombre = firmante.nombre;
+      if (firmaInventarioYaRegistrada(firmasConformidad, idx, firmante)) {
         setAvisoFirma(`${nombre} ya firmó en otro campo.`);
         return;
       }
-      const firmaNueva = {
-        nombre,
-        usuario_id: uid,
-        firmado_at: new Date().toISOString(),
-      };
+      const firmaNueva = firmaInventarioDesdeFirmante(firmante);
       const firmasNext = firmasConformidad.map((f, i) => (i === idx ? firmaNueva : f));
       setFirmasConformidad(firmasNext);
       setPinsFirma((prev) => {
@@ -1254,7 +1238,7 @@ export default function ReporteInventario({
           >
             <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>De conformidad:</div>
             <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-              Tres firmas con PIN (el PIN no se muestra ni se guarda). Al firmar se estampa el nombre del usuario.
+              Tres firmas con PIN (el PIN no se muestra ni se guarda). Al firmar se estampa el nombre del usuario. El PIN temporal de un cubre turno (CT) también firma, solo en la tienda y el turno de su cobertura.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
               {ETIQUETAS_FIRMAS_INVENTARIO.map((etiqueta, idx) => {
@@ -1290,6 +1274,7 @@ export default function ReporteInventario({
                             : undefined}
                         >
                           {firma.nombre}
+                          {firma.cubre_turno ? <span className="muted" style={{ fontSize: '0.72rem', marginLeft: '0.35rem' }}>· CT</span> : null}
                         </div>
                         {puedeCapturarBono ? (
                           <button
