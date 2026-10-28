@@ -63,6 +63,10 @@ export function normalizarFirmasInventario(raw) {
       usuario_id: f.usuario_id || f.usuarioId || f.user_id || null,
       firmado_at: f.firmado_at || f.firmadoAt || f.signed_at || null,
     };
+    if (f.cubre_turno) {
+      slots[i].cubre_turno = true;
+      slots[i].cubre_solicitud_id = f.cubre_solicitud_id || null;
+    }
   }
   return slots;
 }
