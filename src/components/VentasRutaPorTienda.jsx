@@ -6,10 +6,13 @@ import { hoyYmdNogales } from '../lib/corteCaja.js';
 import { listarCreditosPendientesRuta } from '../lib/rutaCxc.js';
 import {
   acumuladoMostrado,
+  gastoVigente,
+  listarGastosRutaPorRango,
   listarVentasRutaPorRango,
   resumirCreditoAcumulado,
   resumirVentasPorTienda,
   tiendasDeVentas,
+  totalGastos,
 } from '../lib/ventasRutaPorTienda.js';
 
 const PRESETS = PRESETS_FECHA_PRODUCTO.filter((p) => ['hoy', 'semana', '7d', 'mes', 'mes_ant', 'rango'].includes(p.id));
@@ -31,6 +34,7 @@ export default function VentasRutaPorTienda({ supabase }) {
   const [hasta, setHasta] = useState(hoy);
   const [tienda, setTienda] = useState('');
   const [ventas, setVentas] = useState([]);
+  const [gastos, setGastos] = useState([]);
   const [cargosPendientes, setCargosPendientes] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
@@ -51,10 +55,14 @@ export default function VentasRutaPorTienda({ supabase }) {
     let cancel = false;
     setCargando(true);
     setError('');
-    void listarVentasRutaPorRango(supabase, rango).then((r) => {
+    void Promise.all([
+      listarVentasRutaPorRango(supabase, rango),
+      listarGastosRutaPorRango(supabase, rango),
+    ]).then(([rv, rg]) => {
       if (cancel) return;
-      setVentas(r.data || []);
-      if (r.error) setError(r.error);
+      setVentas(rv.data || []);
+      setGastos(rg.data || []);
+      if (rv.error || rg.error) setError(rv.error || `Gastos: ${rg.error}`);
       setCargando(false);
     });
     return () => { cancel = true; };
@@ -89,6 +97,17 @@ export default function VentasRutaPorTienda({ supabase }) {
     () => resumirVentasPorTienda(ventas, { tienda: tiendaActiva }),
     [ventas, tiendaActiva],
   );
+
+  const todasLasTiendas = !tiendaActiva;
+  const gastosPeriodo = useMemo(() => totalGastos(gastos), [gastos]);
+  const totalNeto = Math.round((total.efectivo + total.credito - (todasLasTiendas ? gastosPeriodo : 0)) * 100) / 100;
+  const tarjetas = [
+    ['Ventas', String(total.ventas), '#334155'],
+    ['Efectivo', fmtMonto(total.efectivo), '#0f766e'],
+    ['Crédito', fmtMonto(total.credito), '#b45309'],
+    ...(todasLasTiendas ? [['Gastos', fmtMonto(gastosPeriodo), '#b91c1c']] : []),
+    [todasLasTiendas ? 'Total (menos gastos)' : 'Total', fmtMonto(totalNeto), '#1d4ed8'],
+  ];
 
   return (
     <div>
@@ -125,12 +144,7 @@ export default function VentasRutaPorTienda({ supabase }) {
       {error ? <p style={{ color: '#b91c1c', fontSize: '0.85rem' }}>{error}</p> : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.5rem', marginBottom: '0.75rem' }}>
-        {[
-          ['Ventas', String(total.ventas), '#334155'],
-          ['Efectivo', fmtMonto(total.efectivo), '#0f766e'],
-          ['Crédito', fmtMonto(total.credito), '#b45309'],
-          ['Total', fmtMonto(total.total), '#1d4ed8'],
-        ].map(([etiqueta, valor, color]) => (
+        {tarjetas.map(([etiqueta, valor, color]) => (
           <div key={etiqueta} className="card" style={{ margin: 0, padding: '0.6rem 0.8rem', borderLeft: `4px solid ${color}` }}>
             <div className="muted" style={{ fontSize: '0.75rem' }}>{etiqueta}</div>
             <div style={{ fontSize: '1.15rem', fontWeight: 700, color }}>{valor}</div>
@@ -155,6 +169,12 @@ export default function VentasRutaPorTienda({ supabase }) {
         </div>
         <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c2410c' }}>{fmtMonto(credAcum.monto)}</div>
       </div>
+      {todasLasTiendas ? (
+        <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
+          Total = efectivo + crédito − gastos de ruta del periodo ({gastos.filter(gastoVigente).length} gasto(s)).
+          Al elegir una tienda los gastos no se restan.
+        </p>
+      ) : null}
       {total.canceladas > 0 ? (
         <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
           {total.canceladas} venta(s) cancelada(s) no se cuentan.

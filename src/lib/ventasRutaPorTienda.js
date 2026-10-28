@@ -143,3 +143,33 @@ export function acumuladoMostrado(acumulado, tienda = '') {
   if (tienda) return acumulado.porTienda.get(tienda) || vacio;
   return { monto: acumulado.total, ruta: acumulado.ruta, recoleccion: acumulado.recoleccion, folios: [...acumulado.porTienda.values()].reduce((s, f) => s + f.folios, 0) };
 }
+
+export function gastoVigente(gasto) {
+  return !/cancel|rechaz|anulad/i.test(String(gasto?.estatus || ''));
+}
+
+export function totalGastos(gastos) {
+  return r2((gastos || []).filter(gastoVigente).reduce((s, g) => s + (Number(g?.monto) || 0), 0));
+}
+
+/** Gastos de ruta (Venta en Ruta → Gastos) del rango. No trae la foto de evidencia. */
+export async function listarGastosRutaPorRango(supabase, { desde, hasta } = {}) {
+  if (!supabase) return { data: [] };
+  const ini = inicioDia(desde).toISOString();
+  const fin = finDia(hasta || desde).toISOString();
+  const data = [];
+  for (let pagina = 0; pagina < MAX_PAGINAS; pagina += 1) {
+    const { data: lote, error } = await supabase
+      .from('transito_efectivo')
+      .select('id, monto, fecha_hora, num_traspaso, descripcion_gasto, estatus, repartidor_id')
+      .eq('tipo_movimiento', 'Gasto')
+      .gte('fecha_hora', ini)
+      .lte('fecha_hora', fin)
+      .order('fecha_hora', { ascending: false })
+      .range(pagina * TAMANO_PAGINA, (pagina + 1) * TAMANO_PAGINA - 1);
+    if (error) return { data, error: error.message };
+    data.push(...(lote || []));
+    if (!lote || lote.length < TAMANO_PAGINA) break;
+  }
+  return { data };
+}
