@@ -6,6 +6,7 @@ import PortalFlotante from '../components/PortalFlotante.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 import InputPin from '../components/InputPin.jsx';
+import VentasRutaPorTienda from '../components/VentasRutaPorTienda.jsx';
 import PanelPurgaVentaEnRuta from '../components/PanelPurgaVentaEnRuta.jsx';
 import CancelacionDevolucionRuta from './CancelacionDevolucionRuta.jsx';
 import { listarCancelacionesRuta } from '../lib/rutaCancelaciones.js';
@@ -148,6 +149,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
   const [tutorialAbierto, setTutorialAbierto] = useState(false);
+  const [rcTab, setRcTab] = useState('recibir');
   const [vendedorSesion, setVendedorSesion] = useState(() => {
     if (esRolRepartidor(user?.rol) && user?.id) {
       return { id: user.id, nombre: user.nombre || user.email || 'Repartidor', rol: user.rol };
@@ -485,7 +487,26 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
             (Pendientes por liquidar). Los cobros de servicio van en la pestaña RC Servicios.
             Para cerrar la carga del camión usa Consultas → Cargas → Liquidar, o el corte de caja.
           </p>
-          <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
+          <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+            {[
+              ['recibir', 'Recibir efectivo'],
+              ['ventas', 'Ventas por tienda'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`btn ${rcTab === id ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setRcTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {rcTab === 'ventas' ? (
+            <VentasRutaPorTienda supabase={supabase} />
+          ) : (
+            <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
+          )}
         </div>
       )}
       {vista === 'consultas' && puede('ruta_consultas') && (
