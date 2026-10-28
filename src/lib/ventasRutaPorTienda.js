@@ -126,3 +126,62 @@ export async function listarGastosRutaPorRango(supabase, { desde, hasta } = {}) 
   }
   return { data };
 }
+
+/** Clave de tienda/cliente de un cargo CxC pendiente (misma convención que las ventas). */
+export function tiendaDeCreditoPendiente(cargo) {
+  const tipo = String(cargo?.cliente_tipo || 'sucursal').toLowerCase();
+  if (tipo === 'sucursal') {
+    const cod = normalizarCodigoTienda(cargo?.cliente_id) || String(cargo?.cliente_id || '').toUpperCase();
+    if (cod) return { clave: cod, nombre: cargo?.cliente_nombre || cod, externo: false };
+  }
+  const nombre = String(cargo?.cliente_nombre || cargo?.cliente_id || 'Sin cliente').trim();
+  return { clave: `EXT:${nombre.toUpperCase()}`, nombre, externo: true };
+}
+
+/**
+ * Saldo de crédito pendiente por tienda (todas las fechas: es lo que sigue por cobrar).
+ * @returns {{ porTienda: Map<string, {clave, nombre, externo, monto, folios: object[]}>, total: number }}
+ */
+export function resumirCreditoPendiente(cargos) {
+  const porTienda = new Map();
+  let total = 0;
+  for (const c of cargos || []) {
+    const monto = r2(c?.monto);
+    if (!(monto > 0)) continue;
+    const t = tiendaDeCreditoPendiente(c);
+    let fila = porTienda.get(t.clave);
+    if (!fila) {
+      fila = { ...t, monto: 0, folios: [] };
+      porTienda.set(t.clave, fila);
+    }
+    fila.monto = r2(fila.monto + monto);
+    fila.folios.push(c);
+    total = r2(total + monto);
+  }
+  return { porTienda, total };
+}
+
+/** Agrega el pendiente a cada fila y suma filas de tiendas con saldo pero sin ventas en el periodo. */
+export function combinarVentasYPendiente(filas, pendiente, { tienda = '' } = {}) {
+  const salida = (filas || []).map((f) => {
+    const p = pendiente?.porTienda?.get(f.clave);
+    return { ...f, pendiente: p?.monto || 0, foliosPendientes: p?.folios || [] };
+  });
+  const presentes = new Set(salida.map((f) => f.clave));
+  for (const p of pendiente?.porTienda?.values() || []) {
+    if (presentes.has(p.clave) || (tienda && p.clave !== tienda)) continue;
+    salida.push({
+      clave: p.clave, nombre: p.nombre, externo: p.externo,
+      ventas: 0, efectivo: 0, credito: 0, total: 0, detalle: [],
+      pendiente: p.monto, foliosPendientes: p.folios,
+    });
+  }
+  return salida;
+}
+
+/** Crédito pendiente de una tienda, o el total de todas si no hay tienda elegida. */
+export function pendienteMostrado(pendiente, tienda = '') {
+  if (!pendiente) return 0;
+  if (tienda) return pendiente.porTienda.get(tienda)?.monto || 0;
+  return pendiente.total;
+}
