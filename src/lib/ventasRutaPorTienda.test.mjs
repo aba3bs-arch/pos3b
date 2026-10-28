@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango } from './ventasRutaPorTienda.js';
+import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango, resumirCreditoPendiente, combinarVentasYPendiente, pendienteMostrado } from './ventasRutaPorTienda.js';
 
 const ventas = [
   { id: 1, cliente_tipo: 'sucursal', cliente_id: '3b2', cliente_nombre: 'Las 3B 2', metodo_pago: 'efectivo', total: 100 },
@@ -80,6 +80,31 @@ assert.equal(totalGastos([{ monto: 100 }, { monto: '50.25' }, { monto: 999, esta
   assert.equal(q.tabla, 'transito_efectivo');
   assert.deepEqual(q.filtros, [['tipo_movimiento', 'Gasto']]);
   assert.equal(totalGastos(r.data), 40);
+}
+
+{
+  const cargos = [
+    { cliente_tipo: 'sucursal', cliente_id: '3b2', monto: 100 },
+    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 50.5, folio_venta: 'V9' },
+    { cliente_tipo: 'sucursal', cliente_id: '3B7', cliente_nombre: 'Las 3B 7', monto: 200 },
+    { cliente_tipo: 'externo', cliente_nombre: 'Tiendita Lola', monto: 25 },
+    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 0 },
+  ];
+  const pend = resumirCreditoPendiente(cargos);
+  assert.equal(pend.total, 375.5);
+  assert.equal(pend.porTienda.get('3B2').monto, 150.5);
+  assert.equal(pendienteMostrado(pend, ''), 375.5);
+  assert.equal(pendienteMostrado(pend, '3B2'), 150.5);
+  assert.equal(pendienteMostrado(pend, '3B9'), 0);
+
+  const { filas } = resumirVentasPorTienda(ventas);
+  const comb = combinarVentasYPendiente(filas, pend);
+  assert.equal(comb.find((f) => f.clave === '3B2').pendiente, 150.5);
+  assert.equal(comb.find((f) => f.clave === '3B4').pendiente, 0);
+  const soloPend = comb.find((f) => f.clave === '3B7');
+  assert.equal(soloPend.ventas, 0);
+  assert.equal(soloPend.pendiente, 200);
+  assert.equal(combinarVentasYPendiente(filas, pend, { tienda: '3B4' }).some((f) => f.clave === '3B7'), false);
 }
 
 console.log('ventasRutaPorTienda: ok');

@@ -3,10 +3,14 @@ import FiltroPeriodo from './FiltroPeriodo.jsx';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
+import { listarCreditosPendientesRuta } from '../lib/rutaCxc.js';
 import {
+  combinarVentasYPendiente,
   gastoVigente,
   listarGastosRutaPorRango,
   listarVentasRutaPorRango,
+  pendienteMostrado,
+  resumirCreditoPendiente,
   resumirVentasPorTienda,
   totalGastos,
   tiendasDeVentas,
@@ -32,6 +36,7 @@ export default function VentasRutaPorTienda({ supabase }) {
   const [tienda, setTienda] = useState('');
   const [ventas, setVentas] = useState([]);
   const [gastos, setGastos] = useState([]);
+  const [cargosPendientes, setCargosPendientes] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [abierta, setAbierta] = useState(null);
@@ -54,22 +59,39 @@ export default function VentasRutaPorTienda({ supabase }) {
     void Promise.all([
       listarVentasRutaPorRango(supabase, rango),
       listarGastosRutaPorRango(supabase, rango),
-    ]).then(([rv, rg]) => {
+      listarCreditosPendientesRuta(supabase, { todos: true }),
+    ]).then(([rv, rg, rp]) => {
       if (cancel) return;
       setVentas(rv.data || []);
       setGastos(rg.data || []);
-      if (rv.error || rg.error) setError(rv.error || `Gastos: ${rg.error}`);
+      setCargosPendientes(rp.data || []);
+      if (rv.error || rg.error || rp.error) {
+        setError(rv.error || (rg.error ? `Gastos: ${rg.error}` : `Crédito pendiente: ${rp.error}`));
+      }
       setCargando(false);
     });
     return () => { cancel = true; };
   }, [supabase, rango, tick]);
 
-  const tiendas = useMemo(() => tiendasDeVentas(ventas), [ventas]);
+  const pendiente = useMemo(() => resumirCreditoPendiente(cargosPendientes), [cargosPendientes]);
+  const tiendas = useMemo(() => {
+    const lista = tiendasDeVentas(ventas);
+    const claves = new Set(lista.map((t) => t.clave));
+    for (const p of pendiente.porTienda.values()) {
+      if (!claves.has(p.clave)) lista.push({ clave: p.clave, nombre: p.nombre });
+    }
+    return lista.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }, [ventas, pendiente]);
   const tiendaActiva = tiendas.some((t) => t.clave === tienda) ? tienda : '';
-  const { filas, total } = useMemo(
+  const { filas: filasVentas, total } = useMemo(
     () => resumirVentasPorTienda(ventas, { tienda: tiendaActiva }),
     [ventas, tiendaActiva],
   );
+  const filas = useMemo(
+    () => combinarVentasYPendiente(filasVentas, pendiente, { tienda: tiendaActiva }),
+    [filasVentas, pendiente, tiendaActiva],
+  );
+  const creditoPendiente = pendienteMostrado(pendiente, tiendaActiva);
 
   const todasLasTiendas = !tiendaActiva;
   const gastosPeriodo = useMemo(() => totalGastos(gastos), [gastos]);
@@ -81,6 +103,9 @@ export default function VentasRutaPorTienda({ supabase }) {
     ...(todasLasTiendas ? [['Gastos', fmtMonto(gastosPeriodo), '#b91c1c']] : []),
     [todasLasTiendas ? 'Total (menos gastos)' : 'Total', fmtMonto(totalNeto), '#1d4ed8'],
   ];
+  const etiquetaPendiente = todasLasTiendas
+    ? 'Crédito pendiente · todas las tiendas'
+    : `Crédito pendiente · ${tiendas.find((t) => t.clave === tiendaActiva)?.nombre || 'tienda'}`;
 
   return (
     <div>
@@ -124,6 +149,21 @@ export default function VentasRutaPorTienda({ supabase }) {
           </div>
         ))}
       </div>
+      <div
+        className="card"
+        style={{
+          margin: '0 0 0.75rem', padding: '0.7rem 0.9rem', borderLeft: '5px solid #c2410c',
+          background: '#fff7ed', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center',
+        }}
+      >
+        <div>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#9a3412' }}>{etiquetaPendiente}</div>
+          <div className="muted" style={{ fontSize: '0.74rem' }}>
+            Saldo por cobrar en Créditos por pagar (todas las fechas, no solo el periodo).
+          </div>
+        </div>
+        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c2410c' }}>{fmtMonto(creditoPendiente)}</div>
+      </div>
       {todasLasTiendas ? (
         <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
           Total = efectivo + crédito − gastos de ruta del periodo ({gastos.filter(gastoVigente).length} gasto(s)).
@@ -150,6 +190,7 @@ export default function VentasRutaPorTienda({ supabase }) {
                 <th>Efectivo</th>
                 <th>Crédito</th>
                 <th>Total</th>
+                <th>Crédito pendiente</th>
               </tr>
             </thead>
             <tbody>
@@ -167,10 +208,22 @@ export default function VentasRutaPorTienda({ supabase }) {
                     <td>{fmtMonto(f.efectivo)}</td>
                     <td>{fmtMonto(f.credito)}</td>
                     <td><strong>{fmtMonto(f.total)}</strong></td>
+                    <td style={{ color: f.pendiente > 0 ? '#c2410c' : undefined, fontWeight: f.pendiente > 0 ? 700 : 400 }}>
+                      {fmtMonto(f.pendiente)}
+                    </td>
                   </tr>
                   {abierta === f.clave ? (
                     <tr>
-                      <td colSpan={5} style={{ background: 'var(--surface-2, #f8fafc)' }}>
+                      <td colSpan={6} style={{ background: 'var(--surface-2, #f8fafc)' }}>
+                        {f.foliosPendientes.length ? (
+                          <p style={{ margin: '0 0 0.4rem', fontSize: '0.8rem', color: '#9a3412' }}>
+                            <strong>Pendientes ({f.foliosPendientes.length}):</strong>{' '}
+                            {f.foliosPendientes
+                              .map((c) => `${c.folio_venta || c.folio || 's/folio'} ${fmtMonto(c.monto)}`)
+                              .join(' · ')}
+                          </p>
+                        ) : null}
+                        {f.detalle.length ? (
                         <table className="consultas-table" style={{ margin: 0 }}>
                           <thead>
                             <tr>
@@ -200,6 +253,7 @@ export default function VentasRutaPorTienda({ supabase }) {
                             ))}
                           </tbody>
                         </table>
+                        ) : <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Sin ventas en este periodo.</p>}
                       </td>
                     </tr>
                   ) : null}
