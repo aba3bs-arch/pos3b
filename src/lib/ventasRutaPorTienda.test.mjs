@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, resumirCreditoAcumulado, acumuladoMostrado } from './ventasRutaPorTienda.js';
+import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango } from './ventasRutaPorTienda.js';
 
 const ventas = [
   { id: 1, cliente_tipo: 'sucursal', cliente_id: '3b2', cliente_nombre: 'Las 3B 2', metodo_pago: 'efectivo', total: 100 },
@@ -58,30 +58,28 @@ const ventas = [
   assert.equal(llamadas[1][2], '2026-10-08T06:59:59.999Z');
 }
 
+assert.equal(totalGastos([{ monto: 100 }, { monto: '50.25' }, { monto: 999, estatus: 'Cancelado' }, {}]), 150.25);
+
 {
-  const cargos = [
-    { cliente_tipo: 'sucursal', cliente_id: '3b2', monto: 9000, venta_id: 'v1' },
-    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 372.5, folio_venta: 'F1' },
-    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 26670.5, carga_id: 'rec:abc-123' },
-    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 100, notas: 'Recolección transito:1234abcd-5678' },
-    { cliente_tipo: 'sucursal', cliente_id: '3B7', cliente_nombre: 'Las 3B 7', monto: 200 },
-    { cliente_tipo: 'externo', cliente_nombre: 'Tiendita Lola', monto: 25 },
-    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 0 },
-  ];
-  const ac = resumirCreditoAcumulado(cargos);
-  assert.equal(ac.porTienda.get('3B2').monto, 36143);
-  assert.equal(ac.porTienda.get('3B2').ruta, 9372.5);
-  assert.equal(ac.porTienda.get('3B2').recoleccion, 26770.5);
-  assert.equal(ac.porTienda.get('3B2').folios, 4);
-  assert.equal(ac.total, 36368);
-  assert.equal(ac.ruta + ac.recoleccion, ac.total);
-  assert.equal(acumuladoMostrado(ac, '3B2').monto, 36143);
-  assert.equal(acumuladoMostrado(ac, '').monto, 36368);
-  assert.equal(acumuladoMostrado(ac, '3B9').monto, 0);
-  // No altera efectivo/crédito de las ventas
-  const antes = JSON.stringify(resumirVentasPorTienda(ventas));
-  resumirCreditoAcumulado(cargos);
-  assert.equal(JSON.stringify(resumirVentasPorTienda(ventas)), antes);
+  const q = { filtros: [] };
+  const supabase = {
+    from(tabla) {
+      q.tabla = tabla;
+      const c = {
+        select: () => c,
+        eq: (k, v) => { q.filtros.push([k, v]); return c; },
+        gte: () => c,
+        lte: () => c,
+        order: () => c,
+        range: async () => ({ data: [{ id: 1, monto: 40 }], error: null }),
+      };
+      return c;
+    },
+  };
+  const r = await listarGastosRutaPorRango(supabase, { desde: '2026-10-01', hasta: '2026-10-02' });
+  assert.equal(q.tabla, 'transito_efectivo');
+  assert.deepEqual(q.filtros, [['tipo_movimiento', 'Gasto']]);
+  assert.equal(totalGastos(r.data), 40);
 }
 
 console.log('ventasRutaPorTienda: ok');

@@ -3,12 +3,12 @@ import FiltroPeriodo from './FiltroPeriodo.jsx';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
-import { listarCreditosPendientesRuta } from '../lib/rutaCxc.js';
 import {
-  acumuladoMostrado,
+  gastoVigente,
+  listarGastosRutaPorRango,
   listarVentasRutaPorRango,
-  resumirCreditoAcumulado,
   resumirVentasPorTienda,
+  totalGastos,
   tiendasDeVentas,
 } from '../lib/ventasRutaPorTienda.js';
 
@@ -31,7 +31,7 @@ export default function VentasRutaPorTienda({ supabase }) {
   const [hasta, setHasta] = useState(hoy);
   const [tienda, setTienda] = useState('');
   const [ventas, setVentas] = useState([]);
-  const [cargosPendientes, setCargosPendientes] = useState([]);
+  const [gastos, setGastos] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [abierta, setAbierta] = useState(null);
@@ -51,44 +51,36 @@ export default function VentasRutaPorTienda({ supabase }) {
     let cancel = false;
     setCargando(true);
     setError('');
-    void listarVentasRutaPorRango(supabase, rango).then((r) => {
+    void Promise.all([
+      listarVentasRutaPorRango(supabase, rango),
+      listarGastosRutaPorRango(supabase, rango),
+    ]).then(([rv, rg]) => {
       if (cancel) return;
-      setVentas(r.data || []);
-      if (r.error) setError(r.error);
+      setVentas(rv.data || []);
+      setGastos(rg.data || []);
+      if (rv.error || rg.error) setError(rv.error || `Gastos: ${rg.error}`);
       setCargando(false);
     });
     return () => { cancel = true; };
   }, [supabase, rango, tick]);
 
-  // El acumulado no depende del periodo: es lo mismo que suma Créditos por pagar.
-  useEffect(() => {
-    let cancel = false;
-    void listarCreditosPendientesRuta(supabase, { todos: true }).then((r) => {
-      if (cancel) return;
-      setCargosPendientes(r.data || []);
-      if (r.error) setError((prev) => prev || `Crédito acumulado: ${r.error}`);
-    });
-    return () => { cancel = true; };
-  }, [supabase, tick]);
-
-  const acumulado = useMemo(() => resumirCreditoAcumulado(cargosPendientes), [cargosPendientes]);
-  const tiendas = useMemo(() => {
-    const lista = tiendasDeVentas(ventas);
-    const claves = new Set(lista.map((t) => t.clave));
-    for (const a of acumulado.porTienda.values()) {
-      if (!claves.has(a.clave)) lista.push({ clave: a.clave, nombre: a.nombre });
-    }
-    return lista.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  }, [ventas, acumulado]);
+  const tiendas = useMemo(() => tiendasDeVentas(ventas), [ventas]);
   const tiendaActiva = tiendas.some((t) => t.clave === tienda) ? tienda : '';
-  const credAcum = acumuladoMostrado(acumulado, tiendaActiva);
-  const nombreAcum = tiendaActiva
-    ? (tiendas.find((t) => t.clave === tiendaActiva)?.nombre || tiendaActiva)
-    : 'todas las tiendas';
   const { filas, total } = useMemo(
     () => resumirVentasPorTienda(ventas, { tienda: tiendaActiva }),
     [ventas, tiendaActiva],
   );
+
+  const todasLasTiendas = !tiendaActiva;
+  const gastosPeriodo = useMemo(() => totalGastos(gastos), [gastos]);
+  const totalNeto = Math.round((total.efectivo + total.credito - (todasLasTiendas ? gastosPeriodo : 0)) * 100) / 100;
+  const tarjetas = [
+    ['Ventas', String(total.ventas), '#334155'],
+    ['Efectivo', fmtMonto(total.efectivo), '#0f766e'],
+    ['Crédito', fmtMonto(total.credito), '#b45309'],
+    ...(todasLasTiendas ? [['Gastos', fmtMonto(gastosPeriodo), '#b91c1c']] : []),
+    [todasLasTiendas ? 'Total (menos gastos)' : 'Total', fmtMonto(totalNeto), '#1d4ed8'],
+  ];
 
   return (
     <div>
@@ -125,36 +117,19 @@ export default function VentasRutaPorTienda({ supabase }) {
       {error ? <p style={{ color: '#b91c1c', fontSize: '0.85rem' }}>{error}</p> : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.5rem', marginBottom: '0.75rem' }}>
-        {[
-          ['Ventas', String(total.ventas), '#334155'],
-          ['Efectivo', fmtMonto(total.efectivo), '#0f766e'],
-          ['Crédito', fmtMonto(total.credito), '#b45309'],
-          ['Total', fmtMonto(total.total), '#1d4ed8'],
-        ].map(([etiqueta, valor, color]) => (
+        {tarjetas.map(([etiqueta, valor, color]) => (
           <div key={etiqueta} className="card" style={{ margin: 0, padding: '0.6rem 0.8rem', borderLeft: `4px solid ${color}` }}>
             <div className="muted" style={{ fontSize: '0.75rem' }}>{etiqueta}</div>
             <div style={{ fontSize: '1.15rem', fontWeight: 700, color }}>{valor}</div>
           </div>
         ))}
       </div>
-      <div
-        className="card"
-        style={{
-          margin: '0 0 0.75rem', padding: '0.7rem 0.9rem', borderLeft: '5px solid #c2410c',
-          background: '#fff7ed', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center',
-        }}
-      >
-        <div>
-          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#9a3412' }}>Crédito acumulado · {nombreAcum}</div>
-          <div className="muted" style={{ fontSize: '0.74rem' }}>
-            Total del crédito aún sin cobrar ({credAcum.folios} folio(s)), igual que Créditos por pagar. No depende del periodo.
-          </div>
-          <div style={{ fontSize: '0.78rem', color: '#7c2d12', marginTop: 2 }}>
-            Ventas en ruta {fmtMonto(credAcum.ruta)} · Recolecciones {fmtMonto(credAcum.recoleccion)}
-          </div>
-        </div>
-        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c2410c' }}>{fmtMonto(credAcum.monto)}</div>
-      </div>
+      {todasLasTiendas ? (
+        <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
+          Total = efectivo + crédito − gastos de ruta del periodo ({gastos.filter(gastoVigente).length} gasto(s)).
+          Al elegir una tienda los gastos no se restan.
+        </p>
+      ) : null}
       {total.canceladas > 0 ? (
         <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
           {total.canceladas} venta(s) cancelada(s) no se cuentan.
