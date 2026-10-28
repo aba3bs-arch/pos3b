@@ -126,3 +126,101 @@ export async function listarGastosRutaPorRango(supabase, { desde, hasta } = {}) 
   }
   return { data };
 }
+
+// ── Corte por última liquidación del recolector ─────────────────────────────
+
+function normNombre(s) {
+  return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+}
+
+function sinPrefijoRt(id) {
+  const s = String(id || '').trim();
+  return s.toLowerCase().startsWith('rt:') ? s.slice(3).trim() : s;
+}
+
+/** Repartidor (recolector) dueño de una carga, por id (con o sin `rt:`) y si no, por nombre. */
+export function repartidorDeCarga(carga, repartidores) {
+  if (!carga) return null;
+  const lista = repartidores || [];
+  const id = sinPrefijoRt(carga.vendedor_id);
+  if (id) {
+    const hit = lista.find((r) => String(r.id) === id);
+    if (hit) return String(hit.id);
+  }
+  const nombre = normNombre(carga.vendedor_nombre);
+  if (nombre && nombre !== '-') {
+    const hit = lista.find((r) => {
+      const n = normNombre(r.nombre);
+      return n === nombre || n.startsWith(`${nombre} `) || nombre.startsWith(`${n} `);
+    });
+    if (hit) return String(hit.id);
+  }
+  return null;
+}
+
+/**
+ * Quita las ventas que ya entraron en una liquidación: las de cada recolector con fecha
+ * posterior a su última liquidación. Ventas sin recolector identificable no se tocan.
+ * @param {Map<string, string>} cortes repartidorId → ISO de la última liquidación
+ */
+export function ventasPosterioresALiquidacion(ventas, { cargasPorId, repartidores, cortes } = {}) {
+  const kept = [];
+  let excluidas = 0;
+  let sinRecolector = 0;
+  for (const v of ventas || []) {
+    const rep = repartidorDeCarga(cargasPorId?.get(String(v.carga_id)), repartidores);
+    if (!rep) {
+      sinRecolector += 1;
+      kept.push(v);
+      continue;
+    }
+    const corte = cortes?.get(rep);
+    if (corte && new Date(v.created_at).getTime() <= new Date(corte).getTime()) {
+      excluidas += 1;
+      continue;
+    }
+    kept.push(v);
+  }
+  return { ventas: kept, excluidas, sinRecolector };
+}
+
+/** Gastos ya descontados en una liquidación (anteriores al corte de su recolector) no cuentan. */
+export function gastosPosterioresALiquidacion(gastos, cortes) {
+  return (gastos || []).filter((g) => {
+    const corte = cortes?.get(String(g.repartidor_id || ''));
+    return !corte || new Date(g.fecha_hora).getTime() > new Date(corte).getTime();
+  });
+}
+
+/** Contexto para el corte: recolectores, su última liquidación y las cargas de las ventas. */
+export async function cargarContextoLiquidacion(supabase, ventas) {
+  if (!supabase) return { repartidores: [], cortes: new Map(), cargasPorId: new Map() };
+  const { data: reps } = await supabase.from('repartidores').select('id, nombre');
+  const repartidores = reps || [];
+
+  const cortes = new Map();
+  await Promise.all(repartidores.map(async (r) => {
+    const { data } = await supabase
+      .from('transito_efectivo')
+      .select('fecha_liquidacion')
+      .eq('repartidor_id', r.id)
+      .eq('estatus', 'Liquidado')
+      .neq('tipo_movimiento', 'Gasto')
+      .not('fecha_liquidacion', 'is', null)
+      .order('fecha_liquidacion', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data?.fecha_liquidacion) cortes.set(String(r.id), data.fecha_liquidacion);
+  }));
+
+  const ids = [...new Set((ventas || []).map((v) => v.carga_id).filter(Boolean).map(String))];
+  const cargasPorId = new Map();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await supabase
+      .from('ruta_cargas')
+      .select('id, vendedor_id, vendedor_nombre')
+      .in('id', ids.slice(i, i + 100));
+    for (const c of data || []) cargasPorId.set(String(c.id), c);
+  }
+  return { repartidores, cortes, cargasPorId };
+}
