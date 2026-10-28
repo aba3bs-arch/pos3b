@@ -4,6 +4,12 @@
  */
 
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
+import {
+  borrarCarritoAlmacenado,
+  fotoLigeraParaCarrito,
+  guardarCarritoAlmacenado,
+  leerCarritoAlmacenado,
+} from './persistenciaCarrito.js';
 
 export const LS_CARRITO_VENTA_PREFIX = 'pos3b_carrito_venta_';
 
@@ -20,7 +26,7 @@ function normalizarLinea(row) {
     id: row.id,
     nombre: String(row.nombre || 'Producto'),
     precio: Number.isFinite(precio) && precio >= 0 ? precio : 0,
-    foto_url: row.foto_url || null,
+    foto_url: fotoLigeraParaCarrito(row.foto_url),
     qty,
   };
 }
@@ -28,7 +34,7 @@ function normalizarLinea(row) {
 /** @returns {Array<{ id: *, nombre: string, precio: number, foto_url: *, qty: number }>} */
 export function leerCarritoVenta(sucursal) {
   try {
-    const raw = localStorage.getItem(claveCarritoVenta(sucursal));
+    const raw = leerCarritoAlmacenado(claveCarritoVenta(sucursal));
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
@@ -43,10 +49,10 @@ export function guardarCarritoVenta(sucursal, carrito) {
     const clave = claveCarritoVenta(sucursal);
     const limpio = (carrito || []).map(normalizarLinea).filter(Boolean);
     if (!limpio.length) {
-      localStorage.removeItem(clave);
+      borrarCarritoAlmacenado(clave);
       return;
     }
-    localStorage.setItem(clave, JSON.stringify(limpio));
+    guardarCarritoAlmacenado(clave, JSON.stringify(limpio));
   } catch {
     /* ignore quota / private mode */
   }
@@ -54,7 +60,7 @@ export function guardarCarritoVenta(sucursal, carrito) {
 
 export function limpiarCarritoVenta(sucursal) {
   try {
-    localStorage.removeItem(claveCarritoVenta(sucursal));
+    borrarCarritoAlmacenado(claveCarritoVenta(sucursal));
   } catch {
     /* ignore */
   }
@@ -64,11 +70,14 @@ export function limpiarCarritoVenta(sucursal) {
 export function limpiarTodosCarritosVenta() {
   try {
     const aBorrar = [];
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(LS_CARRITO_VENTA_PREFIX)) aBorrar.push(k);
+    for (const area of [globalThis.localStorage, globalThis.sessionStorage]) {
+      if (!area) continue;
+      for (let i = 0; i < area.length; i += 1) {
+        const k = area.key(i);
+        if (k && k.startsWith(LS_CARRITO_VENTA_PREFIX)) aBorrar.push(k);
+      }
     }
-    for (const k of aBorrar) localStorage.removeItem(k);
+    for (const k of aBorrar) borrarCarritoAlmacenado(k);
   } catch {
     /* ignore */
   }
