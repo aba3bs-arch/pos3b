@@ -83,28 +83,40 @@ assert.equal(totalGastos([{ monto: 100 }, { monto: '50.25' }, { monto: 999, esta
 }
 
 {
-  const cargos = [
-    { cliente_tipo: 'sucursal', cliente_id: '3b2', monto: 100 },
-    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 50.5, folio_venta: 'V9' },
-    { cliente_tipo: 'sucursal', cliente_id: '3B7', cliente_nombre: 'Las 3B 7', monto: 200 },
-    { cliente_tipo: 'externo', cliente_nombre: 'Tiendita Lola', monto: 25 },
-    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 0 },
+  const vs = [
+    { id: 'v1', folio: 'F1', cliente_tipo: 'sucursal', cliente_id: '3B2', metodo_pago: 'credito', total: 250.5 },
+    { id: 'v2', folio: 'F2', cliente_tipo: 'sucursal', cliente_id: '3B2', metodo_pago: 'mixto', total: 300, articulos: [{ _pago_mixto: true, efectivo: 120, credito: 180 }] },
+    { id: 'v3', folio: 'F3', cliente_tipo: 'sucursal', cliente_id: '3B4', metodo_pago: 'credito', total: 80, estado: 'cancelada' },
+    { id: 'v4', folio: 'F4', cliente_tipo: 'sucursal', cliente_id: '3B4', metodo_pago: 'efectivo', total: 60 },
   ];
-  const pend = resumirCreditoPendiente(cargos);
-  assert.equal(pend.total, 375.5);
-  assert.equal(pend.porTienda.get('3B2').monto, 150.5);
-  assert.equal(pendienteMostrado(pend, ''), 375.5);
-  assert.equal(pendienteMostrado(pend, '3B2'), 150.5);
-  assert.equal(pendienteMostrado(pend, '3B9'), 0);
+  const cargos = [
+    { venta_id: 'v1', monto: 100 },
+    { folio_venta: 'f2', monto: 180 },
+    { venta_id: 'v3', monto: 80 },
+    { venta_id: 'otro-periodo', monto: 999 },
+    { folio_venta: 'F4', monto: 0 },
+  ];
+  const antes = resumirVentasPorTienda(vs);
+  const pend = resumirCreditoPendiente(cargos, vs);
+  assert.equal(pend.total, 280);
+  assert.equal(pend.porTienda.get('3B2').monto, 280);
+  assert.equal(pend.porTienda.has('3B4'), false);
+  assert.equal(pendienteMostrado(pend, ''), 280);
+  assert.equal(pendienteMostrado(pend, '3B2'), 280);
+  assert.equal(pendienteMostrado(pend, '3B4'), 0);
+  // El pendiente nunca supera el crédito del periodo
+  assert.ok(pend.total <= antes.total.credito);
 
-  const { filas } = resumirVentasPorTienda(ventas);
-  const comb = combinarVentasYPendiente(filas, pend);
-  assert.equal(comb.find((f) => f.clave === '3B2').pendiente, 150.5);
-  assert.equal(comb.find((f) => f.clave === '3B4').pendiente, 0);
-  const soloPend = comb.find((f) => f.clave === '3B7');
-  assert.equal(soloPend.ventas, 0);
-  assert.equal(soloPend.pendiente, 200);
-  assert.equal(combinarVentasYPendiente(filas, pend, { tienda: '3B4' }).some((f) => f.clave === '3B7'), false);
+  const comb = combinarVentasYPendiente(antes.filas, pend);
+  assert.equal(comb.length, antes.filas.length);
+  assert.equal(comb.find((f) => f.clave === '3B2').pendiente, 280);
+  // Efectivo y crédito de cada fila no cambian al anotar el pendiente
+  for (const f of comb) {
+    const o = antes.filas.find((x) => x.clave === f.clave);
+    assert.equal(f.efectivo, o.efectivo);
+    assert.equal(f.credito, o.credito);
+    assert.equal(f.total, o.total);
+  }
 }
 
 console.log('ventasRutaPorTienda: ok');
