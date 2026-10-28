@@ -97,82 +97,49 @@ export async function listarVentasRutaPorRango(supabase, { desde, hasta } = {}) 
   return { data };
 }
 
-export function gastoVigente(gasto) {
-  return !/cancel|rechaz|anulad/i.test(String(gasto?.estatus || ''));
-}
-
-export function totalGastos(gastos) {
-  return r2((gastos || []).filter(gastoVigente).reduce((s, g) => s + (Number(g?.monto) || 0), 0));
-}
-
-/** Gastos de ruta (Venta en Ruta → Gastos) del rango. No trae la foto de evidencia. */
-export async function listarGastosRutaPorRango(supabase, { desde, hasta } = {}) {
-  if (!supabase) return { data: [] };
-  const ini = inicioDia(desde).toISOString();
-  const fin = finDia(hasta || desde).toISOString();
-  const data = [];
-  for (let pagina = 0; pagina < MAX_PAGINAS; pagina += 1) {
-    const { data: lote, error } = await supabase
-      .from('transito_efectivo')
-      .select('id, monto, fecha_hora, num_traspaso, descripcion_gasto, estatus, repartidor_id')
-      .eq('tipo_movimiento', 'Gasto')
-      .gte('fecha_hora', ini)
-      .lte('fecha_hora', fin)
-      .order('fecha_hora', { ascending: false })
-      .range(pagina * TAMANO_PAGINA, (pagina + 1) * TAMANO_PAGINA - 1);
-    if (error) return { data, error: error.message };
-    data.push(...(lote || []));
-    if (!lote || lote.length < TAMANO_PAGINA) break;
-  }
-  return { data };
+function cargoDeRecoleccion(c) {
+  return String(c?.carga_id || '').startsWith('rec:') || /transito:[0-9a-f-]{8,}/i.test(String(c?.notas || ''));
 }
 
 /**
- * Crédito aún por cobrar de las ventas a crédito del periodo.
- * Solo cuenta cargos ligados (venta_id o folio) a ventas no canceladas del rango, y los agrupa
- * con la misma tienda de la venta: así el pendiente nunca supera el crédito mostrado.
- * @returns {{ porTienda: Map<string, {clave, nombre, externo, monto, folios: object[]}>, total: number }}
+ * Crédito acumulado = todo el crédito aún sin cobrar (mismos cargos pendientes que Créditos por pagar),
+ * de cualquier fecha. Se separa lo que viene de ventas en ruta y lo que viene de Recolecciones.
+ * @returns {{ porTienda: Map<string, {clave, nombre, externo, monto, ruta, recoleccion, folios}>, total: number, ruta: number, recoleccion: number }}
  */
-export function resumirCreditoPendiente(cargos, ventas) {
-  const porId = new Map();
-  const porFolio = new Map();
-  for (const v of ventas || []) {
-    if (ventaCancelada(v)) continue;
-    if (v.id != null) porId.set(String(v.id), v);
-    if (v.folio) porFolio.set(String(v.folio).trim().toUpperCase(), v);
-  }
+export function resumirCreditoAcumulado(cargos) {
   const porTienda = new Map();
-  let total = 0;
+  const acc = { total: 0, ruta: 0, recoleccion: 0 };
   for (const c of cargos || []) {
     const monto = r2(c?.monto);
     if (!(monto > 0)) continue;
-    const venta = (c.venta_id != null && porId.get(String(c.venta_id)))
-      || (c.folio_venta && porFolio.get(String(c.folio_venta).trim().toUpperCase()));
-    if (!venta) continue;
-    const t = tiendaDeVentaRuta(venta);
+    const tipo = String(c?.cliente_tipo || 'sucursal').toLowerCase();
+    let t;
+    if (tipo === 'sucursal') {
+      const cod = normalizarCodigoTienda(c?.cliente_id) || String(c?.cliente_id || '').toUpperCase();
+      t = { clave: cod || 'SIN-TIENDA', nombre: c?.cliente_nombre || cod || 'Sin tienda', externo: false };
+    } else {
+      const nombre = String(c?.cliente_nombre || c?.cliente_id || 'Sin cliente').trim();
+      t = { clave: `EXT:${nombre.toUpperCase()}`, nombre, externo: true };
+    }
     let fila = porTienda.get(t.clave);
     if (!fila) {
-      fila = { ...t, monto: 0, folios: [] };
+      fila = { ...t, monto: 0, ruta: 0, recoleccion: 0, folios: 0 };
       porTienda.set(t.clave, fila);
     }
+    const origen = cargoDeRecoleccion(c) ? 'recoleccion' : 'ruta';
     fila.monto = r2(fila.monto + monto);
-    fila.folios.push(c);
-    total = r2(total + monto);
+    fila[origen] = r2(fila[origen] + monto);
+    fila.folios += 1;
+    acc.total = r2(acc.total + monto);
+    acc[origen] = r2(acc[origen] + monto);
   }
-  return { porTienda, total };
+  return { porTienda, ...acc };
 }
 
-/** Anota el pendiente en cada fila de tienda (no agrega filas ni cambia efectivo/crédito). */
-export function combinarVentasYPendiente(filas, pendiente) {
-  return (filas || []).map((f) => {
-    const p = pendiente?.porTienda?.get(f.clave);
-    return { ...f, pendiente: p?.monto || 0, foliosPendientes: p?.folios || [] };
-  });
-}
-
-/** Crédito pendiente de una tienda, o el total de todas si no hay tienda elegida. */
-export function pendienteMostrado(pendiente, tienda = '') {
-  if (!pendiente) return 0;
-  if (tienda) return pendiente.porTienda.get(tienda)?.monto || 0;
-  return pendiente.total;
+/** Acumulado de la tienda elegida o, sin tienda, el de todas. */
+export function acumuladoMostrado(acumulado, tienda = '') {
+  const vacio = { monto: 0, ruta: 0, recoleccion: 0, folios: 0 };
+  if (!acumulado) return vacio;
+  if (tienda) return acumulado.porTienda.get(tienda) || vacio;
+  return { monto: acumulado.total, ruta: acumulado.ruta, recoleccion: acumulado.recoleccion, folios: [...acumulado.porTienda.values()].reduce((s, f) => s + f.folios, 0) };
 }
