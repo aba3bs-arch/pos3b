@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango } from './ventasRutaPorTienda.js';
+import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, resumirCreditoAcumulado, acumuladoMostrado } from './ventasRutaPorTienda.js';
 
 const ventas = [
   { id: 1, cliente_tipo: 'sucursal', cliente_id: '3b2', cliente_nombre: 'Las 3B 2', metodo_pago: 'efectivo', total: 100 },
@@ -56,6 +56,32 @@ const ventas = [
   assert.equal(r.data.length, 1500);
   assert.equal(llamadas[0][2], '2026-10-01T07:00:00.000Z');
   assert.equal(llamadas[1][2], '2026-10-08T06:59:59.999Z');
+}
+
+{
+  const cargos = [
+    { cliente_tipo: 'sucursal', cliente_id: '3b2', monto: 9000, venta_id: 'v1' },
+    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 372.5, folio_venta: 'F1' },
+    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 26670.5, carga_id: 'rec:abc-123' },
+    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 100, notas: 'Recolección transito:1234abcd-5678' },
+    { cliente_tipo: 'sucursal', cliente_id: '3B7', cliente_nombre: 'Las 3B 7', monto: 200 },
+    { cliente_tipo: 'externo', cliente_nombre: 'Tiendita Lola', monto: 25 },
+    { cliente_tipo: 'sucursal', cliente_id: '3B2', monto: 0 },
+  ];
+  const ac = resumirCreditoAcumulado(cargos);
+  assert.equal(ac.porTienda.get('3B2').monto, 36143);
+  assert.equal(ac.porTienda.get('3B2').ruta, 9372.5);
+  assert.equal(ac.porTienda.get('3B2').recoleccion, 26770.5);
+  assert.equal(ac.porTienda.get('3B2').folios, 4);
+  assert.equal(ac.total, 36368);
+  assert.equal(ac.ruta + ac.recoleccion, ac.total);
+  assert.equal(acumuladoMostrado(ac, '3B2').monto, 36143);
+  assert.equal(acumuladoMostrado(ac, '').monto, 36368);
+  assert.equal(acumuladoMostrado(ac, '3B9').monto, 0);
+  // No altera efectivo/crédito de las ventas
+  const antes = JSON.stringify(resumirVentasPorTienda(ventas));
+  resumirCreditoAcumulado(cargos);
+  assert.equal(JSON.stringify(resumirVentasPorTienda(ventas)), antes);
 }
 
 console.log('ventasRutaPorTienda: ok');
