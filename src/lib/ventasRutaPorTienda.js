@@ -96,3 +96,50 @@ export async function listarVentasRutaPorRango(supabase, { desde, hasta } = {}) 
   }
   return { data };
 }
+
+function cargoDeRecoleccion(c) {
+  return String(c?.carga_id || '').startsWith('rec:') || /transito:[0-9a-f-]{8,}/i.test(String(c?.notas || ''));
+}
+
+/**
+ * Crédito acumulado = todo el crédito aún sin cobrar (mismos cargos pendientes que Créditos por pagar),
+ * de cualquier fecha. Se separa lo que viene de ventas en ruta y lo que viene de Recolecciones.
+ * @returns {{ porTienda: Map<string, {clave, nombre, externo, monto, ruta, recoleccion, folios}>, total: number, ruta: number, recoleccion: number }}
+ */
+export function resumirCreditoAcumulado(cargos) {
+  const porTienda = new Map();
+  const acc = { total: 0, ruta: 0, recoleccion: 0 };
+  for (const c of cargos || []) {
+    const monto = r2(c?.monto);
+    if (!(monto > 0)) continue;
+    const tipo = String(c?.cliente_tipo || 'sucursal').toLowerCase();
+    let t;
+    if (tipo === 'sucursal') {
+      const cod = normalizarCodigoTienda(c?.cliente_id) || String(c?.cliente_id || '').toUpperCase();
+      t = { clave: cod || 'SIN-TIENDA', nombre: c?.cliente_nombre || cod || 'Sin tienda', externo: false };
+    } else {
+      const nombre = String(c?.cliente_nombre || c?.cliente_id || 'Sin cliente').trim();
+      t = { clave: `EXT:${nombre.toUpperCase()}`, nombre, externo: true };
+    }
+    let fila = porTienda.get(t.clave);
+    if (!fila) {
+      fila = { ...t, monto: 0, ruta: 0, recoleccion: 0, folios: 0 };
+      porTienda.set(t.clave, fila);
+    }
+    const origen = cargoDeRecoleccion(c) ? 'recoleccion' : 'ruta';
+    fila.monto = r2(fila.monto + monto);
+    fila[origen] = r2(fila[origen] + monto);
+    fila.folios += 1;
+    acc.total = r2(acc.total + monto);
+    acc[origen] = r2(acc[origen] + monto);
+  }
+  return { porTienda, ...acc };
+}
+
+/** Acumulado de la tienda elegida o, sin tienda, el de todas. */
+export function acumuladoMostrado(acumulado, tienda = '') {
+  const vacio = { monto: 0, ruta: 0, recoleccion: 0, folios: 0 };
+  if (!acumulado) return vacio;
+  if (tienda) return acumulado.porTienda.get(tienda) || vacio;
+  return { monto: acumulado.total, ruta: acumulado.ruta, recoleccion: acumulado.recoleccion, folios: [...acumulado.porTienda.values()].reduce((s, f) => s + f.folios, 0) };
+}
