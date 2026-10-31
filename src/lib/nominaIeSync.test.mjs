@@ -133,7 +133,7 @@ console.log('nominaIeSync.test.mjs OK');
   const res = await sincronizarEgresosPayrollNomina(fake(), {
     periodo: { id: 'p1', sucursal_id: 'MAIN', periodo_inicio: '2026-10-24', periodo_fin: '2026-10-30' },
     lineasInsertadas: [
-      { id: 'L1', usuario_id: 'u1', nombre: 'Luz Zazueta', total: 3000, pagador_nomina: 'ambos', pago_virtual: 1200 },
+      { id: 'L1', usuario_id: 'u1', nombre: 'Luz Zazueta', total: 2500, pagador_nomina: 'ambos', pago_virtual: 200, dias_trabajados: 5 },
       { id: 'L2', usuario_id: 'u2', nombre: 'Ana', total: 500, pagador_nomina: 'virtual' },
     ],
     empleados: [],
@@ -142,7 +142,7 @@ console.log('nominaIeSync.test.mjs OK');
   const payroll = insertados.filter((e) => e.fuente === FUENTE_PAYROLL);
   const luz = payroll.filter((e) => e.usuario_nombre === 'Luz Zazueta');
   assert.equal(luz.length, 2);
-  assert.deepEqual(luz.map((e) => [e.cuenta, e.monto, e.ref_id]).sort(), [['abarrotes', 1800, 'L1'], ['virtual', 1200, 'L1:virtual']]);
+  assert.deepEqual(luz.map((e) => [e.cuenta, e.monto, e.ref_id]).sort(), [['abarrotes', 1500, 'L1'], ['virtual', 1000, 'L1:virtual']]);
   assert.equal(payroll.filter((e) => e.usuario_nombre === 'Ana').length, 1);
   await revertirEgresosPayrollNomina(fake(), [{ id: 'L1' }]);
   assert.ok(borrados.includes('L1') && borrados.includes('L1:virtual'));

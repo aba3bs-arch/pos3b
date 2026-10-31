@@ -1,5 +1,5 @@
 import { normalizarNombreEmpleado } from './nominaMatch.js';
-import { leerPagoVirtualDefault, montoVirtualLinea, esPagoMixto } from './nominaPagoMixto.js';
+import { leerPagoVirtualDefault, tarifaVirtualDiaria, esPagoMixto } from './nominaPagoMixto.js';
 import { marcarGastosDescontadosNomina, gastoCuentaEnNomina } from './nominaGastos.js';
 import { aplicarPrestamosNomina } from './nominaPrestamos.js';
 import { actualizarSaldosArrastreAlCerrar } from './nominaSaldoArrastre.js';
@@ -400,7 +400,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     nombre: calc.nombre,
     rol: calc.rol || null,
     pagador_nomina: calc.pagador_nomina || null,
-    pago_virtual: esPagoMixto(calc) ? montoVirtualLinea(calc, pagoNominaLinea(calc)) : 0,
+    pago_virtual: esPagoMixto(calc) ? tarifaVirtualDiaria(calc) : 0,
     sueldo_tarifa: Number(calc.salario_dia ?? calc.sueldo_tarifa) || 0,
     dias_trabajados: normalizarDiasNomina(calc.dias_trabajados),
     cortes_periodo: Math.round(Number(calc.cortes_periodo) || 0),
@@ -459,12 +459,16 @@ export async function guardarPeriodoNomina(supabase, payload) {
       }
     }
     const pagoVirtualPor = new Map(
-      filas.map((f) => [`${f.usuario_id || ''}|${f.nombre}`, f.pago_virtual]),
+      filas.map((f) => [`${f.usuario_id || ''}|${f.nombre}`, f]),
     );
-    lineasInsertadas = (inserted || []).map((r) => ({
-      ...r,
-      pago_virtual: pagoVirtualPor.get(`${r.usuario_id || ''}|${r.nombre}`) || 0,
-    }));
+    lineasInsertadas = (inserted || []).map((r) => {
+      const src = pagoVirtualPor.get(`${r.usuario_id || ''}|${r.nombre}`);
+      return {
+        ...r,
+        pago_virtual: src?.pago_virtual || 0,
+        dias_trabajados: src?.dias_trabajados,
+      };
+    });
   }
 
   const listaEmp =

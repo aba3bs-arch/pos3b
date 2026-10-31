@@ -141,8 +141,8 @@ export function saldoPendienteDesdePago(pago) {
 }
 
 /**
- * Pago = sueldo + bono − deducciones − arrastre anterior.
- * En pagador «ambos», se suma lo que paga Virtual (no se descuenta de Abarrotes).
+ * Pago = (días × $/día) + (días × Virtual/día, si el pagador es «ambos») + bono − deducciones − arrastre.
+ * La celda de sueldo no incluye Virtual: sigue siendo solo días × $/día.
  * Puede ser negativo; el saldo pendiente se arrastra al siguiente periodo.
  */
 export function pagoNominaLinea(linea) {
