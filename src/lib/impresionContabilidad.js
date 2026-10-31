@@ -3,6 +3,7 @@ import { leerNombreNegocio, leerLogoUrl } from './branding.js';
 import { leerConfigImpresion } from './posConfig.js';
 import { ETIQUETA_AREA, etiquetaCategoriaVale, etiquetaEstadoPrestamo } from './contabilidadConstants.js';
 import { desgloseNominaLinea } from './nominaCalculos.js';
+import { etiquetaPagoMixto } from './nominaPagoMixto.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -48,7 +49,7 @@ export function htmlNomina(data) {
       (l) => `<tr>
       <td>${esc(l.nombre)}</td>
       <td>${esc(l.rol)}</td>
-      <td>${esc(ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina || '—')}</td>
+      <td>${esc(ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina || '—')}${etiquetaPagoMixto(l, l.total) ? `<br><small>${esc(etiquetaPagoMixto(l, l.total))}</small>` : ''}</td>
       <td class="r">${fmt(l.salario_dia ?? l.sueldo_tarifa)}</td>
       <td class="r">${esc(l.dias_trabajados)}</td>
       <td class="r">${fmt(l.sueldo_base)}</td>
@@ -340,6 +341,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     <table class="kv bloque">
       ${linea.rol ? filaTicket('Puesto', esc(linea.rol)) : ''}
       ${linea.pagador_nomina ? filaTicket('Pagador', esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)) : ''}
+      ${etiquetaPagoMixto(linea, linea.total) ? filaTicket('Reparto', esc(etiquetaPagoMixto(linea, linea.total))) : ''}
       ${filaTicket('Periodo', esc(periodo))}
       ${salarioDia > 0 ? filaTicket('Salario / día', fmt(salarioDia)) : ''}
       ${dias > 0 ? filaTicket(labelDias, esc(String(dias))) : ''}
