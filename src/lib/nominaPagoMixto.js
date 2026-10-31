@@ -1,6 +1,8 @@
 /**
- * Pago mixto de nómina (pagador «ambos»): una parte sale de Virtual y el resto de Abarrotes.
- * `pago_virtual` = monto que paga Virtual; Abarrotes = neto de la línea − pago_virtual.
+ * Pago mixto de nómina (pagador «ambos»): Virtual y Abarrotes se suman.
+ * Abarrotes paga el neto calculado (días × salario − deducciones).
+ * `pago_virtual` es un monto adicional que paga Virtual.
+ * Pago de la persona = Abarrotes + Virtual.
  */
 const LS_PREFIX = 'pos3b_nomina_pago_virtual_';
 
@@ -12,35 +14,39 @@ export function esPagoMixto(linea) {
   return String(linea?.pagador_nomina || '').toLowerCase() === 'ambos';
 }
 
-/** Monto de Virtual acotado a [0, neto]. */
-export function montoVirtualLinea(linea, neto) {
+/** Monto que paga Virtual. Se suma al pago calculado; no se recorta de Abarrotes. */
+export function montoVirtualLinea(linea, _neto) {
   if (!esPagoMixto(linea)) return 0;
-  const total = Math.max(0, r2(neto ?? linea?.total ?? linea?.pago));
   const v = r2(linea?.pago_virtual);
-  if (!(v > 0)) return 0;
-  return Math.min(v, total);
+  return v > 0 ? v : 0;
 }
 
 /**
- * Reparto del neto por cuenta IE. Sin pago_virtual en «ambos» todo va a Abarrotes
- * (comportamiento anterior). `sufijoRef` evita chocar con el ref_id original de la línea.
+ * Reparto del pago por cuenta IE. El neto ya incluye Virtual.
+ * Sin pago_virtual en «ambos», todo va a Abarrotes.
+ * `sufijoRef` evita chocar con el ref_id original de la línea.
  */
 export function repartoPagoPorCuenta(linea, neto, cuentaUnica = 'abarrotes') {
   const total = r2(neto);
   if (!(total > 0)) return [];
   if (!esPagoMixto(linea)) return [{ cuenta: cuentaUnica, monto: total, sufijoRef: '' }];
-  const virtual = montoVirtualLinea(linea, total);
-  const abarrotes = r2(total - virtual);
+  let virtual = montoVirtualLinea(linea, total);
+  let abarrotes = r2(total - virtual);
+  // No erogar más que el neto (p. ej. si Abarrotes queda en deuda).
+  if (virtual > total || abarrotes < 0) {
+    virtual = total;
+    abarrotes = 0;
+  }
   const partes = [];
-  if (virtual > 0) partes.push({ cuenta: 'virtual', monto: virtual, sufijoRef: ':virtual' });
-  if (abarrotes > 0) partes.push({ cuenta: 'abarrotes', monto: abarrotes, sufijoRef: '' });
+  if (virtual > 0) partes.push({ cuenta: 'virtual', monto: r2(virtual), sufijoRef: ':virtual' });
+  if (abarrotes > 0) partes.push({ cuenta: 'abarrotes', monto: r2(abarrotes), sufijoRef: '' });
   return partes;
 }
 
 /**
- * Reparte el neto de la línea entre cuentas.
- * En «ambos», Virtual es `pago_virtual` (topeado al neto si es positivo) y Abarrotes es el resto.
- * Esas partes suman el neto: Virtual + Abarrotes (+ Garage) = pago.
+ * Reparte el pago de la línea entre cuentas.
+ * En «ambos», Virtual es `pago_virtual` y Abarrotes es el pago calculado (neto − Virtual).
+ * Esas partes suman el pago: Virtual + Abarrotes (+ Garage) = pago.
  */
 export function partesPagoLinea(linea, neto) {
   const total = r2(neto ?? linea?.total ?? linea?.pago);

@@ -1,4 +1,5 @@
 import { BENEFICIARIOS_VALES } from './contabilidadConstants.js';
+import { montoVirtualLinea } from './nominaPagoMixto.js';
 import { esEmpleadoIndirectoOMain } from './empleadosVisibles.js';
 import { normalizarNombreEmpleado, indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { round2 } from './nominaGastos.js';
@@ -110,6 +111,7 @@ export function desgloseNominaLinea(linea) {
   const otrosManual = round2(Number(linea?.deducciones) || 0);
   const otros = otrosDeudasLinea(linea);
   const bruto = round2(sueldo + bono);
+  const pagoVirtual = montoVirtualLinea(linea);
   const totalDescuentos = round2(consumo + inventario + prestamos + otros + arrastre);
   const neto = pagoNominaLinea(linea);
   return {
@@ -118,6 +120,7 @@ export function desgloseNominaLinea(linea) {
     sueldo,
     bono,
     bruto,
+    pagoVirtual,
     consumo,
     inventario,
     prestamos,
@@ -139,12 +142,13 @@ export function saldoPendienteDesdePago(pago) {
 
 /**
  * Pago = sueldo + bono − deducciones − arrastre anterior.
+ * En pagador «ambos», se suma lo que paga Virtual (no se descuenta de Abarrotes).
  * Puede ser negativo; el saldo pendiente se arrastra al siguiente periodo.
  */
 export function pagoNominaLinea(linea) {
   const antes = pagoAntesArrastreLinea(linea);
   const arrastre = Number(linea?.deduccion_arrastre) || 0;
-  return round2(antes - arrastre);
+  return round2(antes - arrastre + montoVirtualLinea(linea));
 }
 
 /** Recalcula sueldo bruto, faltas y pago según la fórmula. */
