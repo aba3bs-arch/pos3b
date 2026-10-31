@@ -14,6 +14,7 @@ import {
 import { fusionarLineasNomina, otrosDeudasLinea, recalcularLineaNomina, sueldoBrutoLinea, pagoNominaLinea, TIPOS_FILTRO_NOMINA } from '../lib/nominaCalculos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina, esSemanaNominaActual } from '../lib/semanaNomina.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
+import { esPagoMixto, etiquetaPagoMixto, guardarPagoVirtualDefault, montoVirtualLinea } from '../lib/nominaPagoMixto.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
 import { leerBorradorNomina, guardarBorradorNomina, limpiarBorradorNomina } from '../lib/nominaBorrador.js';
@@ -298,6 +299,8 @@ export default function Nomina({ supabase, sucursal, user }) {
       const flagManual = CAMPOS_MANUAL[campo];
       if (flagManual) l[flagManual] = true;
 
+      if (campo === 'pago_virtual' && l.usuario_id) guardarPagoVirtualDefault(l.usuario_id, valor);
+
       if (campo === 'salario_dia') {
         l.sueldo_tarifa = Number(valor) || 0;
         if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.sueldo_tarifa);
@@ -546,8 +549,16 @@ export default function Nomina({ supabase, sucursal, user }) {
         </td>
         <td>
           {historial ? (
-            ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina
+            <>
+              {ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina}
+              {etiquetaPagoMixto(l, l.total) && (
+                <span className="muted" style={{ display: 'block', fontSize: '0.68rem' }}>
+                  {etiquetaPagoMixto(l, l.total)}
+                </span>
+              )}
+            </>
           ) : (
+            <>
             <select
               className="select"
               style={{ minWidth: '96px', fontSize: '0.78rem', padding: '0.2rem' }}
@@ -560,6 +571,25 @@ export default function Nomina({ supabase, sucursal, user }) {
                 </option>
               ))}
             </select>
+            {esPagoMixto(l) && (
+              <div style={{ marginTop: '0.25rem' }} title="Cuánto del neto paga Virtual; el resto lo paga Abarrotes">
+                <label className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>Paga Virtual $</label>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  style={{ width: '84px' }}
+                  value={l.pago_virtual ?? ''}
+                  onChange={(e) => actualizarLinea(i, 'pago_virtual', e.target.value)}
+                />
+                <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
+                  Abarrotes: {fmt(Math.max(0, (Number(l.total) || 0) - montoVirtualLinea(l, l.total)))}
+                </span>
+              </div>
+            )}
+            </>
           )}
         </td>
         <td>

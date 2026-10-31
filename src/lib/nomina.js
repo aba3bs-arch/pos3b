@@ -1,3 +1,4 @@
+import { leerPagoVirtualDefault, montoVirtualLinea, esPagoMixto } from './nominaPagoMixto.js';
 import { marcarGastosDescontadosNomina, gastoCuentaEnNomina } from './nominaGastos.js';
 import { aplicarPrestamosNomina } from './nominaPrestamos.js';
 import { actualizarSaldosArrastreAlCerrar } from './nominaSaldoArrastre.js';
@@ -222,6 +223,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       rol: u.rol || '—',
       sucursal_id: u.sucursal_id || null,
       pagador_nomina: u.nomina_pagador || 'abarrotes',
+      pago_virtual: leerPagoVirtualDefault(u.id),
       es_indirecto: indirecto,
       salario_dia: salarioDia,
       sueldo_tarifa: salarioDia,
@@ -370,6 +372,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     nombre: calc.nombre,
     rol: calc.rol || null,
     pagador_nomina: calc.pagador_nomina || null,
+    pago_virtual: esPagoMixto(calc) ? montoVirtualLinea(calc, pagoNominaLinea(calc)) : 0,
     sueldo_tarifa: Number(calc.salario_dia ?? calc.sueldo_tarifa) || 0,
     dias_trabajados: normalizarDiasNomina(calc.dias_trabajados),
     cortes_periodo: Math.round(Number(calc.cortes_periodo) || 0),
@@ -392,27 +395,48 @@ export async function guardarPeriodoNomina(supabase, payload) {
   }
 
   let lineasInsertadas = [];
+  let avisoPagoMixto = null;
   {
-    const { data: inserted, error: e2 } = await supabase
+    const selectCols = 'id, usuario_id, nombre, total, pagador_nomina';
+    const quitar = (rows, campos) => rows.map((r) => {
+      const c = { ...r };
+      campos.forEach((k) => delete c[k]);
+      return c;
+    });
+    let { data: inserted, error: e2 } = await supabase
       .from('nomina_lineas')
       .insert(filas)
-      .select('id, usuario_id, nombre, total, pagador_nomina');
+      .select(selectCols);
+    if (e2 && String(e2.message || '').includes('pago_virtual')) {
+      if (filas.some((f) => f.pago_virtual > 0)) {
+        avisoPagoMixto = 'Falta la columna pago_virtual: el reparto Virtual/Abarrotes se aplicó en IE pero no queda guardado en la línea. Ejecuta supabase/fix_nomina_pago_mixto.sql.';
+      }
+      ({ data: inserted, error: e2 } = await supabase
+        .from('nomina_lineas')
+        .insert(quitar(filas, ['pago_virtual']))
+        .select(selectCols));
+    }
     if (e2) {
       const msg = String(e2.message || '');
       if (msg.includes('saldo_pendiente') || msg.includes('deduccion_arrastre')) {
-        const legacy = filas.map(({ deduccion_arrastre, saldo_pendiente, ...rest }) => rest);
+        const legacy = quitar(filas, ['pago_virtual', 'deduccion_arrastre', 'saldo_pendiente']);
         const { data: inserted2, error: e2b } = await supabase
           .from('nomina_lineas')
           .insert(legacy)
-          .select('id, usuario_id, nombre, total, pagador_nomina');
+          .select(selectCols);
         if (e2b) return { ok: false, error: e2b.message };
-        lineasInsertadas = inserted2 || [];
+        inserted = inserted2;
       } else {
         return { ok: false, error: e2.message };
       }
-    } else {
-      lineasInsertadas = inserted || [];
     }
+    const pagoVirtualPor = new Map(
+      filas.map((f) => [`${f.usuario_id || ''}|${f.nombre}`, f.pago_virtual]),
+    );
+    lineasInsertadas = (inserted || []).map((r) => ({
+      ...r,
+      pago_virtual: pagoVirtualPor.get(`${r.usuario_id || ''}|${r.nombre}`) || 0,
+    }));
   }
 
   const listaEmp =
@@ -454,7 +478,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     total,
     lineas,
     iePayroll: ieRes,
-    aviso: ieRes?.aviso || null,
+    aviso: ieRes?.aviso || avisoPagoMixto || null,
   };
 }
 

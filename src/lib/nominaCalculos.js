@@ -288,6 +288,7 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     const merged = { ...nueva };
 
     if (ant.pagador_manual) merged.pagador_nomina = ant.pagador_nomina;
+    if (ant.pago_virtual != null && ant.pago_virtual !== '') merged.pago_virtual = ant.pago_virtual;
     if (ant.dias_manual) {
       if (debeConservarDiasManual(ant, nueva)) {
         // Medio día u ajuste fino sobre la misma lectura del checador.

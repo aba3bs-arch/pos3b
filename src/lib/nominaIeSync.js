@@ -8,6 +8,7 @@ import { registrarEgresoContVirtual } from './contVirtualEgresos.js';
 import { indiceEmpleados, resolverClaveEmpleado, normalizarNombreEmpleado } from './nominaMatch.js';
 import { MODULOS_CORTE_NOMINA, round2 } from './nominaGastos.js';
 import { pagoNominaLinea } from './nominaCalculos.js';
+import { repartoPagoPorCuenta } from './nominaPagoMixto.js';
 
 export const FUENTE_NOM_CORTE = 'nom_corte';
 export const FUENTE_PAYROLL = 'payroll';
@@ -115,28 +116,30 @@ export async function sincronizarEgresosPayrollNomina(supabase, {
       continue;
     }
 
-    const cuenta = cuentaIeDesdePagadorNomina(l.pagador_nomina);
-    const res = await registrarEgresoContVirtual(supabase, {
-      sucursal_id: periodo.sucursal_id || 'MAIN',
-      fecha: String(hasta).slice(0, 10),
-      categoria_id: 'empleado',
-      categoria_nombre: nombres.categoria_nombre || 'Empleado',
-      subcategoria_id: 'empleado-nomina',
-      subcategoria_nombre: 'Payroll',
-      monto,
-      descripcion: `PAYROLL · ${l.nombre || 'Empleado'} · ${desde}→${hasta}`.trim(),
-      fuente: FUENTE_PAYROLL,
-      ref_tabla: 'nomina_lineas',
-      ref_id: String(l.id),
-      usuario_nombre: l.nombre || null,
-      cuenta,
-    });
-    if (!res.ok) {
-      avisos.push(res.error || `No se pudo registrar payroll de ${l.nombre}`);
-      continue;
+    const partes = repartoPagoPorCuenta(l, monto, cuentaIeDesdePagadorNomina(l.pagador_nomina));
+    for (const parte of partes) {
+      const res = await registrarEgresoContVirtual(supabase, {
+        sucursal_id: periodo.sucursal_id || 'MAIN',
+        fecha: String(hasta).slice(0, 10),
+        categoria_id: 'empleado',
+        categoria_nombre: nombres.categoria_nombre || 'Empleado',
+        subcategoria_id: 'empleado-nomina',
+        subcategoria_nombre: 'Payroll',
+        monto: parte.monto,
+        descripcion: `PAYROLL · ${l.nombre || 'Empleado'} · ${desde}→${hasta}${partes.length > 1 ? ` · parte ${parte.cuenta}` : ''}`.trim(),
+        fuente: FUENTE_PAYROLL,
+        ref_tabla: 'nomina_lineas',
+        ref_id: `${l.id}${parte.sufijoRef}`,
+        usuario_nombre: l.nombre || null,
+        cuenta: parte.cuenta,
+      });
+      if (!res.ok) {
+        avisos.push(res.error || `No se pudo registrar payroll de ${l.nombre}`);
+        continue;
+      }
+      if (res.aviso) avisos.push(res.aviso);
+      if (!res.yaExiste && !res.omitido) count += 1;
     }
-    if (res.aviso) avisos.push(res.aviso);
-    if (!res.yaExiste && !res.omitido) count += 1;
   }
 
   return {
@@ -150,7 +153,10 @@ export async function sincronizarEgresosPayrollNomina(supabase, {
 /** Elimina egresos IE con fuente payroll del periodo (por líneas). */
 export async function revertirEgresosPayrollNomina(supabase, lineas = []) {
   if (!supabase) return { ok: true, count: 0 };
-  const ids = (lineas || []).map((l) => l?.id).filter(Boolean).map(String);
+  const ids = (lineas || [])
+    .map((l) => l?.id)
+    .filter(Boolean)
+    .flatMap((id) => [String(id), `${id}:virtual`]);
   if (!ids.length) return { ok: true, count: 0 };
 
   let count = 0;
