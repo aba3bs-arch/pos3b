@@ -10,12 +10,18 @@ import {
   listarPeriodosNomina,
   periodoNominaMasReciente,
   esPeriodoNominaMasReciente,
-  totalLineaNomina,
 } from '../lib/nomina.js';
 import { fusionarLineasNomina, otrosDeudasLinea, recalcularLineaNomina, sueldoBrutoLinea, pagoNominaLinea, TIPOS_FILTRO_NOMINA } from '../lib/nominaCalculos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina, esSemanaNominaActual } from '../lib/semanaNomina.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
-import { esPagoMixto, etiquetaPagoMixto, guardarPagoVirtualDefault, montoVirtualLinea } from '../lib/nominaPagoMixto.js';
+import {
+  esPagoMixto,
+  etiquetaPagoMixto,
+  filasDesgloseCuentas,
+  guardarPagoVirtualDefault,
+  partesPagoLinea,
+  sumarPagosPorCuenta,
+} from '../lib/nominaPagoMixto.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
 import { leerBorradorNomina, guardarBorradorNomina, limpiarBorradorNomina } from '../lib/nominaBorrador.js';
@@ -46,6 +52,53 @@ const CAMPOS_MANUAL = {
   deducciones: 'otros_manual',
   notas_otros: 'otros_manual',
 };
+
+function netoNominaPantalla(l, historial) {
+  return historial ? (Number(l.pago ?? l.total) || 0) : pagoNominaLinea(l);
+}
+
+function PieTotalesNomina({ desglose, total }) {
+  return (
+    <tfoot>
+      {desglose.mostrar && desglose.filas.map((f) => (
+        <tr key={f.cuenta}>
+          <td colSpan={COLS.length - 2} style={{ textAlign: 'right' }}>{f.etiqueta}</td>
+          <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtPago(f.monto)}</td>
+          <td />
+        </tr>
+      ))}
+      <tr>
+        <td
+          colSpan={COLS.length - 2}
+          style={{ textAlign: 'right', fontWeight: 700 }}
+          title={desglose.mostrar ? 'Virtual + Abarrotes + Garage' : undefined}
+        >
+          Total pago
+        </td>
+        <td style={{ fontWeight: 800, whiteSpace: 'nowrap', color: total < 0 ? 'var(--brand-red)' : 'var(--brand-blue)' }}>
+          {fmtPago(total)}
+        </td>
+        <td />
+      </tr>
+    </tfoot>
+  );
+}
+
+function TextoSumaCuentas({ desglose }) {
+  if (!desglose?.mostrar) return null;
+  return (
+    <p style={{ margin: '0.65rem 0 0', fontSize: '0.88rem' }}>
+      {desglose.filas.map((f, i) => (
+        <span key={f.cuenta}>
+          {i > 0 ? ' + ' : ''}
+          <strong>{f.etiqueta}</strong> {fmtPago(f.monto)}
+        </span>
+      ))}
+      {' = '}
+      <strong>Total {fmtPago(desglose.total)}</strong>
+    </p>
+  );
+}
 
 const COLS = [
   'Empleado',
@@ -89,7 +142,17 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [saldosArrastre, setSaldosArrastre] = useState({});
 
   const modoManual = modoNomina === 'manual';
-  const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
+  const repartoCuentas = useMemo(
+    () => sumarPagosPorCuenta(lineas, (l) => pagoNominaLinea(l)),
+    [lineas],
+  );
+  const totalGeneral = repartoCuentas.total;
+  const desgloseCuentas = filasDesgloseCuentas(repartoCuentas);
+  const repartoHist = useMemo(
+    () => sumarPagosPorCuenta(lineasHist, (l) => Number(l.pago ?? l.total) || 0),
+    [lineasHist],
+  );
+  const desgloseHist = filasDesgloseCuentas(repartoHist);
   const enSemanaCalendario = esSemanaNominaActual(inicio, fin);
   const ultimoPeriodo = useMemo(() => periodoNominaMasReciente(periodos), [periodos]);
   const puedeEditarUltimaNomina = puedeEliminarNomina && Boolean(ultimoPeriodo);
@@ -531,6 +594,8 @@ export default function Nomina({ supabase, sucursal, user }) {
   const renderFila = (l, i, { historial = false } = {}) => {
     const key = historial ? l.id : l.usuario_id || i;
     const autoBloqueado = !historial && !modoManual;
+    const neto = netoNominaPantalla(l, historial);
+    const partes = partesPagoLinea(l, neto);
     return (
       <tr key={key}>
         <td>
@@ -558,9 +623,9 @@ export default function Nomina({ supabase, sucursal, user }) {
           {historial ? (
             <>
               {ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina}
-              {etiquetaPagoMixto(l, l.total) && (
+              {etiquetaPagoMixto(l, neto) && (
                 <span className="muted" style={{ display: 'block', fontSize: '0.68rem' }}>
-                  {etiquetaPagoMixto(l, l.total)}
+                  {etiquetaPagoMixto(l, neto)}
                 </span>
               )}
             </>
@@ -592,8 +657,16 @@ export default function Nomina({ supabase, sucursal, user }) {
                   onChange={(e) => actualizarLinea(i, 'pago_virtual', e.target.value)}
                 />
                 <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
-                  Abarrotes: {fmt(Math.max(0, (Number(l.total) || 0) - montoVirtualLinea(l, l.total)))}
+                  Abarrotes: {fmtPago(partes.abarrotes)}
                 </span>
+                <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
+                  Suma {fmtPago(partes.virtual)} + {fmtPago(partes.abarrotes)} = {fmtPago(partes.total)}
+                </span>
+                {(Number(l.pago_virtual) || 0) > partes.virtual + 0.001 && (
+                  <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
+                    Virtual cuenta {fmtPago(partes.virtual)} (tope del pago)
+                  </span>
+                )}
               </div>
             )}
             </>
@@ -788,10 +861,10 @@ export default function Nomina({ supabase, sucursal, user }) {
           style={{
             fontWeight: 800,
             whiteSpace: 'nowrap',
-            color: (historial ? l.pago ?? l.total : pagoNominaLinea(l)) < 0 ? 'var(--brand-red)' : 'var(--brand-blue)',
+            color: neto < 0 ? 'var(--brand-red)' : 'var(--brand-blue)',
           }}
         >
-          {fmtPago(historial ? l.pago ?? l.total : pagoNominaLinea(l))}
+          {fmtPago(neto)}
           {!historial && (l.saldo_pendiente || 0) > 0 && (
             <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
               → próx. {fmt(l.saldo_pendiente)}
@@ -843,6 +916,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes (calendario local).
               Días = jornadas cerradas del checador (ENTRADA+SALIDA), igual que el resumen.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
+              {' '}En pagador Abarrotes y Virtual, la parte de Virtual y la de Abarrotes se suman entre sí y al total de cada cuenta.
               {modoManual
                 ? ' Modo Manual: edita a mano; «Recalcular» conserva ajustes (si inventario/préstamos están en $0, trae la cuota automática).'
                 : ' Modo Automático: días = jornadas del checador; inventario = faltante neto (sin bonificación) ÷ 3; préstamos = cuota semanal ($500 o remanente). Recalcular refresca esas deducciones.'}
@@ -954,18 +1028,11 @@ export default function Nomina({ supabase, sucursal, user }) {
               )}
             </tbody>
             {lineas.length > 0 && (
-              <tfoot>
-                <tr>
-                  <td colSpan={COLS.length - 2} style={{ textAlign: 'right', fontWeight: 700 }}>
-                    Total pago
-                  </td>
-                  <td style={{ fontWeight: 800, color: totalGeneral < 0 ? 'var(--brand-red)' : 'var(--brand-blue)' }}>{fmtPago(totalGeneral)}</td>
-                  <td />
-                </tr>
-              </tfoot>
+              <PieTotalesNomina desglose={desgloseCuentas} total={totalGeneral} />
             )}
           </table>
         </div>
+        <TextoSumaCuentas desglose={desgloseCuentas} />
 
         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-primary" disabled={cargando || lineas.length === 0} onClick={guardar}>
@@ -1180,8 +1247,12 @@ export default function Nomina({ supabase, sucursal, user }) {
                   </tr>
                 </thead>
                 <tbody>{lineasHist.map((l, i) => renderFila(l, i, { historial: true }))}</tbody>
+                {lineasHist.length > 0 && (
+                  <PieTotalesNomina desglose={desgloseHist} total={repartoHist.total} />
+                )}
               </table>
             </div>
+            <TextoSumaCuentas desglose={desgloseHist} />
           </div>
         )}
       </div>

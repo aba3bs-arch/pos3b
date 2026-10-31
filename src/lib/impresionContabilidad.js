@@ -3,7 +3,7 @@ import { leerNombreNegocio, leerLogoUrl } from './branding.js';
 import { leerConfigImpresion } from './posConfig.js';
 import { ETIQUETA_AREA, etiquetaCategoriaVale, etiquetaEstadoPrestamo } from './contabilidadConstants.js';
 import { desgloseNominaLinea } from './nominaCalculos.js';
-import { etiquetaPagoMixto } from './nominaPagoMixto.js';
+import { etiquetaPagoMixto, filasDesgloseCuentas, sumarPagosPorCuenta } from './nominaPagoMixto.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -44,12 +44,20 @@ function filaTicket(label, valor, { bold = false, danger = false } = {}) {
 }
 
 export function htmlNomina(data) {
+  const netoLinea = (l) => Number(l.pago ?? l.total) || 0;
+  const sumas = sumarPagosPorCuenta(data.lineas || [], netoLinea);
+  const desglose = filasDesgloseCuentas(sumas);
+  const filasCuenta = desglose.mostrar
+    ? desglose.filas
+      .map((f) => `<tr><td colspan="12" class="r">${esc(f.etiqueta)}</td><td class="r">${fmtPagoImp(f.monto)}</td></tr>`)
+      .join('')
+    : '';
   const lineas = (data.lineas || [])
     .map(
       (l) => `<tr>
       <td>${esc(l.nombre)}</td>
       <td>${esc(l.rol)}</td>
-      <td>${esc(ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina || '—')}${etiquetaPagoMixto(l, l.total) ? `<br><small>${esc(etiquetaPagoMixto(l, l.total))}</small>` : ''}</td>
+      <td>${esc(ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina || '—')}${etiquetaPagoMixto(l, netoLinea(l)) ? `<br><small>${esc(etiquetaPagoMixto(l, netoLinea(l)))}</small>` : ''}</td>
       <td class="r">${fmt(l.salario_dia ?? l.sueldo_tarifa)}</td>
       <td class="r">${esc(l.dias_trabajados)}</td>
       <td class="r">${fmt(l.sueldo_base)}</td>
@@ -72,7 +80,7 @@ export function htmlNomina(data) {
     <table>
       <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">$/día</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otros</th><th class="r">Arrastre</th><th class="r">Pago</th></tr></thead>
       <tbody>${lineas}</tbody>
-      <tfoot><tr><td colspan="12" class="r"><strong>Total</strong></td><td class="r"><strong>${fmtPagoImp(data.total)}</strong></td></tr></tfoot>
+      <tfoot>${filasCuenta}<tr><td colspan="12" class="r"><strong>Total</strong></td><td class="r"><strong>${fmtPagoImp(sumas.total)}</strong></td></tr></tfoot>
     </table>
     ${data.notas ? `<p class="muted">Notas: ${esc(data.notas)}</p>` : ''}
   </body></html>`;
