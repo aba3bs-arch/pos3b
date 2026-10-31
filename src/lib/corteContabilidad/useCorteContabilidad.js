@@ -160,12 +160,25 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const liquidarPrestamoDesdeCorte = useCallback(async () => {}, []);
   const generarPagareDesdeCorte = useCallback(async () => {}, []);
 
-  const persistir = useCallback(
+  /** false mientras no se haya leído bien el estado abierto: nunca escribir valores por defecto encima del real. */
+  const lecturaOk = useRef(false);
+  const guardarEstadoSeguro = useCallback(
     async (nextEstado) => {
-      const res = await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
-      if (res.aviso) setAviso(res.aviso);
+      if (!lecturaOk.current) {
+        return { ok: false, error: 'El corte no se leyó correctamente; no se guardó para no sobrescribir los datos reales. Recarga la página.' };
+      }
+      return guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
     },
     [supabase, sucursal, modulo],
+  );
+
+  const persistir = useCallback(
+    async (nextEstado) => {
+      const res = await guardarEstadoSeguro(nextEstado);
+      if (res.aviso) setAviso(res.aviso);
+      else if (res.error && !res.ok) setAviso(res.error);
+    },
+    [guardarEstadoSeguro],
   );
 
   const patchEstado = useCallback(
@@ -253,6 +266,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   }, [supabase, sucursal, modulo, perm.editarTodo]);
 
   const cargar = useCallback(async () => {
+    lecturaOk.current = false;
     setCargando(true);
     // Si un cierre previo dejó gastos abiertos por error, ciérralos antes de listar.
     await cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo);
@@ -286,13 +300,20 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (empRes.error) {
       setAviso((prev) => prev || `Empleados: ${empRes.error.message || empRes.error}`);
     }
+    if (estRes.lecturaFallida) {
+      lecturaOk.current = false;
+      setAviso(`No se pudo leer el corte abierto (${estRes.error}). No se guardará nada para no borrar los datos reales; recarga la página.`);
+      setCargando(false);
+      return;
+    }
+    lecturaOk.current = true;
     let nextEstado = estRes.estado || {};
     const nextGastos = gasRes.data || [];
     if (modulo === 'virtual' && !nextEstado.turno_sesion) {
       const sesion = resolverTurnoSesion(nextEstado, nextGastos);
       if (sesion) {
         nextEstado = { ...nextEstado, turno_sesion: sesion };
-        await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
+        await guardarEstadoSeguro(nextEstado);
       }
     }
     setEstado(nextEstado);
@@ -318,7 +339,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       if (modulo === 'abarrotes' && f) {
         nextEstado = { ...nextEstado, folio: f };
         setEstado(nextEstado);
-        await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
+        await guardarEstadoSeguro(nextEstado);
       }
     }
     setCargando(false);
@@ -387,6 +408,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (!accionLock.tryBegin()) {
       return { ok: false, skipped: true, error: 'Ya hay un cierre o recolección en curso.' };
     }
+    if (!lecturaOk.current) {
+      accionLock.end();
+      return { ok: false, error: 'El corte no se leyó correctamente. Recarga la página antes de cerrar.' };
+    }
     setCargando(true);
     try {
     if (!perm.guardar) {
@@ -444,7 +469,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const nuevoFolio = await folioTrasCierre(supabase, sucursal, modulo, folioCierre);
     setFolio(nuevoFolio);
     nuevoEstado.folio = nuevoFolio;
-    await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+    await guardarEstadoSeguro(nuevoEstado);
     setEstado(nuevoEstado);
 
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
@@ -489,6 +514,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const registrarRecoleccion = async (opts = {}) => {
     if (!accionLock.tryBegin()) {
       return { ok: false, skipped: true, error: 'Ya hay un cierre o recolección en curso.' };
+    }
+    if (!lecturaOk.current) {
+      accionLock.end();
+      return { ok: false, error: 'El corte no se leyó correctamente. Recarga la página antes de recolectar.' };
     }
     setCargando(true);
     try {
@@ -599,7 +628,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         maquinasEnCero,
         montoRecoleccion: calcRec,
       });
-      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      await guardarEstadoSeguro(nuevoEstado);
       setEstado(nuevoEstado);
       const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
       setHistorial(hist.data || []);
@@ -719,7 +748,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         montoRecoleccion: calcRec,
       });
       nuevoEstado.turno_sesion = snapshotTurno() || turnoActual();
-      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      await guardarEstadoSeguro(nuevoEstado);
       setEstado(nuevoEstado);
       const gasRec = await listarGastosTurno(supabase, sucursal, modulo);
       setGastos(gasRec.data || []);
@@ -821,7 +850,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         recoleccion: 0,
         recoleccion_turno: 0,
       };
-      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      await guardarEstadoSeguro(nuevoEstado);
       setEstado(nuevoEstado);
       const hist = await listarCierresCorte(supabase, sucursal, modulo, limiteHistorialCierresCorte(modulo));
       setHistorial(hist.data || []);
@@ -932,7 +961,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       monedaTope,
       monedaInyectar,
     });
-    await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+    await guardarEstadoSeguro(nuevoEstado);
     setEstado(nuevoEstado);
     const gasPost = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gasPost.data || []);

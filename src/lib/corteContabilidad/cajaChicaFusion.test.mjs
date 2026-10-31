@@ -59,3 +59,47 @@ assert.equal(
 );
 
 console.log('cajaChicaFusion.ok');
+
+// Virtual en ceros: reconstruir desde el último cierre / recolección.
+{
+  const { estadoVirtualDesdeFilasCierre } = await import('./store.js');
+  const cierre = estadoVirtualDesdeFilasCierre([
+    {
+      turno: 'NOCTURNO',
+      caja_actual: 1200,
+      detalle: { moneda_inicial: 5000, moneda_inicial_turno: 4800, moneda_final: 4100, moneda_final_editada: true, subtotal: 700, tipo_cierre: 'cierre' },
+    },
+  ]);
+  assert.equal(cierre.moneda_inicial, 5000);
+  assert.equal(cierre.moneda_inicial_turno, 4100);
+  assert.equal(cierre.caja_anterior, 1200);
+  assert.equal(cierre.moneda_final, 0);
+
+  const rec = estadoVirtualDesdeFilasCierre([
+    { turno: 'RECOLECCION', caja_actual: 0, detalle: { moneda_inicial: 5000, moneda_final: 4100, moneda_final_editada: true, tipo_cierre: 'recoleccion' } },
+  ]);
+  assert.equal(rec.caja_anterior, 0);
+  assert.equal(rec.moneda_inicial, 5000);
+  assert.equal(rec.moneda_inicial_turno, 5000);
+
+  const saltaEliminado = estadoVirtualDesdeFilasCierre([
+    { deleted_at: '2026-10-01', turno: 'DIURNO', caja_actual: 9, detalle: { moneda_inicial: 9000, moneda_final: 8000 } },
+    { turno: 'DIURNO', caja_actual: 300, detalle: { moneda_inicial: 5000, moneda_final: 4500, moneda_final_editada: true } },
+  ]);
+  assert.equal(saltaEliminado.caja_anterior, 300);
+  assert.equal(estadoVirtualDesdeFilasCierre([]), null);
+  assert.equal(estadoVirtualDesdeFilasCierre([{ turno: 'DIURNO', detalle: {} }]), null);
+}
+// Error de lectura: no devolver un estado "válido" que pueda guardarse encima del real.
+{
+  const { cargarEstadoCorte } = await import('./store.js');
+  const sbError = {
+    from: () => ({
+      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'timeout', code: '57014' } }) }) }) }),
+    }),
+  };
+  const r = await cargarEstadoCorte(sbError, 'FUSION', 'virtual');
+  assert.equal(r.lecturaFallida, true);
+  assert.equal(r.error, 'timeout');
+}
+console.log('cajaChicaFusion: ok');
