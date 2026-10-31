@@ -1,3 +1,4 @@
+import { normalizarNombreEmpleado } from './nominaMatch.js';
 import { leerPagoVirtualDefault, montoVirtualLinea, esPagoMixto } from './nominaPagoMixto.js';
 import { marcarGastosDescontadosNomina, gastoCuentaEnNomina } from './nominaGastos.js';
 import { aplicarPrestamosNomina } from './nominaPrestamos.js';
@@ -146,6 +147,32 @@ function salarioDiaEmpleado(u, sueldosMap) {
   return round2(map[u.id] ?? map[String(u.id)] ?? 0);
 }
 
+/**
+ * Bajas (RH) cuya fecha_baja cae dentro del periodo: siguen en la nómina de esa semana
+ * para pagarles lo trabajado. Devuelve null si no hay datos o falta la tabla.
+ */
+export async function bajasEnPeriodoNomina(supabase, { desde, hasta } = {}) {
+  if (!supabase || !desde || !hasta) return null;
+  const { data, error } = await supabase
+    .from('rh_empleados')
+    .select('usuario_id, nombre, nombre_completo, apellidos, fecha_baja, estado')
+    .eq('estado', 'baja')
+    .gte('fecha_baja', String(desde).slice(0, 10))
+    .lte('fecha_baja', String(hasta).slice(0, 10));
+  if (error || !data?.length) return null;
+  const porId = new Map();
+  const porNombre = new Map();
+  for (const r of data) {
+    const fecha = String(r.fecha_baja).slice(0, 10);
+    if (r.usuario_id) porId.set(String(r.usuario_id), fecha);
+    for (const n of [r.nombre_completo, [r.nombre, r.apellidos].filter(Boolean).join(' '), r.nombre]) {
+      const k = normalizarNombreEmpleado(n);
+      if (k) porNombre.set(k, fecha);
+    }
+  }
+  return { porId, porNombre };
+}
+
 export function lineasDesdeEmpleados(empleados, opts = {}) {
   const {
     sueldosMap = {},
@@ -224,6 +251,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       sucursal_id: u.sucursal_id || null,
       pagador_nomina: u.nomina_pagador || 'abarrotes',
       pago_virtual: leerPagoVirtualDefault(u.id),
+      fecha_baja: u.fecha_baja_nomina || null,
       es_indirecto: indirecto,
       salario_dia: salarioDia,
       sueldo_tarifa: salarioDia,
