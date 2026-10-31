@@ -90,4 +90,16 @@ console.log('cajaChicaFusion.ok');
   assert.equal(estadoVirtualDesdeFilasCierre([]), null);
   assert.equal(estadoVirtualDesdeFilasCierre([{ turno: 'DIURNO', detalle: {} }]), null);
 }
+// Error de lectura: no devolver un estado "válido" que pueda guardarse encima del real.
+{
+  const { cargarEstadoCorte } = await import('./store.js');
+  const sbError = {
+    from: () => ({
+      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'timeout', code: '57014' } }) }) }) }),
+    }),
+  };
+  const r = await cargarEstadoCorte(sbError, 'FUSION', 'virtual');
+  assert.equal(r.lecturaFallida, true);
+  assert.equal(r.error, 'timeout');
+}
 console.log('cajaChicaFusion: ok');

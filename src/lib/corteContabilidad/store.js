@@ -452,7 +452,7 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   if (error && faltaTabla(error, 'cortes_contabilidad')) {
     return { estado: def, aviso: AVISO_FALTA_CORTES, soloLocal: true };
   }
-  if (error) return { estado: def, error: error.message };
+  if (error) return { estado: def, error: error.message, lecturaFallida: true };
 
   let estado = { ...def, ...(data?.estado || {}) };
   const reclamo = await reclamarEstadoHuerfano(supabase, sid, modulo, estado);
