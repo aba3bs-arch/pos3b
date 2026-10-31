@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AVISO_FALTA_NOMINA,
   cargarDatosNomina,
+  bajasEnPeriodoNomina,
   cargarLineasPeriodo,
   guardarPeriodoNomina,
   guardarSueldoDefault,
@@ -114,7 +115,8 @@ export default function Nomina({ supabase, sucursal, user }) {
         setCargando(false);
         return;
       }
-      const lista = empleadosParaNominaGlobal(empleadosRes.data || []);
+      const bajasEnPeriodo = await bajasEnPeriodoNomina(supabase, { desde: inicio, hasta: fin });
+      const lista = empleadosParaNominaGlobal(empleadosRes.data || [], { bajasEnPeriodo });
       const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes } = await cargarDatosNomina(supabase, {
         desde: inicio,
         hasta: fin,
@@ -536,6 +538,11 @@ export default function Nomina({ supabase, sucursal, user }) {
           {l.sucursal_id && (
             <span className="muted" style={{ fontSize: '0.68rem' }}>
               {etiquetaTienda(l.sucursal_id)}
+            </span>
+          )}
+          {l.fecha_baja && (
+            <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--danger)' }}>
+              baja {String(l.fecha_baja).slice(0, 10)} · pago final
             </span>
           )}
           {l.es_indirecto && (

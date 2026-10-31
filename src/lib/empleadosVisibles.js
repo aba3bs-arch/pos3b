@@ -801,8 +801,14 @@ export function enriquecerEmpleadosNominaIndirectos(empleados) {
 }
 
 /** Lista global para nómina: operativos + placeholders de indirectos (vales). Sin socios 3B. */
-export function empleadosParaNominaGlobal(empleados) {
-  const base = (empleados || []).filter((e) => {
+export function empleadosParaNominaGlobal(empleados, { bajasEnPeriodo = null } = {}) {
+  const base = (empleados || []).map((e) => {
+    if (e?.activo !== false || !bajasEnPeriodo) return e;
+    const fecha =
+      bajasEnPeriodo.porId?.get(String(e.id))
+      || bajasEnPeriodo.porNombre?.get(normalizarNombrePersona(e.nombre));
+    return fecha ? { ...e, activo: true, baja_en_periodo: true, fecha_baja_nomina: fecha } : e;
+  }).filter((e) => {
     if (e?.activo === false) return false;
     const rol = normalizarRol(e.rol);
     if (rol === 'Administrador') return false;
