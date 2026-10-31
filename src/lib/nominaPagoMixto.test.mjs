@@ -17,7 +17,8 @@ assert.deepEqual(repartoPagoPorCuenta(luz, 3000), [
   { cuenta: 'virtual', monto: 1200, sufijoRef: ':virtual' },
   { cuenta: 'abarrotes', monto: 1800, sufijoRef: '' },
 ]);
-assert.equal(montoVirtualLinea({ pagador_nomina: 'ambos', pago_virtual: 9999 }, 3000), 3000);
+assert.equal(montoVirtualLinea({ pagador_nomina: 'ambos', pago_virtual: 1000 }, 2500), 1000);
+assert.equal(montoVirtualLinea({ pagador_nomina: 'ambos', pago_virtual: 9999 }, 3000), 9999);
 assert.deepEqual(repartoPagoPorCuenta({ pagador_nomina: 'ambos', pago_virtual: 9999 }, 3000), [{ cuenta: 'virtual', monto: 3000, sufijoRef: ':virtual' }]);
 assert.equal(montoVirtualLinea({ pagador_nomina: 'abarrotes', pago_virtual: 500 }, 3000), 0);
 assert.equal(esPagoMixto({ pagador_nomina: 'Ambos' }), true);
@@ -31,8 +32,16 @@ assert.deepEqual(partesLuz, { virtual: 1200, abarrotes: 1800, garage: 0, total: 
 assert.deepEqual(partesPagoLinea({ pagador_nomina: 'virtual' }, 500), { virtual: 500, abarrotes: 0, garage: 0, total: 500 });
 assert.deepEqual(partesPagoLinea({ pagador_nomina: 'abarrotes' }, 400), { virtual: 0, abarrotes: 400, garage: 0, total: 400 });
 // Pago negativo en mixto: la deuda queda en Abarrotes y sigue sumando el neto.
-assert.deepEqual(partesPagoLinea({ pagador_nomina: 'ambos', pago_virtual: 1200 }, -150), {
-  virtual: 0, abarrotes: -150, garage: 0, total: -150,
+assert.deepEqual(partesPagoLinea({ pagador_nomina: 'ambos', pago_virtual: '1000' }, 2500), {
+  virtual: 1000, abarrotes: 1500, garage: 0, total: 2500,
+});
+assert.equal(
+  partesPagoLinea({ pagador_nomina: 'ambos', pago_virtual: '1000' }, 2500).virtual
+    + partesPagoLinea({ pagador_nomina: 'ambos', pago_virtual: '1000' }, 2500).abarrotes,
+  2500,
+);
+assert.deepEqual(partesPagoLinea({ pagador_nomina: 'ambos', pago_virtual: 1200 }, 1050), {
+  virtual: 1200, abarrotes: -150, garage: 0, total: 1050,
 });
 
 const lineas = [

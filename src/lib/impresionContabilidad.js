@@ -304,6 +304,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     sueldo,
     bono,
     bruto,
+    pagoVirtual,
     consumo: dedCons,
     inventario: dedInv,
     prestamos: dedPrest,
@@ -349,7 +350,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     <table class="kv bloque">
       ${linea.rol ? filaTicket('Puesto', esc(linea.rol)) : ''}
       ${linea.pagador_nomina ? filaTicket('Pagador', esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)) : ''}
-      ${etiquetaPagoMixto(linea, linea.total) ? filaTicket('Reparto', esc(etiquetaPagoMixto(linea, linea.total))) : ''}
+      ${etiquetaPagoMixto(linea, neto) ? filaTicket('Reparto', esc(etiquetaPagoMixto(linea, neto))) : ''}
       ${filaTicket('Periodo', esc(periodo))}
       ${salarioDia > 0 ? filaTicket('Salario / día', fmt(salarioDia)) : ''}
       ${dias > 0 ? filaTicket(labelDias, esc(String(dias))) : ''}
@@ -362,7 +363,8 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     <table class="kv bloque">
       ${filaTicket(`Sueldo (${dias}×${fmt(salarioDia)})`, fmt(sueldo), { bold: true })}
       ${bono > 0 ? filaTicket('Bonificación', fmt(bono)) : ''}
-      ${filaTicket('Subtotal', fmt(bruto), { bold: true })}
+      ${pagoVirtual > 0 ? filaTicket('Paga Virtual', fmt(pagoVirtual)) : ''}
+      ${filaTicket('Subtotal', fmt((Number(bruto) || 0) + (Number(pagoVirtual) || 0)), { bold: true })}
     </table>
     <div class="sep"></div>
     <div class="sec">Descuentos</div>
