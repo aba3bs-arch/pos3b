@@ -644,8 +644,8 @@ export default function Nomina({ supabase, sucursal, user }) {
               ))}
             </select>
             {esPagoMixto(l) && (
-              <div style={{ marginTop: '0.25rem' }} title="Monto extra que paga Virtual. Se suma al pago calculado, que paga Abarrotes.">
-                <label className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>Paga Virtual $</label>
+              <div style={{ marginTop: '0.25rem' }} title="Pago por día que cubre Virtual. Se multiplica por los días trabajados y se suma al sueldo. Los gastos se restan en Pago.">
+                <label className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>Virtual $/día</label>
                 <input
                   className="input"
                   type="number"
@@ -657,10 +657,10 @@ export default function Nomina({ supabase, sucursal, user }) {
                   onChange={(e) => actualizarLinea(i, 'pago_virtual', e.target.value)}
                 />
                 <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
-                  Abarrotes: {fmtPago(partes.abarrotes)}
+                  × {l.dias_trabajados || 0} días = {fmtPago(partes.virtual)}
                 </span>
                 <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
-                  Suma {fmtPago(partes.virtual)} + {fmtPago(partes.abarrotes)} = {fmtPago(partes.total)}
+                  Se suma al sueldo. Pago {fmtPago(partes.total)}
                 </span>
               </div>
             )}
@@ -911,7 +911,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes (calendario local).
               Días = jornadas cerradas del checador (ENTRADA+SALIDA), igual que el resumen.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
-              {' '}En pagador Abarrotes y Virtual, Paga Virtual se suma al pago calculado: el pago es Virtual + Abarrotes.
+              {' '}En Abarrotes y Virtual, Virtual también es un pago por día: se suma (días × Virtual/día). El sueldo sigue siendo solo días × $/día.
               {modoManual
                 ? ' Modo Manual: edita a mano; «Recalcular» conserva ajustes (si inventario/préstamos están en $0, trae la cuota automática).'
                 : ' Modo Automático: días = jornadas del checador; inventario = faltante neto (sin bonificación) ÷ 3; préstamos = cuota semanal ($500 o remanente). Recalcular refresca esas deducciones.'}

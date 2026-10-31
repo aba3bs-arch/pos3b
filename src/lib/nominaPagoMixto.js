@@ -1,8 +1,8 @@
 /**
- * Pago mixto de nómina (pagador «ambos»): Virtual y Abarrotes se suman.
- * Abarrotes paga el neto calculado (días × salario − deducciones).
- * `pago_virtual` es un monto adicional que paga Virtual.
- * Pago de la persona = Abarrotes + Virtual.
+ * Pago mixto de nómina (pagador «ambos»): Virtual y Abarrotes se suman por día.
+ * `pago_virtual` es la tarifa diaria de Virtual (igual que $/día de Abarrotes).
+ * Sueldo Abarrotes = días × $/día. Virtual = días × pago_virtual.
+ * Pago = sueldo + virtual + bono − gastos.
  */
 const LS_PREFIX = 'pos3b_nomina_pago_virtual_';
 
@@ -14,11 +14,24 @@ export function esPagoMixto(linea) {
   return String(linea?.pagador_nomina || '').toLowerCase() === 'ambos';
 }
 
-/** Monto que paga Virtual. Se suma al pago calculado; no se recorta de Abarrotes. */
-export function montoVirtualLinea(linea, _neto) {
+function diasTrabajadosLinea(linea) {
+  const raw = linea?.dias_trabajados;
+  if (raw === '' || raw == null) return 0;
+  const n = Number(String(raw).trim().replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+/** Tarifa diaria capturada en «Virtual $/día». No es el total de la semana. */
+export function tarifaVirtualDiaria(linea) {
   if (!esPagoMixto(linea)) return 0;
   const v = r2(linea?.pago_virtual);
   return v > 0 ? v : 0;
+}
+
+/** Virtual de la semana = tarifa diaria × días trabajados. */
+export function montoVirtualLinea(linea, _neto) {
+  return r2(tarifaVirtualDiaria(linea) * diasTrabajadosLinea(linea));
 }
 
 /**
@@ -91,7 +104,7 @@ export function filasDesgloseCuentas(sumas) {
 export function etiquetaPagoMixto(linea, neto) {
   if (!esPagoMixto(linea)) return '';
   const partes = partesPagoLinea(linea, neto ?? linea?.total ?? linea?.pago);
-  if (!(partes.virtual > 0)) return '';
+  if (!(partes.total > 0) || !(partes.virtual > 0)) return '';
   const f = (n) => `$${n.toFixed(2)}`;
   return `Virtual ${f(partes.virtual)} + Abarrotes ${f(partes.abarrotes)} = ${f(partes.total)}`;
 }

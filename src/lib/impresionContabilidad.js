@@ -363,7 +363,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     <table class="kv bloque">
       ${filaTicket(`Sueldo (${dias}×${fmt(salarioDia)})`, fmt(sueldo), { bold: true })}
       ${bono > 0 ? filaTicket('Bonificación', fmt(bono)) : ''}
-      ${pagoVirtual > 0 ? filaTicket('Paga Virtual', fmt(pagoVirtual)) : ''}
+      ${pagoVirtual > 0 ? filaTicket(`Virtual (${dias}×${fmt(linea.pago_virtual)})`, fmt(pagoVirtual)) : ''}
       ${filaTicket('Subtotal', fmt((Number(bruto) || 0) + (Number(pagoVirtual) || 0)), { bold: true })}
     </table>
     <div class="sep"></div>
