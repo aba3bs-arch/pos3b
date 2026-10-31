@@ -1,4 +1,10 @@
-import { estadoDefault, normalizarEstadoVirtual, detalleRecoleccionParaIe } from './calc.js';
+import {
+  estadoDefault,
+  normalizarEstadoVirtual,
+  detalleRecoleccionParaIe,
+  prepararTrasCierreVirtual,
+  prepararTrasRecoleccionVirtual,
+} from './calc.js';
 import {
   esAprobadorRecoleccionIe,
   recoleccionAprobadaParaIe,
@@ -336,29 +342,71 @@ export function cajaAnteriorDesdeFilasCierre(rows) {
  * Si no hay caja chica abierta, recupera la del último cierre de turno
  * (no recolección) — típico tras migración incompleta o purga parcial.
  */
-async function cajaAnteriorDesdeUltimoCierre(supabase, sid, modulo) {
-  if (!supabase || modulo !== 'abarrotes') return null;
+async function ultimasFilasCierre(supabase, sid, modulo) {
   const vars = sucursalesIdCorteQuery(sid);
-  const { data, error } = await supabase
+  const base = (cols) => supabase
     .from('cortes_contabilidad_cierres')
-    .select('caja_actual, detalle, turno, created_at, deleted_at')
+    .select(cols)
     .eq('modulo', modulo)
     .in('sucursal_id', vars)
     .order('created_at', { ascending: false })
     .limit(15);
-  if (error) {
-    if (!faltaColumnaDeletedAt(error)) return null;
-    const retry = await supabase
-      .from('cortes_contabilidad_cierres')
-      .select('caja_actual, detalle, turno, created_at')
-      .eq('modulo', modulo)
-      .in('sucursal_id', vars)
-      .order('created_at', { ascending: false })
-      .limit(15);
-    if (retry.error) return null;
-    return cajaAnteriorDesdeFilasCierre(retry.data || []);
+  const { data, error } = await base('caja_actual, detalle, turno, created_at, deleted_at');
+  if (!error) return data || [];
+  if (!faltaColumnaDeletedAt(error)) return null;
+  const retry = await base('caja_actual, detalle, turno, created_at');
+  return retry.error ? null : retry.data || [];
+}
+
+async function cajaAnteriorDesdeUltimoCierre(supabase, sid, modulo) {
+  if (!supabase || modulo !== 'abarrotes') return null;
+  const filas = await ultimasFilasCierre(supabase, sid, modulo);
+  return filas ? cajaAnteriorDesdeFilasCierre(filas) : null;
+}
+
+function virtualEstaEnCeros(estado) {
+  const e = estado || {};
+  return !(
+    round2Store(e.moneda_inicial) > 0
+    || round2Store(e.moneda_inicial_turno) > 0
+    || round2Store(e.moneda_final) > 0
+    || round2Store(e.caja_anterior) > 0
+    || round2Store(e.fondo) > 0
+  );
+}
+
+/**
+ * Reconstruye el estado abierto del corte Virtual a partir del último cierre o
+ * recolección no eliminados (misma transición que se aplica al guardarlos).
+ * Devuelve null si no hay historial utilizable.
+ */
+export function estadoVirtualDesdeFilasCierre(rows) {
+  for (const h of rows || []) {
+    if (h?.deleted_at) continue;
+    const d = h.detalle || {};
+    const base = estadoDefault('virtual');
+    const previo = { ...base };
+    for (const k of Object.keys(base)) {
+      if (d[k] !== undefined) previo[k] = d[k];
+    }
+    const esRecoleccion = String(h.turno || d.tipo_cierre || '').toUpperCase().includes('RECOLEC');
+    const tope = round2Store(previo.moneda_inicial);
+    const mf = round2Store(previo.moneda_final);
+    if (!(tope > 0) && !(mf > 0)) continue;
+    if (esRecoleccion) return prepararTrasRecoleccionVirtual(previo);
+    const caja = h.caja_actual != null && h.caja_actual !== '' ? Number(h.caja_actual) : null;
+    return prepararTrasCierreVirtual(previo, {
+      cajaActual: Number.isFinite(caja) ? caja : undefined,
+      subtotal: Number(d.subtotal) || 0,
+    });
   }
-  return cajaAnteriorDesdeFilasCierre(data || []);
+  return null;
+}
+
+async function estadoVirtualDesdeUltimoCierre(supabase, sid) {
+  if (!supabase) return null;
+  const filas = await ultimasFilasCierre(supabase, sid, 'virtual');
+  return filas ? estadoVirtualDesdeFilasCierre(filas) : null;
 }
 
 function faltaTabla(error, hint) {
@@ -411,7 +459,7 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   estado = reclamo.estado;
   let avisoRecupero = null;
   if (reclamo.reclamado) {
-    avisoRecupero = `Se recuperó la caja chica de Abarrotes desde el registro histórico «${reclamo.desde}» → ${sid}.`;
+    avisoRecupero = `Se recuperó el estado del corte desde el registro histórico «${reclamo.desde}» → ${sid}.`;
   }
 
   // Abarrotes: si sigue en 0 tras reclamar, intentar último cierre de turno.
@@ -434,6 +482,17 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   }
 
   if (modulo === 'virtual') {
+    if (virtualEstaEnCeros(estado)) {
+      const recuperado = await estadoVirtualDesdeUltimoCierre(supabase, sid);
+      if (recuperado) {
+        estado = { ...estado, ...recuperado };
+        await supabase.from('cortes_contabilidad_estado').upsert(
+          { sucursal_id: sid, modulo, estado, updated_at: new Date().toISOString() },
+          { onConflict: 'sucursal_id,modulo' },
+        );
+        avisoRecupero = 'Corte Virtual restaurado desde el último cierre/recolección (el estado abierto estaba en ceros).';
+      }
+    }
     return { estado: normalizarEstadoVirtual(estado), soloLocal: false, aviso: avisoRecupero || undefined };
   }
   if (modulo === 'garage') {
