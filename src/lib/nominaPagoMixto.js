@@ -37,13 +37,57 @@ export function repartoPagoPorCuenta(linea, neto, cuentaUnica = 'abarrotes') {
   return partes;
 }
 
+/**
+ * Reparte el neto de la línea entre cuentas.
+ * En «ambos», Virtual es `pago_virtual` (topeado al neto si es positivo) y Abarrotes es el resto.
+ * Esas partes suman el neto: Virtual + Abarrotes (+ Garage) = pago.
+ */
+export function partesPagoLinea(linea, neto) {
+  const total = r2(neto ?? linea?.total ?? linea?.pago);
+  const pag = String(linea?.pagador_nomina || 'abarrotes').toLowerCase();
+  if (pag === 'ambos') {
+    const virtual = montoVirtualLinea(linea, total);
+    return { virtual, abarrotes: r2(total - virtual), garage: 0, total };
+  }
+  if (pag === 'virtual') return { virtual: total, abarrotes: 0, garage: 0, total };
+  if (pag === 'garage') return { virtual: 0, abarrotes: 0, garage: total, total };
+  return { virtual: 0, abarrotes: total, garage: 0, total };
+}
+
+/** Suma por cuenta de varias líneas. Las cuentas suman `total`. */
+export function sumarPagosPorCuenta(lineas, netoDe) {
+  const acc = { virtual: 0, abarrotes: 0, garage: 0, total: 0 };
+  for (const l of lineas || []) {
+    const neto = typeof netoDe === 'function' ? netoDe(l) : (netoDe ?? l?.total ?? l?.pago);
+    const p = partesPagoLinea(l, neto);
+    acc.virtual = r2(acc.virtual + p.virtual);
+    acc.abarrotes = r2(acc.abarrotes + p.abarrotes);
+    acc.garage = r2(acc.garage + p.garage);
+    acc.total = r2(acc.total + p.total);
+  }
+  return acc;
+}
+
+/**
+ * Filas de desglose cuando hay más de una cuenta con monto.
+ * La suma de `filas` es `total` (los pagos mixtos entran partidos, no completos en cada cuenta).
+ */
+export function filasDesgloseCuentas(sumas) {
+  const filas = [
+    { cuenta: 'virtual', etiqueta: 'Virtual', monto: r2(sumas?.virtual) },
+    { cuenta: 'abarrotes', etiqueta: 'Abarrotes', monto: r2(sumas?.abarrotes) },
+    { cuenta: 'garage', etiqueta: 'Garage', monto: r2(sumas?.garage) },
+  ].filter((f) => f.monto !== 0);
+  const mostrar = filas.length > 1;
+  return { filas: mostrar ? filas : [], mostrar, total: r2(sumas?.total) };
+}
+
 export function etiquetaPagoMixto(linea, neto) {
   if (!esPagoMixto(linea)) return '';
-  const total = r2(neto ?? linea?.total ?? linea?.pago);
-  const v = montoVirtualLinea(linea, total);
-  if (!(v > 0)) return '';
+  const partes = partesPagoLinea(linea, neto ?? linea?.total ?? linea?.pago);
+  if (!(partes.virtual > 0)) return '';
   const f = (n) => `$${n.toFixed(2)}`;
-  return `Virtual ${f(v)} · Abarrotes ${f(r2(total - v))}`;
+  return `Virtual ${f(partes.virtual)} + Abarrotes ${f(partes.abarrotes)} = ${f(partes.total)}`;
 }
 
 export function leerPagoVirtualDefault(usuarioId) {
