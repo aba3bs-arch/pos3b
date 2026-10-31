@@ -28,7 +28,30 @@ assert.equal(d.sueldo, 2400);
 assert.equal(d.consumo, 2462, 'debe usar deduccion_gastos, no deduccion_consumos');
 assert.equal(d.inventario, 400);
 assert.equal(d.neto, -462);
-assert.equal(d.bruto - d.totalDescuentos, d.neto);
+assert.equal(d.bruto + d.pagoVirtual - d.totalDescuentos, d.neto);
+assert.equal(d.pagoVirtual, 0);
+
+// Luz: Abarrotes es el sueldo calculado ($1,500) y Virtual ($1,000) se suma. El pago es $2,500.
+const luz = recalcularLineaNomina({
+  nombre: 'Luz Zazueta',
+  pagador_nomina: 'ambos',
+  pago_virtual: '1000',
+  salario_dia: 300,
+  dias_trabajados: 5,
+  bonificacion: 0,
+  deduccion_gastos: 0,
+  deduccion_inventario: 0,
+  deduccion_prestamos: 0,
+  deduccion_arrastre: 0,
+  deducciones: 0,
+  deduccion_faltas: 0,
+});
+assert.equal(pagoNominaLinea(luz), 2500);
+const dl = desgloseNominaLinea(luz);
+assert.equal(dl.sueldo, 1500);
+assert.equal(dl.pagoVirtual, 1000);
+assert.equal(dl.neto, 2500);
+assert.equal(dl.bruto + dl.pagoVirtual - dl.totalDescuentos, dl.neto);
 assert.equal(mayra.deduccion_consumos, 2462, 'recalcular alinea el alias legado');
 
 // Con gastos_manual, fusionar no debe dejar consumos desfasados.

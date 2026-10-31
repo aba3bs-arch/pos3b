@@ -644,7 +644,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               ))}
             </select>
             {esPagoMixto(l) && (
-              <div style={{ marginTop: '0.25rem' }} title="Cuánto del neto paga Virtual; el resto lo paga Abarrotes">
+              <div style={{ marginTop: '0.25rem' }} title="Monto extra que paga Virtual. Se suma al pago calculado, que paga Abarrotes.">
                 <label className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>Paga Virtual $</label>
                 <input
                   className="input"
@@ -662,11 +662,6 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
                   Suma {fmtPago(partes.virtual)} + {fmtPago(partes.abarrotes)} = {fmtPago(partes.total)}
                 </span>
-                {(Number(l.pago_virtual) || 0) > partes.virtual + 0.001 && (
-                  <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
-                    Virtual cuenta {fmtPago(partes.virtual)} (tope del pago)
-                  </span>
-                )}
               </div>
             )}
             </>
@@ -916,7 +911,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes (calendario local).
               Días = jornadas cerradas del checador (ENTRADA+SALIDA), igual que el resumen.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
-              {' '}En pagador Abarrotes y Virtual, la parte de Virtual y la de Abarrotes se suman entre sí y al total de cada cuenta.
+              {' '}En pagador Abarrotes y Virtual, Paga Virtual se suma al pago calculado: el pago es Virtual + Abarrotes.
               {modoManual
                 ? ' Modo Manual: edita a mano; «Recalcular» conserva ajustes (si inventario/préstamos están en $0, trae la cuota automática).'
                 : ' Modo Automático: días = jornadas del checador; inventario = faltante neto (sin bonificación) ÷ 3; préstamos = cuota semanal ($500 o remanente). Recalcular refresca esas deducciones.'}
