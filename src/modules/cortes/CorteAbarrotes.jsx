@@ -17,9 +17,11 @@ import { useCajaAbarrotes } from '../../lib/corteContabilidad/useCajaAbarrotes.j
 import {
   esGastoCobroCredito,
   evaluarRecoleccion,
+  limiteRecoleccionPorcentaje,
   maximoRecolectable,
   redondearRecoleccion,
 } from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
+import { hoyYmdNogales } from '../../lib/corteCaja.js';
 import { esGastoNominaEmpleadoCorte } from '../../lib/contVirtualCatalogo.js';
 import { esCategoriaProveedores } from '../../lib/corteContabilidad/catalogoGastos.js';
 
@@ -120,9 +122,23 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     try {
     if (!perm.recoleccion) return alert('Solo admin/recolector puede recolectar.');
     if (!(montoRec > 0)) return alert('Indique el monto a recolectar en el campo Recolección.');
+    const limite = limiteRecoleccionPorcentaje({
+      hoyYmd: hoyYmdNogales(),
+      cajaAntes: calc.cajaActual + montoRec,
+      reglas: cajaHist.reglas,
+    });
+    if (limite.aplica && montoRec > limite.maximo + 0.009) {
+      const msg =
+        `Hoy es ${limite.dia}: solo se puede recolectar el ${limite.pct}% de la caja chica.\n\n`
+        + `Caja antes de recolectar: ${fmtCorte(calc.cajaActual + montoRec)}\n`
+        + `Máximo permitido: ${fmtCorte(limite.maximo)}\n`
+        + `Intentas recolectar: ${fmtCorte(montoRec)}`;
+      if (!perm.editarTodo) return alert(`${msg}\n\nReduce el monto de Recolección.`);
+      if (!confirm(`${msg}\n\nEres admin: ¿recolectar de todos modos?`)) return;
+    }
     const colchonVal = cajaHist.colchon ? cajaHist.colchon.colchon : null;
     const evColchon = evaluarRecoleccion({ cajaDespues: calc.cajaActual, colchon: colchonVal });
-    const bajoColchon = evColchon.nivel === 'bajo' || evColchon.nivel === 'negativo';
+    const bajoColchon = !limite.aplica && (evColchon.nivel === 'bajo' || evColchon.nivel === 'negativo');
     if (bajoColchon) {
       const maxRec = redondearRecoleccion(
         maximoRecolectable({ cajaAntes: calc.cajaActual + montoRec, colchon: colchonVal }),
@@ -153,8 +169,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             bajo_colchon: bajoColchon,
             colchon_recomendado: colchonVal,
             colchon_dias: cajaHist.colchon.dias,
+            ...(limite.aplica ? { limite_pct: limite.pct, limite_maximo: limite.maximo } : {}),
           }
-        : {},
+        : limite.aplica ? { limite_pct: limite.pct, limite_maximo: limite.maximo } : {},
     });
     if (!res?.ok) {
       if (res?.error) alert(res.error);

@@ -1,7 +1,9 @@
 import React from 'react';
+import { hoyYmdNogales } from '../../lib/corteCaja.js';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import {
   evaluarRecoleccion,
+  limiteRecoleccionPorcentaje,
   maximoCobroCredito,
   maximoRecolectable,
   redondearRecoleccion,
@@ -51,7 +53,11 @@ export default function ColchonRecoleccion({
   const cobroCredito = colchon
     ? redondearRecoleccion(maximoCobroCredito({ cajaActual, colchonSinCredito: colchon.colchonSinCredito }))
     : null;
-  const estilo = NIVELES[ev.nivel] || NIVELES.sin_datos;
+  const limite = limiteRecoleccionPorcentaje({ hoyYmd: hoyYmdNogales(), cajaAntes, reglas: reglas || {} });
+  const excedeLimite = limite.aplica && (Number(montoRecoleccion) || 0) > limite.maximo + 0.009;
+  const nivel = limite.aplica ? (excedeLimite ? 'bajo' : 'ok') : ev.nivel;
+  const estilo = NIVELES[nivel] || NIVELES.sin_datos;
+  const montoSugerido = limite.aplica ? limite.recomendado : recomendado;
   const fuerte = colchon?.proximoFuerte;
 
   return (
@@ -96,16 +102,20 @@ export default function ColchonRecoleccion({
       ) : (
         <>
           <div style={{ background: 'rgba(30,80,160,0.08)', borderRadius: 8, padding: '0.7rem 0.8rem', margin: '0.6rem 0', textAlign: 'center' }}>
-            <div className="muted" style={{ fontSize: '0.78rem' }}>Recolecta hoy como máximo</div>
-            <div style={{ fontSize: '1.7rem', fontWeight: 800, color: 'var(--brand-blue)' }}>{fmtCorte(recomendado)}</div>
             <div className="muted" style={{ fontSize: '0.78rem' }}>
-              {recomendado > 0
-                ? `Deja en caja al menos ${fmtCorte(colchon.colchon)}${fuerte && colchon.hastaFuerte ? ` para llegar al ${fuerte.dia.toLowerCase()}` : ` para los próximos ${colchon.dias} día${colchon.dias > 1 ? 's' : ''}`}.`
-                : `No recolectes: la caja (${fmtCorte(cajaAntes)}) no alcanza el colchón de ${fmtCorte(colchon.colchon)}.`}
+              {limite.aplica ? `Hoy es ${limite.dia}: solo se puede recolectar el ${limite.pct}% de la caja` : 'Recolecta hoy como máximo'}
             </div>
-            {puedeEditar && recomendado > 0 && Math.abs((Number(montoRecoleccion) || 0) - recomendado) > 0.009 && (
-              <button type="button" className="btn btn-primary" style={{ marginTop: '0.5rem', width: '100%' }} onClick={() => onUsarMaximo?.(recomendado)}>
-                Poner {fmtCorte(recomendado)} en Recolección
+            <div style={{ fontSize: '1.7rem', fontWeight: 800, color: 'var(--brand-blue)' }}>{fmtCorte(montoSugerido)}</div>
+            <div className="muted" style={{ fontSize: '0.78rem' }}>
+              {limite.aplica
+                ? `Quedan ${fmtCorte(limite.dejaEnCaja)} (${100 - limite.pct}% de ${fmtCorte(cajaAntes)}) más la venta del turno en curso y del nocturno para el día siguiente.`
+                : montoSugerido > 0
+                  ? `Deja en caja al menos ${fmtCorte(colchon.colchon)}${fuerte && colchon.hastaFuerte ? ` para llegar al ${fuerte.dia.toLowerCase()}` : ` para los próximos ${colchon.dias} día${colchon.dias > 1 ? 's' : ''}`}.`
+                  : `No recolectes: la caja (${fmtCorte(cajaAntes)}) no alcanza el colchón de ${fmtCorte(colchon.colchon)}.`}
+            </div>
+            {puedeEditar && montoSugerido > 0 && Math.abs((Number(montoRecoleccion) || 0) - montoSugerido) > 0.009 && (
+              <button type="button" className="btn btn-primary" style={{ marginTop: '0.5rem', width: '100%' }} onClick={() => onUsarMaximo?.(montoSugerido)}>
+                Poner {fmtCorte(montoSugerido)} en Recolección
               </button>
             )}
           </div>
@@ -130,13 +140,18 @@ export default function ColchonRecoleccion({
           )}
 
           <div style={{ background: estilo.fondo, color: estilo.color, borderRadius: 6, padding: '0.4rem 0.6rem', margin: '0 0 0.6rem', fontWeight: 700, fontSize: '0.85rem' }}>
-            {estilo.titulo}
-            {ev.nivel !== 'ok' && ev.nivel !== 'sin_datos' && (
+            {limite.aplica ? (excedeLimite ? `Supera el límite del ${limite.pct}%` : 'Dentro del límite de recolección') : estilo.titulo}
+            {limite.aplica && excedeLimite && (
+              <span style={{ display: 'block', fontWeight: 500, fontSize: '0.78rem' }}>
+                Máximo permitido hoy: {fmtCorte(limite.maximo)}.
+              </span>
+            )}
+            {!limite.aplica && ev.nivel !== 'ok' && ev.nivel !== 'sin_datos' && (
               <span style={{ display: 'block', fontWeight: 500, fontSize: '0.78rem' }}>
                 Faltan {fmtCorte(ev.faltante)} para llegar al colchón recomendado.
               </span>
             )}
-            {ev.nivel === 'ok' && (
+            {!limite.aplica && ev.nivel === 'ok' && (
               <span style={{ display: 'block', fontWeight: 500, fontSize: '0.78rem' }}>
                 Quedan {fmtCorte(ev.sobrante)} por encima del colchón.
               </span>
@@ -153,8 +168,44 @@ export default function ColchonRecoleccion({
 
           {puedeEditar && reglas && (
             <details style={{ marginTop: '0.7rem', fontSize: '0.8rem' }}>
-              <summary className="muted" style={{ cursor: 'pointer' }}>Pagos fijos que debe cubrir la caja</summary>
+              <summary className="muted" style={{ cursor: 'pointer' }}>Límite por porcentaje y pagos fijos</summary>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.4rem 0.6rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                <span className="muted">Límite de recolección</span>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={reglas.limiteActivo !== false}
+                      onChange={(e) => onCambiarReglas?.({ limiteActivo: e.target.checked })}
+                    />
+                    Activo
+                  </label>
+                  <input
+                    className="input"
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    max="99"
+                    style={{ width: 70 }}
+                    value={reglas.limitePct ?? 60}
+                    onChange={(e) => onCambiarReglas?.({ limitePct: Number(e.target.value) || 0 })}
+                  />
+                  <span className="muted">% de la caja en:</span>
+                  {DIAS_SEMANA.map((d) => (
+                    <label key={d.dow} style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={(reglas.limiteDias || []).includes(d.dow)}
+                        onChange={(e) => {
+                          const set = new Set(reglas.limiteDias || []);
+                          if (e.target.checked) set.add(d.dow); else set.delete(d.dow);
+                          onCambiarReglas?.({ limiteDias: [...set] });
+                        }}
+                      />
+                      {d.nombre.slice(0, 3)}
+                    </label>
+                  ))}
+                </div>
                 <span className="muted">Proveedores</span>
                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                   <select

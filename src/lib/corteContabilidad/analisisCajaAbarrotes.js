@@ -548,6 +548,35 @@ export function maximoCobroCredito({ cajaActual, colchonSinCredito }) {
   return r2(Math.max(0, cajaActual - colchonSinCredito));
 }
 
+/** Día de la semana (0=domingo … 6=sábado) de una fecha YYYY-MM-DD. */
+export function diaSemanaYmd(ymd) {
+  return diaSemana(ymd);
+}
+
+/**
+ * Límite de recolección por porcentaje de la caja chica en días configurados (p. ej. jueves y
+ * domingo, 60%): el resto de la caja más la venta del turno en curso y del nocturno queda como
+ * liquidez para el día siguiente.
+ */
+export function limiteRecoleccionPorcentaje({ hoyYmd, cajaAntes, reglas = {} } = {}) {
+  const dias = Array.isArray(reglas.limiteDias) ? reglas.limiteDias : [];
+  const pct = Math.min(100, Math.max(0, num(reglas.limitePct)));
+  const dow = diaSemana(hoyYmd);
+  const aplica = reglas.limiteActivo !== false && dow >= 0 && dias.includes(dow) && pct > 0 && pct < 100;
+  if (!aplica) return { aplica: false, pct, dow, maximo: null, recomendado: null, dejaEnCaja: null };
+  const caja = Math.max(0, num(cajaAntes));
+  const maximo = r2((caja * pct) / 100);
+  return {
+    aplica: true,
+    pct,
+    dow,
+    dia: nombreDiaSemana(dow),
+    maximo,
+    recomendado: redondearRecoleccion(maximo),
+    dejaEnCaja: r2(caja - maximo),
+  };
+}
+
 /** Máximo que se puede recolectar dejando el colchón (0 si la caja ya no alcanza). */
 export function maximoRecolectable({ cajaAntes, colchon }) {
   if (colchon == null) return null;

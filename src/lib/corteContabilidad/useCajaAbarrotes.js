@@ -24,6 +24,9 @@ export const REGLAS_DEFAULT = {
   nominaDow: 5,
   nominaMonto: 2400,
   nominaTurnos: 2,
+  limiteActivo: true,
+  limiteDias: [4, 0],
+  limitePct: 60,
 };
 
 export function leerReglasColchon() {

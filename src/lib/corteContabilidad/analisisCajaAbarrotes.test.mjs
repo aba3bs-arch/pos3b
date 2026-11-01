@@ -6,6 +6,7 @@ import {
   evaluarRecoleccion,
   maximoRecolectable,
   maximoCobroCredito,
+  limiteRecoleccionPorcentaje,
   normalizarFilasCaja,
   perfilDiario,
   perfilFuertes,
@@ -202,6 +203,19 @@ assert.equal(negSem.resumen.negativos, 1);
   assert.equal(redondearRecoleccion(3456), 3400);
   assert.equal(redondearRecoleccion(87), 80);
   assert.equal(redondearRecoleccion(-5), 0);
+}
+
+// Límite por porcentaje: jueves (4) y domingo (0) al 60%.
+{
+  const reglasLim = { limiteActivo: true, limiteDias: [4, 0], limitePct: 60 };
+  const jue = limiteRecoleccionPorcentaje({ hoyYmd: '2026-11-05', cajaAntes: 10000, reglas: reglasLim });
+  assert.equal(jue.aplica, true);
+  assert.equal(jue.maximo, 6000);
+  assert.equal(jue.dejaEnCaja, 4000);
+  assert.equal(limiteRecoleccionPorcentaje({ hoyYmd: '2026-11-01', cajaAntes: 3456, reglas: reglasLim }).recomendado, 2000);
+  assert.equal(limiteRecoleccionPorcentaje({ hoyYmd: '2026-11-03', cajaAntes: 10000, reglas: reglasLim }).aplica, false);
+  assert.equal(limiteRecoleccionPorcentaje({ hoyYmd: '2026-11-05', cajaAntes: 10000, reglas: { ...reglasLim, limiteActivo: false } }).aplica, false);
+  assert.equal(limiteRecoleccionPorcentaje({ hoyYmd: '2026-11-05', cajaAntes: -50, reglas: reglasLim }).maximo, 0);
 }
 console.log('analisisCajaAbarrotes: ok');
 
