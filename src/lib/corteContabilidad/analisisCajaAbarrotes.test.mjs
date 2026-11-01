@@ -7,6 +7,10 @@ import {
   maximoRecolectable,
   normalizarFilasCaja,
   perfilDiario,
+  perfilFuertes,
+  planRecoleccion,
+  redondearRecoleccion,
+  esGastoCobroCredito,
   recomendarColchon,
 } from './analisisCajaAbarrotes.js';
 
@@ -116,5 +120,61 @@ assert.equal(colSem.detalle[0].gasto, colSem.detalle[1].gasto);
 assert.equal(recomendarColchon(perfilSem, { hoyYmd: '2026-10-27', minDias: 6 }), null);
 const negSem = analizarNegativos(semana);
 assert.equal(negSem.resumen.negativos, 1);
+
+// Días fuertes: cobros de crédito del repartidor los jueves y domingos + nómina los sábados.
+{
+  const cred = (monto) => ({ categoria: 'CREDITO', subcategoria: 'COBRADO', monto });
+  const nom = (monto) => ({ categoria: 'EMPLEADO', subcategoria: 'NOMINA EMPLEADO', monto });
+  assert.equal(esGastoCobroCredito(cred(1)), true);
+  assert.equal(esGastoCobroCredito(prov('X', 1)), false);
+  const rowsF = [];
+  // 2026-10-05 (lunes) a 2026-11-01 (domingo): 28 días.
+  for (let i = 0; i < 28; i += 1) {
+    const t = Date.UTC(2026, 9, 5) + i * 86400000;
+    const f = new Date(t).toISOString().slice(0, 10);
+    const dow = new Date(t).getUTCDay();
+    const gastos = [prov('Bimbo', 500)];
+    if (dow === 4) gastos.push(cred(3000));
+    if (dow === 0) gastos.push(cred(2000));
+    if (dow === 6) gastos.push(nom(4000));
+    rowsF.push(cierre(f, '20:00', { venta: 3000, gastos, cajaInicio: 5000, caja: 5000 }));
+  }
+  const filasF = normalizarFilasCaja(rowsF);
+  const pf = perfilFuertes(filasF);
+  assert.equal(pf.porDow[4].credito, 3000);
+  assert.equal(pf.porDow[0].credito, 2000);
+  assert.equal(pf.porDow[6].nomina, 4000);
+  assert.equal(pf.porDow[2].fuerte, false);
+  const base = perfilDiario(filasUltimosDias(filasF, '2026-11-01', 7), { base: true });
+  assert.equal(base.global.gastoProm, 500);
+
+  // Hoy lunes 2 (martes 3, miércoles 4, jueves 5…): hasta el próximo día fuerte = jueves.
+  const planLun = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-02', dias: 0, margen: 0, minDias: 3 });
+  assert.equal(planLun.proximoFuerte.dia, 'Jueves');
+  assert.equal(planLun.hastaFuerte, true);
+  assert.equal(planLun.dias, 3);
+  assert.equal(planLun.totales.credito, 3000);
+  // 3 días de gasto normal (1500) + 3000 del jueves − venta efectivo de mar y mié (6000).
+  const necesidad = Math.max(500 - 0, 1000 - 3000, 1500 + 3000 - 6000, 0);
+  assert.equal(planLun.colchon, Math.max(necesidad, 0));
+  // Hoy es jueves y ya se registraron los 3000 de cobros: no se vuelve a reservar.
+  const planJue = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-05', dias: 0, margen: 0, minDias: 3, yaHoy: { credito: 3000 } });
+  assert.equal(planJue.detalle[0].credito, 0);
+  assert.equal(planJue.proximoFuerte.dia, 'Sábado');
+  // Hoy es jueves y aún no se registran: se reservan completos.
+  const planJue2 = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-05', dias: 1, margen: 0, minDias: 3 });
+  assert.equal(planJue2.detalle[0].credito, 3000);
+  assert.ok(planJue2.colchon >= 3000);
+  // Nómina capturada a mano reemplaza la del historial.
+  const planNom = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-05', dias: 2, margen: 0, minDias: 3, nominaManual: 7000, yaHoy: { credito: 3000 } });
+  assert.equal(planNom.totales.nomina, 7000);
+  // Sin historial de días fuertes: cubre 2 días.
+  const planSin = planRecoleccion({ perfilBase: base, perfilFuertes: perfilFuertes([]), hoyYmd: '2026-11-02', dias: 0, margen: 0, minDias: 3 });
+  assert.equal(planSin.proximoFuerte, null);
+  assert.equal(planSin.dias, 2);
+  assert.equal(redondearRecoleccion(3456), 3400);
+  assert.equal(redondearRecoleccion(87), 80);
+  assert.equal(redondearRecoleccion(-5), 0);
+}
 console.log('analisisCajaAbarrotes: ok');
 

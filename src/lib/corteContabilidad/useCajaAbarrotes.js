@@ -5,7 +5,8 @@ import {
   filasUltimosDias,
   normalizarFilasCaja,
   perfilDiario,
-  recomendarColchon,
+  perfilFuertes,
+  planRecoleccion,
 } from './analisisCajaAbarrotes.js';
 import { hoyYmdNogales } from '../corteCaja.js';
 
@@ -13,13 +14,16 @@ const LS_DIAS = 'pos3b_colchon_abarrotes_dias';
 const LS_VENTANA = 'pos3b_colchon_abarrotes_ventana';
 export const VENTANAS_COLCHON = [7, 14, 30];
 const DIAS_HISTORIAL = 90;
+export const DIAS_FUERTES = 28;
 
 export function leerDiasColchon() {
   try {
-    const n = Number(globalThis.localStorage?.getItem(LS_DIAS));
-    return n >= 1 && n <= 5 ? n : 2;
+    const raw = globalThis.localStorage?.getItem(LS_DIAS);
+    if (raw == null) return 0;
+    const n = Number(raw);
+    return n >= 0 && n <= 5 ? n : 0;
   } catch {
-    return 2;
+    return 0;
   }
 }
 
@@ -36,12 +40,13 @@ export function leerVentanaColchon() {
  * Carga los cierres de Abarrotes de los últimos 90 días (para el diagnóstico) y calcula
  * el colchón recomendado con una ventana corta (7 días por defecto) y el análisis de esa ventana.
  */
-export function useCajaAbarrotes({ supabase, sucursal, enabled = true }) {
+export function useCajaAbarrotes({ supabase, sucursal, enabled = true, yaHoyCredito = 0, yaHoyNomina = 0 }) {
   const [filas, setFilas] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [diasColchon, setDiasColchonState] = useState(leerDiasColchon);
   const [ventanaColchon, setVentanaColchonState] = useState(leerVentanaColchon);
+  const [nominaManual, setNominaManual] = useState('');
 
   const recargar = useCallback(async () => {
     if (!enabled || !sucursal) return;
@@ -79,21 +84,30 @@ export function useCajaAbarrotes({ supabase, sucursal, enabled = true }) {
     () => filasUltimosDias(filas, hoyYmdNogales(), ventanaColchon),
     [filas, ventanaColchon],
   );
-  const perfil = useMemo(() => perfilDiario(filasVentana), [filasVentana]);
+  const perfil = useMemo(() => perfilDiario(filasVentana, { base: true }), [filasVentana]);
+  const fuertes = useMemo(
+    () => perfilFuertes(filasUltimosDias(filas, hoyYmdNogales(), DIAS_FUERTES)),
+    [filas],
+  );
   const colchon = useMemo(
-    () => recomendarColchon(perfil, {
+    () => planRecoleccion({
+      perfilBase: perfil,
+      perfilFuertes: fuertes,
       hoyYmd: hoyYmdNogales(),
       dias: diasColchon,
       minDias: ventanaColchon <= 7 ? 3 : 5,
       ventana: ventanaColchon,
+      yaHoy: { credito: yaHoyCredito, nomina: yaHoyNomina },
+      nominaManual: Number(nominaManual) || 0,
     }),
-    [perfil, diasColchon, ventanaColchon],
+    [perfil, fuertes, diasColchon, ventanaColchon, yaHoyCredito, yaHoyNomina, nominaManual],
   );
   const analisis = useMemo(() => analizarNegativos(filasVentana), [filasVentana]);
 
   return {
     filas,
     perfil,
+    fuertes,
     colchon,
     analisis,
     cargando,
@@ -102,6 +116,8 @@ export function useCajaAbarrotes({ supabase, sucursal, enabled = true }) {
     setDiasColchon,
     ventanaColchon,
     setVentanaColchon,
+    nominaManual,
+    setNominaManual,
     recargar,
   };
 }

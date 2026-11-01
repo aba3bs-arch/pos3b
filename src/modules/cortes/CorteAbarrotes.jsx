@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
@@ -14,7 +14,13 @@ import { procesarRifsVencidos } from '../../lib/rifs.js';
 import ColchonRecoleccion from '../../components/corteContabilidad/ColchonRecoleccion.jsx';
 import PanelDiagnosticoCaja from '../../components/corteContabilidad/PanelDiagnosticoCaja.jsx';
 import { useCajaAbarrotes } from '../../lib/corteContabilidad/useCajaAbarrotes.js';
-import { evaluarRecoleccion, maximoRecolectable } from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
+import {
+  esGastoCobroCredito,
+  evaluarRecoleccion,
+  maximoRecolectable,
+  redondearRecoleccion,
+} from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
+import { esGastoNominaEmpleadoCorte } from '../../lib/contVirtualCatalogo.js';
 
 const COLOR = '#b5a642';
 
@@ -52,7 +58,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   });
 
   const verCaja = Boolean(perm.recoleccion || perm.editarTodo);
-  const cajaHist = useCajaAbarrotes({ supabase, sucursal, enabled: verCaja });
+  const yaHoyCredito = useMemo(
+    () => (gastos || []).filter(esGastoCobroCredito).reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    [gastos],
+  );
+  const yaHoyNomina = useMemo(
+    () => (gastos || []).filter(esGastoNominaEmpleadoCorte).reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    [gastos],
+  );
+  const cajaHist = useCajaAbarrotes({ supabase, sucursal, enabled: verCaja, yaHoyCredito, yaHoyNomina });
 
   const agregarGastoConAviso = async (gasto) => {
     const monto = Number(gasto?.monto) || 0;
@@ -105,7 +119,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     const evColchon = evaluarRecoleccion({ cajaDespues: calc.cajaActual, colchon: colchonVal });
     const bajoColchon = evColchon.nivel === 'bajo' || evColchon.nivel === 'negativo';
     if (bajoColchon) {
-      const maxRec = maximoRecolectable({ cajaAntes: calc.cajaActual + montoRec, colchon: colchonVal });
+      const maxRec = redondearRecoleccion(
+        maximoRecolectable({ cajaAntes: calc.cajaActual + montoRec, colchon: colchonVal }),
+      );
       const hist = cajaHist.analisis.resumen;
       if (!confirm(
         `ATENCION: esta recolección deja la caja corta.\n\n`
@@ -314,6 +330,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             onCambiarDias={cajaHist.setDiasColchon}
             ventanaColchon={cajaHist.ventanaColchon}
             onCambiarVentana={cajaHist.setVentanaColchon}
+            nominaManual={cajaHist.nominaManual}
+            onCambiarNomina={cajaHist.setNominaManual}
             onUsarMaximo={(m) => patchEstado({ recoleccion: m })}
             puedeEditar={perm.recoleccion}
             cargando={cajaHist.cargando}

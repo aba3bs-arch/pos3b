@@ -9,6 +9,7 @@
  */
 import { ymdNegocioDesdeIso } from '../corteCaja.js';
 import { esCategoriaProveedores } from './catalogoGastos.js';
+import { esGastoNominaEmpleadoCorte } from '../contVirtualCatalogo.js';
 
 const DIAS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -39,6 +40,17 @@ function parseDetalle(d) {
     }
   }
   return d && typeof d === 'object' ? d : {};
+}
+
+/** Cobro de crédito que hace el repartidor de Venta en Ruta (gasto CREDITO · COBRADO). */
+export function esGastoCobroCredito(g) {
+  const cat = String(g?.categoria || '').trim().toUpperCase();
+  const sub = String(g?.subcategoria || '').trim().toUpperCase();
+  return cat.includes('CREDITO') && sub.includes('COBRAD');
+}
+
+function sumaGastos(gastos, fn) {
+  return r2((gastos || []).filter(fn).reduce((a, g) => a + num(g.monto), 0));
 }
 
 function diaSemana(ymd) {
@@ -119,8 +131,13 @@ export function normalizarFilasCaja(rows) {
     const tarjeta = r2(d.tarjeta);
     const faltante = r2(d.faltante);
     const gastosTotal = r2(d.gastos_total ?? gastos.reduce((a, g) => a + num(g.monto), 0));
+    const gastosCredito = sumaGastos(gastos, esGastoCobroCredito);
+    const gastosNomina = sumaGastos(gastos, esGastoNominaEmpleadoCorte);
     out.push({
       ...base,
+      gastosCredito,
+      gastosNomina,
+      gastosBase: r2(Math.max(0, gastosTotal - gastosCredito - gastosNomina)),
       venta,
       tarjeta,
       faltante,
@@ -256,12 +273,12 @@ export function analizarNegativos(filas) {
 }
 
 /** Promedios diarios de gasto y venta en efectivo por día de la semana. */
-export function perfilDiario(filas) {
+export function perfilDiario(filas, { base = false } = {}) {
   const dias = new Map();
   for (const f of filas || []) {
     if (f.tipo !== 'cierre') continue;
     const d = dias.get(f.fecha) || { fecha: f.fecha, dow: f.dow, gastos: 0, ventaEfectivo: 0 };
-    d.gastos = r2(d.gastos + f.gastosTotal);
+    d.gastos = r2(d.gastos + (base ? f.gastosBase ?? f.gastosTotal : f.gastosTotal));
     d.ventaEfectivo = r2(d.ventaEfectivo + f.ventaEfectivo);
     dias.set(f.fecha, d);
   }
@@ -314,6 +331,146 @@ export function recomendarColchon(perfil, { hoyYmd, dias = 2, margen = 0.2, minD
   }
   const colchon = r2(maxNecesidad * (1 + margen));
   return { colchon, dias, margen, detalle, muestras: perfil.global.n, ventana };
+}
+
+/**
+ * Salidas fuertes por día de la semana: cobros de crédito del repartidor (percentil 75) y
+ * nómina pagada de caja (máximo). Solo cuenta si se repitió al menos en 2 días de ese día de la semana.
+ */
+export function perfilFuertes(filas) {
+  const dias = new Map();
+  for (const f of filas || []) {
+    if (f.tipo !== 'cierre') continue;
+    const d = dias.get(f.fecha) || { dow: f.dow, credito: 0, nomina: 0 };
+    d.credito = r2(d.credito + (f.gastosCredito || 0));
+    d.nomina = r2(d.nomina + (f.gastosNomina || 0));
+    dias.set(f.fecha, d);
+  }
+  const lista = [...dias.values()];
+  const porDow = Array.from({ length: 7 }, (_, i) => {
+    const del = lista.filter((d) => d.dow === i);
+    const conCredito = del.filter((d) => d.credito > 0.001);
+    const conNomina = del.filter((d) => d.nomina > 0.001);
+    const credito = conCredito.length >= 2 ? percentil(del.map((d) => d.credito), 75) : 0;
+    const nomina = conNomina.length >= 2 ? Math.max(...conNomina.map((d) => d.nomina)) : 0;
+    return {
+      dow: i,
+      dia: nombreDiaSemana(i),
+      n: del.length,
+      credito: r2(credito),
+      nomina: r2(nomina),
+      eventosCredito: conCredito.length,
+      eventosNomina: conNomina.length,
+      fuerte: credito + nomina > 0.001,
+    };
+  });
+  return { porDow, dias: lista.length };
+}
+
+/** Redondea hacia abajo a un monto cómodo de contar en efectivo ($100, o $10 si es poco). */
+export function redondearRecoleccion(monto) {
+  const m = Math.max(0, Number(monto) || 0);
+  if (m >= 100) return Math.floor(m / 100) * 100;
+  return Math.floor(m / 10) * 10;
+}
+
+/**
+ * Plan de recolección: cuánto debe quedar en caja para llegar hasta el próximo día fuerte
+ * (cobros de crédito del repartidor, nómina) sin caer a negativo.
+ *
+ * `dias` = 0 → hasta el próximo día fuerte (si no hay, 2 días); 1..5 → ese número de días.
+ * Hoy solo cuenta lo fuerte que aún falta por registrar (`yaHoy`), porque el gasto normal de hoy
+ * ya está en la caja. Cada día: sale el gasto (base + fuertes) antes de que entre la venta.
+ * `nominaManual` (monto capturado) sustituye la nómina estimada del historial.
+ */
+export function planRecoleccion({
+  perfilBase,
+  perfilFuertes: pf,
+  hoyYmd,
+  dias = 0,
+  margen = 0.2,
+  minDias = 5,
+  ventana = null,
+  yaHoy = {},
+  nominaManual = 0,
+} = {}) {
+  if (!perfilBase || !(perfilBase.global?.n >= minDias) || !hoyYmd) return null;
+  const hoyDow = diaSemana(hoyYmd);
+  if (hoyDow < 0) return null;
+  const fuertes = pf?.porDow || [];
+  const manual = Math.max(0, Number(nominaManual) || 0);
+
+  let horizonte = Math.min(5, Math.max(1, Number(dias) || 0));
+  let hastaFuerte = false;
+  let proximoFuerte = null;
+  for (let k = 1; k <= 7; k += 1) {
+    const f = fuertes[(hoyDow + k) % 7];
+    if (f?.fuerte) {
+      proximoFuerte = { dow: f.dow, dia: f.dia, enDias: k, credito: f.credito, nomina: f.nomina };
+      break;
+    }
+  }
+  if (!(Number(dias) >= 1)) {
+    hastaFuerte = Boolean(proximoFuerte);
+    horizonte = proximoFuerte ? proximoFuerte.enDias : 2;
+  }
+
+  const detalle = [];
+  let gastoAcum = 0;
+  let ventaAcum = 0;
+  let maxNecesidad = 0;
+  const tot = { base: 0, credito: 0, nomina: 0, venta: 0 };
+
+  for (let k = 0; k <= horizonte; k += 1) {
+    const dow = (hoyDow + k) % 7;
+    const fu = fuertes[dow] || { credito: 0, nomina: 0 };
+    let base = 0;
+    let venta = 0;
+    let credito = fu.credito || 0;
+    let nomina = manual > 0 ? 0 : fu.nomina || 0;
+    if (k === 0) {
+      credito = Math.max(0, credito - num(yaHoy.credito));
+      nomina = manual > 0 ? 0 : Math.max(0, nomina - num(yaHoy.nomina));
+    } else {
+      const p = perfilBase.porDow[dow];
+      const usaDia = p.n >= 3;
+      base = usaDia ? Math.max(p.gastoP75, p.gastoProm) : perfilBase.global.gastoP75;
+      venta = usaDia ? p.ventaEfProm : perfilBase.global.ventaEfProm;
+    }
+    if (k === 0 && manual > 0) nomina = manual;
+    const gasto = base + credito + nomina;
+    gastoAcum += gasto;
+    maxNecesidad = Math.max(maxNecesidad, gastoAcum - ventaAcum);
+    ventaAcum += venta;
+    tot.base += base;
+    tot.credito += credito;
+    tot.nomina += nomina;
+    tot.venta += venta;
+    detalle.push({
+      k,
+      dow,
+      dia: k === 0 ? 'Hoy' : nombreDiaSemana(dow),
+      base: r2(base),
+      credito: r2(credito),
+      nomina: r2(nomina),
+      gasto: r2(gasto),
+      venta: r2(venta),
+    });
+  }
+  const colchon = r2(maxNecesidad * (1 + margen));
+  return {
+    colchon,
+    dias: horizonte,
+    hastaFuerte,
+    proximoFuerte,
+    margen,
+    detalle,
+    totales: { base: r2(tot.base), credito: r2(tot.credito), nomina: r2(tot.nomina), venta: r2(tot.venta) },
+    muestras: perfilBase.global.n,
+    ventana,
+    nominaManual: manual,
+    fuertesDetectados: fuertes.filter((f) => f.fuerte),
+  };
 }
 
 /** Semáforo de la caja que quedaría tras recolectar frente al colchón. */

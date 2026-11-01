@@ -1,6 +1,10 @@
 import React from 'react';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
-import { evaluarRecoleccion, maximoRecolectable } from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
+import {
+  evaluarRecoleccion,
+  maximoRecolectable,
+  redondearRecoleccion,
+} from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
 
 const NIVELES = {
   ok: { color: '#1e8449', fondo: 'rgba(39,174,96,0.12)', titulo: 'Recolección segura' },
@@ -10,8 +14,8 @@ const NIVELES = {
 };
 
 /**
- * Antes de recolectar: cuánta caja debe quedar para no caer a negativo en los próximos días,
- * según el gasto y la venta en efectivo históricos de esta tienda.
+ * Qué recolectar: cuánta caja debe quedar para llegar al próximo día fuerte (cobros de crédito del
+ * repartidor, nómina) sin caer a negativo, según el historial de esta tienda.
  */
 export default function ColchonRecoleccion({
   colchon,
@@ -21,6 +25,8 @@ export default function ColchonRecoleccion({
   onCambiarDias,
   ventanaColchon = 7,
   onCambiarVentana,
+  nominaManual = '',
+  onCambiarNomina,
   onUsarMaximo,
   puedeEditar = true,
   cargando = false,
@@ -29,13 +35,15 @@ export default function ColchonRecoleccion({
   const cajaAntes = Math.round(((Number(cajaActual) || 0) + (Number(montoRecoleccion) || 0)) * 100) / 100;
   const valorColchon = colchon ? colchon.colchon : null;
   const ev = evaluarRecoleccion({ cajaDespues: cajaActual, colchon: valorColchon });
-  const max = maximoRecolectable({ cajaAntes, colchon: valorColchon });
+  const maxExacto = maximoRecolectable({ cajaAntes, colchon: valorColchon });
+  const recomendado = maxExacto == null ? null : redondearRecoleccion(maxExacto);
   const estilo = NIVELES[ev.nivel] || NIVELES.sin_datos;
+  const fuerte = colchon?.proximoFuerte;
 
   return (
     <div className="card" style={{ borderLeft: `4px solid ${estilo.color}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <h4 style={{ margin: 0 }}>Colchón antes de recolectar</h4>
+      <h4 style={{ margin: 0 }}>Qué recolectar</h4>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem 0.75rem', marginTop: '0.3rem' }}>
         <label className="muted" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
           Cubrir
           <select
@@ -44,25 +52,26 @@ export default function ColchonRecoleccion({
             value={diasColchon}
             onChange={(e) => onCambiarDias?.(Number(e.target.value))}
           >
+            <option value={0}>hasta el próximo día fuerte</option>
             {[1, 2, 3, 4, 5].map((n) => (
               <option key={n} value={n}>{n} día{n > 1 ? 's' : ''}</option>
             ))}
           </select>
         </label>
+        <label className="muted" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          Gasto normal de los últimos
+          <select
+            className="select"
+            style={{ padding: '0.1rem 0.25rem', fontSize: '0.78rem' }}
+            value={ventanaColchon}
+            onChange={(e) => onCambiarVentana?.(Number(e.target.value))}
+          >
+            {[7, 14, 30].map((n) => (
+              <option key={n} value={n}>{n} días</option>
+            ))}
+          </select>
+        </label>
       </div>
-      <label className="muted" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.3rem' }}>
-        Basado en los últimos
-        <select
-          className="select"
-          style={{ padding: '0.1rem 0.25rem', fontSize: '0.78rem' }}
-          value={ventanaColchon}
-          onChange={(e) => onCambiarVentana?.(Number(e.target.value))}
-        >
-          {[7, 14, 30].map((n) => (
-            <option key={n} value={n}>{n} días</option>
-          ))}
-        </select>
-      </label>
 
       {!colchon ? (
         <p className="muted" style={{ fontSize: '0.82rem', margin: '0.5rem 0 0' }}>
@@ -72,15 +81,38 @@ export default function ColchonRecoleccion({
         </p>
       ) : (
         <>
-          <div style={{ background: estilo.fondo, color: estilo.color, borderRadius: 6, padding: '0.5rem 0.6rem', margin: '0.6rem 0', fontWeight: 700, fontSize: '0.88rem' }}>
+          <div style={{ background: 'rgba(30,80,160,0.08)', borderRadius: 8, padding: '0.7rem 0.8rem', margin: '0.6rem 0', textAlign: 'center' }}>
+            <div className="muted" style={{ fontSize: '0.78rem' }}>Recolecta hoy como máximo</div>
+            <div style={{ fontSize: '1.7rem', fontWeight: 800, color: 'var(--brand-blue)' }}>{fmtCorte(recomendado)}</div>
+            <div className="muted" style={{ fontSize: '0.78rem' }}>
+              {recomendado > 0
+                ? `Deja en caja al menos ${fmtCorte(colchon.colchon)}${fuerte && colchon.hastaFuerte ? ` para llegar al ${fuerte.dia.toLowerCase()}` : ` para los próximos ${colchon.dias} día${colchon.dias > 1 ? 's' : ''}`}.`
+                : `No recolectes: la caja (${fmtCorte(cajaAntes)}) no alcanza el colchón de ${fmtCorte(colchon.colchon)}.`}
+            </div>
+            {puedeEditar && recomendado > 0 && Math.abs((Number(montoRecoleccion) || 0) - recomendado) > 0.009 && (
+              <button type="button" className="btn btn-primary" style={{ marginTop: '0.5rem', width: '100%' }} onClick={() => onUsarMaximo?.(recomendado)}>
+                Poner {fmtCorte(recomendado)} en Recolección
+              </button>
+            )}
+          </div>
+
+          {fuerte && (
+            <p style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
+              <strong>Próximo día fuerte: {fuerte.dia}</strong> (en {fuerte.enDias} día{fuerte.enDias > 1 ? 's' : ''})
+              {fuerte.credito > 0 && <> · cobros de crédito del repartidor ≈ {fmtCorte(fuerte.credito)}</>}
+              {fuerte.nomina > 0 && <> · nómina ≈ {fmtCorte(fuerte.nomina)}</>}
+            </p>
+          )}
+
+          <div style={{ background: estilo.fondo, color: estilo.color, borderRadius: 6, padding: '0.4rem 0.6rem', margin: '0 0 0.6rem', fontWeight: 700, fontSize: '0.85rem' }}>
             {estilo.titulo}
             {ev.nivel !== 'ok' && ev.nivel !== 'sin_datos' && (
-              <span style={{ display: 'block', fontWeight: 500, fontSize: '0.8rem' }}>
+              <span style={{ display: 'block', fontWeight: 500, fontSize: '0.78rem' }}>
                 Faltan {fmtCorte(ev.faltante)} para llegar al colchón recomendado.
               </span>
             )}
             {ev.nivel === 'ok' && (
-              <span style={{ display: 'block', fontWeight: 500, fontSize: '0.8rem' }}>
+              <span style={{ display: 'block', fontWeight: 500, fontSize: '0.78rem' }}>
                 Quedan {fmtCorte(ev.sobrante)} por encima del colchón.
               </span>
             )}
@@ -88,38 +120,67 @@ export default function ColchonRecoleccion({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.3rem 0.75rem', fontSize: '0.85rem' }}>
             <span className="muted">Caja antes de recolectar</span>
             <strong>{fmtCorte(cajaAntes)}</strong>
-            <span className="muted">Colchón recomendado ({colchon.dias} d)</span>
+            <span className="muted">Colchón recomendado</span>
             <strong>{fmtCorte(colchon.colchon)}</strong>
-            <span className="muted">Máximo recomendable a recolectar</span>
-            <strong style={{ color: 'var(--brand-blue)' }}>{fmtCorte(max)}</strong>
             <span className="muted">Caja que quedaría</span>
             <strong style={{ color: estilo.color }}>{fmtCorte(cajaActual)}</strong>
           </div>
-          {puedeEditar && max != null && max > 0 && Math.abs((Number(montoRecoleccion) || 0) - max) > 0.009 && (
-            <button type="button" className="btn btn-ghost" style={{ marginTop: '0.6rem', width: '100%' }} onClick={() => onUsarMaximo?.(max)}>
-              Usar máximo recomendable ({fmtCorte(max)})
-            </button>
+
+          {puedeEditar && (
+            <label className="muted" style={{ fontSize: '0.78rem', display: 'block', marginTop: '0.7rem' }}>
+              Nómina por pagar de esta caja (opcional)
+              <input
+                className="input"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                placeholder="Usa el monto del historial si lo dejas vacío"
+                style={{ marginTop: '0.2rem' }}
+                value={nominaManual}
+                onChange={(e) => onCambiarNomina?.(e.target.value)}
+              />
+            </label>
           )}
+
           <details style={{ marginTop: '0.6rem', fontSize: '0.78rem' }}>
             <summary className="muted" style={{ cursor: 'pointer' }}>Cómo se calcula</summary>
             <p className="muted" style={{ margin: '0.4rem 0' }}>
-              Con {colchon.muestras} días de cierres de los últimos {colchon.ventana || colchon.muestras}: gasto esperado de cada día (el mayor entre el promedio y el percentil 75; por día de la semana si hay datos
-              suficientes) menos la venta en efectivo que entra (venta − tarjeta − faltante), más {Math.round(colchon.margen * 100)}% de margen.
+              Se suman las salidas de cada día hasta el próximo día fuerte: gasto normal (proveedores y demás, de los últimos {colchon.ventana || colchon.muestras} días),
+              cobros de crédito del repartidor y nómina (del historial de las últimas 4 semanas, solo si se repiten ese día de la semana). Hoy solo cuenta
+              lo fuerte que aún falta por registrar. El colchón es el punto más bajo que tocaría la caja, descontando la venta en efectivo
+              (venta − tarjeta − faltante), más {Math.round(colchon.margen * 100)}% de margen.
             </p>
             <table style={{ width: '100%', fontSize: '0.76rem' }}>
               <thead>
-                <tr><th align="left">Día</th><th align="right">Gasto esperado</th><th align="right">Venta efectivo</th></tr>
+                <tr>
+                  <th align="left">Día</th>
+                  <th align="right">Gasto normal</th>
+                  <th align="right">Cobros crédito</th>
+                  <th align="right">Nómina</th>
+                  <th align="right">Venta efec.</th>
+                </tr>
               </thead>
               <tbody>
                 {colchon.detalle.map((d) => (
-                  <tr key={d.dow}>
+                  <tr key={d.k}>
                     <td>{d.dia}</td>
-                    <td align="right">{fmtCorte(d.gasto)}</td>
+                    <td align="right">{fmtCorte(d.base)}</td>
+                    <td align="right">{d.credito > 0 ? fmtCorte(d.credito) : '—'}</td>
+                    <td align="right">{d.nomina > 0 ? fmtCorte(d.nomina) : '—'}</td>
                     <td align="right">{fmtCorte(d.venta)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {colchon.fuertesDetectados?.length > 0 ? (
+              <p className="muted" style={{ margin: '0.4rem 0 0' }}>
+                Días fuertes detectados: {colchon.fuertesDetectados.map((f) => `${f.dia}${f.credito > 0 ? ` (crédito ≈ ${fmtCorte(f.credito)})` : ''}${f.nomina > 0 ? ` (nómina ≈ ${fmtCorte(f.nomina)})` : ''}`).join(' · ')}.
+              </p>
+            ) : (
+              <p className="muted" style={{ margin: '0.4rem 0 0' }}>
+                No se detectaron cobros de crédito ni nómina que se repitan el mismo día de la semana; se cubren 2 días de gasto normal.
+              </p>
+            )}
           </details>
           {veces != null && veces.negativos > 0 && (
             <p className="muted" style={{ fontSize: '0.76rem', margin: '0.6rem 0 0' }}>
