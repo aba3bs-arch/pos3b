@@ -6,6 +6,16 @@ import {
   redondearRecoleccion,
 } from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
 
+const DIAS_SEMANA = [
+  { dow: 1, nombre: 'Lunes' },
+  { dow: 2, nombre: 'Martes' },
+  { dow: 3, nombre: 'Miércoles' },
+  { dow: 4, nombre: 'Jueves' },
+  { dow: 5, nombre: 'Viernes' },
+  { dow: 6, nombre: 'Sábado' },
+  { dow: 0, nombre: 'Domingo' },
+];
+
 const NIVELES = {
   ok: { color: '#1e8449', fondo: 'rgba(39,174,96,0.12)', titulo: 'Recolección segura' },
   bajo: { color: '#b9770e', fondo: 'rgba(243,156,18,0.16)', titulo: 'Recolección deja la caja corta' },
@@ -25,8 +35,8 @@ export default function ColchonRecoleccion({
   onCambiarDias,
   ventanaColchon = 7,
   onCambiarVentana,
-  nominaManual = '',
-  onCambiarNomina,
+  reglas = null,
+  onCambiarReglas,
   onUsarMaximo,
   puedeEditar = true,
   cargando = false,
@@ -99,6 +109,7 @@ export default function ColchonRecoleccion({
           {fuerte && (
             <p style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
               <strong>Próximo día fuerte: {fuerte.dia}</strong> (en {fuerte.enDias} día{fuerte.enDias > 1 ? 's' : ''})
+              {fuerte.proveedores > 0 && <> · proveedores ≈ {fmtCorte(fuerte.proveedores)}</>}
               {fuerte.credito > 0 && <> · cobros de crédito del repartidor ≈ {fmtCorte(fuerte.credito)}</>}
               {fuerte.nomina > 0 && <> · nómina ≈ {fmtCorte(fuerte.nomina)}</>}
             </p>
@@ -126,28 +137,75 @@ export default function ColchonRecoleccion({
             <strong style={{ color: estilo.color }}>{fmtCorte(cajaActual)}</strong>
           </div>
 
-          {puedeEditar && (
-            <label className="muted" style={{ fontSize: '0.78rem', display: 'block', marginTop: '0.7rem' }}>
-              Nómina por pagar de esta caja (opcional)
-              <input
-                className="input"
-                type="number"
-                inputMode="decimal"
-                min="0"
-                placeholder="Usa el monto del historial si lo dejas vacío"
-                style={{ marginTop: '0.2rem' }}
-                value={nominaManual}
-                onChange={(e) => onCambiarNomina?.(e.target.value)}
-              />
-            </label>
+          {puedeEditar && reglas && (
+            <details style={{ marginTop: '0.7rem', fontSize: '0.8rem' }}>
+              <summary className="muted" style={{ cursor: 'pointer' }}>Pagos fijos que debe cubrir la caja</summary>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.4rem 0.6rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                <span className="muted">Proveedores</span>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  <select
+                    className="select"
+                    value={reglas.proveedoresDow ?? ''}
+                    onChange={(e) => onCambiarReglas?.({ proveedoresDow: e.target.value === '' ? null : Number(e.target.value) })}
+                  >
+                    <option value="">Sin día fijo</option>
+                    {DIAS_SEMANA.map((d) => <option key={d.dow} value={d.dow}>{d.nombre}</option>)}
+                  </select>
+                  <input
+                    className="input"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    style={{ width: 130 }}
+                    placeholder="Auto (historial)"
+                    value={reglas.proveedoresMonto || ''}
+                    onChange={(e) => onCambiarReglas?.({ proveedoresMonto: Number(e.target.value) || 0 })}
+                  />
+                </div>
+                <span className="muted">Nómina</span>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  <select
+                    className="select"
+                    value={reglas.nominaDow ?? ''}
+                    onChange={(e) => onCambiarReglas?.({ nominaDow: e.target.value === '' ? null : Number(e.target.value) })}
+                  >
+                    <option value="">Sin día fijo</option>
+                    {DIAS_SEMANA.map((d) => <option key={d.dow} value={d.dow}>{d.nombre}</option>)}
+                  </select>
+                  <input
+                    className="input"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    style={{ width: 110 }}
+                    placeholder="Por turno"
+                    value={reglas.nominaMonto || ''}
+                    onChange={(e) => onCambiarReglas?.({ nominaMonto: Number(e.target.value) || 0 })}
+                  />
+                  <select
+                    className="select"
+                    value={reglas.nominaTurnos}
+                    onChange={(e) => onCambiarReglas?.({ nominaTurnos: Number(e.target.value) })}
+                  >
+                    <option value={1}>1 turno</option>
+                    <option value={2}>2 turnos (diurno y nocturno)</option>
+                  </select>
+                </div>
+              </div>
+              <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.75rem' }}>
+                La nómina es el máximo por turno; el turno nocturno la paga en su propio corte, por eso con 2 turnos se reserva doble ese día.
+                Proveedores sin monto usa el pago típico de ese día en las últimas 4 semanas
+                {colchon.reglaProveedores ? ` (ahora: ${fmtCorte(colchon.proveedoresMontoUsado)})` : ''}.
+              </p>
+            </details>
           )}
 
           <details style={{ marginTop: '0.6rem', fontSize: '0.78rem' }}>
             <summary className="muted" style={{ cursor: 'pointer' }}>Cómo se calcula</summary>
             <p className="muted" style={{ margin: '0.4rem 0' }}>
-              Se suman las salidas de cada día hasta el próximo día fuerte: gasto normal (proveedores y demás, de los últimos {colchon.ventana || colchon.muestras} días),
-              cobros de crédito del repartidor y nómina (del historial de las últimas 4 semanas, solo si se repiten ese día de la semana). Hoy solo cuenta
-              lo fuerte que aún falta por registrar. El colchón es el punto más bajo que tocaría la caja, descontando la venta en efectivo
+              Se suman las salidas de cada día hasta el próximo día fuerte: gasto normal (de los últimos {colchon.ventana || colchon.muestras} días),
+              pago de proveedores y nómina de los días fijos configurados, y cobros de crédito del repartidor (historial de las últimas 4 semanas, solo si se repiten
+              ese día de la semana). Hoy solo cuenta lo fuerte que aún falta por registrar. El colchón es el punto más bajo que tocaría la caja, descontando la venta en efectivo
               (venta − tarjeta − faltante), más {Math.round(colchon.margen * 100)}% de margen.
             </p>
             <table style={{ width: '100%', fontSize: '0.76rem' }}>
@@ -155,6 +213,7 @@ export default function ColchonRecoleccion({
                 <tr>
                   <th align="left">Día</th>
                   <th align="right">Gasto normal</th>
+                  <th align="right">Proveedores</th>
                   <th align="right">Cobros crédito</th>
                   <th align="right">Nómina</th>
                   <th align="right">Venta efec.</th>
@@ -165,6 +224,7 @@ export default function ColchonRecoleccion({
                   <tr key={d.k}>
                     <td>{d.dia}</td>
                     <td align="right">{fmtCorte(d.base)}</td>
+                    <td align="right">{d.proveedores > 0 ? fmtCorte(d.proveedores) : '—'}</td>
                     <td align="right">{d.credito > 0 ? fmtCorte(d.credito) : '—'}</td>
                     <td align="right">{d.nomina > 0 ? fmtCorte(d.nomina) : '—'}</td>
                     <td align="right">{fmtCorte(d.venta)}</td>

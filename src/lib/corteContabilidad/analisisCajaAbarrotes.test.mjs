@@ -165,9 +165,29 @@ assert.equal(negSem.resumen.negativos, 1);
   const planJue2 = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-05', dias: 1, margen: 0, minDias: 3 });
   assert.equal(planJue2.detalle[0].credito, 3000);
   assert.ok(planJue2.colchon >= 3000);
-  // Nómina capturada a mano reemplaza la del historial.
-  const planNom = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-05', dias: 2, margen: 0, minDias: 3, nominaManual: 7000, yaHoy: { credito: 3000 } });
-  assert.equal(planNom.totales.nomina, 7000);
+  // Regla de nómina: viernes, $2,400 por turno, 2 turnos (diurno y nocturno) y proveedores del lunes.
+  const reglas = { nominaDow: 5, nominaMonto: 2400, nominaTurnos: 2, proveedoresDow: 1, proveedoresMonto: 6000 };
+  const planNom = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-05', dias: 2, margen: 0, minDias: 3, yaHoy: { credito: 3000 }, reglas });
+  assert.equal(planNom.totales.nomina, 4800);
+  assert.equal(planNom.reglaNomina, true);
+  // Ya se pagó la nómina del turno diurno el viernes: solo falta reservar el nocturno.
+  const planNom2 = planRecoleccion({ perfilBase: base, perfilFuertes: pf, hoyYmd: '2026-11-06', dias: 1, margen: 0, minDias: 3, reglas, yaHoy: { nomina: 2400 } });
+  assert.equal(planNom2.detalle[0].nomina, 2400);
+  // Domingo: el próximo día fuerte es el lunes (proveedores) y se reserva su pago.
+  const baseSinProv = perfilDiario(filasUltimosDias(filasF, '2026-11-01', 7), { base: true, sinProveedores: true });
+  assert.equal(baseSinProv.global.gastoProm, 0);
+  const planDom = planRecoleccion({ perfilBase: base, perfilBaseSinProv: baseSinProv, perfilFuertes: pf, hoyYmd: '2026-11-01', dias: 0, margen: 0, minDias: 3, reglas, yaHoy: { credito: 2000 } });
+  assert.equal(planDom.proximoFuerte.dia, 'Lunes');
+  assert.equal(planDom.proximoFuerte.proveedores, 6000);
+  assert.equal(planDom.detalle[1].proveedores, 6000);
+  assert.equal(planDom.detalle[1].base, 0);
+  assert.equal(planDom.colchon, 6000);
+  // Proveedores automáticos del historial (lunes con 500 de Bimbo).
+  const planAuto = planRecoleccion({ perfilBase: base, perfilBaseSinProv: baseSinProv, perfilFuertes: pf, hoyYmd: '2026-11-01', dias: 0, margen: 0, minDias: 3, reglas: { proveedoresDow: 1 }, yaHoy: { credito: 2000 } });
+  assert.equal(planAuto.proveedoresMontoUsado, 500);
+  // Si hoy es el día de proveedores y ya se pagaron, no se reservan de nuevo.
+  const planLunPagado = planRecoleccion({ perfilBase: base, perfilBaseSinProv: baseSinProv, perfilFuertes: pf, hoyYmd: '2026-11-02', dias: 1, margen: 0, minDias: 3, reglas, yaHoy: { proveedores: 6000 } });
+  assert.equal(planLunPagado.detalle[0].proveedores, 0);
   // Sin historial de días fuertes: cubre 2 días.
   const planSin = planRecoleccion({ perfilBase: base, perfilFuertes: perfilFuertes([]), hoyYmd: '2026-11-02', dias: 0, margen: 0, minDias: 3 });
   assert.equal(planSin.proximoFuerte, null);

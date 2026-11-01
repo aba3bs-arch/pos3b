@@ -273,12 +273,13 @@ export function analizarNegativos(filas) {
 }
 
 /** Promedios diarios de gasto y venta en efectivo por día de la semana. */
-export function perfilDiario(filas, { base = false } = {}) {
+export function perfilDiario(filas, { base = false, sinProveedores = false } = {}) {
   const dias = new Map();
   for (const f of filas || []) {
     if (f.tipo !== 'cierre') continue;
     const d = dias.get(f.fecha) || { fecha: f.fecha, dow: f.dow, gastos: 0, ventaEfectivo: 0 };
-    d.gastos = r2(d.gastos + (base ? f.gastosBase ?? f.gastosTotal : f.gastosTotal));
+    const g = base ? f.gastosBase ?? f.gastosTotal : f.gastosTotal;
+    d.gastos = r2(d.gastos + (sinProveedores ? Math.max(0, g - (f.gastosProveedores || 0)) : g));
     d.ventaEfectivo = r2(d.ventaEfectivo + f.ventaEfectivo);
     dias.set(f.fecha, d);
   }
@@ -334,16 +335,18 @@ export function recomendarColchon(perfil, { hoyYmd, dias = 2, margen = 0.2, minD
 }
 
 /**
- * Salidas fuertes por día de la semana: cobros de crédito del repartidor (percentil 75) y
- * nómina pagada de caja (máximo). Solo cuenta si se repitió al menos en 2 días de ese día de la semana.
+ * Salidas fuertes por día de la semana: cobros de crédito del repartidor (percentil 75),
+ * nómina pagada de caja (máximo) y pago a proveedores (percentil 75). Solo cuenta si se repitió
+ * al menos en 2 días de ese día de la semana.
  */
 export function perfilFuertes(filas) {
   const dias = new Map();
   for (const f of filas || []) {
     if (f.tipo !== 'cierre') continue;
-    const d = dias.get(f.fecha) || { dow: f.dow, credito: 0, nomina: 0 };
+    const d = dias.get(f.fecha) || { dow: f.dow, credito: 0, nomina: 0, proveedores: 0 };
     d.credito = r2(d.credito + (f.gastosCredito || 0));
     d.nomina = r2(d.nomina + (f.gastosNomina || 0));
+    d.proveedores = r2(d.proveedores + (f.gastosProveedores || 0));
     dias.set(f.fecha, d);
   }
   const lista = [...dias.values()];
@@ -351,14 +354,17 @@ export function perfilFuertes(filas) {
     const del = lista.filter((d) => d.dow === i);
     const conCredito = del.filter((d) => d.credito > 0.001);
     const conNomina = del.filter((d) => d.nomina > 0.001);
+    const conProv = del.filter((d) => d.proveedores > 0.001);
     const credito = conCredito.length >= 2 ? percentil(del.map((d) => d.credito), 75) : 0;
     const nomina = conNomina.length >= 2 ? Math.max(...conNomina.map((d) => d.nomina)) : 0;
+    const proveedores = conProv.length >= 2 ? percentil(del.map((d) => d.proveedores), 75) : 0;
     return {
       dow: i,
       dia: nombreDiaSemana(i),
       n: del.length,
       credito: r2(credito),
       nomina: r2(nomina),
+      proveedores: r2(proveedores),
       eventosCredito: conCredito.length,
       eventosNomina: conNomina.length,
       fuerte: credito + nomina > 0.001,
@@ -376,15 +382,22 @@ export function redondearRecoleccion(monto) {
 
 /**
  * Plan de recolección: cuánto debe quedar en caja para llegar hasta el próximo día fuerte
- * (cobros de crédito del repartidor, nómina) sin caer a negativo.
+ * (cobros de crédito del repartidor, pago a proveedores, nómina) sin caer a negativo.
  *
  * `dias` = 0 → hasta el próximo día fuerte (si no hay, 2 días); 1..5 → ese número de días.
  * Hoy solo cuenta lo fuerte que aún falta por registrar (`yaHoy`), porque el gasto normal de hoy
- * ya está en la caja. Cada día: sale el gasto (base + fuertes) antes de que entre la venta.
- * `nominaManual` (monto capturado) sustituye la nómina estimada del historial.
+ * ya está en la caja. Cada día: sale el gasto (normal + fuertes) antes de que entre la venta.
+ *
+ * `reglas` fija días de pago conocidos:
+ * - nomina: `nominaDow` (0=domingo … 6=sábado), `nominaMonto` por turno y `nominaTurnos` (el turno
+ *   nocturno paga su nómina en su propio corte, por eso puede haber 2 salidas el mismo día).
+ *   Si hay regla, sustituye la nómina estimada del historial.
+ * - proveedores: `proveedoresDow` y `proveedoresMonto` (0 = estimar con el historial de ese día).
+ *   Ese día el gasto normal va sin proveedores y se suma el pago de proveedores.
  */
 export function planRecoleccion({
   perfilBase,
+  perfilBaseSinProv = null,
   perfilFuertes: pf,
   hoyYmd,
   dias = 0,
@@ -392,59 +405,75 @@ export function planRecoleccion({
   minDias = 5,
   ventana = null,
   yaHoy = {},
-  nominaManual = 0,
+  reglas = {},
 } = {}) {
   if (!perfilBase || !(perfilBase.global?.n >= minDias) || !hoyYmd) return null;
   const hoyDow = diaSemana(hoyYmd);
   if (hoyDow < 0) return null;
   const fuertes = pf?.porDow || [];
-  const manual = Math.max(0, Number(nominaManual) || 0);
+
+  const nomDow = Number.isInteger(reglas.nominaDow) ? reglas.nominaDow : null;
+  const nomPorTurno = Math.max(0, num(reglas.nominaMonto));
+  const nomTurnos = Math.max(1, Math.round(num(reglas.nominaTurnos)) || 1);
+  const reglaNomina = nomDow != null && nomPorTurno > 0;
+  const provDow = Number.isInteger(reglas.proveedoresDow) ? reglas.proveedoresDow : null;
+  const provManual = Math.max(0, num(reglas.proveedoresMonto));
+  const provMonto = provDow != null ? (provManual > 0 ? provManual : fuertes[provDow]?.proveedores || 0) : 0;
+  const reglaProv = provDow != null && provMonto > 0;
+
+  const nominaDelDia = (dow) => {
+    if (reglaNomina) return dow === nomDow ? nomPorTurno * nomTurnos : 0;
+    return fuertes[dow]?.nomina || 0;
+  };
+  const provDelDia = (dow) => (reglaProv && dow === provDow ? provMonto : 0);
+  const esFuerte = (dow) => Boolean(fuertes[dow]?.fuerte) || nominaDelDia(dow) > 0 || provDelDia(dow) > 0;
 
   let horizonte = Math.min(5, Math.max(1, Number(dias) || 0));
-  let hastaFuerte = false;
-  let proximoFuerte = null;
+  let proximoK = null;
   for (let k = 1; k <= 7; k += 1) {
-    const f = fuertes[(hoyDow + k) % 7];
-    if (f?.fuerte) {
-      proximoFuerte = { dow: f.dow, dia: f.dia, enDias: k, credito: f.credito, nomina: f.nomina };
+    if (esFuerte((hoyDow + k) % 7)) {
+      proximoK = k;
       break;
     }
   }
+  let hastaFuerte = false;
   if (!(Number(dias) >= 1)) {
-    hastaFuerte = Boolean(proximoFuerte);
-    horizonte = proximoFuerte ? proximoFuerte.enDias : 2;
+    hastaFuerte = proximoK != null;
+    horizonte = proximoK != null ? proximoK : 2;
   }
 
   const detalle = [];
   let gastoAcum = 0;
   let ventaAcum = 0;
   let maxNecesidad = 0;
-  const tot = { base: 0, credito: 0, nomina: 0, venta: 0 };
+  const tot = { base: 0, credito: 0, nomina: 0, proveedores: 0, venta: 0 };
 
   for (let k = 0; k <= horizonte; k += 1) {
     const dow = (hoyDow + k) % 7;
-    const fu = fuertes[dow] || { credito: 0, nomina: 0 };
     let base = 0;
     let venta = 0;
-    let credito = fu.credito || 0;
-    let nomina = manual > 0 ? 0 : fu.nomina || 0;
+    let credito = fuertes[dow]?.credito || 0;
+    let nomina = nominaDelDia(dow);
+    let proveedores = provDelDia(dow);
     if (k === 0) {
       credito = Math.max(0, credito - num(yaHoy.credito));
-      nomina = manual > 0 ? 0 : Math.max(0, nomina - num(yaHoy.nomina));
+      nomina = Math.max(0, nomina - num(yaHoy.nomina));
+      proveedores = Math.max(0, proveedores - num(yaHoy.proveedores));
     } else {
-      const p = perfilBase.porDow[dow];
+      const perfil = proveedores > 0 && perfilBaseSinProv ? perfilBaseSinProv : perfilBase;
+      const p = perfil.porDow[dow];
       const usaDia = p.n >= 3;
-      base = usaDia ? Math.max(p.gastoP75, p.gastoProm) : perfilBase.global.gastoP75;
-      venta = usaDia ? p.ventaEfProm : perfilBase.global.ventaEfProm;
+      base = usaDia ? Math.max(p.gastoP75, p.gastoProm) : perfil.global.gastoP75;
+      venta = usaDia ? p.ventaEfProm : perfil.global.ventaEfProm;
     }
-    if (k === 0 && manual > 0) nomina = manual;
-    const gasto = base + credito + nomina;
+    const gasto = base + credito + nomina + proveedores;
     gastoAcum += gasto;
     maxNecesidad = Math.max(maxNecesidad, gastoAcum - ventaAcum);
     ventaAcum += venta;
     tot.base += base;
     tot.credito += credito;
     tot.nomina += nomina;
+    tot.proveedores += proveedores;
     tot.venta += venta;
     detalle.push({
       k,
@@ -453,10 +482,25 @@ export function planRecoleccion({
       base: r2(base),
       credito: r2(credito),
       nomina: r2(nomina),
+      proveedores: r2(proveedores),
       gasto: r2(gasto),
       venta: r2(venta),
     });
   }
+
+  let proximoFuerte = null;
+  if (proximoK != null) {
+    const dow = (hoyDow + proximoK) % 7;
+    proximoFuerte = {
+      dow,
+      dia: nombreDiaSemana(dow),
+      enDias: proximoK,
+      credito: r2(fuertes[dow]?.credito || 0),
+      nomina: r2(nominaDelDia(dow)),
+      proveedores: r2(provDelDia(dow)),
+    };
+  }
+
   const colchon = r2(maxNecesidad * (1 + margen));
   return {
     colchon,
@@ -465,10 +509,18 @@ export function planRecoleccion({
     proximoFuerte,
     margen,
     detalle,
-    totales: { base: r2(tot.base), credito: r2(tot.credito), nomina: r2(tot.nomina), venta: r2(tot.venta) },
+    totales: {
+      base: r2(tot.base),
+      credito: r2(tot.credito),
+      nomina: r2(tot.nomina),
+      proveedores: r2(tot.proveedores),
+      venta: r2(tot.venta),
+    },
     muestras: perfilBase.global.n,
     ventana,
-    nominaManual: manual,
+    reglaNomina,
+    reglaProveedores: reglaProv,
+    proveedoresMontoUsado: r2(provMonto),
     fuertesDetectados: fuertes.filter((f) => f.fuerte),
   };
 }

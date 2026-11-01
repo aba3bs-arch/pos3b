@@ -21,6 +21,7 @@ import {
   redondearRecoleccion,
 } from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
 import { esGastoNominaEmpleadoCorte } from '../../lib/contVirtualCatalogo.js';
+import { esCategoriaProveedores } from '../../lib/corteContabilidad/catalogoGastos.js';
 
 const COLOR = '#b5a642';
 
@@ -66,7 +67,11 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     () => (gastos || []).filter(esGastoNominaEmpleadoCorte).reduce((a, g) => a + (Number(g.monto) || 0), 0),
     [gastos],
   );
-  const cajaHist = useCajaAbarrotes({ supabase, sucursal, enabled: verCaja, yaHoyCredito, yaHoyNomina });
+  const yaHoyProveedores = useMemo(
+    () => (gastos || []).filter((g) => esCategoriaProveedores(g.categoria)).reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    [gastos],
+  );
+  const cajaHist = useCajaAbarrotes({ supabase, sucursal, enabled: verCaja, yaHoyCredito, yaHoyNomina, yaHoyProveedores });
 
   const agregarGastoConAviso = async (gasto) => {
     const monto = Number(gasto?.monto) || 0;
@@ -330,8 +335,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             onCambiarDias={cajaHist.setDiasColchon}
             ventanaColchon={cajaHist.ventanaColchon}
             onCambiarVentana={cajaHist.setVentanaColchon}
-            nominaManual={cajaHist.nominaManual}
-            onCambiarNomina={cajaHist.setNominaManual}
+            reglas={cajaHist.reglas}
+            onCambiarReglas={cajaHist.setReglas}
             onUsarMaximo={(m) => patchEstado({ recoleccion: m })}
             puedeEditar={perm.recoleccion}
             cargando={cajaHist.cargando}
