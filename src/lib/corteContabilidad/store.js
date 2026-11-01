@@ -1351,6 +1351,32 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = nul
 }
 
 /** Lista cierres en papelera (soft-delete). */
+/** Cierres y recolecciones de los últimos `dias` días (incluye archivados) para análisis. */
+export async function listarCierresParaAnalisis(supabase, sucursal, modulo, { dias = 90, limite = 1500 } = {}) {
+  const sid = sucursalIdCorte(sucursal);
+  const vars = sucursalesIdCorteQuery(sid);
+  const desde = new Date(Date.now() - Math.max(1, dias) * 86400000).toISOString();
+  if (!supabase) {
+    return {
+      data: leerHistorialLocal(sid, modulo).filter((h) => !h?.deleted_at && String(h.created_at || '') >= desde),
+    };
+  }
+  const consulta = (cols) => supabase
+    .from('cortes_contabilidad_cierres')
+    .select(cols)
+    .in('sucursal_id', vars)
+    .eq('modulo', modulo)
+    .gte('created_at', desde)
+    .order('created_at', { ascending: false })
+    .limit(limite);
+  let q = await consulta('id, folio, turno, caja_actual, ventas, detalle, created_at, deleted_at');
+  if (q.error && faltaColumnaDeletedAt(q.error)) {
+    q = await consulta('id, folio, turno, caja_actual, ventas, detalle, created_at');
+  }
+  if (q.error) return { data: [], error: q.error.message };
+  return { data: (q.data || []).filter((h) => !h?.deleted_at) };
+}
+
 export async function listarCierresCorteEliminados(supabase, sucursal, modulo, limit = 30) {
   const sid = sucursalIdCorte(sucursal);
   const vars = sucursalesIdCorteQuery(sid);
