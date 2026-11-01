@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
@@ -11,6 +11,19 @@ import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useC
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 import { procesarRifsVencidos } from '../../lib/rifs.js';
+import ColchonRecoleccion from '../../components/corteContabilidad/ColchonRecoleccion.jsx';
+import PanelDiagnosticoCaja from '../../components/corteContabilidad/PanelDiagnosticoCaja.jsx';
+import { useCajaAbarrotes } from '../../lib/corteContabilidad/useCajaAbarrotes.js';
+import {
+  esGastoCobroCredito,
+  evaluarRecoleccion,
+  limiteRecoleccionPorcentaje,
+  maximoRecolectable,
+  redondearRecoleccion,
+} from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
+import { hoyYmdNogales } from '../../lib/corteCaja.js';
+import { esGastoNominaEmpleadoCorte } from '../../lib/contVirtualCatalogo.js';
+import { esCategoriaProveedores } from '../../lib/corteContabilidad/catalogoGastos.js';
 
 const COLOR = '#b5a642';
 
@@ -46,6 +59,31 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     calcFn: calcularAbarrotes,
     prepararTrasCierre,
   });
+
+  const verCaja = Boolean(perm.recoleccion || perm.editarTodo);
+  const yaHoyCredito = useMemo(
+    () => (gastos || []).filter(esGastoCobroCredito).reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    [gastos],
+  );
+  const yaHoyNomina = useMemo(
+    () => (gastos || []).filter(esGastoNominaEmpleadoCorte).reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    [gastos],
+  );
+  const yaHoyProveedores = useMemo(
+    () => (gastos || []).filter((g) => esCategoriaProveedores(g.categoria)).reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    [gastos],
+  );
+  const cajaHist = useCajaAbarrotes({ supabase, sucursal, enabled: verCaja, yaHoyCredito, yaHoyNomina, yaHoyProveedores });
+
+  const agregarGastoConAviso = async (gasto) => {
+    const monto = Number(gasto?.monto) || 0;
+    const despues = Math.round(((Number(calc.cajaActual) || 0) - monto) * 100) / 100;
+    if (monto > 0 && despues < -0.001 && !confirm(
+      `Este gasto deja la caja chica en ${fmtCorte(despues)} (hoy: ${fmtCorte(calc.cajaActual)}).\n\n`
+      + 'No hay efectivo suficiente en caja para pagarlo. ¿Registrarlo de todos modos?',
+    )) return undefined;
+    return agregarGasto(gasto);
+  };
 
   useEffect(() => {
     if (!supabase) return undefined;
@@ -84,13 +122,57 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     try {
     if (!perm.recoleccion) return alert('Solo admin/recolector puede recolectar.');
     if (!(montoRec > 0)) return alert('Indique el monto a recolectar en el campo Recolección.');
+    const limite = limiteRecoleccionPorcentaje({
+      hoyYmd: hoyYmdNogales(),
+      cajaAntes: calc.cajaActual + montoRec,
+      reglas: cajaHist.reglas,
+    });
+    if (limite.aplica && montoRec > limite.maximo + 0.009) {
+      const msg =
+        `Hoy es ${limite.dia}: solo se puede recolectar el ${limite.pct}% de la caja chica.\n\n`
+        + `Caja antes de recolectar: ${fmtCorte(calc.cajaActual + montoRec)}\n`
+        + `Máximo permitido: ${fmtCorte(limite.maximo)}\n`
+        + `Intentas recolectar: ${fmtCorte(montoRec)}`;
+      if (!perm.editarTodo) return alert(`${msg}\n\nReduce el monto de Recolección.`);
+      if (!confirm(`${msg}\n\nEres admin: ¿recolectar de todos modos?`)) return;
+    }
+    const colchonVal = cajaHist.colchon ? cajaHist.colchon.colchon : null;
+    const evColchon = evaluarRecoleccion({ cajaDespues: calc.cajaActual, colchon: colchonVal });
+    const bajoColchon = !limite.aplica && (evColchon.nivel === 'bajo' || evColchon.nivel === 'negativo');
+    if (bajoColchon) {
+      const maxRec = redondearRecoleccion(
+        maximoRecolectable({ cajaAntes: calc.cajaActual + montoRec, colchon: colchonVal }),
+      );
+      const hist = cajaHist.analisis.resumen;
+      if (!confirm(
+        `ATENCION: esta recolección deja la caja corta.\n\n`
+        + `Caja que quedaría: ${fmtCorte(calc.cajaActual)}\n`
+        + `Colchón recomendado (${cajaHist.colchon.dias} d): ${fmtCorte(colchonVal)}\n`
+        + `Máximo recomendable a recolectar: ${fmtCorte(maxRec)}\n\n`
+        + (hist.negativos > 0
+          ? `En los últimos ${cajaHist.ventanaColchon} días la caja cerró en negativo ${hist.negativos} veces.\n\n`
+          : '')
+        + `Con esta caja es probable que el siguiente gasto de proveedor la deje en negativo.\n`
+        + `¿Recolectar de todos modos?`,
+      )) return;
+    }
     if (!confirm(
       `¿Registrar recolección de abarrotes?\n\n`
       + `Efectivo: ${fmtCorte(montoRec)}\n`
       + `Caja chica quedará en ${fmtCorte(calc.cajaActual)}\n\n`
       + `La recolección irá a RC Abarrotes → FJBB → IE ABARROTES (CEDIS).`,
     )) return;
-    const res = await registrarRecoleccion({ montoRecoleccion: montoRec });
+    const res = await registrarRecoleccion({
+      montoRecoleccion: montoRec,
+      extrasDetalle: colchonVal != null
+        ? {
+            bajo_colchon: bajoColchon,
+            colchon_recomendado: colchonVal,
+            colchon_dias: cajaHist.colchon.dias,
+            ...(limite.aplica ? { limite_pct: limite.pct, limite_maximo: limite.maximo } : {}),
+          }
+        : limite.aplica ? { limite_pct: limite.pct, limite_maximo: limite.maximo } : {},
+    });
     if (!res?.ok) {
       if (res?.error) alert(res.error);
       return;
@@ -242,7 +324,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             user={user}
             empleados={empleados}
             gastos={gastos}
-            onAgregar={agregarGasto}
+            onAgregar={agregarGastoConAviso}
             onEliminar={quitarGasto}
             onEditar={editarGasto}
             habilitado={perm.gastos}
@@ -260,6 +342,24 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             onChange={(e) => patchEstado({ comentarios: e.target.value })}
           />
         </div>
+
+        {verCaja && perm.recoleccion && (
+          <ColchonRecoleccion
+            colchon={cajaHist.colchon}
+            cajaActual={calc.cajaActual}
+            montoRecoleccion={montoRec}
+            diasColchon={cajaHist.diasColchon}
+            onCambiarDias={cajaHist.setDiasColchon}
+            ventanaColchon={cajaHist.ventanaColchon}
+            onCambiarVentana={cajaHist.setVentanaColchon}
+            reglas={cajaHist.reglas}
+            onCambiarReglas={cajaHist.setReglas}
+            onUsarMaximo={(m) => patchEstado({ recoleccion: m })}
+            puedeEditar={perm.recoleccion}
+            cargando={cajaHist.cargando}
+            veces={cajaHist.analisis.resumen}
+          />
+        )}
 
         <div className="card" style={{ textAlign: 'center' }}>
           <h4 style={{ margin: '0 0 1rem' }}>Caja chica</h4>
@@ -286,6 +386,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           </div>
         </div>
       </div>
+
+      {perm.editarTodo && (
+        <PanelDiagnosticoCaja
+          filas={cajaHist.filas}
+          cargando={cajaHist.cargando}
+          error={cajaHist.error}
+          onRecargar={cajaHist.recargar}
+        />
+      )}
 
       <CorteHistorialImpresion
         historial={historial}
