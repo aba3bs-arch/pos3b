@@ -2,6 +2,7 @@ import React from 'react';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import {
   evaluarRecoleccion,
+  maximoCobroCredito,
   maximoRecolectable,
   redondearRecoleccion,
 } from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
@@ -47,6 +48,9 @@ export default function ColchonRecoleccion({
   const ev = evaluarRecoleccion({ cajaDespues: cajaActual, colchon: valorColchon });
   const maxExacto = maximoRecolectable({ cajaAntes, colchon: valorColchon });
   const recomendado = maxExacto == null ? null : redondearRecoleccion(maxExacto);
+  const cobroCredito = colchon
+    ? redondearRecoleccion(maximoCobroCredito({ cajaActual, colchonSinCredito: colchon.colchonSinCredito }))
+    : null;
   const estilo = NIVELES[ev.nivel] || NIVELES.sin_datos;
   const fuerte = colchon?.proximoFuerte;
 
@@ -105,6 +109,16 @@ export default function ColchonRecoleccion({
               </button>
             )}
           </div>
+
+          <p style={{ fontSize: '0.82rem', margin: '0 0 0.5rem' }}>
+            <strong>Cobro de crédito:</strong>{' '}
+            {cobroCredito > 0
+              ? `la caja aguanta cobrar hasta ${fmtCorte(cobroCredito)} de crédito sin pasarse de lo que necesitan proveedores y nómina.`
+              : 'con esta caja un cobro de crédito la deja corta para proveedores y nómina.'}
+            {colchon.colchon > colchon.colchonSinCredito + 0.009 && (
+              <span className="muted"> Ya hay {fmtCorte(colchon.colchon - colchon.colchonSinCredito)} reservados para los cobros de crédito esperados.</span>
+            )}
+          </p>
 
           {fuerte && (
             <p style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>

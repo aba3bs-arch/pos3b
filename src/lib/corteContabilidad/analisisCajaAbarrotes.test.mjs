@@ -5,6 +5,7 @@ import {
   ymdMenosDias,
   evaluarRecoleccion,
   maximoRecolectable,
+  maximoCobroCredito,
   normalizarFilasCaja,
   perfilDiario,
   perfilFuertes,
@@ -182,6 +183,12 @@ assert.equal(negSem.resumen.negativos, 1);
   assert.equal(planDom.detalle[1].proveedores, 6000);
   assert.equal(planDom.detalle[1].base, 0);
   assert.equal(planDom.colchon, 6000);
+  assert.equal(planDom.colchonSinCredito, 6000);
+  assert.equal(maximoCobroCredito({ cajaActual: 7000, colchonSinCredito: planDom.colchonSinCredito }), 1000);
+  assert.equal(maximoCobroCredito({ cajaActual: 100, colchonSinCredito: 500 }), 0);
+  // Con cobros de crédito esperados el colchón sube y el aparte sin crédito es menor.
+  assert.ok(planLun.colchon >= planLun.colchonSinCredito);
+  assert.ok(planJue2.colchon - planJue2.colchonSinCredito >= 2999);
   // Proveedores automáticos del historial (lunes con 500 de Bimbo).
   const planAuto = planRecoleccion({ perfilBase: base, perfilBaseSinProv: baseSinProv, perfilFuertes: pf, hoyYmd: '2026-11-01', dias: 0, margen: 0, minDias: 3, reglas: { proveedoresDow: 1 }, yaHoy: { credito: 2000 } });
   assert.equal(planAuto.proveedoresMontoUsado, 500);

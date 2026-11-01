@@ -445,7 +445,10 @@ export function planRecoleccion({
   const detalle = [];
   let gastoAcum = 0;
   let ventaAcum = 0;
+  let gastoAcumSinCredito = 0;
+  let ventaAcumSinCredito = 0;
   let maxNecesidad = 0;
+  let maxNecesidadSinCredito = 0;
   const tot = { base: 0, credito: 0, nomina: 0, proveedores: 0, venta: 0 };
 
   for (let k = 0; k <= horizonte; k += 1) {
@@ -470,6 +473,9 @@ export function planRecoleccion({
     gastoAcum += gasto;
     maxNecesidad = Math.max(maxNecesidad, gastoAcum - ventaAcum);
     ventaAcum += venta;
+    gastoAcumSinCredito += gasto - credito;
+    maxNecesidadSinCredito = Math.max(maxNecesidadSinCredito, gastoAcumSinCredito - ventaAcumSinCredito);
+    ventaAcumSinCredito += venta;
     tot.base += base;
     tot.credito += credito;
     tot.nomina += nomina;
@@ -502,8 +508,10 @@ export function planRecoleccion({
   }
 
   const colchon = r2(maxNecesidad * (1 + margen));
+  const colchonSinCredito = r2(maxNecesidadSinCredito * (1 + margen));
   return {
     colchon,
+    colchonSinCredito,
     dias: horizonte,
     hastaFuerte,
     proximoFuerte,
@@ -532,6 +540,12 @@ export function evaluarRecoleccion({ cajaDespues, colchon }) {
   if (c < -0.001) return { nivel: 'negativo', faltante: r2(colchon - c), sobrante: 0 };
   if (c < colchon) return { nivel: 'bajo', faltante: r2(colchon - c), sobrante: 0 };
   return { nivel: 'ok', faltante: 0, sobrante: r2(c - colchon) };
+}
+
+/** Efectivo que la caja puede entregar en cobros de crédito sin bajar del colchón de lo demás. */
+export function maximoCobroCredito({ cajaActual, colchonSinCredito }) {
+  if (colchonSinCredito == null) return null;
+  return r2(Math.max(0, cajaActual - colchonSinCredito));
 }
 
 /** Máximo que se puede recolectar dejando el colchón (0 si la caja ya no alcanza). */
