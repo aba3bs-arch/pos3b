@@ -1,16 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
-import { fmtYmdEs } from '../../lib/corteCaja.js';
+import { fmtYmdEs, hoyYmdNogales } from '../../lib/corteCaja.js';
 import {
   CAUSAS_NEGATIVO,
   analizarNegativos,
+  filasUltimosDias,
   perfilDiario,
 } from '../../lib/corteContabilidad/analisisCajaAbarrotes.js';
-
-function ymdMenosDias(dias) {
-  const d = new Date(Date.now() - dias * 86400000);
-  return d.toISOString().slice(0, 10);
-}
 
 function lecturas(resumen, eventos) {
   const out = [];
@@ -52,12 +48,9 @@ function Tarjeta({ titulo, valor, nota, peligro = false }) {
  */
 export default function PanelDiagnosticoCaja({ filas = [], cargando = false, error = '', onRecargar }) {
   const [abierto, setAbierto] = useState(false);
-  const [rango, setRango] = useState(60);
+  const [rango, setRango] = useState(7);
 
-  const filasRango = useMemo(() => {
-    const desde = ymdMenosDias(rango);
-    return filas.filter((f) => f.fecha >= desde);
-  }, [filas, rango]);
+  const filasRango = useMemo(() => filasUltimosDias(filas, hoyYmdNogales(), rango), [filas, rango]);
   const { eventos, resumen } = useMemo(() => analizarNegativos(filasRango), [filasRango]);
   const perfil = useMemo(() => perfilDiario(filasRango), [filasRango]);
   const frases = useMemo(() => lecturas(resumen, eventos), [resumen, eventos]);
@@ -79,7 +72,7 @@ export default function PanelDiagnosticoCaja({ filas = [], cargando = false, err
         <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <span className="muted" style={{ fontSize: '0.8rem' }}>Periodo</span>
-            {[30, 60, 90].map((d) => (
+            {[7, 30, 60, 90].map((d) => (
               <button key={d} type="button" className={rango === d ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setRango(d)}>
                 {d} días
               </button>

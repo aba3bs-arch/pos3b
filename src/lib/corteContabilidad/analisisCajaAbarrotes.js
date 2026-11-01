@@ -55,6 +55,20 @@ function diffDias(ymdA, ymdB) {
   return Math.round((t(ymdB) - t(ymdA)) / 86400000);
 }
 
+/** YYYY-MM-DD menos `dias` días (aritmética sobre la fecha de negocio, sin huso). */
+export function ymdMenosDias(ymd, dias) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - dias * 86400000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/** Filas de los últimos `dias` días de negocio (incluye hoy). */
+export function filasUltimosDias(filas, hoyYmd, dias) {
+  const desde = ymdMenosDias(hoyYmd, Math.max(1, dias) - 1);
+  return (filas || []).filter((f) => f.fecha >= desde);
+}
+
 export function nombreDiaSemana(idx) {
   return DIAS_ES[idx] || '—';
 }
@@ -276,10 +290,11 @@ export function perfilDiario(filas) {
  * Colchón recomendado = caja mínima que debe quedar después de recolectar para
  * cubrir los gastos esperados de los próximos `dias` días (cada día se supone que el
  * gasto sale antes de que entre la venta de ese día) más un margen.
- * Gasto esperado: percentil 75 del día de la semana; venta esperada: promedio.
+ * Gasto esperado: percentil 75 del día de la semana (si hay al menos 3 muestras de ese día;
+ * con ventanas cortas como 7 días se usa el global de la ventana); venta esperada: promedio.
  */
-export function recomendarColchon(perfil, { hoyYmd, dias = 2, margen = 0.2 } = {}) {
-  if (!perfil || !(perfil.global?.n >= 5) || !hoyYmd) return null;
+export function recomendarColchon(perfil, { hoyYmd, dias = 2, margen = 0.2, minDias = 5, ventana = null } = {}) {
+  if (!perfil || !(perfil.global?.n >= minDias) || !hoyYmd) return null;
   const hoyDow = diaSemana(hoyYmd);
   if (hoyDow < 0) return null;
   const detalle = [];
@@ -298,7 +313,7 @@ export function recomendarColchon(perfil, { hoyYmd, dias = 2, margen = 0.2 } = {
     detalle.push({ dow, dia: nombreDiaSemana(dow), gasto: r2(gasto), venta: r2(venta) });
   }
   const colchon = r2(maxNecesidad * (1 + margen));
-  return { colchon, dias, margen, detalle, muestras: perfil.global.n };
+  return { colchon, dias, margen, detalle, muestras: perfil.global.n, ventana };
 }
 
 /** Semáforo de la caja que quedaría tras recolectar frente al colchón. */

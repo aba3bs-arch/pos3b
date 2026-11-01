@@ -19,6 +19,8 @@ export default function ColchonRecoleccion({
   montoRecoleccion,
   diasColchon,
   onCambiarDias,
+  ventanaColchon = 7,
+  onCambiarVentana,
   onUsarMaximo,
   puedeEditar = true,
   cargando = false,
@@ -48,12 +50,25 @@ export default function ColchonRecoleccion({
           </select>
         </label>
       </div>
+      <label className="muted" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.3rem' }}>
+        Basado en los últimos
+        <select
+          className="select"
+          style={{ padding: '0.1rem 0.25rem', fontSize: '0.78rem' }}
+          value={ventanaColchon}
+          onChange={(e) => onCambiarVentana?.(Number(e.target.value))}
+        >
+          {[7, 14, 30].map((n) => (
+            <option key={n} value={n}>{n} días</option>
+          ))}
+        </select>
+      </label>
 
       {!colchon ? (
         <p className="muted" style={{ fontSize: '0.82rem', margin: '0.5rem 0 0' }}>
           {cargando
             ? 'Calculando con el historial de cierres…'
-            : 'Aún no hay al menos 5 días de cierres de esta tienda para calcular el colchón.'}
+            : `Aún no hay suficientes días con cierres en los últimos ${ventanaColchon} días para calcular el colchón.`}
         </p>
       ) : (
         <>
@@ -88,8 +103,8 @@ export default function ColchonRecoleccion({
           <details style={{ marginTop: '0.6rem', fontSize: '0.78rem' }}>
             <summary className="muted" style={{ cursor: 'pointer' }}>Cómo se calcula</summary>
             <p className="muted" style={{ margin: '0.4rem 0' }}>
-              Con los últimos {colchon.muestras} días de cierres: gasto esperado de cada día (percentil 75 del mismo día de la
-              semana) menos la venta en efectivo que entra (venta − tarjeta − faltante), más {Math.round(colchon.margen * 100)}% de margen.
+              Con {colchon.muestras} días de cierres de los últimos {colchon.ventana || colchon.muestras}: gasto esperado de cada día (el mayor entre el promedio y el percentil 75; por día de la semana si hay datos
+              suficientes) menos la venta en efectivo que entra (venta − tarjeta − faltante), más {Math.round(colchon.margen * 100)}% de margen.
             </p>
             <table style={{ width: '100%', fontSize: '0.76rem' }}>
               <thead>
@@ -108,7 +123,7 @@ export default function ColchonRecoleccion({
           </details>
           {veces != null && veces.negativos > 0 && (
             <p className="muted" style={{ fontSize: '0.76rem', margin: '0.6rem 0 0' }}>
-              En los últimos 90 días la caja cerró en negativo {veces.negativos} de {veces.cierres} cierres
+              En los últimos {ventanaColchon} días la caja cerró en negativo {veces.negativos} de {veces.cierres} cierres
               {veces.recSeguidasNegativo > 0 ? `; ${veces.recSeguidasNegativo} de ${veces.recolecciones} recolecciones fueron seguidas de negativo en menos de 3 días` : ''}.
             </p>
           )}

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   analizarNegativos,
+  filasUltimosDias,
+  ymdMenosDias,
   evaluarRecoleccion,
   maximoRecolectable,
   normalizarFilasCaja,
@@ -99,5 +101,20 @@ assert.equal(evaluarRecoleccion({ cajaDespues: 10, colchon: null }).nivel, 'sin_
 assert.equal(maximoRecolectable({ cajaAntes: 5000, colchon: 1200 }), 3800);
 assert.equal(maximoRecolectable({ cajaAntes: 500, colchon: 1200 }), 0);
 assert.equal(maximoRecolectable({ cajaAntes: 500, colchon: null }), null);
+
+// Ventana semanal: solo cuentan los últimos 7 días de negocio y se usa el global de la ventana.
+assert.equal(ymdMenosDias('2026-10-27', 6), '2026-10-21');
+assert.equal(ymdMenosDias('2026-03-01', 1), '2026-02-28');
+const semana = filasUltimosDias(filas, '2026-10-27', 7);
+assert.ok(semana.every((f) => f.fecha >= '2026-10-21'));
+assert.equal(semana.filter((f) => f.tipo === 'cierre').length, 5);
+const perfilSem = perfilDiario(semana);
+assert.equal(perfilSem.global.n, 5);
+const colSem = recomendarColchon(perfilSem, { hoyYmd: '2026-10-27', dias: 2, margen: 0, minDias: 3, ventana: 7 });
+assert.ok(colSem && colSem.ventana === 7);
+assert.equal(colSem.detalle[0].gasto, colSem.detalle[1].gasto);
+assert.equal(recomendarColchon(perfilSem, { hoyYmd: '2026-10-27', minDias: 6 }), null);
+const negSem = analizarNegativos(semana);
+assert.equal(negSem.resumen.negativos, 1);
 console.log('analisisCajaAbarrotes: ok');
 

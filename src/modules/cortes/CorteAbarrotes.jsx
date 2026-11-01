@@ -113,7 +113,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         + `Colchón recomendado (${cajaHist.colchon.dias} d): ${fmtCorte(colchonVal)}\n`
         + `Máximo recomendable a recolectar: ${fmtCorte(maxRec)}\n\n`
         + (hist.negativos > 0
-          ? `En los últimos 90 días la caja cerró en negativo ${hist.negativos} veces.\n\n`
+          ? `En los últimos ${cajaHist.ventanaColchon} días la caja cerró en negativo ${hist.negativos} veces.\n\n`
           : '')
         + `Con esta caja es probable que el siguiente gasto de proveedor la deje en negativo.\n`
         + `¿Recolectar de todos modos?`,
@@ -312,6 +312,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             montoRecoleccion={montoRec}
             diasColchon={cajaHist.diasColchon}
             onCambiarDias={cajaHist.setDiasColchon}
+            ventanaColchon={cajaHist.ventanaColchon}
+            onCambiarVentana={cajaHist.setVentanaColchon}
             onUsarMaximo={(m) => patchEstado({ recoleccion: m })}
             puedeEditar={perm.recoleccion}
             cargando={cajaHist.cargando}
