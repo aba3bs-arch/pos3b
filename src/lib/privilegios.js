@@ -1,6 +1,7 @@
 /** IDs de módulo válidos (menú + submódulos de Contabilidad; alinear con roles.js MODULOS_ORDEN). */
 export const MODULOS_IDS = [
   'Inicio',
+  'Mensajes',
   'Incidencias',
   'Ventas',
   'Escáner caja',
@@ -91,6 +92,7 @@ export function normalizarListaModulos(lista) {
 
 /** Módulos nuevos que se agregan a listas personalizadas si faltan (una vez). */
 const MODULOS_MIGRA_PRIVILEGIOS = [
+  'Mensajes',
   'Check List',
   'Evaluación operativa',
   'Consolidación',

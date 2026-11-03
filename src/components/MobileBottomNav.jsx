@@ -23,6 +23,7 @@ function etiquetaCorta(modulo) {
     'Estadísticas Virtual': 'Est. Virt',
     'Estadísticas Garage': 'Est. Gar',
     Incidencias: 'Incid.',
+    Mensajes: 'Chat',
   };
   return map[modulo] || modulo;
 }
