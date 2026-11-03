@@ -2,9 +2,10 @@
  * Mensajería del POS.
  * - Un chat por sucursal (quien está en ese turno).
  * - Grupo de toda la cadena.
- * - Soporte técnico (cada sucursal habla con el técnico; el técnico ve todos).
+ * - Soporte (cada sucursal abre una solicitud; la atienden los administradores).
  * - Mensaje directo entre dos usuarios.
  * Solo el administrador principal ve todos los chats.
+ * Cualquier administrador ve y cierra el soporte de todas las sucursales.
  *
  * La caja entra con la clave anónima de Supabase (igual que el resto del POS),
  * así que el acceso se aplica al armar la consulta y al pintar la pantalla.
@@ -21,13 +22,22 @@ import {
 } from '../constants/sucursales.js';
 
 export const EVENTO_MENSAJES = 'pos3b-mensajes';
+export const EVENTO_SOPORTE = 'pos3b-soporte-solicitudes';
 export const CANAL_GRUPO = 'grupo';
+export const USUARIO_BOT = {
+  id: 'bot-soporte-3b',
+  nombre: 'Asistente 3B',
+  rol: 'Soporte',
+  sucursal_id: 'MAIN',
+};
 const LS_CACHE = 'pos3b_mensajes_cache_v1';
+const LS_SOLICITUDES = 'pos3b_soporte_solicitudes_v1';
 const MAX_MENSAJES = 600;
 const MAX_TEXTO = 1000;
 const TZ = 'America/Hermosillo';
 
 let tablaDisponible = null;
+let tablaSolicitudes = null;
 
 function nuevoId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -62,6 +72,29 @@ export function esRolTecnico(user) {
   return normalizarRol(user?.rol) === 'Técnico';
 }
 
+export function esAdministrador(user) {
+  return normalizarRol(user?.rol) === 'Administrador';
+}
+
+/** Ve el soporte de todas las sucursales y puede contestar. */
+export function atiendeSoporte(user) {
+  return esAdministrador(user) || esRolTecnico(user);
+}
+
+/** Cierra o reabre la solicitud. Solo administradores. */
+export function puedeResolverSoporte(user) {
+  return esAdministrador(user);
+}
+
+export function esBotSoporte(user) {
+  return idChatUsuario(user) === USUARIO_BOT.id;
+}
+
+/** Un mensaje de sucursal abre o reabre la solicitud. */
+export function abreSolicitudSoporte(user) {
+  return Boolean(user) && !esBotSoporte(user) && !atiendeSoporte(user);
+}
+
 export function canalSucursal(codigo) {
   return `sucursal__${normalizarCodigoTienda(codigo)}`;
 }
@@ -88,12 +121,13 @@ export function puedeVerCanal(user, sucursalSesion, canal) {
   const id = String(canal || '');
   if (!user || !id) return false;
   if (normalizarRol(user.rol) === 'Cliente') return false;
+  if (esBotSoporte(user)) return id.startsWith('soporte__');
   if (puedeVerTodosLosChats(user)) return true;
   const mia = sucursalDeSesionChat(user, sucursalSesion);
   if (id === CANAL_GRUPO) return true;
   if (id === canalSucursal(mia)) return true;
   if (id === canalSoporte(mia)) return true;
-  if (id.startsWith('soporte__') && esRolTecnico(user)) return true;
+  if (id.startsWith('soporte__') && atiendeSoporte(user)) return true;
   if (id.startsWith('dm__')) {
     const partes = participantesDirecto(id);
     const yo = idChatUsuario(user);
@@ -149,8 +183,9 @@ export function fusionarMensajes(lista, extras) {
 
 function tablaFalta(error) {
   const msg = String(error?.message || error?.details || '').toLowerCase();
+  const deTabla = msg.includes('pos_mensajes') || msg.includes('pos_soporte_solicitudes');
   return error?.code === '42P01'
-    || (msg.includes('pos_mensajes') && (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('could not find')));
+    || (deTabla && (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('could not find')));
 }
 
 function filtroPostgrest(valor) {
@@ -170,7 +205,7 @@ function filtroConsulta(user, sucursalSesion) {
     `and(canal.like.dm__%,autor_id.eq.${filtroPostgrest(yo)})`,
     `and(canal.like.dm__%,destinatario_id.eq.${filtroPostgrest(yo)})`,
   ];
-  if (esRolTecnico(user)) partes.push('canal.like.soporte__%');
+  if (atiendeSoporte(user)) partes.push('canal.like.soporte__%');
   return partes.join(',');
 }
 
@@ -214,10 +249,10 @@ function armarFila(user, sucursal, canal, texto, extra = {}) {
     texto: limpio.slice(0, MAX_TEXTO),
     autor_id: idChatUsuario(user),
     autor_nombre: String(user?.nombre || 'Usuario').trim() || 'Usuario',
-    autor_rol: normalizarRol(user?.rol),
+    autor_rol: esBotSoporte(user) ? 'Soporte' : normalizarRol(user?.rol),
     autor_sucursal: sucursalDeSesionChat(user, sucursal),
-    turno_id: turno.turno_id,
-    turno_nombre: turno.turno_nombre,
+    turno_id: extra.turno_id || turno.turno_id,
+    turno_nombre: extra.turno_nombre || turno.turno_nombre,
     destinatario_id: extra.destinatario_id || null,
     destinatario_nombre: extra.destinatario_nombre || null,
     created_at: new Date().toISOString(),
@@ -248,7 +283,7 @@ async function publicarEnCanal(supabase, msg) {
   }
 }
 
-export async function enviarMensaje(supabase, { user, sucursal, canal, texto, destinatario }) {
+export async function enviarMensaje(supabase, { user, sucursal, canal, texto, destinatario, turnoEtiqueta }) {
   const cuerpo = String(texto || '').trim();
   if (!cuerpo) return { ok: false, error: 'Escribe un mensaje.' };
   if (cuerpo.length > MAX_TEXTO) return { ok: false, error: `Máximo ${MAX_TEXTO} caracteres.` };
@@ -256,6 +291,7 @@ export async function enviarMensaje(supabase, { user, sucursal, canal, texto, de
   const msg = armarFila(user, sucursal, canal, cuerpo, {
     destinatario_id: destinatario?.id || null,
     destinatario_nombre: destinatario?.nombre || null,
+    turno_nombre: turnoEtiqueta || null,
   });
   const cache = leerCache();
   escribirCache({ mensajes: fusionarMensajes(cache.mensajes, [msg]), leidos: cache.leidos });
@@ -368,9 +404,9 @@ function tituloSucursalCorto(codigo) {
 export function listarCanales({ user, sucursal, mensajes = [], directosExtra = [] }) {
   const mia = sucursalDeSesionChat(user, sucursal);
   const todos = puedeVerTodosLosChats(user);
-  const tecnico = esRolTecnico(user);
+  const atiende = atiendeSoporte(user);
   const tiendas = todos ? listarSucursales() : [mia];
-  const soportes = todos || tecnico ? listarSucursales() : [mia];
+  const soportes = todos || atiende ? listarSucursales() : [mia];
   const canales = [
     {
       id: CANAL_GRUPO,
@@ -395,9 +431,9 @@ export function listarCanales({ user, sucursal, mensajes = [], directosExtra = [
     canales.push({
       id: canalSoporte(codigo),
       tipo: 'soporte',
-      seccion: 'Soporte técnico',
-      titulo: soportes.length > 1 ? `Soporte ${normalizarCodigoTienda(codigo)}` : 'Soporte técnico',
-      subtitulo: 'El técnico y el admin principal',
+      seccion: 'Soporte',
+      titulo: soportes.length > 1 ? `Soporte ${normalizarCodigoTienda(codigo)}` : 'Soporte',
+      subtitulo: 'Lo atienden los administradores',
       sucursal: codigo,
     });
   }
@@ -499,4 +535,117 @@ export function etiquetaDiaMensaje(iso) {
 
 export function leerMensajesLocales(user, sucursal) {
   return leerCache().mensajes.filter((m) => puedeVerCanal(user, sucursal, m.canal));
+}
+
+function leerSolicitudesCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_SOLICITUDES) || '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function escribirSolicitudesCache(mapa) {
+  localStorage.setItem(LS_SOLICITUDES, JSON.stringify(mapa || {}));
+  window.dispatchEvent(new CustomEvent(EVENTO_SOPORTE));
+}
+
+function solicitudVisible(user, sucursal, sol) {
+  return Boolean(sol?.canal) && puedeVerCanal(user, sucursal, sol.canal);
+}
+
+export function leerSolicitudesLocales(user, sucursal) {
+  const mapa = leerSolicitudesCache();
+  return Object.values(mapa).filter((sol) => solicitudVisible(user, sucursal, sol));
+}
+
+function guardarSolicitud(sol) {
+  const mapa = leerSolicitudesCache();
+  mapa[sol.canal] = sol;
+  escribirSolicitudesCache(mapa);
+  return sol;
+}
+
+async function subirSolicitud(supabase, sol) {
+  if (!supabase || tablaSolicitudes === false) return;
+  const { error } = await supabase.from('pos_soporte_solicitudes').upsert({
+    canal: sol.canal,
+    sucursal_id: sol.sucursal_id,
+    estado: sol.estado,
+    texto: sol.texto,
+    solicitante_nombre: sol.solicitante_nombre,
+    solicitante_turno: sol.solicitante_turno,
+    resuelta_por: sol.resuelta_por,
+    resuelta_at: sol.resuelta_at,
+    updated_at: sol.updated_at,
+  }, { onConflict: 'canal' });
+  if (error && tablaFalta(error)) tablaSolicitudes = false;
+  else if (!error) tablaSolicitudes = true;
+}
+
+export async function sincronizarSolicitudes(supabase, { user, sucursal }) {
+  const mapa = { ...leerSolicitudesCache() };
+  if (supabase && tablaSolicitudes !== false) {
+    let q = supabase.from('pos_soporte_solicitudes').select('*');
+    if (!atiendeSoporte(user) && !puedeVerTodosLosChats(user)) {
+      q = q.eq('canal', canalSoporte(sucursalDeSesionChat(user, sucursal)));
+    }
+    const { data, error } = await q;
+    if (error) {
+      if (tablaFalta(error)) tablaSolicitudes = false;
+    } else {
+      tablaSolicitudes = true;
+      for (const row of data || []) {
+        if (!row?.canal || !solicitudVisible(user, sucursal, row)) continue;
+        const prev = mapa[row.canal];
+        if (!prev || String(row.updated_at || '') >= String(prev.updated_at || '')) mapa[row.canal] = row;
+      }
+      escribirSolicitudesCache(mapa);
+    }
+  }
+  return Object.values(mapa).filter((sol) => solicitudVisible(user, sucursal, sol));
+}
+
+export async function abrirSolicitudSoporte(supabase, { user, sucursal, canal, texto }) {
+  if (!String(canal || '').startsWith('soporte__') || !abreSolicitudSoporte(user)) return null;
+  const turno = turnoParaMensaje(user, sucursal);
+  const sol = guardarSolicitud({
+    canal,
+    sucursal_id: canal.slice('soporte__'.length),
+    estado: 'abierta',
+    texto: String(texto || '').trim().slice(0, 280),
+    solicitante_nombre: String(user?.nombre || 'Sucursal').trim(),
+    solicitante_turno: turno.turno_nombre,
+    resuelta_por: null,
+    resuelta_at: null,
+    updated_at: new Date().toISOString(),
+  });
+  await subirSolicitud(supabase, sol);
+  return sol;
+}
+
+export async function cambiarEstadoSolicitud(supabase, { user, sucursal, canal, estado }) {
+  if (!puedeResolverSoporte(user)) return { ok: false, error: 'Solo un administrador puede resolver la solicitud.' };
+  if (!puedeVerCanal(user, sucursal, canal)) return { ok: false, error: 'No tienes acceso a este soporte.' };
+  const previa = leerSolicitudesCache()[canal] || {};
+  const resuelta = estado === 'resuelta';
+  const sol = guardarSolicitud({
+    ...previa,
+    canal,
+    sucursal_id: previa.sucursal_id || canal.slice('soporte__'.length),
+    estado: resuelta ? 'resuelta' : 'abierta',
+    texto: previa.texto || '',
+    solicitante_nombre: previa.solicitante_nombre || '',
+    solicitante_turno: previa.solicitante_turno || '',
+    resuelta_por: resuelta ? String(user?.nombre || 'Administrador') : null,
+    resuelta_at: resuelta ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  });
+  await subirSolicitud(supabase, sol);
+  const nota = resuelta
+    ? 'Marqué esta solicitud como resuelta.'
+    : 'Reabrí la solicitud. Sigue pendiente de un administrador.';
+  const envio = await enviarMensaje(supabase, { user, sucursal, canal, texto: nota, turnoEtiqueta: 'Administrador' });
+  return { ok: true, solicitud: sol, aviso: envio.aviso || '' };
 }

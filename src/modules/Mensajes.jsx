@@ -4,26 +4,37 @@ import { useMobileLayout } from '../hooks/useMobileLayout.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   EVENTO_MENSAJES,
+  EVENTO_SOPORTE,
+  USUARIO_BOT,
+  abreSolicitudSoporte,
+  abrirSolicitudSoporte,
+  atiendeSoporte,
+  cambiarEstadoSolicitud,
   canalDirecto,
   canalSucursal,
   cargarMensajes,
   enviarMensaje,
+  esBotSoporte,
   etiquetaDiaMensaje,
   formatearHoraMensaje,
   idChatUsuario,
   claveDiaMensaje,
   leerMensajesLocales,
+  leerSolicitudesLocales,
   listarCanales,
   listarCompaneros,
   marcarCanalLeido,
   mensajesNoLeidos,
   esRolTecnico,
+  puedeResolverSoporte,
   puedeVerTodosLosChats,
+  sincronizarSolicitudes,
   sucursalDeSesionChat,
   suscribirCanales,
   turnoParaMensaje,
   ultimoMensaje,
 } from '../lib/mensajeria.js';
+import { responderDuda } from '../lib/soporteBot.js';
 
 const COLORES = ['#3b66b5', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#3f6212'];
 
@@ -69,6 +80,9 @@ export default function Mensajes({ supabase, sucursal, user }) {
   const [cargandoGente, setCargandoGente] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [verLista, setVerLista] = useState(true);
+  const [solicitudes, setSolicitudes] = useState([]);
+  const [cerrando, setCerrando] = useState(false);
+  const resuelve = puedeResolverSoporte(user);
   const hiloRef = useRef(null);
   const cajaRef = useRef(null);
 
@@ -106,6 +120,25 @@ export default function Mensajes({ supabase, sucursal, user }) {
     return () => {
       vivo = false;
       window.removeEventListener(EVENTO_MENSAJES, alLocal);
+      window.clearInterval(timer);
+    };
+  }, [supabase, user, sucursal]);
+
+  useEffect(() => {
+    let vivo = true;
+    const cargarSol = async () => {
+      const lista = await sincronizarSolicitudes(supabase, { user, sucursal });
+      if (vivo) setSolicitudes(lista);
+    };
+    cargarSol();
+    const alLocal = () => {
+      if (vivo) setSolicitudes(leerSolicitudesLocales(user, sucursal));
+    };
+    window.addEventListener(EVENTO_SOPORTE, alLocal);
+    const timer = window.setInterval(cargarSol, 8000);
+    return () => {
+      vivo = false;
+      window.removeEventListener(EVENTO_SOPORTE, alLocal);
       window.clearInterval(timer);
     };
   }, [supabase, user, sucursal]);
@@ -191,8 +224,34 @@ export default function Mensajes({ supabase, sucursal, user }) {
       setAviso(res.error || 'No se pudo enviar.');
       return;
     }
+    if (canal.tipo === 'soporte' && abreSolicitudSoporte(user)) {
+      await abrirSolicitudSoporte(supabase, { user, sucursal, canal: canal.id, texto: cuerpo });
+      const guia = responderDuda(cuerpo);
+      await enviarMensaje(supabase, {
+        user: USUARIO_BOT,
+        sucursal,
+        canal: canal.id,
+        texto: guia.texto,
+        turnoEtiqueta: 'Ayuda',
+      });
+      setSolicitudes(leerSolicitudesLocales(user, sucursal));
+    }
     setMensajes(leerMensajesLocales(user, sucursal));
     if (res.aviso) setAviso(res.aviso);
+  };
+
+  const cambiarSolicitud = async (estado) => {
+    if (!canal || cerrando) return;
+    setCerrando(true);
+    const r = await cambiarEstadoSolicitud(supabase, { user, sucursal, canal: canal.id, estado });
+    setCerrando(false);
+    if (!r.ok) {
+      setAviso(r.error || 'No se pudo actualizar la solicitud.');
+      return;
+    }
+    setMensajes(leerMensajesLocales(user, sucursal));
+    setSolicitudes(leerSolicitudesLocales(user, sucursal));
+    if (r.aviso) setAviso(r.aviso);
   };
 
   const onTecla = (e) => {
@@ -217,6 +276,23 @@ export default function Mensajes({ supabase, sucursal, user }) {
     }
     grupo.items.push(c);
   }
+  for (const sec of secciones) {
+    if (sec.nombre !== 'Soporte') continue;
+    sec.items.sort((a, b) => {
+      const ea = solicitudes.find((s) => s.canal === a.id)?.estado === 'abierta' ? 0 : 1;
+      const eb = solicitudes.find((s) => s.canal === b.id)?.estado === 'abierta' ? 0 : 1;
+      return ea - eb || a.titulo.localeCompare(b.titulo, 'es');
+    });
+  }
+
+  const resumenLista = veTodos
+    ? 'Ves todos los chats de la cadena.'
+    : resuelve
+      ? 'Atiendes el soporte de todas las sucursales.'
+      : atiendeSoporte(user)
+        ? 'Ves el soporte de todas las sucursales.'
+        : 'Tu sucursal, el grupo y soporte.';
+  const solicitudActual = solicitudes.find((s) => s.canal === canal?.id) || null;
 
   let diaAnterior = '';
 
@@ -226,7 +302,7 @@ export default function Mensajes({ supabase, sucursal, user }) {
         <div className="msg-lista-head">
           <div>
             <strong>Chats</strong>
-            <p>{veTodos ? 'Ves todos los chats de la cadena.' : 'Tu sucursal, el grupo y soporte.'}</p>
+            <p>{resumenLista}</p>
           </div>
           <button type="button" className="btn btn-primary msg-btn-nuevo" onClick={abrirPicker}>
             <Icon name="plus" size={16} />
@@ -264,7 +340,14 @@ export default function Mensajes({ supabase, sucursal, user }) {
                       <span className="msg-canal-titulo">{c.titulo}</span>
                       <span className="msg-canal-preview">{last ? last.texto : c.subtitulo}</span>
                     </span>
-                    {unread > 0 && <span className="msg-badge">{unread > 9 ? '9+' : unread}</span>}
+                    <span className="msg-canal-lado">
+                      {c.tipo === 'soporte' && solicitudes.some((s) => s.canal === c.id) && (
+                        <span className={`msg-pill${solicitudes.find((s) => s.canal === c.id)?.estado === 'resuelta' ? ' is-ok' : ' is-open'}`}>
+                          {solicitudes.find((s) => s.canal === c.id)?.estado === 'resuelta' ? 'Resuelta' : 'Abierta'}
+                        </span>
+                      )}
+                      {unread > 0 && <span className="msg-badge">{unread > 9 ? '9+' : unread}</span>}
+                    </span>
                   </button>
                 );
               })}
@@ -281,38 +364,62 @@ export default function Mensajes({ supabase, sucursal, user }) {
                 <Icon name="chevronRight" size={18} style={{ transform: 'rotate(180deg)' }} />
               </button>
             )}
-            <div>
+            <div className="msg-hilo-texto">
               <h3>{canal.titulo}</h3>
               <p>
                 {canal.tipo === 'sucursal' && 'Los mensajes salen con tu nombre y el turno en el que entraste.'}
                 {canal.tipo === 'grupo' && 'Lo ven todas las sucursales.'}
-                {canal.tipo === 'soporte' && 'Lo ven esta sucursal, el técnico y el administrador principal.'}
+                {canal.tipo === 'soporte' && 'El asistente contesta las dudas del POS. Los administradores marcan la solicitud resuelta.'}
                 {canal.tipo === 'directo' && 'Solo ustedes dos. El administrador principal también puede abrirlo.'}
               </p>
             </div>
+            {canal.tipo === 'soporte' && solicitudActual && (
+              <div className="msg-soporte-acciones">
+                <span className={`msg-pill${solicitudActual.estado === 'resuelta' ? ' is-ok' : ' is-open'}`}>
+                  {solicitudActual.estado === 'resuelta'
+                    ? `Resuelta${solicitudActual.resuelta_por ? ` · ${solicitudActual.resuelta_por}` : ''}`
+                    : 'Abierta'}
+                </span>
+                {resuelve && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost msg-btn-resolver"
+                    disabled={cerrando}
+                    onClick={() => cambiarSolicitud(solicitudActual.estado === 'resuelta' ? 'abierta' : 'resuelta')}
+                  >
+                    {solicitudActual.estado === 'resuelta' ? 'Reabrir' : 'Marcar resuelta'}
+                  </button>
+                )}
+              </div>
+            )}
           </header>
         )}
         {aviso && <div className="msg-aviso" role="status">{aviso}</div>}
         <div className="msg-burbujas" ref={hiloRef}>
           {cargando && <p className="msg-vacio">Cargando mensajes…</p>}
           {!cargando && delHilo.length === 0 && (
-            <p className="msg-vacio">Todavía no hay mensajes en este chat. Escribe abajo para empezar.</p>
+            <p className="msg-vacio">
+              {canal?.tipo === 'soporte'
+                ? 'Escribe la duda. El asistente responde y la solicitud queda abierta para un administrador.'
+                : 'Todavía no hay mensajes en este chat. Escribe abajo para empezar.'}
+            </p>
           )}
           {delHilo.map((m) => {
             const dia = claveDiaMensaje(m.created_at);
             const separador = dia !== diaAnterior;
             diaAnterior = dia;
             const mio = m.autor_id === yo;
+            const bot = esBotSoporte({ id: m.autor_id });
             return (
               <React.Fragment key={m.id}>
                 {separador && <div className="msg-dia">{etiquetaDiaMensaje(m.created_at)}</div>}
-                <article className={`msg-burbuja${mio ? ' es-mia' : ''}`}>
+                <article className={`msg-burbuja${mio ? ' es-mia' : ''}${bot ? ' msg-burbuja--bot' : ''}`}>
                   {!mio && <Avatar nombre={m.autor_nombre} />}
                   <div className="msg-burbuja-cuerpo">
                     <header>
                       <strong>{mio ? 'Tú' : m.autor_nombre}</strong>
                       <span className="msg-turno">{m.turno_nombre || 'Turno'}</span>
-                      <span className="msg-meta">{m.autor_rol} · {etiquetaTienda(m.autor_sucursal)}</span>
+                      <span className="msg-meta">{bot ? 'Asistente del POS' : `${m.autor_rol} · ${etiquetaTienda(m.autor_sucursal)}`}</span>
                     </header>
                     <p>{m.texto}</p>
                     <footer>
