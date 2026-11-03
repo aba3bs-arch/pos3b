@@ -131,7 +131,7 @@ import {
   otorgarExtensionSesionTurno,
 } from './lib/extensionSesionTurno.js';
 import {
-  estadoSolicitudExtensionEmpleado,
+  resolverAccesoExtendido,
   solicitarExtensionTurno,
 } from './lib/solicitudExtensionTurno.js';
 import BrandLogo from './components/BrandLogo.jsx';
@@ -617,20 +617,33 @@ function App() {
 
   useEffect(() => {
     if (!sesion || !user) return undefined;
-    const vigilarTurno = () => {
-      if (esUsuarioCubreTurno(user)) return;
+    let cancelado = false;
+    const vigilarTurno = async () => {
+      if (cancelado || esUsuarioCubreTurno(user)) return;
       if (avisoExtensionTurno) return;
-      const auth = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
-      if (!auth.ok) {
+      let auth = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
+      if (!auth.ok && supabase && user?.id) {
+        try {
+          const sync = await resolverAccesoExtendido(supabase, user.id, sucursal);
+          if (cancelado) return;
+          if (sync.vigente) auth = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
+        } catch {
+          /* si la nube no responde, se muestra el aviso de turno */
+        }
+      }
+      if (!auth.ok && !cancelado) {
         setAvisoExtensionTurno({
           turnoId: turnoIdParaUsuario(user) || null,
         });
       }
     };
-    vigilarTurno();
-    const id = setInterval(vigilarTurno, 60_000);
-    return () => clearInterval(id);
-  }, [sesion, user, sucursal, avisoExtensionTurno]);
+    void vigilarTurno();
+    const id = setInterval(() => void vigilarTurno(), 60_000);
+    return () => {
+      cancelado = true;
+      clearInterval(id);
+    };
+  }, [sesion, user, sucursal, supabase, avisoExtensionTurno]);
 
   useEffect(() => {
     guardarSucursalLocal(sucursal);
@@ -1056,21 +1069,25 @@ function App() {
       } catch {
         /* no bloquear login */
       }
-      // Autorización remota del panel admin (nube) → local.
+      // Autorización remota (nube, reloj de Postgres) → este equipo.
+      let accesoNube = false;
       try {
-        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import('./lib/autorizacionTurnoFueraHorario.js');
-        await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, data.id, sucursal);
+        const sync = await resolverAccesoExtendido(supabase, data.id, sucursal);
+        accesoNube = Boolean(sync.vigente);
       } catch {
         /* tabla opcional */
       }
       const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
-      if (!accesoTurno.ok) {
+      if (!accesoTurno.ok && !accesoNube) {
         setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal });
         setPendienteAutorizacionDispositivo(null);
         setPin('');
         return;
       }
-      await completarLogin(data, { ajustarSucursal, autorizacionAdmin: Boolean(accesoTurno.autorizacionAdmin) });
+      await completarLogin(data, {
+        ajustarSucursal,
+        autorizacionAdmin: Boolean(accesoTurno.autorizacionAdmin || accesoNube),
+      });
       return;
     }
 
@@ -1129,19 +1146,20 @@ function App() {
       } catch {
         /* no bloquear */
       }
+      let accesoNube = false;
       try {
-        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import('./lib/autorizacionTurnoFueraHorario.js');
-        await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, data.id, sucursal);
+        const sync = await resolverAccesoExtendido(supabase, data.id, sucursal);
+        accesoNube = Boolean(sync.vigente);
       } catch {
         /* opcional */
       }
       const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
-      if (!accesoTurno.ok) {
+      if (!accesoTurno.ok && !accesoNube) {
         setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal: false });
         setPendienteAutorizacionDispositivo(null);
         return;
       }
-      await completarLogin(data, { autorizacionAdmin: Boolean(accesoTurno.autorizacionAdmin) });
+      await completarLogin(data, { autorizacionAdmin: Boolean(accesoTurno.autorizacionAdmin || accesoNube) });
     } finally {
       setBiometriaCargando(false);
     }
@@ -1267,24 +1285,17 @@ function App() {
 
     const tick = async () => {
       try {
-        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import(
-          './lib/autorizacionTurnoFueraHorario.js'
-        );
-        const sync = await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, uid, sucursal);
+        const sync = await resolverAccesoExtendido(supabase, uid, sucursal);
         if (cancelado) return;
         if (sync.vigente) {
-          setEsperandoAprobacionTiempo(false);
-          setPendienteAutorizacionTurno(null);
           await completarLogin(userPend, { ajustarSucursal: ajustar, autorizacionAdmin: true });
           return;
         }
-        const st = await estadoSolicitudExtensionEmpleado(supabase, { usuarioId: uid, sucursal });
-        if (cancelado) return;
-        if (st.data?.estado === 'rechazada') {
+        if (sync.estadoSolicitud === 'rechazada') {
           setEsperandoAprobacionTiempo(false);
           alert(
-            st.data.motivo_rechazo
-              ? `Solicitud rechazada: ${st.data.motivo_rechazo}`
+            sync.motivoRechazo
+              ? `Solicitud rechazada: ${sync.motivoRechazo}`
               : 'El administrador rechazó la solicitud de más tiempo.',
           );
         }
@@ -1313,10 +1324,7 @@ function App() {
     let cancelado = false;
     const tick = async () => {
       try {
-        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import(
-          './lib/autorizacionTurnoFueraHorario.js'
-        );
-        const sync = await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, user.id, sucursal);
+        const sync = await resolverAccesoExtendido(supabase, user.id, sucursal);
         if (cancelado) return;
         if (sync.vigente) {
           limpiarExtensionSesionTurno(user.id, sucursal);
@@ -1324,16 +1332,11 @@ function App() {
           setEsperandoAprobacionSesion(false);
           return;
         }
-        const st = await estadoSolicitudExtensionEmpleado(supabase, {
-          usuarioId: user.id,
-          sucursal,
-        });
-        if (cancelado) return;
-        if (st.data?.estado === 'rechazada') {
+        if (sync.estadoSolicitud === 'rechazada') {
           setEsperandoAprobacionSesion(false);
           alert(
-            st.data.motivo_rechazo
-              ? `Solicitud rechazada: ${st.data.motivo_rechazo}`
+            sync.motivoRechazo
+              ? `Solicitud rechazada: ${sync.motivoRechazo}`
               : 'El administrador rechazó la solicitud de más tiempo.',
           );
         }

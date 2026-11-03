@@ -14,6 +14,7 @@ import {
   otorgarAutorizacionFueraHorario,
   verificarPinAdministradorGlobal,
 } from '../lib/autorizacionTurnoFueraHorario.js';
+import { resolverAccesoExtendido } from '../lib/solicitudExtensionTurno.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
@@ -474,6 +475,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         setEmpleado(null);
         setPinEmpleado('');
         return;
+      }
+      try {
+        await resolverAccesoExtendido(supabase, data.id, sucursal);
+      } catch {
+        /* la autorización en nube es opcional si el reloj ya está en horario */
       }
       const accesoTurno = usuarioAutorizadoChecador(data, new Date(), null, sucursal);
       if (!accesoTurno.ok) {
