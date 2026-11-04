@@ -290,18 +290,6 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veT
                 </div>
               </header>
               <CalendarioEmpleado semanas={f.calendario} esCubreTurno={f.esCubreTurno} motivos={f.motivosSinJornada} />
-              {!f.esCubreTurno && f.diasFaltaYmd?.length > 0 && (
-                <ul className="rda-motivos" style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem', fontSize: '0.78rem', color: 'var(--brand-red)' }}>
-                  {f.diasFaltaYmd.map((d) => {
-                    const [, m, day] = d.split('-');
-                    return (
-                      <li key={d}>
-                        Falta {Number(day)}/{Number(m)}: {(f.motivosSinJornada?.[d] || []).join('; ')}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
               {f.diasTrabajadosYmd?.length > 0 ? (
                 <p className="rda-fechas muted">
                   Trabajó:{' '}
@@ -322,7 +310,7 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veT
                     {f.checadas.map((c) => {
                       const [, m, day] = c.ymd.split('-');
                       return (
-                        <li key={c.id} style={c.sinPareja ? { color: 'var(--brand-red)' } : undefined}>
+                        <li key={c.id}>
                           {Number(day)}/{Number(m)} {c.hora} · {c.tipo} · {c.estado}
                         </li>
                       );
