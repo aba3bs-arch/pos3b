@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
 import { desgloseCorte, totalesCortes } from '../lib/consultasCortes.js';
+import { ajustarRango, coincideBusqueda, ymdHaceDias, ymdLocal } from '../lib/consultasFiltros.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, pareceFolioInventarioConsulta, rangoDesdePreset } from '../lib/consultasInventario.js';
@@ -55,11 +56,11 @@ const TITULOS = {
 };
 
 function hoyYmd() {
-  return new Date().toISOString().slice(0, 10);
+  return ymdLocal();
 }
 
 function haceDiasYmd(n) {
-  return new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+  return ymdHaceDias(n);
 }
 
 function Avatar({ nombre, color }) {
@@ -369,15 +370,14 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     if (sucursal && !filtroSucursal) setFiltroSucursal(sucursal);
   }, [sucursal]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const qNorm = q.trim().toLowerCase();
+  const qNorm = q.trim();
 
   const ventasFiltradas = useMemo(() => {
     if (!qNorm) return ventas;
     return ventas.filter((v) => {
       const folio = folioNumerico(v.id, 5);
       const arts = articulosDeVenta(v).map((a) => `${a.id} ${a.nombre}`).join(' ');
-      const blob = `${folio} ${v.id} ${v.vendedor || ''} ${arts} ${v.metodo_pago || ''}`.toLowerCase();
-      return blob.includes(qNorm);
+      return coincideBusqueda(`${folio} ${v.id} ${v.vendedor || ''} ${arts} ${v.metodo_pago || ''}`, qNorm);
     });
   }, [ventas, qNorm]);
 
@@ -393,7 +393,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     return reporteArticulo.filas.filter((r) => {
       if (depto && normalizarDepartamento(r.departamento) !== depto) return false;
       if (!qNorm) return true;
-      return `${r.id} ${r.nombre} ${r.departamento}`.toLowerCase().includes(qNorm);
+      return coincideBusqueda(`${r.id} ${r.nombre} ${r.departamento}`, qNorm);
     });
   }, [reporteArticulo.filas, qNorm, filtroDepto]);
 
@@ -439,7 +439,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       const folio = folioNumerico(c.id, 5);
       const prov = c.proveedores?.nombre || '';
       const items = [...(c.items || []), ...(c.items_pedido || [])].map((i) => `${i.id} ${i.nombre}`).join(' ');
-      return `${folio} ${c.id} ${prov} ${items} ${c.notas || ''}`.toLowerCase().includes(qNorm);
+      return coincideBusqueda(`${folio} ${c.id} ${prov} ${items} ${c.notas || ''}`, qNorm);
     });
   }, [compras, qNorm]);
 
@@ -447,11 +447,21 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     return (docsInv || []).filter((d) => {
       if (!coincideOperacionInventario(d, filtroOperacionInv)) return false;
       if (!qNorm) return true;
-      return `${d.label} ${d.usuario} ${d.folio} ${d.titulo} ${d.ruta || ''} ${d.traspaso_origen || ''} ${d.traspaso_destino || ''}`
-        .toLowerCase()
-        .includes(qNorm);
+      return coincideBusqueda(
+        `${d.label} ${d.usuario} ${d.folio} ${d.titulo} ${d.ruta || ''} ${d.traspaso_origen || ''} ${d.traspaso_destino || ''}`,
+        qNorm,
+      );
     });
   }, [docsInv, qNorm, filtroOperacionInv]);
+
+  const cambiarFecha = useCallback(
+    (cual, valor) => {
+      const r = ajustarRango({ desde, hasta }, cual, valor);
+      if (r.desde !== desde) setDesde(r.desde);
+      if (r.hasta !== hasta) setHasta(r.hasta);
+    },
+    [desde, hasta],
+  );
 
   const aplicarPresetInv = useCallback((preset) => {
     setPresetInv(preset);
@@ -499,8 +509,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const cortesFiltrados = useMemo(() => {
     if (!qNorm) return cortes;
     return cortes.filter((c) => {
-      const blob = `${c.usuario || ''} ${c.turno_nombre || ''} ${c.sucursal || c.sucursal_id || ''} ${c.fecha || ''} ${c.tipoCaja || ''} ${c.folio_abarrotes || ''} abarrotes tarjeta`.toLowerCase();
-      return blob.includes(qNorm);
+      const etiquetaTipo = c.tipoCaja === 'abarrotes_tarjeta' ? 'abarrotes tarjeta' : '';
+      return coincideBusqueda(
+        `${c.usuario || ''} ${c.turno_nombre || ''} ${c.sucursal || c.sucursal_id || ''} ${c.fecha || ''} ${c.tipoCaja || ''} ${c.folio_abarrotes || ''} ${etiquetaTipo}`,
+        qNorm,
+      );
     });
   }, [cortes, qNorm]);
 
@@ -508,7 +521,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const saldosFiltrados = useMemo(() => {
     if (!qNorm) return saldos;
-    return saldos.filter((s) => `${s.nombreCaja} ${s.turno_id}`.toLowerCase().includes(qNorm));
+    return saldos.filter((s) => coincideBusqueda(`${s.nombreCaja} ${s.turno_id}`, qNorm));
   }, [saldos, qNorm]);
 
   useEffect(() => {
@@ -981,11 +994,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     <>
                       <label className="consultas-chip" title="Desde">
                         📅
-                        <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                        <input type="date" value={desde} onChange={(e) => cambiarFecha('desde', e.target.value)} />
                       </label>
                       <label className="consultas-chip" title="Hasta">
                         →
-                        <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+                        <input type="date" value={hasta} onChange={(e) => cambiarFecha('hasta', e.target.value)} />
                       </label>
                     </>
                   ) : (
@@ -999,11 +1012,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   <>
                     <label className="consultas-chip" title="Desde">
                       📅
-                      <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                      <input type="date" value={desde} onChange={(e) => cambiarFecha('desde', e.target.value)} />
                     </label>
                     <label className="consultas-chip" title="Hasta">
                       →
-                      <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+                      <input type="date" value={hasta} onChange={(e) => cambiarFecha('hasta', e.target.value)} />
                     </label>
                   </>
                 )
@@ -1251,7 +1264,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   <EmptyState texto="Sin operaciones en el rango (ingresos, ajustes, retiros, traspasos, cancelaciones)." />
                 ) : (
                   <>
-                    <p className="muted" style={{ margin: '0 0 0.35rem', fontSize: '0.8rem' }}>
+                    <p className="muted consultas-hint-desktop" style={{ margin: '0 0 0.35rem', fontSize: '0.8rem' }}>
                       Para inventario semanal: elige la tienda (no «Todas»), periodo Semana/rango, y abre cada ingreso.
                       Si no aparece un folio, pégalo arriba y pulsa Enter. (Las ventas van en Ventas.)
                     </p>
