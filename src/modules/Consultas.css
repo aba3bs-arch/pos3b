@@ -693,3 +693,258 @@
   border-top: 2px solid #cbd5e1;
   color: #0f172a;
 }
+
+/* Celular: el listado manda; menú y filtros ocupan poco y la página hace scroll completo. */
+@media (max-width: 900px) {
+  .consultas-shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .consultas-side {
+    position: static;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.35rem;
+    height: auto;
+    padding: 0.4rem 0.5rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-radius: 12px 12px 0 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .consultas-side::-webkit-scrollbar {
+    display: none;
+  }
+
+  .consultas-side-btn {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    gap: 0.35rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .consultas-main {
+    height: auto;
+    overflow: visible;
+  }
+
+  .consultas-topbar {
+    position: static;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.92rem;
+  }
+
+  .consultas-toolbar {
+    gap: 0.4rem;
+    padding: 0.5rem 0.6rem;
+  }
+
+  .consultas-search {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.35rem 0.7rem;
+  }
+
+  .consultas-search input {
+    min-width: 0;
+    font-size: 0.85rem;
+  }
+
+  .consultas-icon-btn {
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 auto;
+  }
+
+  .consultas-chip {
+    flex: 1 1 calc(50% - 0.4rem);
+    min-width: 0;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.76rem;
+  }
+
+  .consultas-chip select,
+  .consultas-chip input[type='date'] {
+    min-width: 0;
+    flex: 1 1 auto;
+    max-width: 100%;
+    font-size: 0.78rem;
+  }
+
+  .consultas-filters-row {
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    overflow-x: auto;
+  }
+
+  .consultas-filters-row select {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.4rem;
+  }
+
+  .consultas-aviso {
+    margin: 0 0.6rem 0.4rem;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.72rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .consultas-body {
+    flex: none;
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .consultas-table thead th {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.7rem;
+    position: static;
+  }
+
+  .consultas-table tbody td {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.82rem;
+  }
+
+  .consultas-table tfoot td {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.82rem;
+    position: static;
+  }
+
+  .consultas-avatar {
+    width: 1.6rem;
+    height: 1.6rem;
+    font-size: 0.64rem;
+  }
+
+  .consultas-empty {
+    min-height: 160px;
+    padding: 1rem;
+  }
+
+  .consultas-detail {
+    max-height: none;
+  }
+
+  .consultas-inv-meta {
+    padding: 0.55rem 0.7rem;
+    gap: 0.5rem;
+  }
+
+  .consultas-inv-detalle {
+    flex: none;
+  }
+
+  .consultas-totales-cortes {
+    gap: 0.35rem;
+    padding: 0.5rem 0.6rem 0.2rem;
+  }
+
+  .consultas-total-pill {
+    flex: 1 1 calc(50% - 0.35rem);
+    min-width: 0;
+    padding: 0.3rem 0.55rem;
+  }
+
+  .consultas-total-pill strong {
+    font-size: 0.92rem;
+  }
+
+  .consultas-saldos {
+    padding: 0.5rem 0.6rem 0.9rem;
+  }
+
+  .consultas-saldo-card {
+    padding: 0.7rem 0.8rem;
+    flex-wrap: wrap;
+  }
+
+  .consultas-hint-desktop {
+    display: none;
+  }
+
+  .consultas-search {
+    flex: 1 1 calc(100% - 2.6rem);
+  }
+
+  .consultas-aviso {
+    -webkit-line-clamp: 1;
+  }
+
+  .consultas-folio {
+    font-size: 0.8rem;
+    line-height: 1.25;
+  }
+
+  .consultas-folio small {
+    display: block;
+    font-size: 0.74rem;
+  }
+
+  .consultas-table tbody td .consultas-money,
+  .consultas-table tbody td {
+    white-space: normal;
+  }
+
+  .consultas-table tbody td,
+  .consultas-table thead th {
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+  }
+
+  .consultas-money-zero,
+  .consultas-money-pos,
+  .consultas-money-neg {
+    font-size: 0.74rem;
+  }
+
+  .consultas-folio {
+    font-size: 0.76rem;
+  }
+
+  .consultas-inv-meta > .consultas-avatar,
+  .consultas-inv-meta .consultas-pager--light {
+    display: none;
+  }
+
+  .consultas-inv-meta > div:first-of-type {
+    flex: 1 1 100%;
+  }
+
+  .consultas-inv-fecha {
+    font-size: 0.78rem;
+  }
+
+  .consultas-inv-detalle .consultas-table {
+    min-width: 600px;
+  }
+
+  .consultas-inv-detalle .consultas-table td:first-child {
+    min-width: 150px;
+  }
+
+  .consultas-inv-detalle .consultas-prod-cell .producto-thumb {
+    display: none;
+  }
+}
+
