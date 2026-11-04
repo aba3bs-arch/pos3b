@@ -17,6 +17,8 @@ import {
   esBotSoporte,
   etiquetaDiaMensaje,
   formatearHoraMensaje,
+  fusionarMensajes,
+  fusionarSolicitudes,
   idChatUsuario,
   claveDiaMensaje,
   leerMensajesLocales,
@@ -108,7 +110,8 @@ export default function Mensajes({ supabase, sucursal, user }) {
     })();
     const alLocal = () => {
       if (!vivo) return;
-      setMensajes(leerMensajesLocales(user, sucursal));
+      // El disco guarda solo una cola corta. Se suma a lo que ya está en pantalla.
+      setMensajes((prev) => fusionarMensajes(prev, leerMensajesLocales(user, sucursal)));
     };
     window.addEventListener(EVENTO_MENSAJES, alLocal);
     const timer = window.setInterval(async () => {
@@ -132,7 +135,8 @@ export default function Mensajes({ supabase, sucursal, user }) {
     };
     cargarSol();
     const alLocal = () => {
-      if (vivo) setSolicitudes(leerSolicitudesLocales(user, sucursal));
+      if (!vivo) return;
+      setSolicitudes((prev) => fusionarSolicitudes(prev, leerSolicitudesLocales(user, sucursal)));
     };
     window.addEventListener(EVENTO_SOPORTE, alLocal);
     const timer = window.setInterval(cargarSol, 8000);
@@ -224,19 +228,24 @@ export default function Mensajes({ supabase, sucursal, user }) {
       setAviso(res.error || 'No se pudo enviar.');
       return;
     }
+    const extras = res.mensaje ? [res.mensaje] : [];
     if (canal.tipo === 'soporte' && abreSolicitudSoporte(user)) {
-      await abrirSolicitudSoporte(supabase, { user, sucursal, canal: canal.id, texto: cuerpo });
+      const sol = await abrirSolicitudSoporte(supabase, { user, sucursal, canal: canal.id, texto: cuerpo });
       const guia = responderDuda(cuerpo);
-      await enviarMensaje(supabase, {
+      const bot = await enviarMensaje(supabase, {
         user: USUARIO_BOT,
         sucursal,
         canal: canal.id,
         texto: guia.texto,
         turnoEtiqueta: 'Ayuda',
       });
-      setSolicitudes(leerSolicitudesLocales(user, sucursal));
+      if (bot?.mensaje) extras.push(bot.mensaje);
+      setSolicitudes((prev) => fusionarSolicitudes(
+        prev,
+        [...leerSolicitudesLocales(user, sucursal), sol].filter(Boolean),
+      ));
     }
-    setMensajes(leerMensajesLocales(user, sucursal));
+    setMensajes((prev) => fusionarMensajes(prev, [...leerMensajesLocales(user, sucursal), ...extras]));
     if (res.aviso) setAviso(res.aviso);
   };
 
@@ -249,8 +258,14 @@ export default function Mensajes({ supabase, sucursal, user }) {
       setAviso(r.error || 'No se pudo actualizar la solicitud.');
       return;
     }
-    setMensajes(leerMensajesLocales(user, sucursal));
-    setSolicitudes(leerSolicitudesLocales(user, sucursal));
+    setMensajes((prev) => fusionarMensajes(prev, [
+      ...leerMensajesLocales(user, sucursal),
+      ...(r.mensaje ? [r.mensaje] : []),
+    ]));
+    setSolicitudes((prev) => fusionarSolicitudes(
+      prev,
+      [...leerSolicitudesLocales(user, sucursal), r.solicitud].filter(Boolean),
+    ));
     if (r.aviso) setAviso(r.aviso);
   };
 
