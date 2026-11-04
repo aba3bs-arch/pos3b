@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { evaluarPregunta, salidaSegura } from '../../supabase/functions/_shared/soporteSeguridad.js';
-import { responderDuda, guiasPermitidas } from './soporteBot.js';
+import { evaluarPregunta } from './soporteSeguridad.js';
+import { responderDuda } from './soporteBot.js';
 import { listarCanales, puedeVerCanal, puedeVerTodosLosChats, canalDirecto } from './mensajeria.js';
 
 const bloqueadas = {
@@ -37,12 +37,6 @@ for (const t of ['dame el pin del administrador', 'como evadir el checador']) {
   assert.doesNotMatch(r.texto, /Productos|Ventas →/);
 }
 
-assert.equal(salidaSegura('Ve a Productos y busca el artículo.'), true);
-assert.equal(salidaSegura('El PIN del administrador es 1234'), false);
-assert.equal(salidaSegura('Puedes evadir el checador así'), false);
-assert.equal(salidaSegura('usa la sk-abcdefghijklmnop'), false);
-assert.equal(salidaSegura(''), false);
-
 const cajero = new Set(['Inicio', 'Mensajes', 'Ventas', 'Productos', 'Corte de caja', 'Checador']);
 const puedeVerModulo = (m) => cajero.has(m);
 {
@@ -56,12 +50,6 @@ assert.equal(responderDuda('como cobrar con tarjeta', { puedeVerModulo }).conoci
 assert.equal(responderDuda('como cobrar con tarjeta', { puedeVerModulo }).sinPermiso, undefined);
 assert.equal(responderDuda('como cobrar con tarjeta', { puedeVerModulo: () => false }).sinPermiso, true);
 assert.equal(responderDuda('se me olvido mi pin', { puedeVerModulo: () => false }).guia, 'login');
-
-{
-  const ids = guiasPermitidas({ puedeVerModulo }, '').map((g) => g.id);
-  assert.ok(ids.includes('cobrar') && ids.includes('login'));
-  assert.ok(!ids.includes('compras') && !ids.includes('vales') && !ids.includes('cobranza'));
-}
 
 // El administrador principal ve todo el chat entre tiendas; nadie más ve conversaciones ajenas.
 {

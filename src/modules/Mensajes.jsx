@@ -36,10 +36,9 @@ import {
   turnoParaMensaje,
   ultimoMensaje,
 } from '../lib/mensajeria.js';
-import { CIERRE_SOLICITUD, guiasPermitidas, responderDuda } from '../lib/soporteBot.js';
-import { responderConIA } from '../lib/soporteIA.js';
+import { responderDuda } from '../lib/soporteBot.js';
 import { auditarPreguntaSoporte } from '../lib/auditoriaUso.js';
-import { MODULOS_ORDEN, puedeVerModulo } from '../lib/roles.js';
+import { puedeVerModulo } from '../lib/roles.js';
 
 const COLORES = ['#3b66b5', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#3f6212'];
 
@@ -250,27 +249,11 @@ export default function Mensajes({ supabase, sucursal, user }) {
     if (canal.tipo === 'soporte' && abreSolicitudSoporte(user)) {
       const sol = await abrirSolicitudSoporte(supabase, { user, sucursal, canal: canal.id, texto: cuerpo });
       const puedeVer = (m) => puedeVerModulo(user.rol, m, user.id);
-      let guia = responderDuda(cuerpo, { puedeVerModulo: puedeVer });
+      const guia = responderDuda(cuerpo, { puedeVerModulo: puedeVer });
       if (guia.bloqueada) {
         auditarPreguntaSoporte(supabase, {
           user, sucursal, pregunta: cuerpo, categoria: guia.categoria, etiqueta: guia.etiqueta,
         });
-      } else if (!guia.sinPermiso && (!guia.conocida || guia.puntos < 4)) {
-        const ia = await responderConIA(supabase, {
-          user,
-          sucursal,
-          pregunta: cuerpo,
-          guias: guiasPermitidas({ puedeVerModulo: puedeVer }, cuerpo),
-          modulos: MODULOS_ORDEN.filter(puedeVer),
-        });
-        if (ia?.bloqueada) {
-          guia = { conocida: false, bloqueada: true, texto: ia.texto };
-          auditarPreguntaSoporte(supabase, {
-            user, sucursal, pregunta: cuerpo, categoria: ia.categoria, etiqueta: 'Detectada por la IA', fuente: 'ia',
-          });
-        } else if (ia) {
-          guia = { conocida: true, texto: `${ia.texto}${CIERRE_SOLICITUD}` };
-        }
       }
       const bot = await enviarMensaje(supabase, {
         user: USUARIO_BOT,

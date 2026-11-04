@@ -5,7 +5,8 @@
  * que reconoce y gana la que más puntos tenga. Si no reconoce nada, nunca responde
  * "no sé": confirma que quedó registrada y ofrece los temas que sí domina.
  */
-import { RESPUESTA_BLOQUEO, evaluarPregunta } from '../../supabase/functions/_shared/soporteSeguridad.js';
+import { RESPUESTA_BLOQUEO, evaluarPregunta } from './soporteSeguridad.js';
+import { GUIAS_MODULOS } from './soporteGuiasAdmin.js';
 
 export function normalizar(s) {
   return String(s || '')
@@ -44,10 +45,15 @@ function palabraCoincide(token, clave) {
   return distancia(token, clave) <= tolerancia;
 }
 
+const PALABRAS_VACIAS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'a', 'al', 'en', 'mi', 'mis', 'que', 'para', 'con', 'por', 'y', 'o', 'se', 'lo', 'le']);
+
+/** Frase: aparece tal cual, o están todas sus palabras (sin artículos) aunque en otro orden. */
 function claveCoincide(texto, toks, clave) {
   const k = normalizar(clave);
-  if (k.includes(' ')) return texto.includes(k);
-  return toks.some((t) => palabraCoincide(t, k));
+  if (!k.includes(' ')) return toks.some((t) => palabraCoincide(t, k));
+  if (texto.includes(k)) return true;
+  const palabras = k.split(' ').filter((w) => !PALABRAS_VACIAS.has(w));
+  return palabras.length >= 2 && palabras.every((w) => toks.some((t) => palabraCoincide(t, w)));
 }
 
 const GUIAS = [
@@ -271,6 +277,8 @@ const GUIAS = [
   },
 ];
 
+GUIAS.push(...GUIAS_MODULOS);
+
 function puntuar(texto) {
   const t = normalizar(texto);
   const toks = tokens(texto);
@@ -318,6 +326,8 @@ const MODULO_POR_GUIA = {
   tutorial: ['Tutorial'],
 };
 
+for (const g of GUIAS_MODULOS) MODULO_POR_GUIA[g.id] = g.modulos;
+
 export function modulosDeGuia(id) {
   return MODULO_POR_GUIA[id] || [];
 }
@@ -329,6 +339,13 @@ export const CIERRE_SOLICITUD = ' Quedó como solicitud abierta. Un administrado
  * @param {{ puedeVerModulo?: (modulo: string) => boolean }} [opciones]
  *   puedeVerModulo: privilegios reales del usuario. Sin él no se filtra por módulo.
  */
+const TEMAS_OFICINA = ['usuarios y bajas', 'nómina', 'tesorería', 'conciliaciones', 'configuración y privilegios', 'estadísticas', 'venta en ruta', 'recolecciones', 'IE Virtual y Abarrotes'];
+
+function menuTemas(puedeVerModulo) {
+  const oficina = typeof puedeVerModulo !== 'function' || ['Usuarios', 'Nómina', 'Configuracion', 'Venta en Ruta'].some((m) => puedeVerModulo(m));
+  return (oficina ? [...TEMAS_MENU, ...TEMAS_OFICINA] : TEMAS_MENU).join(', ');
+}
+
 export function responderDuda(texto, { puedeVerModulo } = {}) {
   const seguridad = evaluarPregunta(texto);
   if (seguridad.bloqueada) {
@@ -346,7 +363,7 @@ export function responderDuda(texto, { puedeVerModulo } = {}) {
     return {
       conocida: false,
       puntos: 0,
-      texto: `Recibí tu duda y quedó registrada como solicitud abierta; un administrador te responde en este chat. Mientras tanto puedo orientarte al instante sobre: ${TEMAS_MENU.join(', ')}. Escribe una de esas palabras (por ejemplo «preinventario» o «corte») y te doy los pasos.`,
+      texto: `Recibí tu duda y quedó registrada como solicitud abierta; un administrador te responde en este chat. Mientras tanto puedo orientarte al instante sobre: ${menuTemas(puedeVerModulo)}. Escribe una de esas palabras (por ejemplo «preinventario» o «corte») y te doy los pasos.`,
     };
   }
 
@@ -356,18 +373,27 @@ export function responderDuda(texto, { puedeVerModulo } = {}) {
     return mods.some((m) => puedeVerModulo(m));
   };
 
-  const { guia, puntos } = ranking[0];
-  if (!permitido(guia)) {
-    const modulo = MODULO_POR_GUIA[guia.id].join(' / ');
+  const mejorPermitida = ranking.find((r) => permitido(r.guia));
+  const mejorBloqueada = ranking.find((r) => !permitido(r.guia));
+  if (mejorBloqueada && mejorBloqueada.puntos >= 5 && (!mejorPermitida || mejorBloqueada.puntos > mejorPermitida.puntos * 1.3)) {
+    const modulo = MODULO_POR_GUIA[mejorBloqueada.guia.id].join(' / ');
     return {
       conocida: true,
       sinPermiso: true,
-      guia: guia.id,
-      puntos,
+      guia: mejorBloqueada.guia.id,
+      puntos: mejorBloqueada.puntos,
       texto: `Tu usuario no tiene el módulo «${modulo}», así que no te puedo dar esos pasos. Si lo necesitas para tu trabajo, un administrador lo activa en Configuración → Privilegios.${CIERRE_SOLICITUD}`,
     };
   }
-  const segunda = ranking.slice(1).find(permitido);
+  if (!mejorPermitida) {
+    return {
+      conocida: false,
+      puntos: 0,
+      texto: `Recibí tu duda y quedó registrada como solicitud abierta; un administrador te responde en este chat. Mientras tanto puedo orientarte al instante sobre: ${menuTemas(puedeVerModulo)}.`,
+    };
+  }
+  const { guia, puntos } = mejorPermitida;
+  const segunda = ranking.find((r) => r !== mejorPermitida && permitido(r.guia));
   const parecida = segunda && segunda.puntos >= 3 && segunda.puntos >= puntos * 0.7;
   const extra = parecida ? ` Si buscabas «${segunda.guia.tema}», escríbelo y te doy esos pasos.` : '';
   return {
@@ -376,15 +402,4 @@ export function responderDuda(texto, { puedeVerModulo } = {}) {
     puntos,
     texto: `${guia.texto}${extra}${CIERRE_SOLICITUD}`,
   };
-}
-
-/** Guías que el usuario sí puede ver; sirven de contexto para la IA. */
-export function guiasPermitidas({ puedeVerModulo } = {}, texto = '', max = 4) {
-  const ranking = puntuar(texto);
-  const lista = (ranking.length ? ranking.map((r) => r.guia) : GUIAS).filter((g) => {
-    const mods = MODULO_POR_GUIA[g.id];
-    if (!mods?.length || typeof puedeVerModulo !== 'function') return true;
-    return mods.some((m) => puedeVerModulo(m));
-  });
-  return (ranking.length ? lista.slice(0, max) : lista).map((g) => ({ id: g.id, tema: g.tema, texto: g.texto }));
 }

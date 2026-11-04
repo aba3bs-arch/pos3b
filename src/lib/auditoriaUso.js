@@ -312,7 +312,7 @@ function contarPreguntaSospechosa(userId, ahora = Date.now()) {
  * Pregunta bloqueada en el chat de Soporte (robar, evadir, manipular, pedir claves o
  * módulos sin permiso). La tercera en 24 h se marca crítica.
  */
-export function auditarPreguntaSoporte(supabase, { user, sucursal, pregunta, categoria, etiqueta, fuente = 'filtro' } = {}) {
+export function auditarPreguntaSoporte(supabase, { user, sucursal, pregunta, categoria, etiqueta } = {}) {
   const veces = contarPreguntaSospechosa(String(user?.id ?? user?.nombre ?? 'anon'));
   return registrarEventoAuditoria(supabase, {
     tipo: TIPOS_AUDITORIA.SEGURIDAD,
@@ -326,7 +326,6 @@ export function auditarPreguntaSoporte(supabase, { user, sucursal, pregunta, cat
       motivo: etiqueta || null,
       pregunta: String(pregunta || '').slice(0, 300),
       intentos_24h: veces,
-      detectada_por: fuente,
     },
   });
 }

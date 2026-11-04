@@ -1,10 +1,7 @@
 /**
  * Filtro de seguridad del asistente de Soporte.
- * Lo usan el navegador (src/lib/soporteBot.js) y la Edge Function soporte-ia,
- * así una llamada directa a la función tampoco se salta las reglas.
- *
  * Bloquea preguntas para robar, evadir controles, manipular registros, conocer claves
- * ajenas, subir privilegios o hacer que la IA ignore sus reglas.
+ * ajenas, subir privilegios propios o cambiar las reglas del asistente.
  */
 
 export function normalizarSeguridad(s) {
@@ -80,7 +77,7 @@ const REGLAS = [
     categoria: 'escalada',
     etiqueta: 'Acceso o privilegios que no corresponden',
     patrones: [
-      /\b(darme|darle|ponerme|asignarme|otorgarme|subirme|doy|dar|pongo|poner|asigno|asignar|otorgo|subo|subir)( me| le)? (los |mas |mis )?(permiso|permisos|privilegio|privilegios|acceso|rol de admin|rol de administrador|permisos de admin)( de admin| de administrador)?\b/,
+      /\b(darme|ponerme|asignarme|otorgarme|subirme|me doy|me pongo|me asigno|me otorgo|me subo)( los | mas | mis )? ?(permiso|permisos|privilegio|privilegios|acceso|rol de admin|rol de administrador)( de admin| de administrador)?\b/,
       /\bhacerme (admin|administrador|gerente|supervisor)\b/,
       /\b(cambiar|subir|modificar) (mi |el )?(rol|privilegios|permisos)\b/,
       /\b(abrir|entrar|acceder|ingresar|ver) (a |al |a la )?(modulos?|pantallas?|secciones?|paneles?|configuracion|usuarios|nomina|contabilidad|auditoria|rh) (de |del )?(admin|administrador|que no (tengo|me)|sin permiso|sin privilegio|bloqueado|oculto|restringido|prohibido)\b/,
@@ -123,20 +120,4 @@ export function evaluarPregunta(texto) {
     }
   }
   return { bloqueada: false, categoria: null, etiqueta: null };
-}
-
-const SALIDA_PROHIBIDA = [
-  /\b(pin|clave|contrasena|password)\b[^.\n]{0,25}\b\d{3,}\b/,
-  /\bsk-[a-z0-9_-]{10,}/i,
-  /\b(eyJ[a-zA-Z0-9_-]{20,})/,
-  /\b(service[_ ]role|api[_ ]?key|openai)\b/,
-  /\b(evadir|burlar|saltarse|saltarte|esquivar|falsificar|manipular|robar|hackear)\b/,
-];
-
-/** Revisa lo que contestó la IA antes de mostrarlo. */
-export function salidaSegura(texto) {
-  const t = normalizarSeguridad(texto);
-  const crudo = String(texto || '');
-  if (!t) return false;
-  return !SALIDA_PROHIBIDA.some((r) => r.test(t) || r.test(crudo));
 }
