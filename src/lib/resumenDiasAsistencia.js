@@ -69,11 +69,7 @@ export function normalizarTipoMarcaje(tipo) {
 /** Ventana máxima para emparejar una entrada con su salida (cubre 12×12 + extra). */
 export const MAX_HORAS_PAR_ENTRADA_SALIDA = 18
 
-/**
- * Días con jornada cerrada: cada ENTRADA se empareja con la siguiente SALIDA
- * (hasta 18 h). El día cuenta el de la entrada. Solo entrada no cuenta.
- */
-export function diasCompletosPorEntradaSalida(marcajes = []) {
+function ordenarMarcajes(marcajes = []) {
   const sorted = [...marcajes].filter((m) => m?.created_at)
   sorted.sort((a, b) => {
     const da = new Date(a.created_at).getTime()
@@ -82,9 +78,24 @@ export function diasCompletosPorEntradaSalida(marcajes = []) {
     if (da !== db) return da - db
     return String(a.id || '').localeCompare(String(b.id || ''))
   })
+  return sorted
+}
+
+/**
+ * Empareja cada ENTRADA con la siguiente SALIDA (hasta 18 h). El día de la jornada es el de la entrada.
+ * Devuelve también las checadas que quedaron sin pareja.
+ * @returns {{
+ *   pares: Array<{ entrada: object, salida: object, dia: string }>,
+ *   entradasSinSalida: object[],
+ *   salidasSinEntrada: object[],
+ * }}
+ */
+export function emparejarJornadas(marcajes = []) {
+  const sorted = ordenarMarcajes(marcajes)
   const maxMs = MAX_HORAS_PAR_ENTRADA_SALIDA * 3600 * 1000
   const salidasUsadas = new Set()
-  const dias = new Set()
+  const entradasUsadas = new Set()
+  const pares = []
   for (let i = 0; i < sorted.length; i++) {
     if (normalizarTipoMarcaje(sorted[i].tipo) !== 'ENTRADA') continue
     const tEnt = new Date(sorted[i].created_at).getTime()
@@ -96,12 +107,105 @@ export function diasCompletosPorEntradaSalida(marcajes = []) {
       if (Number.isNaN(tSal) || tSal <= tEnt) continue
       if (tSal - tEnt > maxMs) break
       salidasUsadas.add(j)
-      const ymd = ymdLocalDesdeIso(sorted[i].created_at)
-      if (ymd) dias.add(ymd)
+      entradasUsadas.add(i)
+      const dia = ymdLocalDesdeIso(sorted[i].created_at)
+      pares.push({ entrada: sorted[i], salida: sorted[j], dia })
       break
     }
   }
+  const entradasSinSalida = []
+  const salidasSinEntrada = []
+  sorted.forEach((m, idx) => {
+    const tipo = normalizarTipoMarcaje(m.tipo)
+    if (tipo === 'ENTRADA' && !entradasUsadas.has(idx)) entradasSinSalida.push(m)
+    if (tipo === 'SALIDA' && !salidasUsadas.has(idx)) salidasSinEntrada.push(m)
+  })
+  return { pares, entradasSinSalida, salidasSinEntrada }
+}
+
+/**
+ * Días con jornada cerrada: cada ENTRADA se empareja con la siguiente SALIDA
+ * (hasta 18 h). El día cuenta el de la entrada. Solo entrada no cuenta.
+ */
+export function diasCompletosPorEntradaSalida(marcajes = []) {
+  const dias = new Set()
+  for (const par of emparejarJornadas(marcajes).pares) {
+    if (par.dia) dias.add(par.dia)
+  }
   return dias
+}
+
+function horaLocalCorta(iso) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+function etiquetaDiaCorta(ymd) {
+  const [, m, d] = String(ymd || '').split('-')
+  return `${Number(d)}/${Number(m)}`
+}
+
+/**
+ * Explica por qué un día sin jornada cerrada aparece como falta/descanso, a partir de las checadas.
+ * @param {string} ymd
+ * @param {ReturnType<typeof emparejarJornadas>} jornadas
+ * @param {{ hoy?: string }} [opts]
+ */
+export function explicarDiaSinJornada(ymd, jornadas, { hoy = '' } = {}) {
+  const motivos = []
+  const entradas = (jornadas?.entradasSinSalida || []).filter((m) => ymdLocalDesdeIso(m.created_at) === ymd)
+  for (const m of entradas) {
+    motivos.push(
+      `ENTRADA ${horaLocalCorta(m.created_at)} sin SALIDA (la salida debe registrarse dentro de ${MAX_HORAS_PAR_ENTRADA_SALIDA} h después de la entrada)`,
+    )
+  }
+  const salidas = (jornadas?.salidasSinEntrada || []).filter((m) => ymdLocalDesdeIso(m.created_at) === ymd)
+  for (const m of salidas) motivos.push(`SALIDA ${horaLocalCorta(m.created_at)} sin ENTRADA`)
+  for (const par of jornadas?.pares || []) {
+    if (par.dia === ymd) continue
+    if (ymdLocalDesdeIso(par.salida.created_at) === ymd) {
+      motivos.push(
+        `SALIDA ${horaLocalCorta(par.salida.created_at)} cerró la jornada que empezó el ${etiquetaDiaCorta(par.dia)} (cuenta ese día, no este)`,
+      )
+    }
+  }
+  if (!motivos.length) {
+    motivos.push(hoy && ymd === hoy ? 'Hoy aún no hay jornada cerrada' : 'Sin checadas ese día')
+  } else if (hoy && ymd === hoy) {
+    motivos.push('Hoy aún no hay jornada cerrada')
+  }
+  return motivos
+}
+
+/** Línea legible de una checada con su estado de emparejamiento (para el detalle del resumen). */
+export function detalleChecadasEmpleado(marcajes = []) {
+  const j = emparejarJornadas(marcajes)
+  const idPar = new Map()
+  for (const par of j.pares) {
+    idPar.set(par.entrada, par)
+    idPar.set(par.salida, par)
+  }
+  return ordenarMarcajes(marcajes).map((m) => {
+    const tipo = normalizarTipoMarcaje(m.tipo) || String(m.tipo || '')
+    const par = idPar.get(m)
+    let estado
+    if (par) {
+      estado = tipo === 'ENTRADA'
+        ? `cuenta el ${etiquetaDiaCorta(par.dia)} (salida ${etiquetaDiaCorta(ymdLocalDesdeIso(par.salida.created_at))} ${horaLocalCorta(par.salida.created_at)})`
+        : `cierra la jornada del ${etiquetaDiaCorta(par.dia)}`
+    } else {
+      estado = tipo === 'ENTRADA' ? 'sin SALIDA: no cuenta' : 'sin ENTRADA: no cuenta'
+    }
+    return {
+      id: m.id ?? `${m.created_at}-${tipo}`,
+      ymd: ymdLocalDesdeIso(m.created_at),
+      hora: horaLocalCorta(m.created_at),
+      tipo,
+      estado,
+      sinPareja: !par,
+    }
+  })
 }
 
 /**
@@ -775,10 +879,18 @@ export function construirResumenEmpleados({
       mapaEstado: r.mapaEstado,
       ahora,
     })
+    const jornadas = emparejarJornadas(row.marcajes)
+    const hoyYmd = ymdLocal(ahora || new Date())
+    const motivosSinJornada = {}
+    for (const d of [...r.diasFaltaYmd, ...r.diasDescansoYmd]) {
+      motivosSinJornada[d] = explicarDiaSinJornada(d, jornadas, { hoy: hoyYmd })
+    }
     return {
       clave: row.clave,
       nombre: row.nombre,
       esCubreTurno: Boolean(row.esCubreTurno),
+      checadas: detalleChecadasEmpleado(row.marcajes),
+      motivosSinJornada,
       sucursalId: row.sucursalId,
       sucursalEtiqueta,
       dias: r.dias,

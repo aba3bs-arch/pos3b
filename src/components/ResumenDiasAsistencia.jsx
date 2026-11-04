@@ -59,7 +59,7 @@ function tituloMesSemanas(semanas) {
   return labels.join(' · ');
 }
 
-function CalendarioEmpleado({ semanas, esCubreTurno }) {
+function CalendarioEmpleado({ semanas, esCubreTurno, motivos = {} }) {
   if (!semanas?.length) return null;
   const titulo = tituloMesSemanas(semanas);
   return (
@@ -76,7 +76,10 @@ function CalendarioEmpleado({ semanas, esCubreTurno }) {
             const estado = esCubreTurno && (c.estado === 'descanso' || c.estado === 'falta')
               ? 'fuera'
               : c.estado;
-            const title = estado === 'fuera' ? '' : `${c.ymd} · ${ETIQUETA_ESTADO[estado] || ''}`;
+            const motivo = (estado === 'falta' || estado === 'descanso') && motivos[c.ymd]?.length
+              ? ` — ${motivos[c.ymd].join('; ')}`
+              : '';
+            const title = estado === 'fuera' ? '' : `${c.ymd} · ${ETIQUETA_ESTADO[estado] || ''}${motivo}`;
             return (
               <span
                 key={`${si}-${c.ymd}`}
@@ -286,7 +289,19 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veT
                   </span>
                 </div>
               </header>
-              <CalendarioEmpleado semanas={f.calendario} esCubreTurno={f.esCubreTurno} />
+              <CalendarioEmpleado semanas={f.calendario} esCubreTurno={f.esCubreTurno} motivos={f.motivosSinJornada} />
+              {!f.esCubreTurno && f.diasFaltaYmd?.length > 0 && (
+                <ul className="rda-motivos" style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem', fontSize: '0.78rem', color: 'var(--brand-red)' }}>
+                  {f.diasFaltaYmd.map((d) => {
+                    const [, m, day] = d.split('-');
+                    return (
+                      <li key={d}>
+                        Falta {Number(day)}/{Number(m)}: {(f.motivosSinJornada?.[d] || []).join('; ')}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
               {f.diasTrabajadosYmd?.length > 0 ? (
                 <p className="rda-fechas muted">
                   Trabajó:{' '}
@@ -299,6 +314,21 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veT
                 </p>
               ) : (
                 <p className="rda-fechas muted">Sin jornadas cerradas en el periodo.</p>
+              )}
+              {f.checadas?.length > 0 && (
+                <details className="rda-fechas muted" style={{ marginTop: '0.3rem' }}>
+                  <summary style={{ cursor: 'pointer' }}>Ver checadas ({f.checadas.length})</summary>
+                  <ul style={{ margin: '0.3rem 0 0', paddingLeft: '1.1rem', fontSize: '0.78rem' }}>
+                    {f.checadas.map((c) => {
+                      const [, m, day] = c.ymd.split('-');
+                      return (
+                        <li key={c.id} style={c.sinPareja ? { color: 'var(--brand-red)' } : undefined}>
+                          {Number(day)}/{Number(m)} {c.hora} · {c.tipo} · {c.estado}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </details>
               )}
             </article>
           ))}
