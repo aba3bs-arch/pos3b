@@ -7,7 +7,10 @@ import {
   construirResumenEmpleados,
   diaLaborableParaBono,
   diasCompletosPorEntradaSalida,
+  detalleChecadasEmpleado,
   diasConAlgunaChecada,
+  emparejarJornadas,
+  explicarDiaSinJornada,
   listarBloqueosBonoPorFalta,
   listarYmdInclusive,
   lineaResumenEmpleado,
@@ -735,6 +738,34 @@ assert.equal(
   assert.equal(pedro.faltaYmd, '2026-09-16')
   assert.equal(pedro.diasAcumuladosExtra, 2)
   assert.equal(pedro.vuelveBonoYmd, '2026-09-23')
+}
+
+// Nocturno: la SALIDA de las 07:00 del día 3 cierra la jornada del día 2; la entrada del día 3
+// sin salida registrada no cuenta (aunque el día 3 tenga una ENTRADA y una SALIDA en el historial).
+{
+  const L = (d, h, m = 0) => new Date(2026, 10, d, h, m).toISOString()
+  const mar = [
+    { id: 'a', tipo: 'ENTRADA', created_at: L(2, 19) },
+    { id: 'b', tipo: 'SALIDA', created_at: L(3, 7) },
+    { id: 'c', tipo: 'ENTRADA', created_at: L(3, 19) },
+  ]
+  const j = emparejarJornadas(mar)
+  assert.equal(j.pares.length, 1)
+  assert.equal(j.pares[0].dia, '2026-11-02')
+  assert.equal(j.entradasSinSalida.length, 1)
+  assert.deepEqual([...diasCompletosPorEntradaSalida(mar)], ['2026-11-02'])
+  const motivos = explicarDiaSinJornada('2026-11-03', j, { hoy: '2026-11-04' })
+  assert.equal(motivos.length, 2)
+  assert.match(motivos[0], /^ENTRADA .* sin SALIDA/)
+  assert.match(motivos[1], /cerró la jornada que empezó el 2\/11/)
+  assert.deepEqual(explicarDiaSinJornada('2026-11-05', j, { hoy: '2026-11-04' }), ['Sin checadas ese día'])
+  const det = detalleChecadasEmpleado(mar)
+  assert.equal(det.length, 3)
+  assert.equal(det[2].sinPareja, true)
+  assert.match(det[0].estado, /cuenta el 2\/11/)
+
+  const completo = [...mar, { id: 'd', tipo: 'SALIDA', created_at: L(4, 7) }]
+  assert.deepEqual([...diasCompletosPorEntradaSalida(completo)].sort(), ['2026-11-02', '2026-11-03'])
 }
 
 console.log('resumenDiasAsistencia.test.mjs ok')
