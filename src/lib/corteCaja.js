@@ -564,6 +564,8 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
       diferencia: 0,
       electronico: tarjeta,
       tarjetaAbarrotes: tarjeta,
+      ventasCierre: c.ventas != null ? round2(c.ventas) : null,
+      cajaCierre: c.caja_actual != null ? round2(c.caja_actual) : null,
       grupos: { efectivo: 0, tarjeta, transferencia: 0, qr: 0, otros: 0 },
       detalleMetodos: [{ metodo: 'Tarjeta abarrotes', monto: tarjeta }],
       corroboracion: {},

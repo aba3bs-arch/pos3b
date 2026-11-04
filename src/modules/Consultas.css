@@ -948,3 +948,18 @@
   }
 }
 
+
+.consultas-aviso--curso {
+  margin: 0.5rem 1rem 0;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+
+@media (max-width: 900px) {
+  .consultas-aviso--curso {
+    display: block;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+  }
+}
