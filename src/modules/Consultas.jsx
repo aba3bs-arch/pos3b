@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
+import { desgloseCorte, totalesCortes } from '../lib/consultasCortes.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, pareceFolioInventarioConsulta, rangoDesdePreset } from '../lib/consultasInventario.js';
@@ -502,6 +503,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       return blob.includes(qNorm);
     });
   }, [cortes, qNorm]);
+
+  const totalesCortesVista = useMemo(() => totalesCortes(cortesFiltrados), [cortesFiltrados]);
 
   const saldosFiltrados = useMemo(() => {
     if (!qNorm) return saldos;
@@ -1289,56 +1292,95 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 cortesFiltrados.length === 0 ? (
                   <EmptyState />
                 ) : (
-                  <table className="consultas-table">
-                    <thead>
-                      <tr>
-                        <th>Caja de cobro</th>
-                        <th>Folio</th>
-                        <th>Tarjeta</th>
-                        <th>Usuario</th>
-                        <th>Resultado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cortesFiltrados.map((c) => {
-                        const id = c.id || `${c.fecha}_${c.usuario}`;
-                        const esAbTarjeta = c.tipoCaja === 'abarrotes_tarjeta';
-                        const folio = esAbTarjeta
-                          ? (c.folio_abarrotes || folioNumerico(c.origenId || c.id, 3))
-                          : folioNumerico(c.id || id, 3);
-                        const tarjetaMonto = esAbTarjeta
-                          ? Number(c.tarjetaAbarrotes) || Number(c.electronico) || 0
-                          : Number(c.grupos?.tarjeta) || 0;
-                        const ok = esAbTarjeta || Math.abs(Number(c.diferencia) || 0) < 0.01;
-                        return (
-                          <tr key={id} onClick={() => setSel({ ...c, id })}>
-                            <td>
-                              <div className="consultas-folio">
-                                {fmtFechaCorta(c.created_at || c.fecha)}
-                                <small>
-                                  {esAbTarjeta
-                                    ? 'Abarrotes · Pago tarjeta'
-                                    : c.turno_nombre || c.turno_id || etiquetaTienda(c.sucursal || c.sucursal_id)}
-                                </small>
-                              </div>
-                            </td>
-                            <td style={{ fontWeight: 700 }}>{folio}</td>
-                            <td style={{ fontWeight: 600, color: tarjetaMonto > 0 ? '#1e5bb8' : undefined }}>
-                              {tarjetaMonto > 0 ? fmtMonto(tarjetaMonto) : '—'}
-                            </td>
-                            <td>
-                              <Avatar nombre={c.usuario} />
-                            </td>
-                            <td>
-                              <span className="consultas-ok" title={ok ? 'Cuadre OK' : `Dif. ${fmtMonto(c.diferencia)}`}>
-                                {ok ? '✓' : '!'}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <>
+                    <div className="consultas-totales-cortes">
+                      <div className="consultas-total-pill">
+                        <span>Efectivo</span>
+                        <strong>{fmtMonto(totalesCortesVista.efectivo)}</strong>
+                      </div>
+                      <div className="consultas-total-pill">
+                        <span>Tarjeta</span>
+                        <strong>{fmtMonto(totalesCortesVista.tarjeta)}</strong>
+                      </div>
+                      <div className="consultas-total-pill">
+                        <span>Transf. / QR / otros</span>
+                        <strong>{fmtMonto(totalesCortesVista.otrosElectronicos)}</strong>
+                      </div>
+                      <div className="consultas-total-pill consultas-total-pill--electronico">
+                        <span>Total electrónico</span>
+                        <strong>{fmtMonto(totalesCortesVista.electronico)}</strong>
+                      </div>
+                      <div className="consultas-total-pill consultas-total-pill--total">
+                        <span>Venta total · {totalesCortesVista.cortes} corte(s)</span>
+                        <strong>{fmtMonto(totalesCortesVista.total)}</strong>
+                      </div>
+                    </div>
+                    <table className="consultas-table">
+                      <thead>
+                        <tr>
+                          <th>Caja de cobro</th>
+                          <th>Folio</th>
+                          <th className="consultas-num">Efectivo</th>
+                          <th className="consultas-num">Tarjeta</th>
+                          <th className="consultas-num">Transf. / QR / otros</th>
+                          <th className="consultas-num">Venta total</th>
+                          <th>Usuario</th>
+                          <th>Resultado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cortesFiltrados.map((c) => {
+                          const id = c.id || `${c.fecha}_${c.usuario}`;
+                          const esAbTarjeta = c.tipoCaja === 'abarrotes_tarjeta';
+                          const folio = esAbTarjeta
+                            ? (c.folio_abarrotes || folioNumerico(c.origenId || c.id, 3))
+                            : folioNumerico(c.id || id, 3);
+                          const d = desgloseCorte(c);
+                          const ok = esAbTarjeta || Math.abs(Number(c.diferencia) || 0) < 0.01;
+                          const celda = (monto, color) => (monto > 0
+                            ? <span style={{ fontWeight: 600, color }}>{fmtMonto(monto)}</span>
+                            : '—');
+                          return (
+                            <tr key={id} onClick={() => setSel({ ...c, id })}>
+                              <td>
+                                <div className="consultas-folio">
+                                  {fmtFechaCorta(c.created_at || c.fecha)}
+                                  <small>
+                                    {esAbTarjeta
+                                      ? 'Abarrotes · Pago tarjeta'
+                                      : c.turno_nombre || c.turno_id || etiquetaTienda(c.sucursal || c.sucursal_id)}
+                                  </small>
+                                </div>
+                              </td>
+                              <td style={{ fontWeight: 700 }}>{folio}</td>
+                              <td className="consultas-num">{celda(d.efectivo, '#15803d')}</td>
+                              <td className="consultas-num">{celda(d.tarjeta, '#1e5bb8')}</td>
+                              <td className="consultas-num">{celda(d.otrosElectronicos, '#7c3aed')}</td>
+                              <td className="consultas-num" style={{ fontWeight: 700 }}>{fmtMonto(d.total)}</td>
+                              <td>
+                                <Avatar nombre={c.usuario} />
+                              </td>
+                              <td>
+                                <span className="consultas-ok" title={ok ? 'Cuadre OK' : `Dif. ${fmtMonto(c.diferencia)}`}>
+                                  {ok ? '✓' : '!'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="consultas-tfoot-total">
+                          <td colSpan={2}>Totales ({totalesCortesVista.cortes})</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.efectivo)}</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.tarjeta)}</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.otrosElectronicos)}</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.total)}</td>
+                          <td colSpan={2} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
                 )
               )}
 
@@ -1534,8 +1576,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       <div>Contado: <strong>{fmtMonto(sel.efectivoContado ?? sel.efectivo_contado)}</strong></div>
                       <div>Esperado: <strong>{fmtMonto(sel.efectivoEsperado ?? sel.efectivo_esperado)}</strong></div>
                       <div>Diferencia: {moneyCell(sel.diferencia)}</div>
+                      <div>Venta en efectivo: <strong>{fmtMonto(desgloseCorte(sel).efectivo)}</strong></div>
                       <div>Tarjeta POS: <strong>{fmtMonto(sel.grupos?.tarjeta)}</strong></div>
-                      <div>Electrónico: <strong>{fmtMonto(sel.electronico)}</strong></div>
+                      <div>Electrónico (tarjeta + transf. + QR): <strong>{fmtMonto(sel.electronico)}</strong></div>
                       {sel.corroboracion?.tarjeta && (
                         <div style={{ gridColumn: '1 / -1' }} className="muted">
                           Corroboración tarjeta — esperado {fmtMonto(sel.corroboracion.tarjeta.esperado)}
