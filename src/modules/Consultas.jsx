@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
+import { desgloseCorte, totalesCortes } from '../lib/consultasCortes.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, pareceFolioInventarioConsulta, rangoDesdePreset } from '../lib/consultasInventario.js';
@@ -502,6 +503,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       return blob.includes(qNorm);
     });
   }, [cortes, qNorm]);
+
+  const totalesCortesVista = useMemo(() => totalesCortes(cortesFiltrados), [cortesFiltrados]);
 
   const saldosFiltrados = useMemo(() => {
     if (!qNorm) return saldos;
@@ -1289,6 +1292,382 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 cortesFiltrados.length === 0 ? (
                   <EmptyState />
                 ) : (
+                  <>
+                    <div className="consultas-totales-cortes">
+                      <div className="consultas-total-pill">
+                        <span>Efectivo</span>
+                        <strong>{fmtMonto(totalesCortesVista.efectivo)}</strong>
+                      </div>
+                      <div className="consultas-total-pill">
+                        <span>Tarjeta</span>
+                        <strong>{fmtMonto(totalesCortesVista.tarjeta)}</strong>
+                      </div>
+                      <div className="consultas-total-pill">
+                        <span>Transf. / QR / otros</span>
+                        <strong>{fmtMonto(totalesCortesVista.otrosElectronicos)}</strong>
+                      </div>
+                      <div className="consultas-total-pill consultas-total-pill--electronico">
+                        <span>Total electrónico</span>
+                        <strong>{fmtMonto(totalesCortesVista.electronico)}</strong>
+                      </div>
+                      <div className="consultas-total-pill consultas-total-pill--total">
+                        <span>Venta total · {totalesCortesVista.cortes} corte(s)</span>
+                        <strong>{fmtMonto(totalesCortesVista.total)}</strong>
+                      </div>
+                    </div>
+                    <table className="consultas-table">
+                      <thead>
+                        <tr>
+                          <th>Caja de cobro</th>
+                          <th>Folio</th>
+                          <th className="consultas-num">Efectivo</th>
+                          <th className="consultas-num">Tarjeta</th>
+                          <th className="consultas-num">Transf. / QR / otros</th>
+                          <th className="consultas-num">Venta total</th>
+                          <th>Usuario</th>
+                          <th>Resultado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cortesFiltrados.map((c) => {
+                          const id = c.id || `${c.fecha}_${c.usuario}`;
+                          const esAbTarjeta = c.tipoCaja === 'abarrotes_tarjeta';
+                          const folio = esAbTarjeta
+                            ? (c.folio_abarrotes || folioNumerico(c.origenId || c.id, 3))
+                            : folioNumerico(c.id || id, 3);
+                          const d = desgloseCorte(c);
+                          const ok = esAbTarjeta || Math.abs(Number(c.diferencia) || 0) < 0.01;
+                          const celda = (monto, color) => (monto > 0
+                            ? <span style={{ fontWeight: 600, color }}>{fmtMonto(monto)}</span>
+                            : '—');
+                          return (
+                            <tr key={id} onClick={() => setSel({ ...c, id })}>
+                              <td>
+                                <div className="consultas-folio">
+                                  {fmtFechaCorta(c.created_at || c.fecha)}
+                                  <small>
+                                    {esAbTarjeta
+                                      ? 'Abarrotes · Pago tarjeta'
+                                      : c.turno_nombre || c.turno_id || etiquetaTienda(c.sucursal || c.sucursal_id)}
+                                  </small>
+                                </div>
+                              </td>
+                              <td style={{ fontWeight: 700 }}>{folio}</td>
+                              <td className="consultas-num">{celda(d.efectivo, '#15803d')}</td>
+                              <td className="consultas-num">{celda(d.tarjeta, '#1e5bb8')}</td>
+                              <td className="consultas-num">{celda(d.otrosElectronicos, '#7c3aed')}</td>
+                              <td className="consultas-num" style={{ fontWeight: 700 }}>{fmtMonto(d.total)}</td>
+                              <td>
+                                <Avatar nombre={c.usuario} />
+                              </td>
+                              <td>
+                                <span className="consultas-ok" title={ok ? 'Cuadre OK' : `Dif. ${fmtMonto(c.diferencia)}`}>
+                                  {ok ? '✓' : '!'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="consultas-tfoot-total">
+                          <td colSpan={2}>Totales ({totalesCortesVista.cortes})</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.efectivo)}</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.tarjeta)}</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.otrosElectronicos)}</td>
+                          <td className="consultas-num">{fmtMonto(totalesCortesVista.total)}</td>
+                          <td colSpan={2} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
+                )
+              )}
+
+              {seccion === 'cajas_saldos' && (
+                <span className="consultas-chip" title="Venta al momento">
+                  🔴 En vivo
+                </span>
+              )}
+            </div>
+
+            <div className="consultas-filters-row">
+              <select value={filtroSucursal} onChange={(e) => setFiltroSucursal(e.target.value)}>
+                <option value="">Todas las sucursales</option>
+                {tiendas.map((s) => (
+                  <option key={s} value={s}>
+                    {etiquetaTienda(s)}
+                  </option>
+                ))}
+              </select>
+              {seccion === 'inventarios' && (
+                <select value={filtroOperacionInv} onChange={(e) => setFiltroOperacionInv(e.target.value)}>
+                  {FILTROS_OPERACION_INVENTARIO.map((f) => (
+                    <option key={f.id || 'todas'} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {seccion === 'ventas_articulo' && (
+                <select value={filtroDepto} onChange={(e) => setFiltroDepto(e.target.value)}>
+                  <option value="">Todos los departamentos</option>
+                  {departamentos.map((d) => (
+                    <option key={d} value={d}>
+                      {etiquetaDepartamento(d)}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {loading && <span className="muted" style={{ fontSize: '0.8rem' }}>Cargando…</span>}
+            </div>
+
+            {aviso && <div className="consultas-aviso">{aviso}</div>}
+
+            <div className="consultas-body">
+              {seccion === 'precios_vs_inv' && (
+                <ReportePreciosVentas
+                  supabase={supabase}
+                  inventario={inventario}
+                  desde={desde}
+                  hasta={hasta}
+                  filtroSucursal={filtroSucursal}
+                  q={q}
+                  onAviso={setAviso}
+                />
+              )}
+
+              {(seccion === 'ventas_tickets' || seccion === 'cfdi_ventas') && (
+                ventasFiltradas.length === 0 ? (
+                  <EmptyState />
+                ) : (
+                  <table className="consultas-table">
+                    <thead>
+                      <tr>
+                        <th>Serie-Folio</th>
+                        <th>CFDI</th>
+                        <th>Cliente</th>
+                        <th>Usuario/Vendedor</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ventasFiltradas.map((v) => {
+                        const folio = folioNumerico(v.id, 5);
+                        const selected = sel?.id === v.id;
+                        return (
+                          <tr key={v.id} className={selected ? 'selected' : ''} onClick={() => setSel(selected ? null : v)}>
+                            <td>
+                              <div className="consultas-folio">
+                                {folio}
+                                <small>{fmtFechaCorta(v.created_at)}</small>
+                              </div>
+                            </td>
+                            <td className="muted">{seccion === 'cfdi_ventas' ? '—' : ''}</td>
+                            <td>Público En General</td>
+                            <td>
+                              <div className="consultas-avatars">
+                                <Avatar nombre={v.vendedor} />
+                                <Avatar nombre={v.vendedor} />
+                              </div>
+                            </td>
+                            <td>{fmtMonto(v.total)} MXN</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )
+              )}
+
+              {seccion === 'ventas_articulo' && (
+                articulosConPct.length === 0 ? (
+                  <EmptyState texto="Sin ventas de artículos en el rango (o en ese departamento)." />
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                        gap: '0.5rem',
+                        marginBottom: '0.75rem',
+                      }}
+                    >
+                      {[
+                        { label: 'Artículos', value: String(totalesArticuloFiltrado.skus) },
+                        { label: 'Piezas', value: String(totalesArticuloFiltrado.piezas) },
+                        { label: 'Importe', value: fmtMonto(totalesArticuloFiltrado.importe) },
+                        { label: 'Tickets', value: String(reporteArticulo.tickets) },
+                      ].map((k) => (
+                        <div
+                          key={k.label}
+                          style={{
+                            padding: '0.5rem 0.65rem',
+                            borderRadius: 8,
+                            background: 'var(--surface, #f8fafc)',
+                            border: '1px solid var(--border, #e2e8f0)',
+                          }}
+                        >
+                          <div className="muted" style={{ fontSize: '0.72rem' }}>
+                            {k.label}
+                          </div>
+                          <strong style={{ fontSize: '1rem', color: 'var(--brand-blue, #1e5bb8)' }}>{k.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <table className="consultas-table">
+                      <thead>
+                        <tr>
+                          <th>Código</th>
+                          <th>Descripción</th>
+                          <th>Depto.</th>
+                          <th style={{ textAlign: 'right' }}>Piezas</th>
+                          <th style={{ textAlign: 'right' }} title="Stock actual en la tienda filtrada">
+                            Existencia
+                          </th>
+                          <th style={{ textAlign: 'right' }}>P. prom.</th>
+                          <th style={{ textAlign: 'right' }}>Importe</th>
+                          <th style={{ textAlign: 'right' }}>%</th>
+                          <th style={{ textAlign: 'right' }}>Tickets</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {articulosConPct.map((r) => (
+                          <tr key={r.id}>
+                            <td>
+                              <div className="consultas-prod-cell">
+                                <ProductoThumb producto={productoPorId.get(r.id) || { id: r.id, nombre: r.nombre }} size={36} />
+                                <span style={{ fontWeight: 600 }}>{r.id}</span>
+                              </div>
+                            </td>
+                            <td style={{ fontWeight: 600 }}>{r.nombre}</td>
+                            <td className="muted">{etiquetaDepartamento(r.departamento)}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{r.piezas}</td>
+                            <td
+                              style={{
+                                textAlign: 'right',
+                                fontWeight: 700,
+                                color: r.existencia <= 0 ? 'var(--brand-red, #c0392b)' : undefined,
+                              }}
+                            >
+                              {r.existencia}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>{fmtMonto(r.precioPromedio)}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtMonto(r.importe)}</td>
+                            <td style={{ textAlign: 'right' }} className="muted">
+                              {r.pct.toFixed(1)}%
+                            </td>
+                            <td style={{ textAlign: 'right' }} className="muted">
+                              {r.tickets}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={3} style={{ fontWeight: 700 }}>
+                            Total ({totalesArticuloFiltrado.skus} SKU
+                            {filtroDepto ? ` · ${etiquetaDepartamento(filtroDepto)}` : ''})
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{totalesArticuloFiltrado.piezas}</td>
+                          <td />
+                          <td />
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmtMonto(totalesArticuloFiltrado.importe)}</td>
+                          <td style={{ textAlign: 'right' }}>100%</td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
+                )
+              )}
+
+              {seccion === 'compras' && (
+                comprasFiltradas.length === 0 ? (
+                  <EmptyState />
+                ) : (
+                  <table className="consultas-table">
+                    <thead>
+                      <tr>
+                        <th>Serie-Folio</th>
+                        <th>Proveedor</th>
+                        <th>Usuario</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comprasFiltradas.map((c) => {
+                        const folio = folioNumerico(c.id, 5);
+                        const selected = sel?.id === c.id;
+                        return (
+                          <tr key={c.id} className={selected ? 'selected' : ''} onClick={() => setSel(selected ? null : c)}>
+                            <td>
+                              <div className="consultas-folio">
+                                {folio}
+                                <small>
+                                  {fmtFechaCorta(c.created_at || c.fecha)} · {c.estado || '—'}
+                                </small>
+                              </div>
+                            </td>
+                            <td>{c.proveedores?.nombre || '—'}</td>
+                            <td>
+                              <Avatar nombre={c.notas?.split('·')[0] || 'COMPRA'} />
+                            </td>
+                            <td>{fmtMonto(c.total)} MXN</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )
+              )}
+
+              {seccion === 'inventarios' && (
+                docsFiltrados.length === 0 ? (
+                  <EmptyState texto="Sin operaciones en el rango (ingresos, ajustes, retiros, traspasos, cancelaciones)." />
+                ) : (
+                  <>
+                    <p className="muted" style={{ margin: '0 0 0.35rem', fontSize: '0.8rem' }}>
+                      Para inventario semanal: elige la tienda (no «Todas»), periodo Semana/rango, y abre cada ingreso.
+                      Si no aparece un folio, pégalo arriba y pulsa Enter. (Las ventas van en Ventas.)
+                    </p>
+                    <table className="consultas-table">
+                      <thead>
+                        <tr>
+                          <th>Tipo de movimiento</th>
+                          <th>Usuario</th>
+                          <th>Diferencia negativa</th>
+                          <th>Diferencia positiva</th>
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {docsFiltrados.map((d) => (
+                          <tr key={d.id} onClick={() => setSel(d)}>
+                            <td>
+                              <div className="consultas-folio">
+                                {fmtFechaCorta(d.created_at)}
+                                <small style={{ color: '#334155', fontWeight: 600 }}>{d.label}</small>
+                              </div>
+                            </td>
+                            <td>
+                              <Avatar nombre={d.usuario} />
+                            </td>
+                            <td>{moneyCell(d.difNeg > 0 ? -d.difNeg : 0)}</td>
+                            <td>{moneyCell(d.difPos)}</td>
+                            <td>{moneyCell(d.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )
+              )}
+
+              {seccion === 'cajas_cortes' && (
+                cortesFiltrados.length === 0 ? (
+                  <EmptyState />
+                ) : (
                   <table className="consultas-table">
                     <thead>
                       <tr>
@@ -1534,8 +1913,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       <div>Contado: <strong>{fmtMonto(sel.efectivoContado ?? sel.efectivo_contado)}</strong></div>
                       <div>Esperado: <strong>{fmtMonto(sel.efectivoEsperado ?? sel.efectivo_esperado)}</strong></div>
                       <div>Diferencia: {moneyCell(sel.diferencia)}</div>
+                      <div>Venta en efectivo: <strong>{fmtMonto(desgloseCorte(sel).efectivo)}</strong></div>
                       <div>Tarjeta POS: <strong>{fmtMonto(sel.grupos?.tarjeta)}</strong></div>
-                      <div>Electrónico: <strong>{fmtMonto(sel.electronico)}</strong></div>
+                      <div>Electrónico (tarjeta + transf. + QR): <strong>{fmtMonto(sel.electronico)}</strong></div>
                       {sel.corroboracion?.tarjeta && (
                         <div style={{ gridColumn: '1 / -1' }} className="muted">
                           Corroboración tarjeta — esperado {fmtMonto(sel.corroboracion.tarjeta.esperado)}

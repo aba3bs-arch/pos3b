@@ -640,3 +640,56 @@
   font-size: 1.15rem;
   font-weight: 800;
 }
+
+.consultas-num {
+  text-align: right !important;
+  white-space: nowrap;
+}
+
+.consultas-totales-cortes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 0.25rem;
+}
+
+.consultas-total-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 120px;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.consultas-total-pill span {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.consultas-total-pill strong {
+  font-size: 1rem;
+  color: #0f172a;
+}
+
+.consultas-total-pill--electronico {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.consultas-total-pill--total {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.consultas-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: #f8fafc;
+  font-weight: 700;
+  padding: 0.7rem 1rem;
+  border-top: 2px solid #cbd5e1;
+  color: #0f172a;
+}
