@@ -117,6 +117,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [docsInv, setDocsInv] = useState([]);
   const [cortes, setCortes] = useState([]);
   const [saldos, setSaldos] = useState([]);
+  const [ventaEnCurso, setVentaEnCurso] = useState([]);
   const [sel, setSel] = useState(null);
   const [selSaldo, setSelSaldo] = useState(null);
   const [productoIdsCostoRuta, setProductoIdsCostoRuta] = useState(() => new Set());
@@ -249,6 +250,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     });
     if (tarAb.aviso) setAviso((prev) => (prev ? `${prev} · ${tarAb.aviso}` : tarAb.aviso));
 
+    setVentaEnCurso([]);
+    const tiendaCurso = filtroSucursal || (esSucursalNoVenta(sucursal) ? null : sucursal) || null;
+    if (tiendaCurso && hasta >= hoyYmd()) {
+      try {
+        const cur = await cargarSaldosCajaEnCurso(supabase, { sucursal: tiendaCurso, fecha: null });
+        setVentaEnCurso((cur.data || []).filter((x) => x.enCurso && !x.sinMovimiento && Number(x.saldo) > 0));
+      } catch {
+        /* el aviso de venta en curso es informativo */
+      }
+    }
+
     const pos = (data || []).map((c) => ({ ...c, tipoCaja: c.tipoCaja || 'pos' }));
     const abarrotes = tarAb.data || [];
     return [...pos, ...abarrotes].sort((a, b) => {
@@ -256,7 +268,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       const tb = new Date(b.created_at || b.hora || b.fecha || 0).getTime();
       return tb - ta;
     });
-  }, [supabase, desde, hasta, filtroSucursal]);
+  }, [supabase, desde, hasta, filtroSucursal, sucursal]);
 
   const buscarSaldos = useCallback(async () => {
     // Venta al momento del turno (hasta que se cierre el corte). Sin fecha fija del filtro.
@@ -1301,6 +1313,15 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 )
               )}
 
+
+              {seccion === 'cajas_cortes' && ventaEnCurso.length > 0 && (
+                <div className="consultas-aviso consultas-aviso--curso">
+                  Aún sin corte (no suma arriba):{' '}
+                  {ventaEnCurso.map((x) => `${x.nombreCaja} ${fmtMonto(x.saldo)} · ${x.tickets} ticket(s)`).join(' · ')}.
+                  Se suma cuando se cierre el corte; el detalle está en Saldos de caja.
+                </div>
+              )}
+
               {seccion === 'cajas_cortes' && (
                 cortesFiltrados.length === 0 ? (
                   <EmptyState />
@@ -1574,6 +1595,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       <div>Fecha: <strong>{sel.fecha || '—'}</strong></div>
                       <div>Origen: <strong>Corte Abarrotes</strong></div>
                       <div>Pago tarjeta: <strong>{fmtMonto(sel.tarjetaAbarrotes ?? sel.electronico)}</strong></div>
+                      {sel.ventasCierre != null ? (
+                        <div>Venta total capturada en el cierre: <strong>{fmtMonto(sel.ventasCierre)}</strong></div>
+                      ) : null}
+                      {sel.cajaCierre != null ? (
+                        <div>Caja chica al cierre: <strong>{fmtMonto(sel.cajaCierre)}</strong></div>
+                      ) : null}
+                      {sel.ventasCierre != null ? (
+                        <div style={{ gridColumn: '1 / -1' }} className="muted">
+                          En la tabla solo se suma la tarjeta de este cierre; la venta total ya está en el corte POS del turno.
+                        </div>
+                      ) : null}
                       {sel.notas ? <div style={{ gridColumn: '1 / -1' }}>Notas: {sel.notas}</div> : null}
                     </div>
                   </>
