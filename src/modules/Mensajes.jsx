@@ -37,6 +37,8 @@ import {
   ultimoMensaje,
 } from '../lib/mensajeria.js';
 import { responderDuda } from '../lib/soporteBot.js';
+import { auditarPreguntaSoporte } from '../lib/auditoriaUso.js';
+import { puedeVerModulo } from '../lib/roles.js';
 
 const COLORES = ['#3b66b5', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#3f6212'];
 
@@ -246,7 +248,13 @@ export default function Mensajes({ supabase, sucursal, user }) {
     const extras = res.mensaje ? [res.mensaje] : [];
     if (canal.tipo === 'soporte' && abreSolicitudSoporte(user)) {
       const sol = await abrirSolicitudSoporte(supabase, { user, sucursal, canal: canal.id, texto: cuerpo });
-      const guia = responderDuda(cuerpo);
+      const puedeVer = (m) => puedeVerModulo(user.rol, m, user.id);
+      const guia = responderDuda(cuerpo, { puedeVerModulo: puedeVer });
+      if (guia.bloqueada) {
+        auditarPreguntaSoporte(supabase, {
+          user, sucursal, pregunta: cuerpo, categoria: guia.categoria, etiqueta: guia.etiqueta,
+        });
+      }
       const bot = await enviarMensaje(supabase, {
         user: USUARIO_BOT,
         sucursal,
