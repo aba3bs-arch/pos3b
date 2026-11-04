@@ -5,6 +5,7 @@
  * que reconoce y gana la que más puntos tenga. Si no reconoce nada, nunca responde
  * "no sé": confirma que quedó registrada y ofrece los temas que sí domina.
  */
+import { RESPUESTA_BLOQUEO, evaluarPregunta } from '../../supabase/functions/_shared/soporteSeguridad.js';
 
 export function normalizar(s) {
   return String(s || '')
@@ -287,21 +288,103 @@ const TEMAS_MENU = [
   'compras', 'proveedores', 'consultas', 'reportes', 'vales y préstamos', 'pagaré', 'cobranza', 'checador', 'check list', 'incidencias', 'mensajes', 'tutoriales',
 ];
 
-export function responderDuda(texto) {
+/** Módulo del POS que necesita cada guía; si el usuario no lo tiene, no se le explica. */
+const MODULO_POR_GUIA = {
+  olvide_marcar: ['Checador'],
+  resumen_dias: ['Checador'],
+  checador: ['Checador'],
+  cubre: ['Checador'],
+  preinventario: ['Productos'],
+  traspaso: ['Productos'],
+  ingreso: ['Productos'],
+  productos: ['Productos'],
+  cancelar_venta: ['Corte de caja'],
+  cobrar: ['Ventas'],
+  escaner: ['Escáner caja'],
+  cortes_conta: ['Corte Virtual', 'Corte Abarrotes', 'Corte Garage'],
+  corte: ['Corte de caja'],
+  cobranza: ['Cobranza'],
+  compras: ['Compras'],
+  proveedores: ['Proveedores'],
+  consultas: ['Consultas'],
+  reportes: ['Reportes'],
+  inicio: ['Inicio'],
+  vales: ['Vales y Préstamos'],
+  pagare: ['Vales y Préstamos'],
+  prestamos: ['Vales y Préstamos'],
+  checklist: ['Check List'],
+  incidencias: ['Incidencias'],
+  mensajes: ['Mensajes'],
+  tutorial: ['Tutorial'],
+};
+
+export function modulosDeGuia(id) {
+  return MODULO_POR_GUIA[id] || [];
+}
+
+export const CIERRE_SOLICITUD = ' Quedó como solicitud abierta. Un administrador confirma y la marca resuelta.';
+
+/**
+ * @param {string} texto
+ * @param {{ puedeVerModulo?: (modulo: string) => boolean }} [opciones]
+ *   puedeVerModulo: privilegios reales del usuario. Sin él no se filtra por módulo.
+ */
+export function responderDuda(texto, { puedeVerModulo } = {}) {
+  const seguridad = evaluarPregunta(texto);
+  if (seguridad.bloqueada) {
+    return {
+      conocida: false,
+      bloqueada: true,
+      categoria: seguridad.categoria,
+      etiqueta: seguridad.etiqueta,
+      texto: RESPUESTA_BLOQUEO,
+    };
+  }
+
   const ranking = puntuar(texto);
   if (!ranking.length) {
     return {
       conocida: false,
+      puntos: 0,
       texto: `Recibí tu duda y quedó registrada como solicitud abierta; un administrador te responde en este chat. Mientras tanto puedo orientarte al instante sobre: ${TEMAS_MENU.join(', ')}. Escribe una de esas palabras (por ejemplo «preinventario» o «corte») y te doy los pasos.`,
     };
   }
-  const { guia } = ranking[0];
-  const segunda = ranking[1];
-  const parecida = segunda && segunda.puntos >= 3 && segunda.puntos >= ranking[0].puntos * 0.7;
+
+  const permitido = (g) => {
+    const mods = MODULO_POR_GUIA[g.id];
+    if (!mods?.length || typeof puedeVerModulo !== 'function') return true;
+    return mods.some((m) => puedeVerModulo(m));
+  };
+
+  const { guia, puntos } = ranking[0];
+  if (!permitido(guia)) {
+    const modulo = MODULO_POR_GUIA[guia.id].join(' / ');
+    return {
+      conocida: true,
+      sinPermiso: true,
+      guia: guia.id,
+      puntos,
+      texto: `Tu usuario no tiene el módulo «${modulo}», así que no te puedo dar esos pasos. Si lo necesitas para tu trabajo, un administrador lo activa en Configuración → Privilegios.${CIERRE_SOLICITUD}`,
+    };
+  }
+  const segunda = ranking.slice(1).find(permitido);
+  const parecida = segunda && segunda.puntos >= 3 && segunda.puntos >= puntos * 0.7;
   const extra = parecida ? ` Si buscabas «${segunda.guia.tema}», escríbelo y te doy esos pasos.` : '';
   return {
     conocida: true,
     guia: guia.id,
-    texto: `${guia.texto}${extra} Quedó como solicitud abierta. Un administrador confirma y la marca resuelta.`,
+    puntos,
+    texto: `${guia.texto}${extra}${CIERRE_SOLICITUD}`,
   };
+}
+
+/** Guías que el usuario sí puede ver; sirven de contexto para la IA. */
+export function guiasPermitidas({ puedeVerModulo } = {}, texto = '', max = 4) {
+  const ranking = puntuar(texto);
+  const lista = (ranking.length ? ranking.map((r) => r.guia) : GUIAS).filter((g) => {
+    const mods = MODULO_POR_GUIA[g.id];
+    if (!mods?.length || typeof puedeVerModulo !== 'function') return true;
+    return mods.some((m) => puedeVerModulo(m));
+  });
+  return (ranking.length ? lista.slice(0, max) : lista).map((g) => ({ id: g.id, tema: g.tema, texto: g.texto }));
 }

@@ -291,6 +291,46 @@ export function auditarLogin(supabase, { user, sucursal, evento, extra = {} } = 
   });
 }
 
+const LS_PREGUNTAS_SOSPECHOSAS = 'pos3b_soporte_preguntas_sospechosas';
+const VENTANA_REINCIDENCIA_MS = 24 * 3600 * 1000;
+const REINCIDENCIA_CRITICA = 3;
+
+function contarPreguntaSospechosa(userId, ahora = Date.now()) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_PREGUNTAS_SOSPECHOSAS) || '{}');
+    const previos = (Array.isArray(raw[userId]) ? raw[userId] : []).filter((t) => ahora - t < VENTANA_REINCIDENCIA_MS);
+    previos.push(ahora);
+    raw[userId] = previos.slice(-20);
+    localStorage.setItem(LS_PREGUNTAS_SOSPECHOSAS, JSON.stringify(raw));
+    return previos.length;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Pregunta bloqueada en el chat de Soporte (robar, evadir, manipular, pedir claves o
+ * módulos sin permiso). La tercera en 24 h se marca crítica.
+ */
+export function auditarPreguntaSoporte(supabase, { user, sucursal, pregunta, categoria, etiqueta, fuente = 'filtro' } = {}) {
+  const veces = contarPreguntaSospechosa(String(user?.id ?? user?.nombre ?? 'anon'));
+  return registrarEventoAuditoria(supabase, {
+    tipo: TIPOS_AUDITORIA.SEGURIDAD,
+    accion: 'Pregunta bloqueada en Soporte',
+    usuario: user,
+    sucursal,
+    vista: 'Mensajes',
+    severidad: veces >= REINCIDENCIA_CRITICA ? SEVERIDAD_AUDITORIA.CRITICAL : SEVERIDAD_AUDITORIA.WARNING,
+    detalle: {
+      categoria: categoria || null,
+      motivo: etiqueta || null,
+      pregunta: String(pregunta || '').slice(0, 300),
+      intentos_24h: veces,
+      detectada_por: fuente,
+    },
+  });
+}
+
 export function auditarLogout(supabase, { user, sucursal } = {}) {
   return registrarEventoAuditoria(supabase, {
     tipo: TIPOS_AUDITORIA.LOGOUT,
