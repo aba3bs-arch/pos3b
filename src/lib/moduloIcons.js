@@ -1,6 +1,7 @@
 /** Nombre de icono SVG por módulo del menú lateral */
 export const ICONO_MODULO = {
   Inicio: 'home',
+  Mensajes: 'chat',
   Incidencias: 'alert',
   Ventas: 'cart',
   'Escáner caja': 'scan',
@@ -55,6 +56,7 @@ export const ICONO_MODULO = {
 /** Color de acento por módulo (iconos del menú y cabecera). */
 export const COLOR_MODULO = {
   Inicio: '#3b66b5',
+  Mensajes: '#0e7490',
   Incidencias: '#dc2626',
   Ventas: '#e19929',
   'Escáner caja': '#0ea5e9',

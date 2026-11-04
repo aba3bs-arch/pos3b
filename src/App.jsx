@@ -36,6 +36,7 @@ import CorteGarage from './modules/cortes/CorteGarage.jsx';
 import CorteCaja from './modules/CorteCaja.jsx';
 import Configuracion from './modules/Configuracion.jsx';
 import Buzon from './modules/Buzon.jsx';
+import Mensajes from './modules/Mensajes.jsx';
 import Ayuda from './modules/Ayuda.jsx';
 import Tutorial from './modules/Tutorial.jsx';
 import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
@@ -2118,6 +2119,9 @@ function App() {
               inventario={inventario}
               cargarDatos={cargarDatos}
             />
+          )}
+          {vista === 'Mensajes' && (
+            <Mensajes supabase={supabase} sucursal={sucursal} user={user} />
           )}
           {vista === 'Tutorial' && (
             <Tutorial

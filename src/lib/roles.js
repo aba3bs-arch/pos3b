@@ -151,6 +151,7 @@ export const MODULOS_AGRUPADOS_ESTADISTICAS = new Set(SUBMODULOS_ESTADISTICAS);
 /** Orden fijo del menú lateral */
 export const MODULOS_ORDEN = [
   'Inicio',
+  'Mensajes',
   'Incidencias',
   'Ventas',
   'Escáner caja',
@@ -189,6 +190,7 @@ export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter(
 const ACCESO_POR_ROL = {
   Cajero: [
     'Inicio',
+    'Mensajes',
     'Incidencias',
     'Ventas',
     'Escáner caja',
@@ -208,9 +210,10 @@ const ACCESO_POR_ROL = {
     'Tutorial',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Incidencias', 'Productos', 'Venta en Ruta', 'Vales y Préstamos', 'Tutorial', 'Ayuda'],
+  Repartidor: ['Inicio', 'Mensajes', 'Incidencias', 'Productos', 'Venta en Ruta', 'Vales y Préstamos', 'Tutorial', 'Ayuda'],
   Auditor: [
     'Inicio',
+    'Mensajes',
     'Incidencias',
     'Corte de caja',
     'Productos',
@@ -232,6 +235,7 @@ const ACCESO_POR_ROL = {
   ],
   Supervisor: [
     'Inicio',
+    'Mensajes',
     'Incidencias',
     'Ventas',
     'Escáner caja',
@@ -258,6 +262,7 @@ const ACCESO_POR_ROL = {
   ],
   Gerente: [
     'Inicio',
+    'Mensajes',
     'Incidencias',
     'Ventas',
     'Escáner caja',
@@ -283,7 +288,7 @@ const ACCESO_POR_ROL = {
     'Tutorial',
     'Ayuda',
   ],
-  Técnico: ['Inicio', 'Incidencias', 'Checador', 'Check List', 'Tutorial', 'Ayuda'],
+  Técnico: ['Inicio', 'Mensajes', 'Incidencias', 'Checador', 'Check List', 'Tutorial', 'Ayuda'],
   Administrador: [...MODULOS_ORDEN],
   /** Externos de Contabilidad → Socio 3B: solo su módulo (cortes V/G dentro). */
   Cliente: ['Socio 3B'],
