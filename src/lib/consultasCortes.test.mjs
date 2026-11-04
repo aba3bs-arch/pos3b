@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { desgloseCorte, totalesCortes } from './consultasCortes.js';
+import { desgloseCorte, marcarCierresAbarrotesDuplicados, totalesCortes } from './consultasCortes.js';
 
 const pos = { grupos: { efectivo: 1000, tarjeta: 300, transferencia: 50, qr: 20, otros: 0 }, electronico: 370, efectivoEsperado: 1000 };
 assert.deepEqual(desgloseCorte(pos), { efectivo: 1000, tarjeta: 300, otrosElectronicos: 70, electronico: 370, total: 1370 });
@@ -17,5 +17,24 @@ assert.equal(t.otrosElectronicos, 70);
 assert.equal(t.electronico, 588);
 assert.equal(t.total, 1838.5);
 assert.equal(t.cortes, 3);
+
+const ab = {
+  id: 'abarrotes_tarjeta_1', tipoCaja: 'abarrotes_tarjeta', sucursal_id: '3B6', created_at: '2026-11-04T13:53:00Z',
+  ventasCierre: 1735, totalVentas: 1735, tarjetaAbarrotes: 218, electronico: 218,
+  efectivoEsperado: 1517, grupos: { efectivo: 1517, tarjeta: 218 },
+};
+assert.deepEqual(desgloseCorte(ab), { efectivo: 1517, tarjeta: 218, otrosElectronicos: 0, electronico: 218, total: 1735 });
+
+const pos291 = { id: 'c291', sucursal_id: '3B6', created_at: '2026-11-04T13:50:00Z', totalVentas: 1735, grupos: { efectivo: 1632, tarjeta: 103 }, electronico: 103 };
+const marcados = marcarCierresAbarrotesDuplicados([ab, pos291]);
+assert.equal(marcados[0].incluidoEnId, 'c291');
+assert.equal(totalesCortes(marcados).total, 1735);
+assert.equal(totalesCortes(marcados).cortes, 1);
+
+const otraTienda = marcarCierresAbarrotesDuplicados([ab, { ...pos291, sucursal_id: 'FUSION' }]);
+assert.equal(otraTienda[0].incluidoEnId, undefined);
+assert.equal(totalesCortes(otraTienda).total, 1735 + 1735);
+const montoDistinto = marcarCierresAbarrotesDuplicados([ab, { ...pos291, totalVentas: 900 }]);
+assert.equal(montoDistinto[0].incluidoEnId, undefined);
 
 console.log('consultasCortes.test.mjs ok');

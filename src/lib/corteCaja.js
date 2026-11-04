@@ -1,4 +1,11 @@
 import { consultarVentas } from './ventasQuery.js';
+import { equivalentesCodigoTienda } from '../constants/sucursales.js';
+
+function filtrarSucursalNube(q, sucursal) {
+  if (!sucursal) return q;
+  const vars = equivalentesCodigoTienda(sucursal);
+  return vars.length > 1 ? q.in('sucursal_id', vars) : q.eq('sucursal_id', sucursal);
+}
 
 const LS_CORTES = 'pos3b_cortes_caja';
 
@@ -448,7 +455,7 @@ export async function consultarCortes(supabase, opts = {}) {
   }
 
   let q = supabase.from('cortes_caja').select('*').order('created_at', { ascending: false }).limit(limit);
-  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  q = filtrarSucursalNube(q, sucursal);
   if (desde) q = q.gte('fecha', String(desde).slice(0, 10));
   if (hasta) q = q.lte('fecha', String(hasta).slice(0, 10));
   if (usuario?.trim()) q = q.ilike('usuario', `%${usuario.trim()}%`);
@@ -541,12 +548,16 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
 
   const pushCierre = (c, origen = 'nube') => {
     const tarjeta = montoTarjetaAbarrotesDetalle(c?.detalle);
-    if (!(tarjeta > 0)) return;
+    const ventas = round2(c?.ventas ?? c?.detalle?.venta);
+    if (!(tarjeta > 0) && !(ventas > 0)) return;
     const tipo = String(c?.detalle?.tipo_cierre || c?.turno || '').toLowerCase();
     if (tipo.includes('recoleccion')) return;
     const fecha = ymdFromIso(c.created_at) || ymdFromIso(c.fecha) || '';
     if (d0 && fecha && fecha < d0) return;
     if (d1 && fecha && fecha > d1) return;
+    // Venta total del cierre de abarrotes: la tarjeta va incluida; el efectivo es lo demás.
+    const totalVenta = ventas > 0 ? Math.max(ventas, tarjeta) : tarjeta;
+    const efectivo = round2(totalVenta - tarjeta);
     out.push({
       id: `abarrotes_tarjeta_${c.id}`,
       origenId: c.id,
@@ -557,20 +568,23 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
       usuario: c.usuario_nombre || 'Abarrotes',
       hora: c.created_at,
       created_at: c.created_at,
-      totalVentas: tarjeta,
+      totalVentas: totalVenta,
       tickets: 0,
-      efectivoEsperado: 0,
+      efectivoEsperado: efectivo,
       efectivoContado: 0,
       diferencia: 0,
       electronico: tarjeta,
       tarjetaAbarrotes: tarjeta,
-      ventasCierre: c.ventas != null ? round2(c.ventas) : null,
+      ventasCierre: c.ventas != null ? ventas : null,
       cajaCierre: c.caja_actual != null ? round2(c.caja_actual) : null,
-      grupos: { efectivo: 0, tarjeta, transferencia: 0, qr: 0, otros: 0 },
-      detalleMetodos: [{ metodo: 'Tarjeta abarrotes', monto: tarjeta }],
+      grupos: { efectivo, tarjeta, transferencia: 0, qr: 0, otros: 0 },
+      detalleMetodos: [
+        ...(efectivo > 0 ? [{ metodo: 'Efectivo abarrotes', monto: efectivo }] : []),
+        ...(tarjeta > 0 ? [{ metodo: 'Tarjeta abarrotes', monto: tarjeta }] : []),
+      ],
       corroboracion: {},
       turno_id: null,
-      turno_nombre: 'Abarrotes · Tarjeta',
+      turno_nombre: 'Abarrotes · Corte',
       folio_abarrotes: c.folio || null,
       notas: c.detalle?.comentarios || '',
       origen,
@@ -605,7 +619,7 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(limit);
-  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  q = filtrarSucursalNube(q, sucursal);
   if (d0) q = q.gte('created_at', `${d0}T00:00:00`);
   if (d1) q = q.lte('created_at', `${d1}T23:59:59.999`);
 
@@ -617,7 +631,7 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
       .eq('modulo', 'abarrotes')
       .order('created_at', { ascending: false })
       .limit(limit);
-    if (sucursal) q2 = q2.eq('sucursal_id', sucursal);
+    q2 = filtrarSucursalNube(q2, sucursal);
     if (d0) q2 = q2.gte('created_at', `${d0}T00:00:00`);
     if (d1) q2 = q2.lte('created_at', `${d1}T23:59:59.999`);
     ({ data, error } = await q2);
@@ -649,6 +663,7 @@ export async function tarjetaAbarrotesDelDia(supabase, { sucursal, fecha } = {})
     limit: 80,
   });
   for (const row of r.data || []) {
+    if (!(Number(row.tarjetaAbarrotes) > 0)) continue;
     total = round2(total + (Number(row.tarjetaAbarrotes) || 0));
     items.push(row);
   }
