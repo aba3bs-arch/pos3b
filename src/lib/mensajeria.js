@@ -32,7 +32,12 @@ export const USUARIO_BOT = {
 };
 const LS_CACHE = 'pos3b_mensajes_cache_v1';
 const LS_SOLICITUDES = 'pos3b_soporte_solicitudes_v1';
+/** Tope en memoria al armar la lista. En disco se guarda mucho menos. */
 const MAX_MENSAJES = 600;
+/** Cola que cabe en un celular con el almacenamiento ya lleno por el resto del POS. */
+const COLA_CACHE = 40;
+const COLAS_EMERGENCIA = [15, 5];
+const MAX_TEXTO_CACHE = 500;
 const MAX_TEXTO = 1000;
 const TZ = 'America/Hermosillo';
 
@@ -157,28 +162,152 @@ function leerCache() {
   }
 }
 
+function esErrorCuota(err) {
+  const name = String(err?.name || '');
+  const msg = String(err?.message || err || '');
+  return (
+    name === 'QuotaExceededError'
+    || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || /quota|exceeded|storage/i.test(msg)
+  );
+}
+
+function avisar(evento) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent(evento));
+    }
+  } catch {
+    /* el aviso no puede tumbar la pantalla */
+  }
+}
+
+/** Solo los campos que el hilo necesita para reabrir sin red. */
+function slimMensaje(m) {
+  return {
+    id: String(m.id),
+    canal: String(m.canal),
+    texto: String(m.texto || '').slice(0, MAX_TEXTO_CACHE),
+    autor_id: m.autor_id || '',
+    autor_nombre: String(m.autor_nombre || '').slice(0, 80),
+    autor_rol: m.autor_rol || '',
+    autor_sucursal: m.autor_sucursal || '',
+    turno_id: m.turno_id || '',
+    turno_nombre: String(m.turno_nombre || '').slice(0, 40),
+    destinatario_id: m.destinatario_id || null,
+    destinatario_nombre: m.destinatario_nombre ? String(m.destinatario_nombre).slice(0, 80) : null,
+    created_at: m.created_at || '',
+    pendiente: m.pendiente === true,
+  };
+}
+
+function podarLeidos(leidos) {
+  const usuarios = Object.entries(leidos || {}).filter(([, mapa]) => mapa && typeof mapa === 'object');
+  const out = {};
+  for (const [uid, mapa] of usuarios.slice(-8)) {
+    const canales = Object.entries(mapa)
+      .filter(([, iso]) => iso)
+      .sort((a, b) => String(b[1]).localeCompare(String(a[1])))
+      .slice(0, 24);
+    if (canales.length) out[String(uid).slice(0, 80)] = Object.fromEntries(canales);
+  }
+  return out;
+}
+
+function quitarCacheMensajes() {
+  try {
+    localStorage.removeItem(LS_CACHE);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Persiste una cola corta. Si el origen ya no tiene cuota, recorta y reintenta.
+ * Nunca lanza: un setItem fallido no debe llegar al error boundary.
+ * No borra otras claves del POS.
+ */
 function escribirCache(next) {
   const prev = leerCache();
-  const mensajes = [...(next.mensajes || prev.mensajes)]
+  const completos = [...(next.mensajes || prev.mensajes)]
     .filter((m) => m && m.id && m.canal)
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
     .slice(-MAX_MENSAJES);
-  const leidos = next.leidos || prev.leidos;
-  const json = JSON.stringify({ mensajes, leidos });
-  if (localStorage.getItem(LS_CACHE) === json) return mensajes;
-  localStorage.setItem(LS_CACHE, json);
-  window.dispatchEvent(new CustomEvent(EVENTO_MENSAJES));
-  return mensajes;
+  const leidos = podarLeidos(next.leidos || prev.leidos);
+
+  const poner = (cantidad) => {
+    const json = JSON.stringify({
+      mensajes: completos.slice(-cantidad).map(slimMensaje),
+      leidos,
+    });
+    try {
+      if (localStorage.getItem(LS_CACHE) === json) return 'igual';
+    } catch {
+      /* igual se intenta escribir */
+    }
+    localStorage.setItem(LS_CACHE, json);
+    return 'escrito';
+  };
+
+  let avisado = false;
+  const notificar = () => {
+    if (avisado) return;
+    avisado = true;
+    avisar(EVENTO_MENSAJES);
+  };
+
+  try {
+    if (poner(Math.min(completos.length, COLA_CACHE)) === 'escrito') notificar();
+  } catch (err) {
+    if (!esErrorCuota(err)) return completos;
+    quitarCacheMensajes();
+    let guardo = false;
+    for (const n of COLAS_EMERGENCIA) {
+      try {
+        poner(Math.min(completos.length, n));
+        guardo = true;
+        break;
+      } catch (err2) {
+        if (!esErrorCuota(err2)) break;
+        quitarCacheMensajes();
+      }
+    }
+    if (!guardo) quitarCacheMensajes();
+    notificar();
+  }
+  return completos;
+}
+
+function combinarMensaje(prev, next) {
+  if (!prev) return next;
+  const textoPrev = String(prev.texto || '');
+  const textoNext = String(next.texto || '');
+  const texto = textoNext.length >= textoPrev.length ? next.texto : prev.texto;
+  const pendiente = next.pendiente === false
+    ? false
+    : Boolean(prev.pendiente && next.pendiente !== false);
+  return { ...prev, ...next, texto, pendiente };
 }
 
 export function fusionarMensajes(lista, extras) {
   const map = new Map();
   for (const m of [...(lista || []), ...(extras || [])]) {
     if (!m?.id) continue;
-    const prev = map.get(m.id);
-    map.set(m.id, prev ? { ...prev, ...m, pendiente: m.pendiente === false ? false : Boolean(prev.pendiente && m.pendiente !== false) } : m);
+    map.set(m.id, combinarMensaje(map.get(m.id), m));
   }
   return [...map.values()].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+}
+
+export function fusionarSolicitudes(lista, extras) {
+  const map = new Map();
+  for (const sol of [...(lista || []), ...(extras || [])]) {
+    if (!sol?.canal) continue;
+    const prev = map.get(sol.canal);
+    if (!prev || String(sol.updated_at || '') >= String(prev.updated_at || '')) {
+      map.set(sol.canal, { ...prev, ...sol });
+    }
+  }
+  return [...map.values()];
 }
 
 function tablaFalta(error) {
@@ -546,9 +675,59 @@ function leerSolicitudesCache() {
   }
 }
 
+function slimSolicitud(sol) {
+  return {
+    canal: String(sol.canal),
+    sucursal_id: sol.sucursal_id || '',
+    estado: sol.estado === 'resuelta' ? 'resuelta' : 'abierta',
+    texto: String(sol.texto || '').slice(0, 280),
+    solicitante_nombre: String(sol.solicitante_nombre || '').slice(0, 80),
+    solicitante_turno: String(sol.solicitante_turno || '').slice(0, 40),
+    resuelta_por: sol.resuelta_por ? String(sol.resuelta_por).slice(0, 80) : null,
+    resuelta_at: sol.resuelta_at || null,
+    updated_at: sol.updated_at || '',
+  };
+}
+
+function quitarCacheSolicitudes() {
+  try {
+    localStorage.removeItem(LS_SOLICITUDES);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Igual que el caché de mensajes: si no cabe, se recorta. Nunca lanza. */
 function escribirSolicitudesCache(mapa) {
-  localStorage.setItem(LS_SOLICITUDES, JSON.stringify(mapa || {}));
-  window.dispatchEvent(new CustomEvent(EVENTO_SOPORTE));
+  const lista = Object.values(mapa || {})
+    .filter((sol) => sol && sol.canal)
+    .map(slimSolicitud)
+    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+  const intentos = [...new Set([lista.length, Math.min(lista.length, 20), Math.min(lista.length, 1), 0])];
+  for (const n of intentos) {
+    const slice = lista.slice(0, n);
+    const json = JSON.stringify(Object.fromEntries(slice.map((sol) => [sol.canal, sol])));
+    try {
+      if (n === 0) {
+        quitarCacheSolicitudes();
+      } else {
+        try {
+          if (localStorage.getItem(LS_SOLICITUDES) === json) {
+            avisar(EVENTO_SOPORTE);
+            return;
+          }
+        } catch {
+          /* sigue */
+        }
+        localStorage.setItem(LS_SOLICITUDES, json);
+      }
+      avisar(EVENTO_SOPORTE);
+      return;
+    } catch (err) {
+      quitarCacheSolicitudes();
+      if (!esErrorCuota(err)) return;
+    }
+  }
 }
 
 function solicitudVisible(user, sucursal, sol) {
@@ -647,5 +826,5 @@ export async function cambiarEstadoSolicitud(supabase, { user, sucursal, canal, 
     ? 'Marqué esta solicitud como resuelta.'
     : 'Reabrí la solicitud. Sigue pendiente de un administrador.';
   const envio = await enviarMensaje(supabase, { user, sucursal, canal, texto: nota, turnoEtiqueta: 'Administrador' });
-  return { ok: true, solicitud: sol, aviso: envio.aviso || '' };
+  return { ok: true, solicitud: sol, mensaje: envio.mensaje || null, aviso: envio.aviso || '' };
 }

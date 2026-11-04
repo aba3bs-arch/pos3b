@@ -6454,6 +6454,15 @@ table.data th {
   font-size: 1.05rem;
 }
 
+.msg-hilo-icono {
+  width: 34px;
+  height: 34px;
+}
+
+.msg-pista {
+  white-space: pre-line;
+}
+
 .msg-soporte-acciones {
   display: flex;
   align-items: center;
@@ -6622,8 +6631,16 @@ table.data th {
   margin: auto;
   color: var(--muted);
   text-align: center;
-  max-width: 18rem;
-  font-size: 0.9rem;
+  max-width: 16rem;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+.msg-enviar {
+  min-width: 46px;
+  min-height: 46px;
+  padding: 0.55rem 0.85rem;
 }
 
 .msg-composer {
@@ -6702,9 +6719,115 @@ table.data th {
 
 .msg-app--mobile {
   grid-template-columns: 1fr;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-shell--mobile .app-content:has(.msg-app) {
+  padding: 0;
 }
 
 .msg-app--mobile .msg-lista--oculta,
 .msg-app--mobile .msg-hilo--oculta {
   display: none;
+}
+
+.msg-app--mobile .msg-lista-head {
+  padding: 0.55rem 0.7rem 0.2rem;
+}
+
+.msg-app--mobile .msg-identidad {
+  margin: 0.25rem 0.55rem 0.35rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.msg-app--mobile .msg-canal {
+  padding: 0.35rem 0.4rem;
+}
+
+.msg-app--mobile .msg-hilo-head {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.msg-app--mobile .msg-hilo-texto {
+  min-width: 0;
+}
+
+.msg-app--mobile .msg-hilo-head h3 {
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-app--mobile .msg-hilo-head p {
+  margin-top: 0;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.msg-app--mobile .msg-hilo-icono {
+  width: 30px;
+  height: 30px;
+}
+
+.msg-app--mobile .msg-soporte-acciones {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  margin-left: 0;
+}
+
+.msg-app--mobile .msg-btn-resolver {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.72rem;
+}
+
+.msg-app--mobile .msg-aviso {
+  margin: 0.35rem 0.55rem 0;
+  padding: 0.3rem 0.55rem;
+}
+
+.msg-app--mobile .msg-burbujas {
+  padding: 0.45rem 0.55rem;
+  gap: 0.4rem;
+}
+
+.msg-app--mobile .msg-burbuja-cuerpo {
+  padding: 0.35rem 0.6rem 0.28rem;
+}
+
+.msg-app--mobile .msg-burbuja-cuerpo p {
+  font-size: 0.92rem;
+}
+
+.msg-app--mobile .msg-composer {
+  padding: 0.4rem 0.5rem;
+  gap: 0.4rem;
+}
+
+.msg-app--mobile .msg-composer textarea {
+  min-height: 40px;
+  padding: 0.5rem 0.65rem;
+}
+
+.msg-app--mobile .msg-enviar {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.msg-app--mobile .msg-canal:active {
+  transform: scale(0.985);
 }
