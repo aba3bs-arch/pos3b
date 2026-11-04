@@ -17,9 +17,38 @@ export function desgloseCorte(corte) {
   return { efectivo, tarjeta, otrosElectronicos, electronico: r2(tarjeta + otrosElectronicos), total };
 }
 
+const VENTANA_DUPLICADO_MS = 36 * 3600e3;
+
+/**
+ * Un cierre de Abarrotes cuya venta total es la misma de un corte POS de la misma tienda
+ * (mismo monto, mismo día o contiguo) es la misma venta: se muestra pero no se suma dos veces.
+ * Devuelve copias con `incluidoEnId` en los cierres duplicados.
+ */
+export function marcarCierresAbarrotesDuplicados(cortes) {
+  const lista = cortes || [];
+  const pos = lista.filter((c) => c?.tipoCaja !== 'abarrotes_tarjeta');
+  const usados = new Set();
+  return lista.map((c) => {
+    if (c?.tipoCaja !== 'abarrotes_tarjeta' || !(Number(c.ventasCierre) > 0)) return c;
+    const suc = String(c.sucursal_id || c.sucursal || '').toUpperCase();
+    const t = new Date(c.created_at || c.hora || 0).getTime();
+    const par = pos.find((p) => {
+      if (usados.has(p.id)) return false;
+      if (String(p.sucursal_id || p.sucursal || '').toUpperCase() !== suc) return false;
+      if (Math.abs(r2(p.totalVentas ?? p.total_ventas) - r2(c.ventasCierre)) >= 0.01) return false;
+      const tp = new Date(p.created_at || p.hora || 0).getTime();
+      return Math.abs(tp - t) <= VENTANA_DUPLICADO_MS;
+    });
+    if (!par) return c;
+    usados.add(par.id);
+    return { ...c, incluidoEnId: par.id };
+  });
+}
+
 export function totalesCortes(cortes) {
   const t = { efectivo: 0, tarjeta: 0, otrosElectronicos: 0, electronico: 0, total: 0, cortes: 0 };
   for (const c of cortes || []) {
+    if (c?.incluidoEnId) continue;
     const d = desgloseCorte(c);
     t.efectivo += d.efectivo;
     t.tarjeta += d.tarjeta;

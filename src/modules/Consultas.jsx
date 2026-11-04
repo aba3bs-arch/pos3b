@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
-import { desgloseCorte, totalesCortes } from '../lib/consultasCortes.js';
+import { desgloseCorte, marcarCierresAbarrotesDuplicados, totalesCortes } from '../lib/consultasCortes.js';
 import { ajustarRango, coincideBusqueda, ymdHaceDias, ymdLocal } from '../lib/consultasFiltros.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
@@ -263,11 +263,12 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
     const pos = (data || []).map((c) => ({ ...c, tipoCaja: c.tipoCaja || 'pos' }));
     const abarrotes = tarAb.data || [];
-    return [...pos, ...abarrotes].sort((a, b) => {
+    const todos = [...pos, ...abarrotes].sort((a, b) => {
       const ta = new Date(a.created_at || a.hora || a.fecha || 0).getTime();
       const tb = new Date(b.created_at || b.hora || b.fecha || 0).getTime();
       return tb - ta;
     });
+    return marcarCierresAbarrotesDuplicados(todos);
   }, [supabase, desde, hasta, filtroSucursal, sucursal]);
 
   const buscarSaldos = useCallback(async () => {
@@ -1374,14 +1375,19 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                           const celda = (monto, color) => (monto > 0
                             ? <span style={{ fontWeight: 600, color }}>{fmtMonto(monto)}</span>
                             : '—');
+                          const folioIncluido = c.incluidoEnId ? folioNumerico(c.incluidoEnId, 3) : '';
                           return (
-                            <tr key={id} onClick={() => setSel({ ...c, id })}>
+                            <tr
+                              key={id}
+                              onClick={() => setSel({ ...c, id })}
+                              style={folioIncluido ? { opacity: 0.6 } : undefined}
+                            >
                               <td>
                                 <div className="consultas-folio">
                                   {fmtFechaCorta(c.created_at || c.fecha)}
                                   <small>
                                     {esAbTarjeta
-                                      ? 'Abarrotes · Pago tarjeta'
+                                      ? 'Abarrotes · Corte'
                                       : c.turno_nombre || c.turno_id || etiquetaTienda(c.sucursal || c.sucursal_id)}
                                   </small>
                                 </div>
@@ -1390,7 +1396,14 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                               <td className="consultas-num">{celda(d.efectivo, '#15803d')}</td>
                               <td className="consultas-num">{celda(d.tarjeta, '#1e5bb8')}</td>
                               <td className="consultas-num">{celda(d.otrosElectronicos, '#7c3aed')}</td>
-                              <td className="consultas-num" style={{ fontWeight: 700 }}>{fmtMonto(d.total)}</td>
+                              <td className="consultas-num" style={{ fontWeight: 700 }}>
+                                {fmtMonto(d.total)}
+                                {folioIncluido ? (
+                                  <small style={{ display: 'block', fontWeight: 500, color: '#64748b' }}>
+                                    ya incluido en corte {folioIncluido}
+                                  </small>
+                                ) : null}
+                              </td>
                               <td>
                                 <Avatar nombre={c.usuario} />
                               </td>
@@ -1587,7 +1600,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 {sel.tipoCaja === 'abarrotes_tarjeta' ? (
                   <>
                     <h4>
-                      Tarjeta Abarrotes · {sel.folio_abarrotes || folioNumerico(sel.origenId || sel.id, 3)}
+                      Corte Abarrotes · {sel.folio_abarrotes || folioNumerico(sel.origenId || sel.id, 3)}
                     </h4>
                     <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem' }}>
                       <div>Usuario: <strong>{sel.usuario || '—'}</strong></div>
@@ -1601,9 +1614,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       {sel.cajaCierre != null ? (
                         <div>Caja chica al cierre: <strong>{fmtMonto(sel.cajaCierre)}</strong></div>
                       ) : null}
-                      {sel.ventasCierre != null ? (
+                      <div>Venta en efectivo: <strong>{fmtMonto(desgloseCorte(sel).efectivo)}</strong></div>
+                      {sel.incluidoEnId ? (
                         <div style={{ gridColumn: '1 / -1' }} className="muted">
-                          En la tabla solo se suma la tarjeta de este cierre; la venta total ya está en el corte POS del turno.
+                          Esta venta total coincide con el corte POS {folioNumerico(sel.incluidoEnId, 3)} de la misma tienda,
+                          por eso no se suma otra vez en los totales.
                         </div>
                       ) : null}
                       {sel.notas ? <div style={{ gridColumn: '1 / -1' }}>Notas: {sel.notas}</div> : null}
