@@ -34,6 +34,9 @@ const PRESETS_PENDIENTE = [
   ...PRESETS_FECHA_PRODUCTO,
 ];
 
+let ultimaReparacionTransito = 0;
+const REPARACION_TRANSITO_MS = 5 * 60 * 1000;
+
 /** Liquidación en oficina — administrador / gerente. */
 export default function PanelLiquidacionRecolecciones({ supabase, user, embedded = false }) {
   const rol = normalizarRol(user?.rol);
@@ -97,15 +100,27 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
   const cargaMovs = !esHistorial && vista !== 'recolectores';
 
+  const cargaSeq = useRef(0);
+
   const cargar = useCallback(async () => {
     if (!supabase || esHistorial) return;
+    const seq = ++cargaSeq.current;
+    const vigente = () => seq === cargaSeq.current;
     setError(null);
     setCargando(true);
     try {
       const reps = await listarRepartidores(supabase);
+      if (!vigente()) return;
       setRepartidores(reps);
+
+      if (!cargaMovs) {
+        const resumen = await resumenMercanciaEnTransitoPorRepartidor(supabase, reps);
+        if (!vigente()) return;
+        setResumenReps(resumen);
+        return;
+      }
+
       const repId = repLiq || reps[0]?.id || '';
-      if (!repLiq && repId) setRepLiq(repId);
       if (!repId) {
         setResumenReps([]);
         return;
@@ -114,35 +129,40 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       const desde = presetFecha === 'todos' ? '' : filtroDesde;
       const hasta = presetFecha === 'todos' ? '' : filtroHasta;
 
-      // Cancelaciones aprobadas que dejaron efectivo en Pendientes → limpiar por folio VR.
-      if (cargaMovs) {
-        try {
-          await repararTransitosCancelacionesAprobadas(supabase, { limit: 80 });
-        } catch {
-          /* no bloquear liquidación si falla la reparación */
-        }
-      }
-
-      const [movs, gastos, resumen] = await Promise.all([
-        cargaMovs
-          ? listarMercanciaEnTransitoPorRepartidor(supabase, repId).then((rows) =>
-              filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
-            )
-          : Promise.resolve([]),
-        cargaMovs ? listarGastosActivosParaLiquidacion(supabase, repId) : Promise.resolve([]),
-        // Casillas siempre: totales por recolector (Pendientes mercancía).
-        resumenMercanciaEnTransitoPorRepartidor(supabase),
+      const [movs, gastos] = await Promise.all([
+        listarMercanciaEnTransitoPorRepartidor(supabase, repId).then((rows) =>
+          filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
+        ),
+        listarGastosActivosParaLiquidacion(supabase, repId),
       ]);
+      if (!vigente()) return;
       setEnTransito(movs);
       setGastosActivos(gastos);
-      setResumenReps(resumen);
       setSelIds(Object.fromEntries(movs.map((m) => [m.id, true])));
+
+      // Cancelaciones aprobadas que dejaron efectivo en Pendientes: se limpian en segundo plano
+      // (antes bloqueaba la pantalla con decenas de consultas en cada cambio de filtro).
+      const ahora = Date.now();
+      if (ahora - ultimaReparacionTransito > REPARACION_TRANSITO_MS) {
+        ultimaReparacionTransito = ahora;
+        repararTransitosCancelacionesAprobadas(supabase, { limit: 80 })
+          .then((r) => {
+            if (r?.limpiados > 0 && vigente()) cargarRef.current?.();
+          })
+          .catch(() => {
+            /* no bloquear liquidación si falla la reparación */
+          });
+      }
     } catch (e) {
+      if (!vigente()) return;
       setError(e.message?.includes('repartidores') ? 'Ejecuta supabase/control_efectivo.sql en Supabase.' : e.message);
     } finally {
-      setCargando(false);
+      if (vigente()) setCargando(false);
     }
   }, [supabase, repLiq, esHistorial, cargaMovs, presetFecha, filtroDesde, filtroHasta]);
+
+  const cargarRef = useRef(cargar);
+  cargarRef.current = cargar;
 
   useEffect(() => {
     cargar();

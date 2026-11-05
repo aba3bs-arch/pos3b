@@ -981,10 +981,10 @@ export function agruparMercanciaEnTransitoPorRepartidor(repartidores = [], movim
 }
 
 /** Resumen de mercancía en tránsito por cada recolector activo (casillas RC). */
-export async function resumenMercanciaEnTransitoPorRepartidor(supabase) {
+export async function resumenMercanciaEnTransitoPorRepartidor(supabase, repartidores = null) {
   if (!supabase) return [];
   const [reps, movs] = await Promise.all([
-    listarRepartidores(supabase),
+    repartidores ? Promise.resolve(repartidores) : listarRepartidores(supabase),
     listarTodoEnTransito(supabase),
   ]);
   return agruparMercanciaEnTransitoPorRepartidor(reps, movs);
