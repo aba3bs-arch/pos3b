@@ -6831,3 +6831,12 @@ table.data th {
 .msg-app--mobile .msg-canal:active {
   transform: scale(0.985);
 }
+
+.app-modulo-cargando {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  color: #64748b;
+  font-weight: 600;
+}
