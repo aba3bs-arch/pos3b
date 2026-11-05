@@ -7,6 +7,7 @@ import {
   armarCierreAuditoria,
   borrarBorradorAuditoria,
   borradorAuditoriaTieneProgreso,
+  restaurarBorradoresAuditoriaDesdeRespaldo,
   construirLineasAuditoriaCamion,
   folioAuditoriaRuta,
   guardarAuditoriaCamionLocal,
@@ -300,11 +301,25 @@ export default function AuditoriaCamionRuta({
   const [libreIds, setLibreIds] = useState([]);
   const [tickBorr, setTickBorr] = useState(0);
   const [avisoRecuperado, setAvisoRecuperado] = useState(false);
+  const [respaldoListo, setRespaldoListo] = useState(false);
+  const [errorGuardado, setErrorGuardado] = useState(false);
   const rootRef = useRef(null);
   const [borradorCamion, setBorradorCamion] = useState('');
   const contadaRef = useRef(null);
   const draftRef = useRef(null);
   const reanudadoRef = useRef(false);
+
+  // Antes de decidir qué reanudar, recupera de IndexedDB lo que localStorage haya perdido.
+  useEffect(() => {
+    let vivo = true;
+    const listo = () => { if (vivo) setRespaldoListo(true); };
+    const tope = setTimeout(listo, 2500);
+    restaurarBorradoresAuditoriaDesdeRespaldo()
+      .then((n) => { if (vivo && n > 0) setTickBorr((x) => x + 1); })
+      .catch(() => {})
+      .finally(() => { clearTimeout(tope); listo(); });
+    return () => { vivo = false; clearTimeout(tope); };
+  }, []);
 
   const cargarListas = useCallback(async () => {
     setCargandoLista(true);
@@ -386,7 +401,7 @@ export default function AuditoriaCamionRuta({
   // No vaciar el conteo si el camión aún no está resuelto: al volver a la app
   // la lista tarda y ese vacío borraba el inventario guardado.
   useEffect(() => {
-    if (!recolectorId || !camionId) return;
+    if (!respaldoListo || !recolectorId || !camionId) return;
     if (borradorCamion === camionId) return;
     const draft = leerBorradorAuditoria(camionId);
     const conteosD = draft?.conteos && typeof draft.conteos === 'object' ? draft.conteos : {};
@@ -420,10 +435,10 @@ export default function AuditoriaCamionRuta({
       deptosSel: deptosD,
       libreIds: libresD,
     }));
-  }, [camionId, recolectorId, borradorCamion]);
+  }, [camionId, recolectorId, borradorCamion, respaldoListo]);
 
   useEffect(() => {
-    if (reanudadoRef.current || recolectorId || cargandoLista) return;
+    if (reanudadoRef.current || recolectorId || cargandoLista || !respaldoListo) return;
     const drafts = listarBorradoresAuditoria().filter((b) => borradorAuditoriaTieneProgreso(b));
     if (!drafts.length) {
       reanudadoRef.current = true;
@@ -433,7 +448,7 @@ export default function AuditoriaCamionRuta({
     if (!rec) return;
     reanudadoRef.current = true;
     setRecolectorId(String(rec.id));
-  }, [cargandoLista, recolectores, recolectorId]);
+  }, [cargandoLista, recolectores, recolectorId, respaldoListo]);
 
   useEffect(() => {
     const cam = camiones.find((c) => String(c.id) === String(camionId));
@@ -451,7 +466,8 @@ export default function AuditoriaCamionRuta({
     };
     const accion = accionPersistenciaBorradorAuditoria({ camionId, borradorCamion, paso, datos });
     if (accion !== 'guardar') return;
-    guardarBorradorAuditoria(camionId, datos);
+    const guardado = guardarBorradorAuditoria(camionId, datos);
+    setErrorGuardado((prev) => (prev === !guardado ? prev : !guardado));
     setTickBorr((n) => n + 1);
   }, [camionId, borradorCamion, conteos, cerrados, deptosSel, libreIds, deptoActivo, indice, paso, recolectorId, camiones, recolectorSel]);
 
@@ -828,6 +844,24 @@ export default function AuditoriaCamionRuta({
           Ticket
         </button>
       </nav>
+
+      {errorGuardado && paso !== 'ticket' && (
+        <p
+          role="alert"
+          style={{
+            margin: 0,
+            padding: '0.55rem 0.65rem',
+            borderRadius: 8,
+            background: 'rgba(220,38,38,0.1)',
+            border: '1px solid rgba(220,38,38,0.4)',
+            fontSize: '0.85rem',
+            color: '#991b1b',
+          }}
+        >
+          No se pudo guardar el conteo en este equipo (memoria llena). No salgas de la app: cierra
+          departamentos para terminar el ticket o usa Limpiar caché en el menú.
+        </p>
+      )}
 
       {avisoRecuperado && paso !== 'ticket' && (
         <p

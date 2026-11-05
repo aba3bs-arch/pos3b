@@ -8,6 +8,8 @@
 import { precioCompraCatalogo, precioRutaEspecial } from './ventaEnRuta.js';
 import { costoUnitarioInventario } from './valorInventario.js';
 import { etiquetaDepartamento, normalizarDepartamento } from './departamentos.js';
+import { guardarLocalSeguro } from './almacenamientoLocal.js';
+import { borrarRespaldo, listarRespaldos, respaldarBorrador } from './respaldoIdb.js';
 
 const LS_AUDITORIAS = 'pos3b_ruta_auditorias';
 const LS_BORRADOR = 'pos3b_ruta_auditoria_borrador_';
@@ -303,13 +305,35 @@ export function folioAuditoriaRuta(historial = [], ahora = new Date()) {
   return `${pref}${String(n).padStart(3, '0')}`;
 }
 
+/** @returns {boolean} false si no se pudo guardar en este equipo (ni liberando espacio). */
 export function guardarBorradorAuditoria(camionId, datos) {
-  if (!camionId) return;
-  try {
-    localStorage.setItem(`${LS_BORRADOR}${camionId}`, JSON.stringify({ ...datos, guardado_at: new Date().toISOString() }));
-  } catch {
-    /* ignore */
+  if (!camionId) return false;
+  const completo = { ...datos, guardado_at: new Date().toISOString() };
+  const r = guardarLocalSeguro(`${LS_BORRADOR}${camionId}`, JSON.stringify(completo));
+  void respaldarBorrador(`${LS_BORRADOR}${camionId}`, completo);
+  return r.ok;
+}
+
+/**
+ * Recupera de IndexedDB los borradores que localStorage ya no tiene (o tiene más viejos).
+ * @returns {Promise<number>} borradores restaurados
+ */
+export async function restaurarBorradoresAuditoriaDesdeRespaldo() {
+  const respaldos = await listarRespaldos(LS_BORRADOR);
+  let n = 0;
+  for (const { clave, valor } of respaldos) {
+    if (!valor || typeof valor !== 'object' || !borradorAuditoriaTieneProgreso(valor)) continue;
+    let local = null;
+    try {
+      local = JSON.parse(localStorage.getItem(clave) || 'null');
+    } catch {
+      local = null;
+    }
+    const tl = String(local?.guardado_at || '');
+    if (local && borradorAuditoriaTieneProgreso(local) && tl >= String(valor.guardado_at || '')) continue;
+    if (guardarLocalSeguro(clave, JSON.stringify(valor)).ok) n += 1;
   }
+  return n;
 }
 
 export function leerBorradorAuditoria(camionId) {
@@ -329,6 +353,7 @@ export function borrarBorradorAuditoria(camionId) {
   } catch {
     /* ignore */
   }
+  void borrarRespaldo(`${LS_BORRADOR}${camionId}`);
 }
 
 /**
