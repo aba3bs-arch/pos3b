@@ -491,6 +491,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
             {[
               ['recibir', 'Recibir efectivo'],
               ['ventas', 'Ventas por tienda'],
+              ['traspasos', 'Traspasos/Crédito'],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -504,6 +505,8 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           </div>
           {rcTab === 'ventas' ? (
             <VentasRutaPorTienda supabase={supabase} />
+          ) : rcTab === 'traspasos' ? (
+            <VentasRutaPorTienda supabase={supabase} modo="traspasos" />
           ) : (
             <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
           )}

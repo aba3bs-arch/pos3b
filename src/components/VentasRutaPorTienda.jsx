@@ -5,17 +5,34 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import {
   cargarContextoLiquidacion,
+  cargarCortesLiquidacion,
   gastoVigente,
   gastosPosterioresALiquidacion,
   listarGastosRutaPorRango,
   listarVentasRutaPorRango,
+  rangoDesdeUltimaRecoleccion,
+  resumirTraspasosCredito,
   resumirVentasPorTienda,
   totalGastos,
   tiendasDeVentas,
   ventasPosterioresALiquidacion,
 } from '../lib/ventasRutaPorTienda.js';
 
-const PRESETS = PRESETS_FECHA_PRODUCTO.filter((p) => ['hoy', 'semana', '7d', 'mes', 'mes_ant', 'rango'].includes(p.id));
+export const PRESET_ULTIMA_RECOLECCION = 'ultima_recoleccion';
+
+const PRESETS = [
+  ...PRESETS_FECHA_PRODUCTO.filter((p) => ['hoy', 'semana', '7d', 'mes', 'mes_ant'].includes(p.id)),
+  { id: PRESET_ULTIMA_RECOLECCION, label: 'Desde última recolección' },
+  ...PRESETS_FECHA_PRODUCTO.filter((p) => p.id === 'rango'),
+];
+
+const fmtDia = (ymd) => {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(ymd || '—');
+  const f = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12));
+  const nombre = f.toLocaleDateString('es-MX', { weekday: 'short', timeZone: 'UTC' });
+  return `${nombre} ${m[3]}/${m[2]}/${m[1]}`;
+};
 
 const fmtFecha = (iso) => {
   if (!iso) return '—';
@@ -26,8 +43,11 @@ const fmtFecha = (iso) => {
   }
 };
 
-/** RC/VentaRuta → ventas en efectivo y crédito por tienda, con rango de fechas. */
-export default function VentasRutaPorTienda({ supabase }) {
+/**
+ * RC/VentaRuta → ventas en efectivo y crédito por tienda (modo 'tiendas'), o traspasos dejados
+ * a crédito por día y por tienda (modo 'traspasos'), con rango de fechas.
+ */
+export default function VentasRutaPorTienda({ supabase, modo = 'tiendas' }) {
   const hoy = hoyYmdNogales();
   const [preset, setPreset] = useState('hoy');
   const [desde, setDesde] = useState(hoy);
@@ -36,14 +56,34 @@ export default function VentasRutaPorTienda({ supabase }) {
   const [ventasRango, setVentasRango] = useState([]);
   const [gastosRango, setGastosRango] = useState([]);
   const [contexto, setContexto] = useState({ repartidores: [], cortes: new Map(), cargasPorId: new Map() });
-  const [soloPostLiquidacion, setSoloPostLiquidacion] = useState(true);
+  const [soloPostLiquidacion, setSoloPostLiquidacion] = useState(modo !== 'traspasos');
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [abierta, setAbierta] = useState(null);
   const [tick, setTick] = useState(0);
 
+  const [ultimaRecoleccionIso, setUltimaRecoleccionIso] = useState(null);
+
+  const cambiarPreset = (id) => {
+    setPreset(id);
+    if (id === PRESET_ULTIMA_RECOLECCION) setSoloPostLiquidacion(true);
+  };
+
+  useEffect(() => {
+    if (preset !== PRESET_ULTIMA_RECOLECCION) return undefined;
+    let cancel = false;
+    void cargarCortesLiquidacion(supabase).then(({ cortes }) => {
+      if (cancel) return;
+      const r = rangoDesdeUltimaRecoleccion(cortes, { hoy: hoyYmdNogales() });
+      setDesde(r.desde);
+      setHasta(r.hasta);
+      setUltimaRecoleccionIso(r.ultimaIso);
+    }).catch(() => {});
+    return () => { cancel = true; };
+  }, [preset, supabase, tick]);
+
   const rango = useMemo(() => {
-    if (preset === 'rango') return { desde, hasta };
+    if (preset === 'rango' || preset === PRESET_ULTIMA_RECOLECCION) return { desde, hasta };
     return rangoDesdePreset(preset) || { desde: hoy, hasta: hoy };
   }, [preset, desde, hasta, hoy]);
 
@@ -96,23 +136,35 @@ export default function VentasRutaPorTienda({ supabase }) {
     [ventas, tiendaActiva],
   );
 
+  const traspasos = useMemo(
+    () => (modo === 'traspasos' ? resumirTraspasosCredito(ventas, { tienda: tiendaActiva }) : null),
+    [modo, ventas, tiendaActiva],
+  );
+
   const todasLasTiendas = !tiendaActiva;
   const gastosPeriodo = useMemo(() => totalGastos(gastos), [gastos]);
   const totalNeto = Math.round((total.efectivo + total.credito - (todasLasTiendas ? gastosPeriodo : 0)) * 100) / 100;
-  const tarjetas = [
-    ['Ventas', String(total.ventas), '#334155'],
-    ['Efectivo', fmtMonto(total.efectivo), '#0f766e'],
-    ['Crédito', fmtMonto(total.credito), '#b45309'],
-    ...(todasLasTiendas ? [['Gastos', fmtMonto(gastosPeriodo), '#b91c1c']] : []),
-    [todasLasTiendas ? 'Total (menos gastos)' : 'Total', fmtMonto(totalNeto), '#1d4ed8'],
-  ];
+  const tarjetas = modo === 'traspasos'
+    ? [
+        ['Traspasos a crédito', String(traspasos.total.traspasos), '#334155'],
+        ['Crédito total', fmtMonto(traspasos.total.credito), '#b45309'],
+        ['Pendiente de cobro', fmtMonto(traspasos.total.pendiente), '#b91c1c'],
+        ['Cobrado / otros', fmtMonto(traspasos.total.otros), '#0f766e'],
+      ]
+    : [
+        ['Ventas', String(total.ventas), '#334155'],
+        ['Efectivo', fmtMonto(total.efectivo), '#0f766e'],
+        ['Crédito', fmtMonto(total.credito), '#b45309'],
+        ...(todasLasTiendas ? [['Gastos', fmtMonto(gastosPeriodo), '#b91c1c']] : []),
+        [todasLasTiendas ? 'Total (menos gastos)' : 'Total', fmtMonto(totalNeto), '#1d4ed8'],
+      ];
 
   return (
     <div>
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '0.75rem' }}>
         <FiltroPeriodo
           preset={preset}
-          onPresetChange={setPreset}
+          onPresetChange={cambiarPreset}
           desde={desde}
           hasta={hasta}
           onDesdeChange={setDesde}
@@ -170,19 +222,107 @@ export default function VentasRutaPorTienda({ supabase }) {
           </div>
         ) : null}
       </div>
-      {todasLasTiendas ? (
+      {preset === PRESET_ULTIMA_RECOLECCION ? (
+        <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
+          {ultimaRecoleccionIso
+            ? `Desde la última recolección (${fmtFecha(ultimaRecoleccionIso)}) hasta hoy.`
+            : 'Aún no hay recolecciones liquidadas: se muestran los últimos 30 días.'}
+        </p>
+      ) : null}
+      {modo !== 'traspasos' && todasLasTiendas ? (
         <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
           Total = efectivo + crédito − gastos de ruta del periodo ({gastos.filter(gastoVigente).length} gasto(s)).
           Al elegir una tienda los gastos no se restan.
         </p>
       ) : null}
-      {total.canceladas > 0 ? (
+      {modo !== 'traspasos' && total.canceladas > 0 ? (
         <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
           {total.canceladas} venta(s) cancelada(s) no se cuentan.
         </p>
       ) : null}
 
-      {cargando ? (
+      {modo === 'traspasos' ? (
+        cargando ? (
+          <p className="muted">Cargando…</p>
+        ) : !traspasos.dias.length ? (
+          <p className="muted">Sin traspasos a crédito en este periodo.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="consultas-table">
+              <thead>
+                <tr>
+                  <th>Día / Tienda</th>
+                  <th>Traspasos</th>
+                  <th>Crédito</th>
+                  <th>Pendiente</th>
+                </tr>
+              </thead>
+              <tbody>
+                {traspasos.dias.map((d) => (
+                  <React.Fragment key={d.ymd}>
+                    <tr style={{ background: 'var(--surface-2, #f1f5f9)' }}>
+                      <td><strong>{fmtDia(d.ymd)}</strong></td>
+                      <td><strong>{d.traspasos}</strong></td>
+                      <td><strong>{fmtMonto(d.credito)}</strong></td>
+                      <td><strong>{fmtMonto(d.pendiente)}</strong></td>
+                    </tr>
+                    {d.tiendas.map((f) => {
+                      const clave = `${d.ymd}|${f.clave}`;
+                      return (
+                        <React.Fragment key={clave}>
+                          <tr style={{ cursor: 'pointer' }} onClick={() => setAbierta(abierta === clave ? null : clave)}>
+                            <td style={{ paddingLeft: '1.5rem' }}>
+                              {abierta === clave ? '▾' : '▸'} {f.nombre}
+                              {f.externo ? <span className="muted" style={{ fontSize: '0.72rem' }}> · externo</span> : null}
+                            </td>
+                            <td>{f.traspasos}</td>
+                            <td>{fmtMonto(f.credito)}</td>
+                            <td>{fmtMonto(f.pendiente)}</td>
+                          </tr>
+                          {abierta === clave ? (
+                            <tr>
+                              <td colSpan={4} style={{ background: 'var(--surface-2, #f8fafc)' }}>
+                                <table className="consultas-table" style={{ margin: 0 }}>
+                                  <thead>
+                                    <tr>
+                                      <th>Folio</th>
+                                      <th>Hora</th>
+                                      <th>Crédito</th>
+                                      <th>Estado</th>
+                                      <th>Vendedor</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {f.detalle.map((v) => (
+                                      <tr key={v.id || v.folio}>
+                                        <td><strong>{v.folio || '—'}</strong></td>
+                                        <td className="muted" style={{ fontSize: '0.8rem' }}>{fmtFecha(v.created_at)}</td>
+                                        <td>{fmtMonto(v._credito)}</td>
+                                        <td>{v.estado_credito || '—'}</td>
+                                        <td className="muted">{v.vendedor_nombre || '—'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          ) : null}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+                <tr className="consultas-tfoot-total">
+                  <td><strong>Total del periodo</strong></td>
+                  <td><strong>{traspasos.total.traspasos}</strong></td>
+                  <td><strong>{fmtMonto(traspasos.total.credito)}</strong></td>
+                  <td><strong>{fmtMonto(traspasos.total.pendiente)}</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : cargando ? (
         <p className="muted">Cargando…</p>
       ) : !filas.length ? (
         <p className="muted">Sin ventas en este periodo.</p>
