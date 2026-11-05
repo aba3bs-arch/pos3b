@@ -1,6 +1,6 @@
 import { montosPagoDesdeVentaRuta } from './compraGastoCorte.js';
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
-import { inicioDia, finDia } from './corteCaja.js';
+import { inicioDia, finDia, ymdNogalesFromDate } from './corteCaja.js';
 
 const MAX_PAGINAS = 30;
 const TAMANO_PAGINA = 1000;
@@ -192,9 +192,9 @@ export function gastosPosterioresALiquidacion(gastos, cortes) {
   });
 }
 
-/** Contexto para el corte: recolectores, su última liquidación y las cargas de las ventas. */
-export async function cargarContextoLiquidacion(supabase, ventas) {
-  if (!supabase) return { repartidores: [], cortes: new Map(), cargasPorId: new Map() };
+/** Recolectores y la fecha de su última liquidación (repartidorId → ISO). */
+export async function cargarCortesLiquidacion(supabase) {
+  if (!supabase) return { repartidores: [], cortes: new Map() };
   const { data: reps } = await supabase.from('repartidores').select('id, nombre');
   const repartidores = reps || [];
 
@@ -212,6 +212,33 @@ export async function cargarContextoLiquidacion(supabase, ventas) {
       .maybeSingle();
     if (data?.fecha_liquidacion) cortes.set(String(r.id), data.fecha_liquidacion);
   }));
+  return { repartidores, cortes };
+}
+
+/**
+ * Rango "desde la última recolección": del día de la liquidación más reciente de cualquier
+ * recolector (hora de Nogales) hasta hoy. Sin liquidaciones usa los últimos `diasSinCorte` días.
+ */
+export function rangoDesdeUltimaRecoleccion(cortes, { hoy, diasSinCorte = 30 } = {}) {
+  const fin = hoy || ymdNogalesFromDate(new Date());
+  let max = 0;
+  for (const iso of cortes?.values?.() || []) {
+    const t = new Date(iso).getTime();
+    if (Number.isFinite(t) && t > max) max = t;
+  }
+  if (!max) {
+    const [y, m, d] = fin.split('-').map(Number);
+    const ini = new Date(Date.UTC(y, m - 1, d - diasSinCorte));
+    return { desde: ini.toISOString().slice(0, 10), hasta: fin, ultimaIso: null };
+  }
+  const desde = ymdNogalesFromDate(new Date(max));
+  return { desde: desde > fin ? fin : desde, hasta: fin, ultimaIso: new Date(max).toISOString() };
+}
+
+/** Contexto para el corte: recolectores, su última liquidación y las cargas de las ventas. */
+export async function cargarContextoLiquidacion(supabase, ventas) {
+  if (!supabase) return { repartidores: [], cortes: new Map(), cargasPorId: new Map() };
+  const { repartidores, cortes } = await cargarCortesLiquidacion(supabase);
 
   const ids = [...new Set((ventas || []).map((v) => v.carga_id).filter(Boolean).map(String))];
   const cargasPorId = new Map();
@@ -223,4 +250,58 @@ export async function cargarContextoLiquidacion(supabase, ventas) {
     for (const c of data || []) cargasPorId.set(String(c.id), c);
   }
   return { repartidores, cortes, cargasPorId };
+}
+
+/**
+ * Traspasos (ventas de ruta a una tienda) dejados a crédito, por día y por tienda.
+ * Cuenta el monto a crédito de la venta (en mixto, solo la parte a crédito). Canceladas y
+ * créditos anulados no cuentan.
+ */
+export function resumirTraspasosCredito(ventas, { tienda = '' } = {}) {
+  const porDia = new Map();
+  const total = { traspasos: 0, credito: 0, pendiente: 0, otros: 0 };
+
+  for (const v of ventas || []) {
+    if (ventaCancelada(v)) continue;
+    const estado = String(v?.estado_credito || '').toLowerCase();
+    if (estado === 'anulado') continue;
+    const credito = r2(montosPagoDesdeVentaRuta(v).montoCredito);
+    if (!(credito > 0)) continue;
+    const t = tiendaDeVentaRuta(v);
+    if (tienda && t.clave !== tienda) continue;
+
+    const ymd = ymdNogalesFromDate(new Date(v.created_at));
+    const pendiente = estado === 'pendiente' ? credito : 0;
+
+    let dia = porDia.get(ymd);
+    if (!dia) {
+      dia = { ymd, traspasos: 0, credito: 0, pendiente: 0, tiendas: new Map() };
+      porDia.set(ymd, dia);
+    }
+    let fila = dia.tiendas.get(t.clave);
+    if (!fila) {
+      fila = { clave: t.clave, nombre: t.nombre, externo: t.externo, traspasos: 0, credito: 0, pendiente: 0, detalle: [] };
+      dia.tiendas.set(t.clave, fila);
+    }
+    fila.traspasos += 1;
+    fila.credito = r2(fila.credito + credito);
+    fila.pendiente = r2(fila.pendiente + pendiente);
+    fila.detalle.push({ ...v, _credito: credito, _pendiente: pendiente });
+    dia.traspasos += 1;
+    dia.credito = r2(dia.credito + credito);
+    dia.pendiente = r2(dia.pendiente + pendiente);
+
+    total.traspasos += 1;
+    total.credito = r2(total.credito + credito);
+    total.pendiente = r2(total.pendiente + pendiente);
+  }
+  total.otros = r2(total.credito - total.pendiente);
+
+  const dias = [...porDia.values()]
+    .sort((a, b) => b.ymd.localeCompare(a.ymd))
+    .map((d) => ({
+      ...d,
+      tiendas: [...d.tiendas.values()].sort((a, b) => b.credito - a.credito),
+    }));
+  return { dias, total };
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango, repartidorDeCarga, ventasPosterioresALiquidacion, gastosPosterioresALiquidacion, cargarContextoLiquidacion } from './ventasRutaPorTienda.js';
+import { resumirVentasPorTienda, tiendasDeVentas, listarVentasRutaPorRango, totalGastos, listarGastosRutaPorRango, repartidorDeCarga, ventasPosterioresALiquidacion, gastosPosterioresALiquidacion, cargarContextoLiquidacion, rangoDesdeUltimaRecoleccion, resumirTraspasosCredito } from './ventasRutaPorTienda.js';
 
 const ventas = [
   { id: 1, cliente_tipo: 'sucursal', cliente_id: '3b2', cliente_nombre: 'Las 3B 2', metodo_pago: 'efectivo', total: 100 },
@@ -136,6 +136,45 @@ assert.equal(totalGastos([{ monto: 100 }, { monto: '50.25' }, { monto: 999, esta
   assert.equal(ctx.cortes.get('r1'), '2026-10-26T19:00:00.000Z');
   assert.equal(ctx.cortes.has('r2'), false);
   assert.equal(ctx.cargasPorId.get('c1').vendedor_id, 'rt:r1');
+}
+
+{
+  const r = rangoDesdeUltimaRecoleccion(
+    new Map([['r1', '2026-11-02T18:50:00.000Z'], ['r2', '2026-11-04T17:00:00.000Z'], ['r3', '2026-02-07T04:33:00.000Z']]),
+    { hoy: '2026-11-05' },
+  );
+  assert.deepEqual({ desde: r.desde, hasta: r.hasta }, { desde: '2026-11-04', hasta: '2026-11-05' });
+  assert.equal(r.ultimaIso, '2026-11-04T17:00:00.000Z');
+  const sin = rangoDesdeUltimaRecoleccion(new Map(), { hoy: '2026-11-05', diasSinCorte: 30 });
+  assert.deepEqual({ desde: sin.desde, hasta: sin.hasta }, { desde: '2026-10-06', hasta: '2026-11-05' });
+  // liquidación tarde en la noche (UTC ya es el día siguiente) cuenta el día de Nogales
+  const noche = rangoDesdeUltimaRecoleccion(new Map([['r1', '2026-11-05T04:30:00.000Z']]), { hoy: '2026-11-05' });
+  assert.equal(noche.desde, '2026-11-04');
+}
+
+{
+  const v = (id, creado, tienda, metodo, total, extra = {}) => ({
+    id, folio: `V-${id}`, created_at: creado, cliente_tipo: 'sucursal', cliente_id: tienda, cliente_nombre: tienda,
+    metodo_pago: metodo, total, estado_credito: metodo === 'efectivo' ? null : 'pendiente', ...extra,
+  });
+  const lista = [
+    v(1, '2026-11-04T18:00:00.000Z', '3B2', 'credito', 630),
+    v(2, '2026-11-04T20:00:00.000Z', '3B2', 'credito', 100),
+    v(3, '2026-11-04T20:30:00.000Z', '3B6', 'mixto', 500, { articulos: [{ _pago_mixto: true, efectivo: 80, credito: 420 }] }),
+    v(4, '2026-11-03T18:00:00.000Z', 'FUSION', 'credito', 240, { estado_credito: 'pagado' }),
+    v(5, '2026-11-04T19:00:00.000Z', '3B5', 'efectivo', 630),
+    v(6, '2026-11-04T19:00:00.000Z', '3B5', 'credito', 50, { estado: 'cancelada' }),
+    v(7, '2026-11-04T19:00:00.000Z', '3B5', 'credito', 70, { estado_credito: 'anulado' }),
+  ];
+  const r = resumirTraspasosCredito(lista);
+  assert.deepEqual(r.dias.map((d) => d.ymd), ['2026-11-04', '2026-11-03']);
+  assert.equal(r.dias[0].traspasos, 3);
+  assert.equal(r.dias[0].credito, 1150);
+  assert.deepEqual(r.dias[0].tiendas.map((t) => [t.clave, t.traspasos, t.credito]), [['3B2', 2, 730], ['3B6', 1, 420]]);
+  assert.equal(r.total.credito, 1390);
+  assert.equal(r.total.pendiente, 1150);
+  assert.equal(r.total.otros, 240);
+  assert.equal(resumirTraspasosCredito(lista, { tienda: '3B6' }).total.credito, 420);
 }
 
 console.log('ventasRutaPorTienda: ok');
