@@ -1,3 +1,5 @@
+import { guardarLocalSeguro } from './almacenamientoLocal.js';
+
 const LS_KEY = 'pos3b_ajustes_inventario_espera';
 
 function leerTodos() {
@@ -11,11 +13,7 @@ function leerTodos() {
 }
 
 function guardarTodos(arr) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0, 30)));
-  } catch {
-    /* quota / privado */
-  }
+  guardarLocalSeguro(LS_KEY, JSON.stringify(arr.slice(0, 30)));
 }
 
 /** Id estable para autosave por tipo + tienda (sobrescribe el mismo borrador). */
