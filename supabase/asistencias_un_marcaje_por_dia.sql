@@ -1,14 +1,14 @@
 -- Refuerzo en base de datos: una ENTRADA y una SALIDA por empleado por día (hora Sonora).
 -- La app ya lo valida; este índice evita duplicados por doble clic simultáneo o dos dispositivos.
 --
--- Hay duplicados históricos, así que el índice solo aplica a marcajes NUEVOS (desde la fecha de corte).
+-- Hay duplicados históricos, así que el índice solo aplica a marcajes NUEVOS (desde la fecha de corte; usa el día siguiente a cuando despliegues la app).
 -- No borra ni modifica nada del historial.
 
--- Paso 1 (requerido): índice único solo para marcajes desde el 2026-11-06 (hora Sonora).
+-- Paso 1 (requerido): índice único solo para marcajes desde el 2026-11-07 (hora Sonora).
 create unique index if not exists uq_asistencias_empleado_tipo_dia_nuevos
   on public.asistencias (usuario_id, tipo, ((created_at at time zone 'America/Hermosillo')::date))
   where usuario_id is not null
-    and created_at >= timestamptz '2026-11-06 00:00:00-07';
+    and created_at >= timestamptz '2026-11-07 00:00:00-07';
 
 -- Paso 2 (opcional): ver los duplicados históricos.
 -- select usuario_id, nombre, tipo,
