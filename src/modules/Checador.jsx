@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { esCentralAdmin, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, esPersonalCentralAdmin, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
@@ -9,6 +9,7 @@ import {
   eliminarMarcajeAsistencia,
   fechaHoraLocalDesdeIso,
   isoDesdeFechaHoraLocal,
+  listarMarcajesEmpleadoDia,
 } from '../lib/asistencias.js';
 import {
   otorgarAutorizacionFueraHorario,
@@ -33,6 +34,13 @@ import PlanHorarioCalendario from '../components/PlanHorarioCalendario.jsx';
 import PanelCubreSolicitudes from '../components/PanelCubreSolicitudes.jsx';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_RELOJ_EMPLEADO } from '../content/tutorialRelojEmpleado.js';
+import { diaMarcaje, estadoMarcajesDia } from '../lib/marcajesDia.js';
+
+function fmtHoraMarcaje(iso) {
+  return iso
+    ? new Date(iso).toLocaleTimeString('es-MX', { timeZone: 'America/Hermosillo', hour: '2-digit', minute: '2-digit' })
+    : '';
+}
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -201,6 +209,8 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [empleado, setEmpleado] = useState(null);
   const [cargandoPin, setCargandoPin] = useState(false);
   const [marcando, setMarcando] = useState(false);
+  const marcandoRef = useRef(false);
+  const [marcajesEmpleadoHoy, setMarcajesEmpleadoHoy] = useState(null);
   const [historialHoy, setHistorialHoy] = useState([]);
   const [historialFull, setHistorialFull] = useState([]);
   const [cargandoHist, setCargandoHist] = useState(false);
@@ -613,8 +623,36 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     void cargarHistorialHoy();
   };
 
+  useEffect(() => {
+    if (!supabase || !empleado || !(empleado.id || empleado.nombre)) {
+      setMarcajesEmpleadoHoy(null);
+      return undefined;
+    }
+    let vivo = true;
+    setMarcajesEmpleadoHoy(null);
+    const nombre = empleado.esCubreTurno ? `${empleado.nombre} (cubre turno)` : empleado.nombre;
+    listarMarcajesEmpleadoDia(supabase, { id: empleado.id || null, nombre }, diaMarcaje(new Date()))
+      .then((rows) => {
+        if (vivo) setMarcajesEmpleadoHoy(rows);
+      })
+      .catch(() => {
+        if (vivo) setMarcajesEmpleadoHoy(null);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [supabase, empleado]);
+
+  const estadoHoyEmpleado = useMemo(() => {
+    if (!empleado || !marcajesEmpleadoHoy) return null;
+    const nombre = empleado.esCubreTurno ? `${empleado.nombre} (cubre turno)` : empleado.nombre;
+    return estadoMarcajesDia(marcajesEmpleadoHoy, { id: empleado.id || null, nombre }, diaMarcaje(new Date()));
+  }, [empleado, marcajesEmpleadoHoy]);
+
   const registrarMarcaje = async (tipo) => {
     if (!supabase || !empleado || !sucursal) return;
+    if (marcandoRef.current) return;
+    marcandoRef.current = true;
     setMarcando(true);
     setMsg('');
     const nombre = empleado.esCubreTurno ? `${empleado.nombre} (cubre turno)` : empleado.nombre;
@@ -624,9 +662,15 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       sucursal_id: sucursal,
       tipo,
     });
+    marcandoRef.current = false;
     setMarcando(false);
     if (!res.ok) {
       const err = String(res.error || '');
+      if (res.duplicado) {
+        setEmpleado(null);
+        setAvisoCobertura('');
+        void cargarHistorialHoy();
+      }
       if (err.includes('relation') || err.includes('42P01')) {
         setMsg('Falta la tabla asistencias. Ejecuta el SQL nuevo en supabase/schema.sql en el SQL Editor de Supabase.');
       } else {
@@ -960,13 +1004,32 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                 <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>{avisoCobertura}</p>
               )}
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', flexWrap: 'wrap' }}>
-                <button type="button" className="btn btn-success" disabled={marcando} onClick={() => registrarMarcaje('ENTRADA')} style={{ flex: '1 1 140px' }}>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  disabled={marcando || Boolean(estadoHoyEmpleado?.entrada)}
+                  onClick={() => registrarMarcaje('ENTRADA')}
+                  style={{ flex: '1 1 140px' }}
+                >
                   Entrada
                 </button>
-                <button type="button" className="btn btn-gold" disabled={marcando} onClick={() => registrarMarcaje('SALIDA')} style={{ flex: '1 1 140px' }}>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  disabled={marcando || Boolean(estadoHoyEmpleado?.salida)}
+                  onClick={() => registrarMarcaje('SALIDA')}
+                  style={{ flex: '1 1 140px' }}
+                >
                   Salida
                 </button>
               </div>
+              {estadoHoyEmpleado && (estadoHoyEmpleado.entrada || estadoHoyEmpleado.salida) && (
+                <p style={{ margin: '0.6rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
+                  {estadoHoyEmpleado.entrada && `Entrada de hoy ya registrada (${fmtHoraMarcaje(estadoHoyEmpleado.entrada.created_at)}). `}
+                  {estadoHoyEmpleado.salida && `Salida de hoy ya registrada (${fmtHoraMarcaje(estadoHoyEmpleado.salida.created_at)}). `}
+                  Solo se permite una entrada y una salida por día.
+                </p>
+              )}
               <button
                 type="button"
                 className="btn btn-ghost"
