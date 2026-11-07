@@ -86,6 +86,28 @@ export function usuarioCoincideConEmpleadoRh(usuario, emp) {
   return nombresMismaPersona(usuario.nombre, nomRh) || nombresMismaPersona(usuario.nombre, emp.nombre);
 }
 
+/** Cubre turno: sin usuario POS ni nómina (se paga como gasto CUBRE TURNO). */
+export function esExpedienteCubreTurno(emp) {
+  return normalizarTipo(emp?.tipo_empleado) === 'cubre_turno';
+}
+
+/** Extras de un expediente que pasa a Cubre Turno por reingreso/edición, conservando los demás datos. */
+export function extrasParaCubreTurno(prev = {}, form = {}) {
+  const base = prev && typeof prev === 'object' ? prev : {};
+  const lista = Array.isArray(form.ct_sucursales)
+    ? [...new Set(form.ct_sucursales.map((x) => String(x || '').trim().toUpperCase()).filter(Boolean))]
+    : [];
+  return {
+    ...base,
+    ct_sucursales: lista.length ? lista : (Array.isArray(base.ct_sucursales) && base.ct_sucursales.length ? base.ct_sucursales : null),
+    ct_solo_dia: form.ct_solo_dia != null ? Boolean(form.ct_solo_dia) : Boolean(base.ct_solo_dia),
+    ct_dias: Array.isArray(base.ct_dias) ? base.ct_dias : null,
+    ct_disponibilidad: base.ct_disponibilidad || 'disponible',
+    sin_nomina: true,
+    pago_via: 'gasto_cubre_turno',
+  };
+}
+
 function armarNombreCompleto(patch = {}) {
   if (patch.nombre_completo) return String(patch.nombre_completo).trim();
   return [patch.nombre, patch.apellidos].filter(Boolean).join(' ').trim();
@@ -194,6 +216,8 @@ async function listarUsuariosPosParaMatch(supabase) {
  */
 async function sincronizarUsuarioPosActivo(supabase, emp, activo) {
   if (!supabase || !emp) return { ok: true, ids: [] };
+  // Cubre turno no tiene usuario POS ni nómina: nunca se reactiva un usuario por su expediente.
+  if (activo && esExpedienteCubreTurno(emp)) return { ok: true, ids: [], omitido: true };
   const list = await listarUsuariosPosParaMatch(supabase);
   if (!list.ok) return { ok: false, error: list.error, ids: [] };
 
@@ -843,7 +867,9 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
       listPos.usuarios,
       { nombre: nombre_completo, sucursal_id, tipo_empleado: tipo === 'cubre_turno' ? 'tienda' : tipo },
     );
-    if (!conflicto.ok) {
+    // Un CT no usa usuario POS: una baja previa con ese nombre (p. ej. ex cajero) no lo bloquea.
+    const bajaPrevia = tipo === 'cubre_turno' && conflicto.tipo === 'baja';
+    if (!conflicto.ok && !bajaPrevia) {
       return { ok: false, error: conflicto.error };
     }
   }
@@ -1049,6 +1075,14 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
   });
 
   let extraPos = '';
+  const pasoACubreTurno = esExpedienteCubreTurno(data)
+    && !esExpedienteCubreTurno(prev.empleado)
+    && data.estado === 'activo';
+  if (pasoACubreTurno) {
+    const sync = await sincronizarUsuarioPosActivo(supabase, data, false);
+    if (!sync.ok) extraPos = ` POS: ${sync.error}`;
+    else if ((sync.ids || []).length) extraPos = ' Su acceso POS anterior quedó inactivo (Cubre Turno no entra a Usuarios ni nómina).';
+  }
   if (sucursalCambio && data.tipo_empleado !== 'indirecto' && data.tipo_empleado !== 'cubre_turno') {
     const sync = await sincronizarUsuarioPosSucursal(supabase, data, data.sucursal_id);
     if (!sync.ok) extraPos = ` POS: ${sync.error}`;
@@ -1258,6 +1292,16 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
     emp = ens.empleado;
   }
 
+  // Cubre turno activo: no tiene usuario POS; reactivar el viejo lo metería a Usuarios y nómina.
+  if (emp.estado === 'activo' && esExpedienteCubreTurno(emp)) {
+    return {
+      ok: false,
+      error:
+        `${nombreCompletoRh(emp) || usuario.nombre} está activo como Cubre Turno (sin usuario POS ni nómina). `
+        + 'No se reactiva en Usuarios. Si volverá como empleado de tienda, primero cambia su tipo en RH ABA3B.',
+    };
+  }
+
   // Expediente en baja → recontratación (pasa a Activos). Exige PIN si no recontratable.
   if (emp.estado === 'baja') {
     if (requierePinAdminPrincipalParaAlta(emp)) {
@@ -1394,6 +1438,56 @@ export async function recontratarEmpleadoRh(supabase, empleadoId, form = {}, { u
   return aplicarRecontratacion(supabase, emp, form, user);
 }
 
+/**
+ * Reingreso como Cubre Turno: el usuario POS de la baja anterior (p. ej. cajero) debe quedar
+ * inactivo. No entra a Usuarios ni a nómina; se registra como CT (gasto CUBRE TURNO + PIN).
+ */
+async function completarReingresoComoCubreTurno(supabase, { emp, data, upd, form, user }) {
+  const sync = await sincronizarUsuarioPosActivo(supabase, data, false);
+
+  let extraCt = '';
+  try {
+    const { postAltaCubreTurno } = await import('./cubreTurnoAlta.js');
+    const extrasCt = data.extras && typeof data.extras === 'object' ? data.extras : {};
+    const post = await postAltaCubreTurno(supabase, data, extrasCt);
+    if (post.ok) extraCt = ` ${post.mensaje}`;
+    else if (post.error) extraCt = ` (Gasto/PIN: ${post.error})`;
+  } catch (err) {
+    extraCt = ` (Aviso CT: ${err?.message || 'revisar gastos/PIN'})`;
+  }
+
+  try {
+    await supabase
+      .from('rh_recontratacion_solicitudes')
+      .update({ estatus: 'cancelada' })
+      .eq('empleado_id', emp.id)
+      .eq('estatus', 'pendiente');
+  } catch {
+    /* tabla opcional */
+  }
+
+  const extraAuth = form.autorizadoPorAdminPrincipal
+    ? ` · autorizado por ${form.autorizadoPorAdminPrincipal}`
+    : '';
+  await registrarMovimiento(supabase, {
+    empleadoId: emp.id,
+    tipo: 'recontratacion',
+    titulo: 'Recontratación como Cubre Turno',
+    detalle: `Reingreso ${upd.fecha_alta} · Cubre turnos · sin usuario POS ni nómina${extraAuth}`,
+    payload: { ...upd, usuarios_desactivados: sync.ids || [] },
+    actor: user,
+  });
+
+  return {
+    ok: true,
+    empleado: { ...data, estado: 'activo' },
+    avisoPos: sync.aviso || null,
+    mensaje:
+      `${nombreCompletoRh(data) || 'Empleado'} reingresó como Cubre Turno (sin nómina ni Usuarios).`
+      + `${(sync.ids || []).length ? ' Su acceso POS anterior quedó inactivo.' : ''}${extraCt}`,
+  };
+}
+
 async function aplicarRecontratacion(supabase, emp, form, user) {
   const tipo = form.tipo_empleado != null
     ? normalizarTipo(form.tipo_empleado)
@@ -1418,6 +1512,11 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
   if (form.salario_diario != null && form.salario_diario !== '') {
     upd.salario_diario = round2(form.salario_diario);
   }
+  const reingresoComoCt = tipo === 'cubre_turno';
+  if (reingresoComoCt) {
+    upd.extras = extrasParaCubreTurno(emp.extras, form);
+    if (!upd.puesto) upd.puesto = 'Cubre turnos';
+  }
 
   const { data, error } = await supabase
     .from('rh_empleados')
@@ -1426,6 +1525,8 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
     .select('*')
     .single();
   if (error) return { ok: false, error: error.message };
+
+  if (reingresoComoCt) return completarReingresoComoCubreTurno(supabase, { emp, data, upd, form, user });
 
   const syncAct = await sincronizarUsuarioPosActivo(supabase, data, true);
 
