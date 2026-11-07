@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { cargarAnalisisIngresosRuta, armarAnalisisIngresosRuta, BUCKETS_ANTIGUEDAD } from '../lib/rutaIngresosCxc.js';
+import {
+  cargarAnalisisIngresosRuta,
+  armarAnalisisIngresosRuta,
+  rangoDePeriodo,
+  BUCKETS_ANTIGUEDAD,
+  MODOS_PERIODO,
+  TIPOS_DISCREPANCIA,
+} from '../lib/rutaIngresosCxc.js';
 
 function fmt(n) {
   const v = Number(n) || 0;
@@ -64,14 +71,27 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
   const [datos, setDatos] = useState(null);
   const [verTodos, setVerTodos] = useState(false);
   const [camionAbierto, setCamionAbierto] = useState(null);
+  const [modo, setModo] = useState('mes');
+  const [rangoManual, setRangoManual] = useState({ desde: desde || '', hasta: hasta || '' });
+  const [recolectorAbierto, setRecolectorAbierto] = useState(null);
+
+  const periodo = useMemo(
+    () => rangoDePeriodo(modo, { desde: rangoManual.desde, hasta: rangoManual.hasta }),
+    [modo, rangoManual.desde, rangoManual.hasta],
+  );
 
   useEffect(() => {
     let ok = true;
-    if (!supabase || !desde || !hasta) return undefined;
+    if (!supabase || !periodo.desde || !periodo.hasta) return undefined;
     (async () => {
       setCargando(true);
       try {
-        const res = await cargarAnalisisIngresosRuta(supabase, { desde, hasta, sucursal: sucursal || null });
+        const res = await cargarAnalisisIngresosRuta(supabase, {
+          desde: periodo.desde,
+          hasta: periodo.hasta,
+          sucursal: sucursal || null,
+          desdeLiquidacion: modo === 'liquidacion',
+        });
         if (ok) setDatos(res);
       } catch (e) {
         if (ok) setDatos({ ok: false, error: e?.message || String(e) });
@@ -82,7 +102,7 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
     return () => {
       ok = false;
     };
-  }, [supabase, desde, hasta, sucursal]);
+  }, [supabase, periodo.desde, periodo.hasta, modo, sucursal]);
 
   const a = useMemo(() => (datos?.ok ? armarAnalisisIngresosRuta(datos, { tienda: sucursal || '' }) : null), [datos, sucursal]);
 
@@ -99,6 +119,34 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
         Ingresos del periodo (contado + crédito cobrado) y lo que queda por cobrar, la cartera de créditos pendientes
         (todas las fechas), si cada recolector entrega el dinero completo y qué hay hoy en cada camión.
+      </p>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', marginBottom: '0.6rem' }}>
+        <span className="muted" style={{ fontSize: '0.78rem' }}>Periodo de ingresos y entrega:</span>
+        {MODOS_PERIODO.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            className={modo === m.id ? 'btn' : 'btn btn-ghost'}
+            style={{ fontSize: '0.78rem', padding: '0.25rem 0.6rem' }}
+            onClick={() => setModo(m.id)}
+          >
+            {m.etiqueta}
+          </button>
+        ))}
+        {modo === 'rango' && (
+          <>
+            <input type="date" value={rangoManual.desde} max={rangoManual.hasta || undefined} onChange={(e) => setRangoManual((r) => ({ ...r, desde: e.target.value }))} />
+            <span className="muted">a</span>
+            <input type="date" value={rangoManual.hasta} min={rangoManual.desde || undefined} onChange={(e) => setRangoManual((r) => ({ ...r, hasta: e.target.value }))} />
+          </>
+        )}
+      </div>
+      <p className="muted" style={{ margin: '0 0 0.6rem', fontSize: '0.76rem' }}>
+        {modo === 'liquidacion'
+          ? `Para cada recolector solo cuenta lo posterior a su última liquidación (máx. 60 días)${datos?.ok ? `; ventana consultada: ${datos.desde} a ${datos.hasta}` : ''}.`
+          : `Mostrando del ${periodo.desde} al ${periodo.hasta}.`}
+        {' '}Este filtro es solo de esta sección; los créditos pendientes (todas las fechas) y el camión (hoy) no dependen de él.
       </p>
 
       {cargando && <p className="muted">Analizando venta en ruta…</p>}
@@ -201,34 +249,91 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
 
           <Titulo>3. ¿El recolector entrega el dinero completo? (periodo)</Titulo>
           <p className="muted" style={{ margin: '0 0 0.4rem', fontSize: '0.76rem' }}>
-            Esperado = efectivo vendido + cobros de crédito. Debe sumar: Entregado + Por entregar + Sin registrar. «Sin registrar»
-            es efectivo que se vendió y nunca quedó en tránsito.
+            Compara lo que el recolector <strong>vendió en efectivo</strong> (ventas de ruta) contra lo que quedó <strong>registrado como efectivo en tránsito</strong>.
+            «Vendido − registrado» positivo = vendió efectivo que nunca se registró (falta dinero). Negativo = hay más efectivo
+            registrado que ventas en efectivo (sobra; normalmente un registro duplicado, de una venta cancelada o de otra fecha).
+            Pulsa «Ver qué pasó» para ver folio por folio de dónde sale la diferencia.
           </p>
           <div style={{ overflowX: 'auto' }}>
             <table className="data" style={TABLA}>
               <thead>
                 <tr>
-                  <th>Recolector</th><th>Vendido efvo</th><th>Cobros crédito</th><th>Esperado</th><th>Entregado</th>
-                  <th>Por entregar</th><th>Sin registrar</th><th>Gastos</th><th>En tránsito hoy</th><th>Estado</th>
+                  <th>Recolector</th><th>Vendido efvo</th><th>Registrado en tránsito</th><th>Cobros crédito</th><th>Entregado</th>
+                  <th>Por entregar</th><th>Vendido − registrado</th><th>Gastos</th><th>En tránsito hoy</th><th>Estado</th><th />
                 </tr>
               </thead>
               <tbody>
-                {a.entrega.length === 0 && <tr><td colSpan={10} className="muted">Sin movimientos de recolectores en el periodo.</td></tr>}
+                {a.entrega.length === 0 && <tr><td colSpan={11} className="muted">Sin movimientos de recolectores en el periodo.</td></tr>}
                 {a.entrega.map((f) => {
                   const est = ESTADO_ENTREGA[f.estado] || ESTADO_ENTREGA.completo;
+                  const con = f.conciliacion;
+                  const tipos = Object.entries(con.porTipo);
                   return (
-                    <tr key={f.id}>
-                      <td>{f.nombre}</td>
-                      <td>{fmt(f.vendidoEfectivo)}</td>
-                      <td>{fmt(f.cobrosCredito)}</td>
-                      <td style={{ fontWeight: 700 }}>{fmt(f.esperado)}</td>
-                      <td>{fmt(f.entregado)}{f.pctEntregado != null ? ` (${f.pctEntregado}%)` : ''}</td>
-                      <td>{fmt(f.porEntregar)}</td>
-                      <td style={{ fontWeight: 700, color: f.sinRegistrar > 0.5 ? '#c0392b' : 'inherit' }}>{fmt(f.sinRegistrar)}</td>
-                      <td>{fmt(f.gastos)}</td>
-                      <td>{f.enTransitoActual > 0 ? `${fmt(f.enTransitoActual)} · ${f.masViejoDias} d` : '—'}</td>
-                      <td><Badge color={est.color}>{est.txt}</Badge></td>
-                    </tr>
+                    <React.Fragment key={f.id}>
+                      <tr>
+                        <td>{f.nombre}</td>
+                        <td>{fmt(f.vendidoEfectivo)}</td>
+                        <td>{fmt(f.registrado)}</td>
+                        <td>{fmt(f.cobrosCredito)}</td>
+                        <td>{fmt(f.entregado)}{f.pctEntregado != null ? ` (${f.pctEntregado}%)` : ''}</td>
+                        <td>{fmt(f.porEntregar)}</td>
+                        <td style={{ fontWeight: 700, color: f.sinRegistrar > 10 ? '#c0392b' : f.sinRegistrar < -10 ? '#e67e22' : 'inherit' }}>
+                          {f.sinRegistrar > 10 ? `Faltan ${fmt(f.sinRegistrar)}` : f.sinRegistrar < -10 ? `Sobran ${fmt(-f.sinRegistrar)}` : '—'}
+                        </td>
+                        <td>{fmt(f.gastos)}</td>
+                        <td>{f.enTransitoActual > 0 ? `${fmt(f.enTransitoActual)} · ${f.masViejoDias} d` : '—'}</td>
+                        <td><Badge color={est.color}>{est.txt}</Badge></td>
+                        <td>
+                          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem' }} onClick={() => setRecolectorAbierto(recolectorAbierto === f.id ? null : f.id)}>
+                            {recolectorAbierto === f.id ? 'Ocultar' : 'Ver qué pasó'}
+                          </button>
+                        </td>
+                      </tr>
+                      {recolectorAbierto === f.id && (
+                        <tr>
+                          <td colSpan={11} style={{ background: 'var(--surface)' }}>
+                            <p style={{ margin: '0.3rem 0', fontSize: '0.8rem' }}>
+                              Vendió <strong>{fmt(f.vendidoEfectivo)}</strong> en efectivo y hay <strong>{fmt(f.registrado)}</strong> registrado en tránsito.
+                              {' '}Coinciden {con.coinciden} folio(s) por {fmt(con.montoCoinciden)}.
+                              {tipos.length === 0 && ' No hay diferencias por folio.'}
+                            </p>
+                            {tipos.length > 0 && (
+                              <ul style={{ margin: '0 0 0.4rem', paddingLeft: '1.1rem', fontSize: '0.8rem' }}>
+                                {tipos.map(([t, v]) => {
+                                  const info = TIPOS_DISCREPANCIA[t] || { etiqueta: t, color: 'inherit', explica: '' };
+                                  return (
+                                    <li key={t} style={{ color: info.color }}>
+                                      <strong>{info.etiqueta}</strong>: {v.n} folio(s) por {fmt(v.monto)}. <span className="muted">{info.explica}</span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                            {con.discrepancias.length > 0 && (
+                              <table className="data" style={{ ...TABLA, background: '#fff' }}>
+                                <thead><tr><th>Folio</th><th>Qué pasó</th><th>Fecha registro</th><th>Estatus en tránsito</th><th>En tránsito</th><th>Efectivo de la venta</th><th>Venta del</th></tr></thead>
+                                <tbody>
+                                  {con.discrepancias.slice(0, 200).map((it) => {
+                                    const info = TIPOS_DISCREPANCIA[it.tipo] || { etiqueta: it.tipo, color: '#555' };
+                                    return (
+                                      <tr key={`${it.tipo}-${it.idTransito || it.folio}`}>
+                                        <td>{it.folio}</td>
+                                        <td><Badge color={info.color}>{info.etiqueta}</Badge></td>
+                                        <td>{it.fecha ? fmtFecha(it.fecha) : '—'}</td>
+                                        <td>{it.estatus || '—'}</td>
+                                        <td>{it.tipo === 'venta_sin_transito' ? '—' : fmt(it.monto)}</td>
+                                        <td>{it.tipo === 'venta_sin_transito' ? fmt(it.monto) : it.ventaEfectivo != null ? fmt(it.ventaEfectivo) : '—'}</td>
+                                        <td>{it.ventaFecha ? fmtFecha(it.ventaFecha) : '—'}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
