@@ -16,11 +16,11 @@
   <text x="72" y="282" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#0f766e" text-anchor="start">= rendimiento neto de la ruta</text>
   <text x="72" y="326" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="400" fill="#546e7a" text-anchor="start">Se desglosa por proveedor y por tienda.</text>
   <text x="72" y="350" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#b91c1c" text-anchor="start">Si es ≤ $0 → la ruta no deja ganancia.</text>
-  <text x="516" y="150" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="700" fill="#b45309" text-anchor="start">Pregunta 2 · ¿Recolectamos de más?</text>
-  <text x="516" y="190" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="400" fill="#334155" text-anchor="start">Neto de la tienda =</text>
-  <text x="516" y="214" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="400" fill="#334155" text-anchor="start">venta corte − tarjeta − gastos del corte</text>
-  <text x="516" y="258" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="400" fill="#334155" text-anchor="start">Recolectado (Panel RT)</text>
-  <text x="516" y="282" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="400" fill="#334155" text-anchor="start">− neto de la tienda = diferencia</text>
-  <text x="516" y="326" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="400" fill="#546e7a" text-anchor="start">Diferencia positiva = se sacó más de lo que</text>
-  <text x="516" y="346" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#b91c1c" text-anchor="start">la tienda generó: sale de lo de otros proveedores.</text>
+  <text x="516" y="150" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="700" fill="#b45309" text-anchor="start">Pregunta 2 · ¿Salió de más?</text>
+  <text x="516" y="190" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="400" fill="#334155" text-anchor="start">Neto de la tienda = venta − gastos del corte</text>
+  <text x="516" y="226" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="400" fill="#334155" text-anchor="start">Salido = recolección en efectivo</text>
+  <text x="516" y="250" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="400" fill="#334155" text-anchor="start">         + pago con tarjeta (electrónico)</text>
+  <text x="516" y="290" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="700" fill="#334155" text-anchor="start">Diferencia = salido − neto</text>
+  <text x="516" y="330" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="400" fill="#546e7a" text-anchor="start">Diferencia positiva = salió más dinero del que</text>
+  <text x="516" y="350" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#b91c1c" text-anchor="start">la tienda generó: sale de lo de otros proveedores.</text>
 </svg>

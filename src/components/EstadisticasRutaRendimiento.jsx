@@ -11,7 +11,7 @@ function fmt(n) {
 
 const COLOR_NIVEL = { alto: '#c0392b', medio: '#e67e22', info: '#2980b9' };
 const ETIQUETA_ESTADO = {
-  excede: { txt: 'Recolectó de más', color: '#c0392b' },
+  excede: { txt: 'Salió de más', color: '#c0392b' },
   falta: { txt: 'Falta recolectar', color: '#e67e22' },
   cuadra: { txt: 'Cuadra', color: '#27ae60' },
   sin_datos: { txt: 'Sin datos', color: '#7f8c8d' },
@@ -88,8 +88,9 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
       </div>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
         Compara lo que vende la ruta (precio ruta − costo de compra, por proveedor) con lo que se recolecta de cada tienda.
-        Si se recolecta más que lo que la tienda generó neto (venta en efectivo − gastos del corte), el excedente sale de lo
-        que había que pagar a los demás proveedores o de su ganancia.
+        El dinero que sale de cada tienda es la recolección en efectivo más el pago con tarjeta (dinero electrónico). Si sale
+        más que lo que la tienda generó neto (venta − gastos del corte), el excedente sale de lo que había que pagar a los
+        demás proveedores o de su ganancia.
       </p>
 
       {cargando && <p className="muted">Analizando ruta y recolecciones…</p>}
@@ -119,10 +120,10 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
               color={r.rendimientoNeto == null ? undefined : (r.rendimientoNeto > 0 ? '#27ae60' : '#c0392b')}
             />
             <Mini
-              label="Recolectado vs neto tiendas"
-              value={`${fmt(analisis.recoleccion.total)} / ${fmt(analisis.recoleccion.neto)}`}
+              label="Salido vs neto tiendas"
+              value={`${fmt(analisis.recoleccion.salido)} / ${fmt(analisis.recoleccion.neto)}`}
               color={analisis.recoleccion.tiendasExceden ? '#c0392b' : '#27ae60'}
-              sub={analisis.recoleccion.tiendasExceden ? `${analisis.recoleccion.tiendasExceden} tienda(s) exceden` : 'ninguna excede'}
+              sub={`efectivo ${fmt(analisis.recoleccion.total)} + tarjeta ${fmt(analisis.recoleccion.tarjeta)} · ${analisis.recoleccion.tiendasExceden ? `${analisis.recoleccion.tiendasExceden} tienda(s) exceden` : 'ninguna excede'}`}
             />
           </div>
 
@@ -134,7 +135,7 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
             ))}
           </ul>
 
-          <h5 style={{ margin: '0 0 0.35rem' }}>Por tienda: ¿recolectamos más de lo que generó?</h5>
+          <h5 style={{ margin: '0 0 0.35rem' }}>Por tienda: ¿salió más dinero del que generó?</h5>
           <div style={{ overflowX: 'auto', marginBottom: '0.9rem' }}>
             <table className="data" style={{ fontSize: '0.82rem', width: '100%' }}>
               <thead>
@@ -144,15 +145,17 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
                   <th>Ganancia ruta</th>
                   <th>Venta corte</th>
                   <th>Gastos corte</th>
-                  <th>Neto (efvo − gastos)</th>
-                  <th>Recolectado</th>
+                  <th>Neto (venta − gastos)</th>
+                  <th>Recolectado (efvo)</th>
+                  <th>Tarjeta (electrónico)</th>
+                  <th>Total salido</th>
                   <th>Diferencia</th>
                   <th>Estado</th>
                 </tr>
               </thead>
               <tbody>
                 {analisis.tiendas.length === 0 && (
-                  <tr><td colSpan={9} className="muted">Sin movimientos en el periodo.</td></tr>
+                  <tr><td colSpan={11} className="muted">Sin movimientos en el periodo.</td></tr>
                 )}
                 {analisis.tiendas.map((t) => {
                   const est = ETIQUETA_ESTADO[t.estado] || ETIQUETA_ESTADO.cuadra;
@@ -165,6 +168,8 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
                       <td>{fmt(t.gastos)}</td>
                       <td>{fmt(t.neto)}</td>
                       <td>{fmt(t.recolectado)}</td>
+                      <td>{fmt(t.tarjeta)}</td>
+                      <td>{fmt(t.salido)}</td>
                       <td style={{ fontWeight: 700, color: t.estado === 'excede' ? '#c0392b' : 'inherit' }}>{fmt(t.diferencia)}</td>
                       <td style={{ color: est.color, fontWeight: 700 }}>{est.txt}</td>
                     </tr>
@@ -208,7 +213,7 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
           </div>
           <p className="muted" style={{ margin: '0.6rem 0 0', fontSize: '0.74rem' }}>
             El costo usa el precio de compra actual del catálogo (sin IVA). Las recolecciones son los movimientos «Recolección» de
-            Panel RT (cancelados excluidos); el neto sale del corte Abarrotes (venta − tarjeta − gastos). Una recolección puede
+            Panel RT (cancelados excluidos); el pago con tarjeta y el neto salen del corte Abarrotes (neto = venta − gastos). Una recolección puede
             incluir caja chica o días anteriores: revisa periodos largos antes de concluir.
           </p>
         </>

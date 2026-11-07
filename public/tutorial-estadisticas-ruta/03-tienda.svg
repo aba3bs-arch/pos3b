@@ -5,22 +5,24 @@
     <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%"><feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/></filter>
   </defs>
   <rect width="100%" height="100%" fill="url(#bg)"/>
-  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">3. Tabla por tienda: cómo sale «Recolectó de más»</text>
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">3. Tabla por tienda: cómo sale «Salió de más»</text>
   <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Ejemplo: tienda 3B2 en el periodo</text>
-  <rect x="48" y="100" width="864" height="330" rx="14" fill="#fff" filter="url(#shadow)"/>
+  <rect x="48" y="100" width="864" height="350" rx="14" fill="#fff" filter="url(#shadow)"/>
   <text x="80" y="145" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="start">Venta del corte</text>
   <text x="560" y="145" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="end">$1,000.00</text>
-  <text x="80" y="185" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="start">− Pago con tarjeta</text>
-  <text x="560" y="185" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="end">$100.00</text>
-  <text x="80" y="225" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="start">− Gastos del corte (proveedores, etc.)</text>
-  <text x="560" y="225" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="end">$360.00</text>
-  <text x="80" y="265" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#0f766e" text-anchor="start">= Neto (efectivo − gastos)</text>
-  <text x="560" y="265" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#0f766e" text-anchor="end">$540.00</text>
-  <text x="80" y="305" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="start">Recolectado (Panel RT)</text>
-  <text x="560" y="305" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="end">$700.00</text>
-  <text x="80" y="345" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#c0392b" text-anchor="start">Diferencia = recolectado − neto</text>
-  <text x="560" y="345" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#c0392b" text-anchor="end">+$160.00</text>
-  <rect x="620" y="230" width="260" height="60" rx="12" fill="#fee2e2"/>
-  <text x="750" y="266" font-family="Segoe UI,Arial,sans-serif" font-size="20" font-weight="800" fill="#b91c1c" text-anchor="middle">Recolectó de más</text>
-  <text x="80" y="412" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="400" fill="#546e7a" text-anchor="start">Tolerancia: $50 o 5% del neto (lo que sea mayor). Dentro de eso se muestra «Cuadra».</text>
+  <text x="80" y="185" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="start">− Gastos del corte (proveedores, etc.)</text>
+  <text x="560" y="185" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="end">$360.00</text>
+  <text x="80" y="225" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#0f766e" text-anchor="start">= Neto (lo que la tienda generó)</text>
+  <text x="560" y="225" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#0f766e" text-anchor="end">$640.00</text>
+  <text x="80" y="265" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="start">Recolectado en efectivo (Panel RT)</text>
+  <text x="560" y="265" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#334155" text-anchor="end">$700.00</text>
+  <text x="80" y="305" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#2563eb" text-anchor="start">+ Pago con tarjeta (dinero electrónico)</text>
+  <text x="560" y="305" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#2563eb" text-anchor="end">$100.00</text>
+  <text x="80" y="345" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#334155" text-anchor="start">= Total salido de la tienda</text>
+  <text x="560" y="345" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#334155" text-anchor="end">$800.00</text>
+  <text x="80" y="385" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#c0392b" text-anchor="start">Diferencia = salido − neto</text>
+  <text x="560" y="385" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" fill="#c0392b" text-anchor="end">+$160.00</text>
+  <rect x="620" y="300" width="260" height="60" rx="12" fill="#fee2e2"/>
+  <text x="750" y="336" font-family="Segoe UI,Arial,sans-serif" font-size="20" font-weight="800" fill="#b91c1c" text-anchor="middle">Salió de más</text>
+  <text x="80" y="432" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="400" fill="#546e7a" text-anchor="start">Tolerancia: $50 o 5% del neto (lo que sea mayor). Dentro de eso se muestra «Cuadra».</text>
 </svg>

@@ -3,8 +3,8 @@
  *
  * Responde dos preguntas:
  *  1) ¿La ruta deja rendimiento? (venta − costo de lo vendido − gastos de ruta, por proveedor y tienda)
- *  2) ¿Lo que se recolecta de cada tienda excede lo que la tienda generó neto?
- *     Si recolectamos más que (venta en efectivo − gastos del corte), el excedente sale de la
+ *  2) ¿Lo que sale de cada tienda (recolección en efectivo + pago con tarjeta) excede lo que la tienda
+ *     generó neto? Si sale más que (venta − gastos del corte), el excedente sale de la
  *     ganancia de los demás proveedores (o de lo que había que pagarles).
  */
 import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
@@ -176,8 +176,9 @@ function esGastoDeRuta(g) {
 
 /**
  * Cruza cada tienda: lo que la ruta le vendió, lo que la tienda generó neto y lo recolectado.
- * neto = venta del corte − tarjeta − gastos del corte (efectivo que debió quedar para recolectar).
- * diferencia = recolectado − neto (positivo = se recolectó más de lo que la tienda generó).
+ * neto = venta del corte − gastos del corte (lo que la tienda generó).
+ * salido = recolectado en efectivo + pago con tarjeta (dinero electrónico que también sale de la tienda).
+ * diferencia = salido − neto (positivo = salió más dinero del que la tienda generó).
  */
 export function compararRecoleccionPorTienda({
   costeo,
@@ -249,14 +250,15 @@ export function compararRecoleccionPorTienda({
   }
 
   const out = [...filas.values()].map((f) => {
-    const neto = r2(f.ventaTienda - f.tarjeta - f.gastos);
-    const diferencia = r2(f.recolectado - neto);
+    const neto = r2(f.ventaTienda - f.gastos);
+    const salido = r2(f.recolectado + f.tarjeta);
+    const diferencia = r2(salido - neto);
     const tolerancia = Math.max(TOLERANCIA_MIN_MXN, Math.abs(neto) * TOLERANCIA_PCT);
     let estado = 'cuadra';
-    if (f.ventaTienda <= 0 && f.recolectado <= 0) estado = 'sin_datos';
+    if (f.ventaTienda <= 0 && salido <= 0) estado = 'sin_datos';
     else if (diferencia > tolerancia) estado = 'excede';
     else if (diferencia < -tolerancia) estado = 'falta';
-    return { ...f, neto, diferencia, tolerancia: r2(tolerancia), estado };
+    return { ...f, neto, salido, diferencia, tolerancia: r2(tolerancia), estado };
   });
   return out
     .filter((f) => f.ventaRuta > 0 || f.ventaTienda > 0 || f.recolectado > 0 || f.gastos > 0)
@@ -301,6 +303,9 @@ export function resumenRendimientoRuta({
   const rendimientoNeto = gastosRutaTotal == null ? null : r2(r.ganancia - gastosRutaTotal);
 
   const totalRecolectado = r2(tiendas.reduce((s, t) => s + t.recolectado, 0));
+  const totalTarjeta = r2(tiendas.reduce((s, t) => s + t.tarjeta, 0));
+  const totalVentaTiendas = r2(tiendas.reduce((s, t) => s + t.ventaTienda, 0));
+  const totalSalido = r2(totalRecolectado + totalTarjeta);
   const totalNeto = r2(tiendas.reduce((s, t) => s + t.neto, 0));
   const excede = tiendas.filter((t) => t.estado === 'excede');
   const sumaExceso = r2(excede.reduce((s, t) => s + t.diferencia, 0));
@@ -361,15 +366,22 @@ export function resumenRendimientoRuta({
     }
   }
 
+  if (totalTarjeta > 0 && totalVentaTiendas > 0) {
+    hallazgos.push({
+      nivel: 'info',
+      texto: `Pago con tarjeta ${fmt(totalTarjeta)} (${r2((totalTarjeta / totalVentaTiendas) * 100)}% de la venta de las tiendas): es dinero electrónico que sale de la tienda y cuenta igual que una recolección.`,
+    });
+  }
+
   if (excede.length) {
     hallazgos.push({
       nivel: 'alto',
-      texto: `Recolección por encima del neto: en ${excede.length} tienda(s) (${excede.slice(0, 4).map((t) => t.nombre).join(', ')}${excede.length > 4 ? '…' : ''}) se recolectó ${fmt(sumaExceso)} más que (venta en efectivo − gastos del corte). Ese excedente sale de lo que había que pagar a los demás proveedores o de su ganancia.`,
+      texto: `Salida por encima del neto: en ${excede.length} tienda(s) (${excede.slice(0, 4).map((t) => t.nombre).join(', ')}${excede.length > 4 ? '…' : ''}) salió ${fmt(sumaExceso)} más (recolección en efectivo + pago con tarjeta) que lo que generaron (venta − gastos del corte). Ese excedente sale de lo que había que pagar a los demás proveedores o de su ganancia.`,
     });
   } else if (tiendas.some((t) => t.estado !== 'sin_datos')) {
     hallazgos.push({
       nivel: 'info',
-      texto: `Ninguna tienda excede su neto: recolectado ${fmt(totalRecolectado)} vs neto generado ${fmt(totalNeto)}.`,
+      texto: `Ninguna tienda excede su neto: salió ${fmt(totalSalido)} (efectivo ${fmt(totalRecolectado)} + tarjeta ${fmt(totalTarjeta)}) vs neto generado ${fmt(totalNeto)}.`,
     });
   }
 
@@ -384,7 +396,7 @@ export function resumenRendimientoRuta({
       gastosRuta: gastosRutaTotal,
       rendimientoNeto,
     },
-    recoleccion: { total: totalRecolectado, neto: totalNeto, exceso: sumaExceso, tiendasExceden: excede.length },
+    recoleccion: { total: totalRecolectado, tarjeta: totalTarjeta, salido: totalSalido, neto: totalNeto, exceso: sumaExceso, tiendasExceden: excede.length },
     hallazgos,
   };
 }

@@ -95,13 +95,16 @@ const ventas = [
   assert.equal(t2.gastos, 360);
   assert.equal(t2.gastosRuta, 60);
   assert.equal(t2.gastosProveedores, 300);
-  assert.equal(t2.neto, 1000 - 100 - 360);
+  assert.equal(t2.neto, 1000 - 360, 'neto = venta − gastos');
   assert.equal(t2.recolectado, 700);
-  assert.equal(t2.diferencia, 700 - 540);
+  assert.equal(t2.tarjeta, 100);
+  assert.equal(t2.salido, 800, 'salido = recolectado + tarjeta (dinero electrónico)');
+  assert.equal(t2.diferencia, 800 - 640);
   assert.equal(t2.estado, 'excede');
   assert.equal(t2.efectivoRutaTransito, 60);
   const t4 = filas.find((f) => f.clave === '3B4');
   assert.equal(t4.neto, 400);
+  assert.equal(t4.salido, 400);
   assert.equal(t4.estado, 'cuadra');
   assert.equal(filas[0].clave, '3B2', 'ordena por mayor excedente');
 }
@@ -127,13 +130,35 @@ const ventas = [
   assert.match(textos, /sin costo|no tiene costo/i);
   assert.match(textos, /crédito pendiente/i);
   assert.match(textos, /MAYOR que la venta en efectivo/);
-  assert.match(textos, /Recolección por encima del neto|Ninguna tienda excede/);
+  assert.match(textos, /Salida por encima del neto|Ninguna tienda excede/);
 }
 
 {
   const r = resumenRendimientoRuta({});
   assert.equal(r.ruta.venta, 0);
   assert.equal(r.hallazgos[0].nivel, 'info');
+}
+
+{
+  const filas = compararRecoleccionPorTienda({
+    costeo: { tiendas: [] },
+    ventasTienda: [{ sucursal_id: '3B5', total: 1000, tarjeta: 600 }],
+    gastosTienda: [{ sucursal_id: '3B5', monto: 100, categoria: 'LIMPIEZA' }],
+    movimientos: [{ sucursal_origen: '3B5', tipo_movimiento: 'Recolección', monto: 400, estatus: 'Liquidado' }],
+  });
+  const t = filas.find((f) => f.clave === '3B5');
+  assert.equal(t.neto, 900);
+  assert.equal(t.salido, 1000);
+  assert.equal(t.diferencia, 100);
+  assert.equal(t.estado, 'excede', 'la tarjeta también cuenta como dinero que sale');
+  const r = resumenRendimientoRuta({
+    ventasTienda: [{ sucursal_id: '3B5', total: 1000, tarjeta: 600 }],
+    gastosTienda: [],
+    movimientos: [],
+  });
+  assert.equal(r.recoleccion.tarjeta, 600);
+  assert.equal(r.recoleccion.salido, 600);
+  assert.match(r.hallazgos.map((h) => h.texto).join('\n'), /dinero electrónico/);
 }
 
 console.log('rutaRendimiento.test.mjs ok');
