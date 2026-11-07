@@ -132,11 +132,12 @@ export default function Mensajes({ supabase, sucursal, user }) {
     };
     window.addEventListener(EVENTO_MENSAJES, alLocal);
     const timer = window.setInterval(async () => {
+      if (document.visibilityState === 'hidden') return;
       const res = await cargarMensajes(supabase, { user, sucursal });
       if (!vivo) return;
       setMensajes(res.mensajes);
       setAviso(res.aviso || '');
-    }, 8000);
+    }, 12_000);
     return () => {
       vivo = false;
       window.removeEventListener(EVENTO_MENSAJES, alLocal);
@@ -156,7 +157,10 @@ export default function Mensajes({ supabase, sucursal, user }) {
       setSolicitudes((prev) => fusionarSolicitudes(prev, leerSolicitudesLocales(user, sucursal)));
     };
     window.addEventListener(EVENTO_SOPORTE, alLocal);
-    const timer = window.setInterval(cargarSol, 8000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      void cargarSol();
+    }, 15_000);
     return () => {
       vivo = false;
       window.removeEventListener(EVENTO_SOPORTE, alLocal);
