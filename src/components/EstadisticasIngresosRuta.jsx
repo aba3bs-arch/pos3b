@@ -2,9 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   cargarAnalisisIngresosRuta,
   armarAnalisisIngresosRuta,
-  rangoDePeriodo,
   BUCKETS_ANTIGUEDAD,
-  MODOS_PERIODO,
   TIPOS_DISCREPANCIA,
 } from '../lib/rutaIngresosCxc.js';
 
@@ -66,29 +64,22 @@ const TABLA = { fontSize: '0.82rem', width: '100%' };
  * Estadísticas Abarrotes · Ingresos de Venta en Ruta, créditos pendientes,
  * entrega del recolector y estado actual del camión.
  */
-export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucursal }) {
+export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucursal, modo = 'rango' }) {
   const [cargando, setCargando] = useState(false);
   const [datos, setDatos] = useState(null);
   const [verTodos, setVerTodos] = useState(false);
   const [camionAbierto, setCamionAbierto] = useState(null);
-  const [modo, setModo] = useState('mes');
-  const [rangoManual, setRangoManual] = useState({ desde: desde || '', hasta: hasta || '' });
   const [recolectorAbierto, setRecolectorAbierto] = useState(null);
-
-  const periodo = useMemo(
-    () => rangoDePeriodo(modo, { desde: rangoManual.desde, hasta: rangoManual.hasta }),
-    [modo, rangoManual.desde, rangoManual.hasta],
-  );
 
   useEffect(() => {
     let ok = true;
-    if (!supabase || !periodo.desde || !periodo.hasta) return undefined;
+    if (!supabase || !desde || !hasta) return undefined;
     (async () => {
       setCargando(true);
       try {
         const res = await cargarAnalisisIngresosRuta(supabase, {
-          desde: periodo.desde,
-          hasta: periodo.hasta,
+          desde,
+          hasta,
           sucursal: sucursal || null,
           desdeLiquidacion: modo === 'liquidacion',
         });
@@ -102,7 +93,7 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
     return () => {
       ok = false;
     };
-  }, [supabase, periodo.desde, periodo.hasta, modo, sucursal]);
+  }, [supabase, desde, hasta, modo, sucursal]);
 
   const a = useMemo(() => (datos?.ok ? armarAnalisisIngresosRuta(datos, { tienda: sucursal || '' }) : null), [datos, sucursal]);
 
@@ -121,32 +112,11 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
         (todas las fechas), si cada recolector entrega el dinero completo y qué hay hoy en cada camión.
       </p>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', marginBottom: '0.6rem' }}>
-        <span className="muted" style={{ fontSize: '0.78rem' }}>Periodo de ingresos y entrega:</span>
-        {MODOS_PERIODO.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            className={modo === m.id ? 'btn' : 'btn btn-ghost'}
-            style={{ fontSize: '0.78rem', padding: '0.25rem 0.6rem' }}
-            onClick={() => setModo(m.id)}
-          >
-            {m.etiqueta}
-          </button>
-        ))}
-        {modo === 'rango' && (
-          <>
-            <input type="date" value={rangoManual.desde} max={rangoManual.hasta || undefined} onChange={(e) => setRangoManual((r) => ({ ...r, desde: e.target.value }))} />
-            <span className="muted">a</span>
-            <input type="date" value={rangoManual.hasta} min={rangoManual.desde || undefined} onChange={(e) => setRangoManual((r) => ({ ...r, hasta: e.target.value }))} />
-          </>
-        )}
-      </div>
       <p className="muted" style={{ margin: '0 0 0.6rem', fontSize: '0.76rem' }}>
         {modo === 'liquidacion'
           ? `Para cada recolector solo cuenta lo posterior a su última liquidación (máx. 60 días)${datos?.ok ? `; ventana consultada: ${datos.desde} a ${datos.hasta}` : ''}.`
-          : `Mostrando del ${periodo.desde} al ${periodo.hasta}.`}
-        {' '}Este filtro es solo de esta sección; los créditos pendientes (todas las fechas) y el camión (hoy) no dependen de él.
+          : `Mostrando del ${desde} al ${hasta}.`}
+        {' '}El periodo se elige arriba; los créditos pendientes (todas las fechas) y el camión (hoy) no dependen de él.
       </p>
 
       {cargando && <p className="muted">Analizando venta en ruta…</p>}

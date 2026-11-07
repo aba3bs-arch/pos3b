@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { cargarRendimientoRuta, resumenRendimientoRuta } from '../lib/rutaRendimiento.js';
+import { cargarDatosEstadisticasArea } from '../lib/estadisticasData.js';
+import { cargarCortesLiquidacion, rangoDesdeUltimaRecoleccion } from '../lib/ventasRutaPorTienda.js';
+import { hoyYmdNogales } from '../lib/corteCaja.js';
 import VisorTutorialModal from './VisorTutorialModal.jsx';
 import { TUTORIAL_ESTADISTICAS_RUTA } from '../content/tutorialEstadisticasRuta.js';
 
@@ -31,10 +34,20 @@ function Mini({ label, value, color, sub }) {
  * Estadísticas Abarrotes · Venta en Ruta vs recolección.
  * Usa los cierres/gastos que ya cargó el tablero (pack) y trae lo propio de la ruta.
  */
-export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, sucursal, pack, tiendas = [] }) {
+export default function EstadisticasRutaRendimiento({
+  supabase,
+  desde,
+  hasta,
+  sucursal,
+  pack,
+  tiendas = [],
+  modo = 'rango',
+  rangoGlobal = null,
+}) {
   const [cargando, setCargando] = useState(false);
   const [datos, setDatos] = useState(null);
   const [tutorialAbierto, setTutorialAbierto] = useState(false);
+  const [packLocal, setPackLocal] = useState(null);
 
   useEffect(() => {
     let ok = true;
@@ -42,8 +55,25 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
     (async () => {
       setCargando(true);
       try {
-        const res = await cargarRendimientoRuta(supabase, { desde, hasta, sucursal: sucursal || null });
-        if (ok) setDatos(res);
+        let dSel = desde;
+        let hSel = hasta;
+        if (modo === 'liquidacion') {
+          const { cortes } = await cargarCortesLiquidacion(supabase);
+          const r = rangoDesdeUltimaRecoleccion(cortes, { hoy: hoyYmdNogales() });
+          dSel = r.desde;
+          hSel = r.hasta;
+        }
+        const mismoRangoQueTablero = rangoGlobal && rangoGlobal.desde === dSel && rangoGlobal.hasta === hSel;
+        const [res, pk] = await Promise.all([
+          cargarRendimientoRuta(supabase, { desde: dSel, hasta: hSel, sucursal: sucursal || null }),
+          mismoRangoQueTablero
+            ? Promise.resolve(null)
+            : cargarDatosEstadisticasArea(supabase, { area: 'abarrotes', desde: dSel, hasta: hSel, sucursal: sucursal || null, inventario: [] }),
+        ]);
+        if (ok) {
+          setPackLocal(pk);
+          setDatos({ ...res, desdeEfectivo: dSel, hastaEfectivo: hSel });
+        }
       } catch (e) {
         if (ok) setDatos({ ok: false, error: e?.message || String(e) });
       } finally {
@@ -53,7 +83,9 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
     return () => {
       ok = false;
     };
-  }, [supabase, desde, hasta, sucursal]);
+  }, [supabase, desde, hasta, sucursal, modo, rangoGlobal?.desde, rangoGlobal?.hasta]);
+
+  const packUsado = packLocal || pack;
 
   const analisis = useMemo(() => {
     if (!datos?.ok) return null;
@@ -63,11 +95,11 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
       proveedorPorProducto: datos.proveedorPorProducto,
       movimientos: datos.movimientos,
       gastosRuta: datos.gastosRuta,
-      ventasTienda: pack?.ventas || [],
-      gastosTienda: pack?.gastos || [],
+      ventasTienda: packUsado?.ventas || [],
+      gastosTienda: packUsado?.gastos || [],
       tiendasBase: tiendas,
     });
-  }, [datos, pack, tiendas]);
+  }, [datos, packUsado, tiendas]);
 
   const r = analisis?.ruta;
 
@@ -93,6 +125,12 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
         demás proveedores o de su ganancia.
       </p>
 
+      {datos?.ok && (
+        <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.76rem' }}>
+          Periodo analizado: {datos.desdeEfectivo} al {datos.hastaEfectivo}
+          {modo === 'liquidacion' ? ' (desde la última liquidación de cualquier recolector)' : ''}.
+        </p>
+      )}
       {cargando && <p className="muted">Analizando ruta y recolecciones…</p>}
       {!cargando && datos && !datos.ok && <p style={{ color: '#c0392b', margin: 0 }}>{datos.error}</p>}
       {!cargando && (datos?.avisos || []).map((a) => (
