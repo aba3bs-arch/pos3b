@@ -31,6 +31,8 @@ import {
   tiendasEstadisticas,
 } from '../lib/estadisticasData.js';
 import { cargarRentabilidadProductosFrecuentes } from '../lib/rentabilidadProductosFrecuentes.js';
+import EstadisticasRutaRendimiento from './EstadisticasRutaRendimiento.jsx';
+import EstadisticasIngresosRuta from './EstadisticasIngresosRuta.jsx';
 import {
   cargarTraficoClientes,
   etiquetaHora,
@@ -1336,6 +1338,26 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
             </>
           )}
         </div>
+      )}
+
+      {area === 'abarrotes' && (
+        <EstadisticasRutaRendimiento
+          supabase={supabase}
+          desde={rango.desde}
+          hasta={rango.hasta}
+          sucursal={filtroTienda || null}
+          pack={pack}
+          tiendas={tiendasEstadisticas()}
+        />
+      )}
+
+      {area === 'abarrotes' && (
+        <EstadisticasIngresosRuta
+          supabase={supabase}
+          desde={rango.desde}
+          hasta={rango.hasta}
+          sucursal={filtroTienda || null}
+        />
       )}
 
       {area === 'abarrotes' && (
