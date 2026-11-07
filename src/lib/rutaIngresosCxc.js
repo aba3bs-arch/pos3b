@@ -21,11 +21,42 @@ import {
   listarVentasRutaPorRango,
   repartidorDeCarga,
   cargarContextoLiquidacion,
+  cargarCortesLiquidacion,
+  ventasPosterioresALiquidacion,
 } from './ventasRutaPorTienda.js';
-import { inicioDia, finDia } from './corteCaja.js';
+import { inicioDia, finDia, hoyYmdNogales, addDaysYmd, ymdNogalesFromDate } from './corteCaja.js';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const r3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+
+export const MODOS_PERIODO = [
+  { id: 'dia', etiqueta: 'Hoy' },
+  { id: 'semana', etiqueta: 'Semana actual' },
+  { id: 'mes', etiqueta: 'Mes actual' },
+  { id: 'liquidacion', etiqueta: 'Desde última liquidación' },
+  { id: 'rango', etiqueta: 'Rango de fechas' },
+];
+
+const MAX_DIAS_DESDE_LIQUIDACION = 60;
+
+/**
+ * Convierte el modo del filtro en fechas (YYYY-MM-DD, hora de Nogales).
+ * `liquidacion` se resuelve al cargar (necesita las liquidaciones); aquí solo da el tope.
+ */
+export function rangoDePeriodo(modo, { hoy = hoyYmdNogales(), desde = '', hasta = '' } = {}) {
+  if (modo === 'dia') return { desde: hoy, hasta: hoy };
+  if (modo === 'semana') {
+    const [y, m, d] = hoy.split('-').map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    const atras = (dow + 6) % 7;
+    return { desde: addDaysYmd(hoy, -atras), hasta: hoy };
+  }
+  if (modo === 'mes') return { desde: `${hoy.slice(0, 7)}-01`, hasta: hoy };
+  if (modo === 'liquidacion') return { desde: addDaysYmd(hoy, -MAX_DIAS_DESDE_LIQUIDACION), hasta: hoy };
+  const a = desde || hoy;
+  const b = hasta || hoy;
+  return a <= b ? { desde: a, hasta: b } : { desde: b, hasta: a };
+}
 
 export const DIAS_ATRASO_ENTREGA = 3;
 export const DIAS_CARGA_ABIERTA_ALERTA = 7;
@@ -225,14 +256,131 @@ export function analizarIngresosRuta(ventas, movimientos, { tienda = '', desde =
   return out;
 }
 
+function normNombre(s) {
+  return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+}
+
+/**
+ * Un mismo recolector puede existir con varios ids en `repartidores` (altas repetidas).
+ * Devuelve el id canónico de cada uno agrupando por nombre normalizado.
+ */
+export function agruparRepartidoresPorNombre(repartidores = []) {
+  const porNombre = new Map();
+  const canon = new Map();
+  const nombres = new Map();
+  for (const r of repartidores || []) {
+    const id = String(r.id);
+    const n = normNombre(r.nombre);
+    const clave = n || `id:${id}`;
+    if (!porNombre.has(clave)) porNombre.set(clave, id);
+    canon.set(id, porNombre.get(clave));
+    if (!nombres.has(porNombre.get(clave))) nombres.set(porNombre.get(clave), r.nombre || id);
+  }
+  return {
+    canon: (id) => (id == null || id === '' ? null : (canon.get(String(id)) || String(id))),
+    nombre: (id) => nombres.get(String(id)) || String(id),
+  };
+}
+
+/** Cortes de liquidación por id, igualados para todos los ids del mismo recolector (el más reciente). */
+export function cortesPorRecolector(repartidores = [], cortes = new Map()) {
+  const grupos = agruparRepartidoresPorNombre(repartidores);
+  const maxPorCanon = new Map();
+  for (const [id, iso] of cortes || []) {
+    const c = grupos.canon(id);
+    const t = new Date(iso).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (!maxPorCanon.has(c) || t > new Date(maxPorCanon.get(c)).getTime()) maxPorCanon.set(c, iso);
+  }
+  const out = new Map();
+  for (const r of repartidores || []) {
+    const c = grupos.canon(r.id);
+    if (maxPorCanon.has(c)) out.set(String(r.id), maxPorCanon.get(c));
+  }
+  return out;
+}
+
+export const TIPOS_DISCREPANCIA = {
+  sin_venta: { etiqueta: 'Sin venta con ese folio', color: '#c0392b', explica: 'Efectivo en tránsito que no corresponde a ninguna venta registrada.' },
+  venta_cancelada: { etiqueta: 'Venta cancelada', color: '#c0392b', explica: 'La venta se canceló pero su efectivo sigue registrado en tránsito.' },
+  duplicado: { etiqueta: 'Registro duplicado', color: '#c0392b', explica: 'El mismo folio quedó registrado más de una vez en tránsito.' },
+  venta_credito: { etiqueta: 'La venta fue a crédito', color: '#c0392b', explica: 'Se registró efectivo en tránsito por una venta que no fue en efectivo.' },
+  monto_distinto: { etiqueta: 'Monto distinto', color: '#e67e22', explica: 'El efectivo en tránsito no es igual al efectivo de la venta (diferencia en el excedente).' },
+  otro_periodo: { etiqueta: 'Venta de otra fecha', color: '#2980b9', explica: 'La venta existe pero es de otro periodo; el efectivo se registró en este.' },
+  venta_sin_transito: { etiqueta: 'Venta sin efectivo en tránsito', color: '#c0392b', explica: 'Venta en efectivo que nunca pasó a efectivo en tránsito.' },
+};
+
+/**
+ * Compara cada renglón «Venta Ruta» del tránsito contra la venta de ruta del mismo folio.
+ * Explica por qué lo registrado ≠ lo vendido en efectivo.
+ */
+function conciliarVentaTransito({ ventasEfectivo, transitoVentaRuta, ventasPorFolio, idsVentasPeriodo }) {
+  const items = [];
+  const vistos = new Map();
+  for (const m of transitoVentaRuta) {
+    const folioCompleto = String(m.num_traspaso || '').trim();
+    const folio = quitarSufijoPagoFolio(folioCompleto);
+    const monto = r2(m.monto);
+    const base = {
+      folio: folioCompleto || folio || `#${m.id}`,
+      monto,
+      fecha: m.fecha_hora,
+      estatus: m.estatus,
+      idTransito: m.id,
+    };
+    const venta = folio ? ventasPorFolio.get(folio) : null;
+    const clave = folioCompleto || null;
+    const repetido = clave ? vistos.get(clave) : null;
+    if (clave) vistos.set(clave, (vistos.get(clave) || 0) + 1);
+    if (repetido) { items.push({ ...base, tipo: 'duplicado' }); continue; }
+    if (!venta) { items.push({ ...base, tipo: 'sin_venta' }); continue; }
+    if (ventaCancelada(venta)) { items.push({ ...base, tipo: 'venta_cancelada', ventaTotal: r2(venta.total) }); continue; }
+    const efectivoVenta = r2(montosPagoDesdeVentaRuta(venta).montoEfectivo);
+    if (!(efectivoVenta > 0)) { items.push({ ...base, tipo: 'venta_credito', ventaTotal: r2(venta.total) }); continue; }
+    if (!idsVentasPeriodo.has(String(venta.id))) { items.push({ ...base, tipo: 'otro_periodo', ventaFecha: venta.created_at, ventaEfectivo: efectivoVenta }); continue; }
+    if (Math.abs(efectivoVenta - monto) > 0.5) {
+      items.push({ ...base, tipo: 'monto_distinto', ventaEfectivo: efectivoVenta, exceso: r2(monto - efectivoVenta) });
+      continue;
+    }
+    items.push({ ...base, tipo: 'ok' });
+  }
+
+  const foliosConTransito = new Set(transitoVentaRuta.map((m) => quitarSufijoPagoFolio(String(m.num_traspaso || '').trim())).filter(Boolean));
+  for (const v of ventasEfectivo) {
+    if (foliosConTransito.has(quitarSufijoPagoFolio(String(v.folio || '').trim()))) continue;
+    items.push({
+      tipo: 'venta_sin_transito',
+      folio: v.folio || String(v.id),
+      monto: r2(montosPagoDesdeVentaRuta(v).montoEfectivo),
+      fecha: v.created_at,
+      estatus: null,
+    });
+  }
+  return items;
+}
+
+function resumirDiscrepancias(items) {
+  const porTipo = {};
+  for (const it of items) {
+    const t = porTipo[it.tipo] || { n: 0, monto: 0 };
+    t.n += 1;
+    t.monto = r2(t.monto + (it.tipo === 'monto_distinto' ? it.exceso : it.monto));
+    porTipo[it.tipo] = t;
+  }
+  return porTipo;
+}
+
 /**
  * ¿El recolector entrega completo? Por recolector:
  *   esperado = efectivo vendido + cobros de crédito
  *   entregado (Liquidado) + por entregar (En Tránsito) + sin registrar = esperado
  * Los gastos se muestran aparte (se descuentan al liquidar).
+ * Un recolector con varios ids se agrupa en una sola fila.
+ * `ventasExtra`: ventas con folio en tránsito que quedaron fuera del periodo.
  */
 export function analizarEntregaRecolectores({
   ventas = [],
+  ventasExtra = [],
   cargasPorId = new Map(),
   repartidores = [],
   transitoPeriodo = [],
@@ -241,16 +389,17 @@ export function analizarEntregaRecolectores({
   ahora = new Date(),
 } = {}) {
   const suc = tienda ? (normalizarCodigoTienda(tienda) || String(tienda).toUpperCase()) : '';
-  const nombreRep = new Map((repartidores || []).map((r) => [String(r.id), r.nombre || String(r.id)]));
+  const grupos = agruparRepartidoresPorNombre(repartidores);
   const filas = new Map();
   const SIN = '__sin__';
-  const get = (id) => {
-    const k = id ? String(id) : SIN;
+  const get = (idCrudo) => {
+    const canon = grupos.canon(idCrudo);
+    const k = canon ? String(canon) : SIN;
     let f = filas.get(k);
     if (!f) {
       f = {
         id: k,
-        nombre: k === SIN ? 'Sin recolector identificado' : (nombreRep.get(k) || k),
+        nombre: k === SIN ? 'Sin recolector identificado' : grupos.nombre(k),
         vendidoEfectivo: 0,
         vendidoCredito: 0,
         cobrosCredito: 0,
@@ -261,11 +410,20 @@ export function analizarEntregaRecolectores({
         gastos: 0,
         enTransitoActual: 0,
         masViejoDias: 0,
+        _ventasEfectivo: [],
+        _transitoVR: [],
       };
       filas.set(k, f);
     }
     return f;
   };
+
+  const ventasPorFolio = new Map();
+  for (const v of [...ventas, ...ventasExtra]) {
+    const folio = quitarSufijoPagoFolio(String(v.folio || '').trim());
+    if (folio && !ventasPorFolio.has(folio)) ventasPorFolio.set(folio, v);
+  }
+  const idsVentasPeriodo = new Set(ventas.map((v) => String(v.id)));
 
   for (const v of ventas) {
     if (ventaCancelada(v)) continue;
@@ -274,6 +432,7 @@ export function analizarEntregaRecolectores({
     const pago = montosPagoDesdeVentaRuta(v);
     const f = get(repartidorDeCarga(cargasPorId.get(String(v.carga_id)), repartidores));
     f.vendidoEfectivo = r2(f.vendidoEfectivo + pago.montoEfectivo);
+    if (pago.montoEfectivo > 0) f._ventasEfectivo.push(v);
     if (String(v?.estado_credito || '').toLowerCase() !== 'anulado') {
       f.vendidoCredito = r2(f.vendidoCredito + pago.montoCredito);
     }
@@ -284,14 +443,15 @@ export function analizarEntregaRecolectores({
     const tipo = String(m.tipo_movimiento || '');
     if (tipo === 'Gasto') {
       if (suc) continue;
-      get(m.repartidor_id).gastos = r2(get(m.repartidor_id).gastos + (Number(m.monto) || 0));
+      const fg = get(m.repartidor_id);
+      fg.gastos = r2(fg.gastos + (Number(m.monto) || 0));
       continue;
     }
     if (tipo !== 'Venta Ruta' && tipo !== 'Cobro Crédito') continue;
     if (suc && (normalizarCodigoTienda(m.sucursal_origen) || m.sucursal_origen) !== suc) continue;
     const f = get(m.repartidor_id);
     const monto = Number(m.monto) || 0;
-    if (tipo === 'Venta Ruta') f.registrado = r2(f.registrado + monto);
+    if (tipo === 'Venta Ruta') { f.registrado = r2(f.registrado + monto); f._transitoVR.push(m); }
     else f.cobrosCredito = r2(f.cobrosCredito + monto);
     if (m.estatus === 'Liquidado') f.entregado = r2(f.entregado + monto);
     else if (m.estatus === 'En Tránsito') f.porEntregar = r2(f.porEntregar + monto);
@@ -308,7 +468,7 @@ export function analizarEntregaRecolectores({
     f.masViejoDias = Math.max(f.masViejoDias, diasDesde(m.fecha_hora, ahora));
   }
 
-  const out = [...filas.values()].map((f) => {
+  const out = [...filas.values()].map(({ _ventasEfectivo, _transitoVR, ...f }) => {
     const esperado = r2(f.vendidoEfectivo + f.cobrosCredito);
     const sinRegistrar = r2(f.vendidoEfectivo - f.registrado);
     const tol = Math.max(TOLERANCIA_FALTANTE_MXN, f.vendidoEfectivo * 0.02);
@@ -317,17 +477,30 @@ export function analizarEntregaRecolectores({
     else if (f.enTransitoActual > 0 && f.masViejoDias > DIAS_ATRASO_ENTREGA) estado = 'atrasado';
     else if (f.enTransitoActual > 0 || f.porEntregar > 0) estado = 'por_entregar';
     else if (sinRegistrar < -tol) estado = 'de_mas';
+    const items = conciliarVentaTransito({
+      ventasEfectivo: _ventasEfectivo,
+      transitoVentaRuta: _transitoVR,
+      ventasPorFolio,
+      idsVentasPeriodo,
+    });
+    const discrepancias = items.filter((it) => it.tipo !== 'ok');
     return {
       ...f,
       esperado,
       sinRegistrar,
       pctEntregado: esperado > 0 ? r2((f.entregado / esperado) * 100) : null,
       estado,
+      conciliacion: {
+        coinciden: items.filter((it) => it.tipo === 'ok').length,
+        montoCoinciden: r2(items.filter((it) => it.tipo === 'ok').reduce((s, it) => s + it.monto, 0)),
+        porTipo: resumirDiscrepancias(discrepancias),
+        discrepancias: discrepancias.sort((x, y) => (y.exceso ?? y.monto) - (x.exceso ?? x.monto)),
+      },
     };
   });
   return out
     .filter((f) => f.vendidoEfectivo > 0 || f.registrado > 0 || f.cobrosCredito > 0 || f.enTransitoActual > 0)
-    .sort((a, b) => b.sinRegistrar - a.sinRegistrar || b.enTransitoActual - a.enTransitoActual);
+    .sort((a, b) => Math.abs(b.sinRegistrar) - Math.abs(a.sinRegistrar) || b.enTransitoActual - a.enTransitoActual);
 }
 
 /**
@@ -450,6 +623,12 @@ export function construirAvisosIngresosRuta({ ingresos, cartera, entrega = [], c
       texto: `${f.nombre}: vendió ${fmtMx(f.vendidoEfectivo)} en efectivo pero solo hay ${fmtMx(f.registrado)} registrado: faltan ${fmtMx(f.sinRegistrar)}.`,
     });
   }
+  for (const f of entrega.filter((x) => x.sinRegistrar < -TOLERANCIA_FALTANTE_MXN)) {
+    avisos.push({
+      nivel: 'medio',
+      texto: `${f.nombre}: hay ${fmtMx(-f.sinRegistrar)} MÁS registrado en tránsito (${fmtMx(f.registrado)}) que vendido en efectivo (${fmtMx(f.vendidoEfectivo)}). Usa «Ver qué pasó» para ver los folios.`,
+    });
+  }
   for (const f of entrega.filter((x) => x.estado === 'atrasado')) {
     avisos.push({
       nivel: 'alto',
@@ -487,11 +666,25 @@ async function porLotes(supabase, tabla, columnas, columna, ids, extra = (q) => 
 }
 
 /** Carga todo lo necesario para el análisis. */
-export async function cargarAnalisisIngresosRuta(supabase, { desde, hasta, sucursal = null } = {}) {
+export async function cargarAnalisisIngresosRuta(supabase, { desde, hasta, sucursal = null, desdeLiquidacion = false } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!desde || !hasta) return { ok: false, error: 'Indica el periodo.' };
   const ahora = new Date();
   const avisos = [];
+  let cortesRec = null;
+  if (desdeLiquidacion) {
+    const base = await cargarCortesLiquidacion(supabase);
+    cortesRec = cortesPorRecolector(base.repartidores, base.cortes);
+    let min = 0;
+    for (const iso of cortesRec.values()) {
+      const t = new Date(iso).getTime();
+      if (Number.isFinite(t) && (!min || t < min)) min = t;
+    }
+    if (min) {
+      const dia = ymdNogalesFromDate(new Date(min));
+      if (dia > desde) desde = dia;
+    }
+  }
   const ini = inicioDia(desde).toISOString();
   const fin = finDia(hasta).toISOString();
 
@@ -499,7 +692,7 @@ export async function cargarAnalisisIngresosRuta(supabase, { desde, hasta, sucur
     listarVentasRutaPorRango(supabase, { desde, hasta }),
     listarMovimientosCxc(supabase, { todos: true }),
     paginar(() => supabase.from('transito_efectivo')
-      .select('id, monto, estatus, tipo_movimiento, fecha_hora, repartidor_id, sucursal_origen')
+      .select('id, monto, estatus, tipo_movimiento, fecha_hora, repartidor_id, sucursal_origen, num_traspaso')
       .in('tipo_movimiento', ['Venta Ruta', 'Cobro Crédito', 'Gasto'])
       .gte('fecha_hora', ini).lte('fecha_hora', fin).order('fecha_hora', { ascending: false })),
     paginar(() => supabase.from('transito_efectivo')
@@ -514,12 +707,34 @@ export async function cargarAnalisisIngresosRuta(supabase, { desde, hasta, sucur
   }
   if (cxcRes?.aviso) avisos.push(cxcRes.aviso);
 
-  const ventas = ventasRes.data || [];
+  let ventas = ventasRes.data || [];
+  let transitoPeriodo = transitoRes.data || [];
   const movimientos = cxcRes.data || [];
   const cargasAbiertas = cargasRes.data || [];
 
   const ctx = await cargarContextoLiquidacion(supabase, ventas);
   const cargasPorId = new Map(ctx.cargasPorId);
+
+  if (cortesRec) {
+    const cortes = cortesRec;
+    ventas = ventasPosterioresALiquidacion(ventas, { cargasPorId, repartidores: ctx.repartidores, cortes }).ventas;
+    transitoPeriodo = transitoPeriodo.filter((m) => {
+      const corte = cortes.get(String(m.repartidor_id));
+      return !corte || new Date(m.fecha_hora).getTime() > new Date(corte).getTime();
+    });
+  }
+
+  const foliosVentas = new Set(ventas.map((v) => quitarSufijoPagoFolio(String(v.folio || '').trim())));
+  const foliosFaltan = [...new Set(transitoPeriodo
+    .filter((m) => m.tipo_movimiento === 'Venta Ruta')
+    .map((m) => quitarSufijoPagoFolio(String(m.num_traspaso || '').trim()))
+    .filter((f) => f && !foliosVentas.has(f)))];
+  let ventasExtra = [];
+  if (foliosFaltan.length) {
+    const r = await porLotes(supabase, 'ruta_ventas', '*', 'folio', foliosFaltan);
+    if (r.error) avisos.push(`Ventas de otras fechas: ${r.error}`);
+    ventasExtra = r.data;
+  }
   for (const c of cargasAbiertas) cargasPorId.set(String(c.id), c);
 
   const idsCxc = [...new Set(movimientos.filter(esCargoPendienteCxc).map((m) => String(m.carga_id || '')).filter((x) => x && !x.startsWith('rec:')))];
@@ -560,9 +775,12 @@ export async function cargarAnalisisIngresosRuta(supabase, { desde, hasta, sucur
     desde,
     hasta,
     sucursal,
+    desdeLiquidacion,
+    cortes: cortesRec,
     ventas,
+    ventasExtra,
     movimientos,
-    transitoPeriodo: transitoRes.data || [],
+    transitoPeriodo,
     transitoPendiente: pendienteRes.data || [],
     cargasAbiertas,
     cargasPorId,
@@ -582,6 +800,7 @@ export function armarAnalisisIngresosRuta(datos, { tienda = '' } = {}) {
   const cartera = analizarCarteraPendiente(datos.movimientos, { tienda, vendedorPorCarga: datos.vendedorPorCarga, ahora: datos.ahora });
   const entrega = analizarEntregaRecolectores({
     ventas: datos.ventas,
+    ventasExtra: datos.ventasExtra,
     cargasPorId: datos.cargasPorId,
     repartidores: datos.repartidores,
     transitoPeriodo: datos.transitoPeriodo,

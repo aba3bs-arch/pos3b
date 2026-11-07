@@ -6,6 +6,9 @@ import {
   resumirCamionesAbiertos,
   construirAvisosIngresosRuta,
   bucketAntiguedad,
+  rangoDePeriodo,
+  agruparRepartidoresPorNombre,
+  cortesPorRecolector,
   origenCargoCxc,
   diasDesde,
 } from './rutaIngresosCxc.js';
@@ -180,6 +183,70 @@ const cargasPorId = new Map([
   assert.match(txt, /Luis: vendió/);
   assert.match(txt, /sin venta registrada/);
   assert.equal(construirAvisosIngresosRuta({})[0].nivel, 'info');
+}
+
+{
+  assert.deepEqual(rangoDePeriodo('dia', { hoy: '2026-11-07' }), { desde: '2026-11-07', hasta: '2026-11-07' });
+  assert.deepEqual(rangoDePeriodo('semana', { hoy: '2026-11-07' }), { desde: '2026-11-02', hasta: '2026-11-07' }, 'sábado: la semana empieza el lunes 2');
+  assert.deepEqual(rangoDePeriodo('semana', { hoy: '2026-11-08' }), { desde: '2026-11-02', hasta: '2026-11-08' }, 'domingo');
+  assert.deepEqual(rangoDePeriodo('semana', { hoy: '2026-11-02' }), { desde: '2026-11-02', hasta: '2026-11-02' }, 'lunes');
+  assert.deepEqual(rangoDePeriodo('mes', { hoy: '2026-11-07' }), { desde: '2026-11-01', hasta: '2026-11-07' });
+  assert.deepEqual(rangoDePeriodo('rango', { desde: '2026-10-20', hasta: '2026-10-01' }), { desde: '2026-10-01', hasta: '2026-10-20' }, 'ordena fechas invertidas');
+  assert.equal(rangoDePeriodo('liquidacion', { hoy: '2026-11-07' }).desde, '2026-09-08');
+
+  const reps = [{ id: 'r1', nombre: 'Luis Enrique Mada Osuna' }, { id: 'r2', nombre: 'LUIS ENRIQUE  MADA OSUNA' }, { id: 'r3', nombre: 'Andrés' }];
+  const g = agruparRepartidoresPorNombre(reps);
+  assert.equal(g.canon('r2'), 'r1');
+  assert.equal(g.canon('r3'), 'r3');
+  const cor = cortesPorRecolector(reps, new Map([['r1', '2026-11-01T10:00:00Z'], ['r2', '2026-11-05T10:00:00Z']]));
+  assert.equal(cor.get('r1'), '2026-11-05T10:00:00Z', 'ambos ids toman la liquidación más reciente');
+  assert.equal(cor.get('r2'), '2026-11-05T10:00:00Z');
+  assert.equal(cor.has('r3'), false);
+}
+
+{
+  // Mismo recolector con dos ids: ventas por un id, tránsito por el otro. Debe ser UNA fila y explicar la diferencia.
+  const reps = [{ id: 'r1', nombre: 'Luis Mada' }, { id: 'r2', nombre: 'Luis Mada' }];
+  const cargas = new Map([['C1', { id: 'C1', vendedor_id: 'r1', vendedor_nombre: 'Luis Mada' }]]);
+  const vta = (id, folio, total, extra = {}) => ({ id, folio, carga_id: 'C1', cliente_tipo: 'sucursal', cliente_id: '3B2', metodo_pago: 'efectivo', total, created_at: hace(1), ...extra });
+  const ventasP = [vta('A', 'VR-11', 100), vta('B', 'VR-12', 200), vta('C', 'VR-13', 50), vta('D', 'VR-14', 400, { estado: 'cancelada' }), vta('E', 'VR-15', 60, { metodo_pago: 'credito' })];
+  const tr = (id, folio, monto, extra = {}) => ({ id, tipo_movimiento: 'Venta Ruta', num_traspaso: folio, monto, estatus: 'En Tránsito', repartidor_id: 'r2', sucursal_origen: '3B2', fecha_hora: hace(1), ...extra });
+  const e = analizarEntregaRecolectores({
+    ventas: ventasP,
+    ventasExtra: [vta('Z', 'VR-16', 300, { created_at: hace(40) })],
+    cargasPorId: cargas,
+    repartidores: reps,
+    transitoPeriodo: [
+      tr(1, 'VR-11-E', 100),
+      tr(2, 'VR-12', 250),
+      tr(3, 'VR-12', 250),
+      tr(4, 'VR-14', 400),
+      tr(5, 'VR-15', 60),
+      tr(6, 'VR-16', 300),
+      tr(7, 'VR-FANTASMA', 80),
+    ],
+    transitoPendiente: [],
+    ahora,
+  });
+  assert.equal(e.length, 1, 'ids duplicados del mismo recolector se unen en una fila');
+  const f = e[0];
+  assert.equal(f.nombre, 'Luis Mada');
+  assert.equal(f.vendidoEfectivo, 350, 'cancelada y crédito no cuentan');
+  assert.equal(f.registrado, 100 + 250 + 250 + 400 + 60 + 300 + 80);
+  assert.equal(f.sinRegistrar, 350 - 1440);
+  const c = f.conciliacion;
+  assert.equal(c.coinciden, 1);
+  assert.equal(c.montoCoinciden, 100);
+  assert.equal(c.porTipo.monto_distinto.monto, 50, 'registró 250 de una venta de 200');
+  assert.equal(c.porTipo.duplicado.monto, 250);
+  assert.equal(c.porTipo.venta_cancelada.monto, 400);
+  assert.equal(c.porTipo.venta_credito.monto, 60);
+  assert.equal(c.porTipo.otro_periodo.monto, 300);
+  assert.equal(c.porTipo.sin_venta.monto, 80);
+  assert.equal(c.porTipo.venta_sin_transito.monto, 50, 'VR-13 se vendió en efectivo y no tiene tránsito');
+  assert.equal(c.discrepancias[0].tipo, 'venta_cancelada', 'lo más grande primero');
+  const avisos = construirAvisosIngresosRuta({ entrega: e });
+  assert.match(avisos.map((a) => a.texto).join('\n'), /MÁS registrado/);
 }
 
 console.log('rutaIngresosCxc.test.mjs ok');
