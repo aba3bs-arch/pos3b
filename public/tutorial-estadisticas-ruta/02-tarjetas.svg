@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#eef8f6"/><stop offset="100%" stop-color="#f5f7fb"/></linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%"><feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/></filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">2. Las seis tarjetas de arriba</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Ejemplo con números del tutorial</text>
+  <rect x="48" y="110" width="280" height="140" rx="14" fill="#fff" filter="url(#shadow)"/>
+  <text x="66" y="144" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#546e7a" text-anchor="start">Venta en ruta</text>
+  <text x="66" y="188" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" fill="#0f766e" text-anchor="start">$120.00</text>
+  <text x="66" y="220" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#78909c" text-anchor="start">1 venta · efectivo $120</text>
+  <rect x="340" y="110" width="280" height="140" rx="14" fill="#fff" filter="url(#shadow)"/>
+  <text x="358" y="144" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#546e7a" text-anchor="start">Costo de lo vendido</text>
+  <text x="358" y="188" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" fill="#334155" text-anchor="start">$110.00</text>
+  <text x="358" y="220" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#78909c" text-anchor="start">precio de compra sin IVA</text>
+  <rect x="632" y="110" width="280" height="140" rx="14" fill="#fff" filter="url(#shadow)"/>
+  <text x="650" y="144" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#546e7a" text-anchor="start">Ganancia bruta ruta</text>
+  <text x="650" y="188" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" fill="#27ae60" text-anchor="start">$10.00</text>
+  <text x="650" y="220" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#78909c" text-anchor="start">8.33% sobre venta</text>
+  <rect x="48" y="270" width="280" height="140" rx="14" fill="#fff" filter="url(#shadow)"/>
+  <text x="66" y="304" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#546e7a" text-anchor="start">Gastos de ruta</text>
+  <text x="66" y="348" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" fill="#334155" text-anchor="start">$20.00</text>
+  <text x="66" y="380" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#78909c" text-anchor="start">gastos del recolector en ruta</text>
+  <rect x="340" y="270" width="280" height="140" rx="14" fill="#fff" filter="url(#shadow)"/>
+  <text x="358" y="304" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#546e7a" text-anchor="start">Rendimiento neto ruta</text>
+  <text x="358" y="348" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" fill="#c0392b" text-anchor="start">-$10.00</text>
+  <text x="358" y="380" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#78909c" text-anchor="start">ganancia − gastos de ruta</text>
+  <rect x="632" y="270" width="280" height="140" rx="14" fill="#fff" filter="url(#shadow)"/>
+  <text x="650" y="304" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#546e7a" text-anchor="start">Recolectado vs neto</text>
+  <text x="650" y="348" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="800" fill="#c0392b" text-anchor="start">$700 / $540</text>
+  <text x="650" y="380" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#78909c" text-anchor="start">1 tienda excede</text>
+  <text x="48" y="448" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="400" fill="#546e7a" text-anchor="start">Verde = bien · Rojo = atender. «Rendimiento neto» negativo significa que la ruta pierde dinero.</text>
+</svg>

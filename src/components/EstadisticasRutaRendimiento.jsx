@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { cargarRendimientoRuta, resumenRendimientoRuta } from '../lib/rutaRendimiento.js';
+import VisorTutorialModal from './VisorTutorialModal.jsx';
+import { TUTORIAL_ESTADISTICAS_RUTA } from '../content/tutorialEstadisticasRuta.js';
 
 function fmt(n) {
   const v = Number(n) || 0;
@@ -32,6 +34,7 @@ function Mini({ label, value, color, sub }) {
 export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, sucursal, pack, tiendas = [] }) {
   const [cargando, setCargando] = useState(false);
   const [datos, setDatos] = useState(null);
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
 
   useEffect(() => {
     let ok = true;
@@ -70,9 +73,19 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
 
   return (
     <div className="card" style={{ marginBottom: '1rem' }}>
-      <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-        Venta en ruta vs recolección · ¿hay rendimiento?
-      </h4>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+          Venta en ruta vs recolección · ¿hay rendimiento?
+        </h4>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ fontSize: '0.8rem', padding: '0.25rem 0.6rem' }}
+          onClick={() => setTutorialAbierto(true)}
+        >
+          Cómo entender este análisis
+        </button>
+      </div>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
         Compara lo que vende la ruta (precio ruta − costo de compra, por proveedor) con lo que se recolecta de cada tienda.
         Si se recolecta más que lo que la tienda generó neto (venta en efectivo − gastos del corte), el excedente sale de lo
@@ -200,6 +213,12 @@ export default function EstadisticasRutaRendimiento({ supabase, desde, hasta, su
           </p>
         </>
       )}
+
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_ESTADISTICAS_RUTA}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }
