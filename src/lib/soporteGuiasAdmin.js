@@ -302,7 +302,7 @@ export const GUIAS_MODULOS = [
     claves: [
       ['estadisticas', 7], ['estadistica', 6], ['graficas de ventas', 7], ['trafico de clientes', 7], ['pareto', 5], ['periodo rapido', 6], ['ventas por turno', 6],
     ],
-    texto: 'Menú «Estadísticas». Entra a «Abarrotes», «Virtual» o «Garage». Ajusta «Tienda», «Periodo rápido» y «Agrupar»; los indicadores se recargan solos. En cada tarjeta pulsa «Ver» para el detalle (ventas, tarjeta, gastos, utilidad, promedio; en Abarrotes también merma). Revisa las gráficas Pareto, de turnos y de gastos. «← Estadísticas» regresa.',
+    texto: 'Menú «Estadísticas». Entra a «Abarrotes», «Virtual» o «Garage». Ajusta «Tienda», «Periodo rápido» y «Agrupar»; los indicadores se recargan solos. En cada tarjeta pulsa «Ver» para el detalle (ventas, tarjeta, gastos, utilidad, promedio; en Abarrotes también merma). Revisa las gráficas Pareto, de turnos y de gastos. En Abarrotes, la sección «Venta en ruta vs recolección» dice si la ruta deja ganancia y si salió más dinero (recolección en efectivo + pago con tarjeta) de lo que la tienda generó neto; su botón «Cómo entender este análisis» abre el tutorial. «← Estadísticas» regresa.',
   },
   {
     id: 'reporte_inventario',

@@ -12,6 +12,7 @@ import { TUTORIAL_CEDIS } from './tutorialCedis.js';
 import { TUTORIAL_VENTA_EN_RUTA } from './tutorialVentaEnRuta.js';
 import { TUTORIAL_COBRO_SERVICIOS } from './tutorialCobroServicios.js';
 import { TUTORIAL_CANCELACION_RUTA } from './tutorialCancelacionRuta.js';
+import { TUTORIAL_ESTADISTICAS_RUTA } from './tutorialEstadisticasRuta.js';
 
 export const TUTORIALES = [
   TUTORIAL_CANCELACION_RUTA,
@@ -26,6 +27,7 @@ export const TUTORIALES = [
   TUTORIAL_CORTE_ABARROTES,
   TUTORIAL_VALES_MAIN,
   TUTORIAL_CONFIG_OPERACION,
+  TUTORIAL_ESTADISTICAS_RUTA,
   {
     id: 'alta-reingreso-empleado',
     titulo: 'Cómo dar de alta o reingresar un empleado',

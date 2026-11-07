@@ -31,6 +31,10 @@ import {
   tiendasEstadisticas,
 } from '../lib/estadisticasData.js';
 import { cargarRentabilidadProductosFrecuentes } from '../lib/rentabilidadProductosFrecuentes.js';
+import EstadisticasRutaRendimiento from './EstadisticasRutaRendimiento.jsx';
+import EstadisticasIngresosRuta from './EstadisticasIngresosRuta.jsx';
+import FiltroPeriodoRuta from './FiltroPeriodoRuta.jsx';
+import { rangoDePeriodo } from '../lib/rutaIngresosCxc.js';
 import {
   cargarTraficoClientes,
   etiquetaHora,
@@ -270,6 +274,8 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const [cargando, setCargando] = useState(false);
   const [pack, setPack] = useState(null);
   const [packAnt, setPackAnt] = useState(null);
+  const [modoRuta, setModoRuta] = useState('mes');
+  const [rangoRutaManual, setRangoRutaManual] = useState({ desde: '', hasta: '' });
   const [semanaSel, setSemanaSel] = useState(null);
   const [categoriaSel, setCategoriaSel] = useState(null);
   const [rentab, setRentab] = useState(null);
@@ -291,6 +297,15 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
     }
     return rangoDesdePreset(presetFecha) || { desde: FECHA_INICIO_ESTADISTICAS, hasta: hoyYmdEstadisticas() };
   }, [presetFecha, desde, hasta]);
+
+  const rangoRutaManualEf = useMemo(
+    () => ({ desde: rangoRutaManual.desde || rango.desde, hasta: rangoRutaManual.hasta || rango.hasta }),
+    [rangoRutaManual, rango.desde, rango.hasta],
+  );
+  const periodoRuta = useMemo(
+    () => rangoDePeriodo(modoRuta, rangoRutaManualEf),
+    [modoRuta, rangoRutaManualEf],
+  );
 
   useEffect(() => {
     let ok = true;
@@ -1336,6 +1351,38 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
             </>
           )}
         </div>
+      )}
+
+      {area === 'abarrotes' && (
+        <div className="card" style={{ marginBottom: '0.75rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.4rem', fontSize: '0.8rem' }}>
+            Periodo de los análisis de venta en ruta (ruta vs recolección, ingresos y entrega del recolector). Es independiente del periodo del tablero.
+          </p>
+          <FiltroPeriodoRuta modo={modoRuta} onModo={setModoRuta} rango={rangoRutaManualEf} onRango={setRangoRutaManual} />
+        </div>
+      )}
+
+      {area === 'abarrotes' && (
+        <EstadisticasRutaRendimiento
+          supabase={supabase}
+          desde={periodoRuta.desde}
+          hasta={periodoRuta.hasta}
+          modo={modoRuta}
+          rangoGlobal={rango}
+          sucursal={filtroTienda || null}
+          pack={pack}
+          tiendas={tiendasEstadisticas()}
+        />
+      )}
+
+      {area === 'abarrotes' && (
+        <EstadisticasIngresosRuta
+          supabase={supabase}
+          desde={periodoRuta.desde}
+          hasta={periodoRuta.hasta}
+          modo={modoRuta}
+          sucursal={filtroTienda || null}
+        />
       )}
 
       {area === 'abarrotes' && (
