@@ -337,7 +337,7 @@ export default function CorteGastosPanel({
       }
       const pinRes = await verificarPinCargoFueraTurno(supabase, pinFt, eft);
       if (!pinRes.ok) return alert(pinRes.error);
-      autorizaciones.push(pinRes.esAdmin ? `${eft.nombre} (autorizó ${pinRes.autorizo})` : eft.nombre);
+      autorizaciones.push(eft.nombre);
     }
     const sufijoAutorizacion = autorizaciones.length
       ? `NIP FUERA DE TURNO: ${autorizaciones.join(', ')}`

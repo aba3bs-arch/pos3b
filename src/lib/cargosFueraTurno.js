@@ -7,7 +7,7 @@ import { esTurnoAmbos, leerTurnos, normalizarHora, parseTurnoHorario, turnoIdPar
 import { normalizarRol } from './roles.js';
 import { esUsuarioCubreTurno } from './cubreTurno.js';
 import { normalizarNombrePersona } from './empleadosVisibles.js';
-import { rolPuedeAutorizarFueraHorario, tieneAutorizacionFueraHorario } from './autorizacionTurnoFueraHorario.js';
+import { tieneAutorizacionFueraHorario } from './autorizacionTurnoFueraHorario.js';
 import { tieneExtensionSesionTurno } from './extensionSesionTurno.js';
 import { usuarioEstaActivo } from './usuariosAuth.js';
 
@@ -147,10 +147,7 @@ export function empleadosQueRequierenPinPorCargo({
   return out;
 }
 
-/**
- * Valida el NIP: debe ser el del empleado. Un administrador/gerente también puede autorizar
- * (por si el nombre en el comentario es incidental o el empleado no está presente).
- */
+/** Valida el NIP: debe ser el del propio empleado (sin autorización de admin en sucursal). */
 export async function verificarPinCargoFueraTurno(supabase, pin, empleado) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const p = String(pin || '').trim();
@@ -163,9 +160,7 @@ export async function verificarPinCargoFueraTurno(supabase, pin, empleado) {
   if (error) return { ok: false, error: error.message };
   const activos = (data || []).filter((u) => usuarioEstaActivo(u));
   const propio = activos.find((u) => String(u.id) === String(empleado?.id));
-  if (propio) return { ok: true, autorizo: propio.nombre, esAdmin: false };
-  const admin = activos.find((u) => rolPuedeAutorizarFueraHorario(u.rol));
-  if (admin) return { ok: true, autorizo: admin.nombre, esAdmin: true };
+  if (propio) return { ok: true, autorizo: propio.nombre };
   return { ok: false, error: `NIP incorrecto. Fuera de turno solo se carga con el NIP de ${nombre}.` };
 }
 

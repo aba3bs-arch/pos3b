@@ -89,6 +89,5 @@ assert.equal((await verificarPinCargoFueraTurno(sb, '2222', dia)).ok, false, 'el
 assert.equal((await verificarPinCargoFueraTurno(sb, '', dia)).ok, false);
 assert.equal((await verificarPinCargoFueraTurno(sb, '0000', dia)).ok, false);
 const adm = await verificarPinCargoFueraTurno(sb, '9999', dia);
-assert.equal(adm.ok, true);
-assert.equal(adm.esAdmin, true);
+assert.equal(adm.ok, false, 'el NIP de admin no autoriza en sucursal: responde el cajero');
 console.log('cargosFueraTurno.test.mjs ok');
