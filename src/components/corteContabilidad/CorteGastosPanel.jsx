@@ -28,6 +28,11 @@ import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursal
 import { asegurarCamposSinReservadoOPin } from '../../lib/reservadoAdminPrincipal.js';
 import { esGastoSmokingAbarrotes } from '../../lib/corteContabilidad/smokingSustentoInventario.js';
 import { normalizarFolioTrp } from '../../lib/foliosInventario.js';
+import {
+  empleadosQueRequierenPinPorCargo,
+  textoAvisoFueraTurno,
+  verificarPinCargoFueraTurno,
+} from '../../lib/cargosFueraTurno.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -92,6 +97,8 @@ export default function CorteGastosPanel({
   const [folioInventarioSmoking, setFolioInventarioSmoking] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
   const [pinConsumoBenef, setPinConsumoBenef] = useState('');
+  const [pinsFueraTurno, setPinsFueraTurno] = useState({});
+  const [ahoraCargo, setAhoraCargo] = useState(() => new Date());
   const [mostrarCat, setMostrarCat] = useState(false);
   const [usuariosRaw, setUsuariosRaw] = useState([]);
   const [avisoEmp, setAvisoEmp] = useState('');
@@ -162,6 +169,16 @@ export default function CorteGastosPanel({
     ? resolverBeneficiarioConsumoPin(empSeleccionadoPreview?.nombre)
     : null;
 
+  useEffect(() => {
+    const id = setInterval(() => setAhoraCargo(new Date()), 30 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const empleadosParaMencion = useMemo(
+    () => (empleadosEfectivos || []).filter((e) => !esEmpleadoConsumoPinCorte(e)),
+    [empleadosEfectivos],
+  );
+
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);
     const lista = res.data?.length ? res.data : [];
@@ -187,6 +204,19 @@ export default function CorteGastosPanel({
   const rutaGasto = esCatEmpleado
     ? [cat || null, empSeleccionado?.nombre || 'Empleado', sub || null].filter(Boolean).join(' · ')
     : [cat || null, sub || null].filter(Boolean).join(' · ');
+
+  const requierenPinFueraTurno = useMemo(
+    () => empleadosQueRequierenPinPorCargo({
+      seleccionado: requiereEmpleado && empSeleccionado && !esEmpleadoConsumoPinCorte(empSeleccionado)
+        ? empSeleccionado
+        : null,
+      textos: [cat, sub, comentario],
+      empleados: empleadosParaMencion,
+      sucursal,
+      date: ahoraCargo,
+    }),
+    [requiereEmpleado, empSeleccionado, cat, sub, comentario, empleadosParaMencion, sucursal, ahoraCargo],
+  );
 
   const esGastoTraspaso =
     String(modulo || '').toLowerCase() === 'abarrotes' && esGastoTraspasoTxt(`${cat} ${sub} ${comentario}`);
@@ -291,6 +321,27 @@ export default function CorteGastosPanel({
         );
       }
     }
+    // Fuera de turno (+45 min): solo con el NIP del empleado que se carga o se menciona.
+    const fueraTurno = empleadosQueRequierenPinPorCargo({
+      seleccionado: requiereEmpleado && emp && !esEmpleadoConsumoPinCorte(emp) ? emp : null,
+      textos: [cat, sub, comentarioTrim],
+      empleados: empleadosParaMencion,
+      sucursal,
+      date: new Date(),
+    });
+    const autorizaciones = [];
+    for (const { empleado: eft } of fueraTurno) {
+      const pinFt = String(pinsFueraTurno[String(eft.id)] || '').trim();
+      if (!pinFt) {
+        return alert(`Fuera de turno: ${textoAvisoFueraTurno(eft)} Ingresa el NIP de ${eft.nombre} para cargar este movimiento.`);
+      }
+      const pinRes = await verificarPinCargoFueraTurno(supabase, pinFt, eft);
+      if (!pinRes.ok) return alert(pinRes.error);
+      autorizaciones.push(pinRes.esAdmin ? `${eft.nombre} (autorizó ${pinRes.autorizo})` : eft.nombre);
+    }
+    const sufijoAutorizacion = autorizaciones.length
+      ? `NIP FUERA DE TURNO: ${autorizaciones.join(', ')}`
+      : '';
     const authTxt = await asegurarCamposSinReservadoOPin(
       supabase,
       [cat, sub, comentario, folioTraspaso, folioInventarioSmoking],
@@ -307,7 +358,7 @@ export default function CorteGastosPanel({
         categoria: cat.trim().toUpperCase(),
         subcategoria: sub.trim().toUpperCase(),
         monto: m,
-        comentario: comentarioTrim.toUpperCase(),
+        comentario: [comentarioTrim, sufijoAutorizacion].filter(Boolean).join(' · ').toUpperCase(),
         usuario_id: requiereEmpleado && !esPlaceholder ? uid : null,
         usuario_nombre: usuarioNombreFinal || emp?.nombre || '',
         descontado_nomina: false,
@@ -328,6 +379,7 @@ export default function CorteGastosPanel({
     setFolioTraspaso('');
     setFolioInventarioSmoking('');
     setPinConsumoBenef('');
+    setPinsFueraTurno({});
     if (!requiereEmpleado) setUsuarioId('');
   };
 
@@ -625,6 +677,28 @@ export default function CorteGastosPanel({
               />
             </div>
           )}
+          {requierenPinFueraTurno.map(({ empleado: eft, motivo }) => (
+            <div
+              key={`ft-${eft.id}`}
+              style={{ marginBottom: '0.55rem', padding: '0.55rem 0.65rem', borderRadius: 8, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.35)' }}
+            >
+              <label className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>
+                NIP de {eft.nombre}
+              </label>
+              <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
+                {textoAvisoFueraTurno(eft, motivo)} Fuera de su turno el gasto, faltante o consumo solo se carga con su NIP.
+              </p>
+              <InputPin
+                value={pinsFueraTurno[String(eft.id)] || ''}
+                onChange={(e) => setPinsFueraTurno((prev) => ({ ...prev, [String(eft.id)]: e.target.value }))}
+                placeholder={`NIP de ${eft.nombre}`}
+                allowReveal={false}
+                autoComplete="off"
+                name={`corte-nip-fuera-turno-${eft.id}`}
+                style={{ maxWidth: 280, marginBottom: 0 }}
+              />
+            </div>
+          ))}
           {rutaGasto ? (
             <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.45rem', fontWeight: 600 }}>
               {rutaGasto}
