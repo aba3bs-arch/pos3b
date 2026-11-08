@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { consultarVentas } from '../lib/ventasQuery.js';
+import { consultarVentasPaginadas } from '../lib/ventasQuery.js';
 import { imprimirPedidoCompra, imprimirRecepcionCompra } from '../lib/impresion.js';
 import {
   costoEstimadoProducto,
@@ -41,6 +41,19 @@ import {
   excluirArchivados,
 } from '../lib/archivo.js';
 import { normalizarRol } from '../lib/roles.js';
+import { diaSemanaDesdeFecha, listarEntregasProveedores } from '../lib/proveedorEntregas.js';
+import {
+  ORDENES_COMPRA,
+  UMBRAL_ALTA_FRECUENCIA,
+  descripcionFrecuencia,
+  diasParaPromedio,
+  etiquetaDiaSemana,
+  frecuenciaVentas,
+  horizonteDesdeCalendario,
+  ordenarLineasCompra,
+  recomendarPedido,
+  textoRecomendacion,
+} from '../lib/comprasRecomendacion.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_COMPRAS } from '../content/tutorialCompras.js';
 
@@ -104,6 +117,45 @@ function alertSqlCompras(error) {
   return false;
 }
 
+function CeldaRecomendacion({ rec, cargando, onUsar }) {
+  const base = {
+    background: '#fffbeb',
+    borderLeft: '2px solid #f59e0b',
+    borderRight: '2px solid #f59e0b',
+    textAlign: 'center',
+    whiteSpace: 'nowrap',
+  };
+  if (cargando || !rec) {
+    return <td style={{ ...base, color: 'var(--muted)' }}>…</td>;
+  }
+  const { principal, detalle } = textoRecomendacion(rec);
+  const pedir = rec.accion === 'pedir';
+  return (
+    <td style={base}>
+      <button
+        type="button"
+        onClick={() => onUsar(rec.pedir)}
+        title={
+          `Necesario ${rec.necesario} pz${rec.sinVentas ? '' : ' según la venta diaria'} · clic para poner ${rec.pedir} en Pedido`
+        }
+        style={{
+          border: 'none',
+          cursor: 'pointer',
+          borderRadius: '999px',
+          padding: '0.2rem 0.65rem',
+          fontWeight: 800,
+          fontSize: '0.8rem',
+          background: pedir ? '#16a34a' : '#e5e7eb',
+          color: pedir ? '#fff' : '#374151',
+        }}
+      >
+        {principal}
+      </button>
+      {detalle ? <div style={{ fontSize: '0.7rem', color: '#78716c', marginTop: '0.15rem' }}>{detalle}</div> : null}
+    </td>
+  );
+}
+
 export default function Compras({
   supabase,
   sucursal,
@@ -142,6 +194,12 @@ export default function Compras({
   const [codigoRecepcion, setCodigoRecepcion] = useState('');
   const [ventasPorProducto, setVentasPorProducto] = useState({});
   const [ventasPorDia, setVentasPorDia] = useState({});
+  const [ventasListas, setVentasListas] = useState(false);
+  const [entregasProv, setEntregasProv] = useState([]);
+  const [diasCubrirManual, setDiasCubrirManual] = useState('');
+  const [colchonDias, setColchonDias] = useState(0);
+  const [soloRecomendados, setSoloRecomendados] = useState(false);
+  const [ordenTabla, setOrdenTabla] = useState('frecuencia');
   const [presetVentasCompras, setPresetVentasCompras] = useState('14d');
   const [ventasDesde, setVentasDesde] = useState('');
   const [ventasHasta, setVentasHasta] = useState('');
@@ -485,15 +543,29 @@ export default function Compras({
     (async () => {
       if (!supabase || !herramientaAbierta) return;
       const { desde, hasta } = rangoVentasCompras;
-      const { data } = await consultarVentas(supabase, { desde, hasta, sucursal, limit: 800 });
+      setVentasListas(false);
+      const { data, error } = await consultarVentasPaginadas(supabase, { desde, hasta, sucursal });
       if (cancelled) return;
       setVentasPorProducto(ventasPorProductoDesdeVentas(data));
       setVentasPorDia(ventasPorProductoPorDia(data));
+      setVentasListas(!error);
     })();
     return () => {
       cancelled = true;
     };
   }, [supabase, sucursal, herramientaAbierta, rangoVentasCompras]);
+
+  useEffect(() => {
+    if (!supabase || !herramientaAbierta) return undefined;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await listarEntregasProveedores(supabase);
+      if (!cancelled) setEntregasProv(data || []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, herramientaAbierta]);
 
   useEffect(() => {
     let cancelled = false;
@@ -602,12 +674,89 @@ export default function Compras({
     setLineas(rows);
   }, [herramientaAbierta, construirLineas, modoRecepcion, compraActiva, precargarRecepcionPedido]);
 
+  const mostrarRecomendacion = herramientaAbierta && !modoRecepcion && !modoEntregaDirecta;
+
+  const diasVisitaProveedor = useMemo(() => {
+    const suc = normalizarCodigoTienda(sucursal);
+    return (entregasProv || [])
+      .filter((e) => String(e.proveedor_id) === String(proveedorId) && normalizarCodigoTienda(e.sucursal_id) === suc)
+      .map((e) => Number(e.dia_semana));
+  }, [entregasProv, proveedorId, sucursal]);
+
+  const horizonteCompra = useMemo(
+    () => horizonteDesdeCalendario(diasVisitaProveedor, diaSemanaDesdeFecha(new Date())),
+    [diasVisitaProveedor, herramientaAbierta],
+  );
+  const diasACubrir = Number(diasCubrirManual) > 0 ? Math.floor(Number(diasCubrirManual)) : horizonteCompra.diasACubrir;
+
+  const diasPromedioVentas = useMemo(
+    () => diasParaPromedio(toYmd(rangoVentasCompras.desde), toYmd(rangoVentasCompras.hasta), toYmd(new Date())),
+    [rangoVentasCompras],
+  );
+
+  const metricasVentas = useMemo(() => {
+    if (!herramientaAbierta || !ventasListas) return {};
+    const out = {};
+    for (const l of lineas) out[l.id] = frecuenciaVentas(ventasPorDia[l.id], diasPromedioVentas);
+    return out;
+  }, [herramientaAbierta, ventasListas, lineas, ventasPorDia, diasPromedioVentas]);
+
+  const recomendaciones = useMemo(() => {
+    if (!mostrarRecomendacion || !ventasListas) return {};
+    const out = {};
+    for (const l of lineas) {
+      out[l.id] = recomendarPedido({
+        stock: l.teorico,
+        ventaDiaria: metricasVentas[l.id]?.ventaDiaria || 0,
+        diasACubrir,
+        colchonDias,
+        sugerido: l.sugerido,
+      });
+    }
+    return out;
+  }, [mostrarRecomendacion, ventasListas, lineas, metricasVentas, diasACubrir, colchonDias]);
+
+  const resumenRecomendacion = useMemo(() => {
+    let productosPedir = 0;
+    let piezasRec = 0;
+    let piezasSug = 0;
+    for (const l of lineas) {
+      const r = recomendaciones[l.id];
+      if (!r) continue;
+      piezasRec += r.pedir;
+      piezasSug += Number(l.sugerido) || 0;
+      if (r.pedir > 0) productosPedir += 1;
+    }
+    return { productosPedir, piezasRec, piezasSug, evitadas: Math.max(0, piezasSug - piezasRec) };
+  }, [lineas, recomendaciones]);
+
+  const aplicarRecomendaciones = () => {
+    if (!Object.keys(recomendaciones).length) return;
+    const hayCapturado = lineas.some((l) => Number(l.qty_pedido) > 0);
+    if (hayCapturado && !confirm('Esto reemplaza las cantidades de la columna Pedido por las recomendadas. ¿Continuar?')) return;
+    setLineas((rows) =>
+      rows.map((l) => (recomendaciones[l.id] ? { ...l, qty_pedido: recomendaciones[l.id].pedir } : l)),
+    );
+  };
+
   const lineasVisibles = useMemo(() => {
-    if (verTodoInventario) return lineas;
-    if (modoEntregaDirecta) return lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
-    if (modoRecepcion) return lineas.filter((l) => Number(l.qty_pedido) > 0 || Number(l.qty_recibido) > 0);
-    return lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
-  }, [lineas, verTodoInventario, modoRecepcion, modoEntregaDirecta]);
+    let filtradas;
+    if (verTodoInventario) filtradas = lineas;
+    else if (modoEntregaDirecta) filtradas = lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
+    else if (modoRecepcion) filtradas = lineas.filter((l) => Number(l.qty_pedido) > 0 || Number(l.qty_recibido) > 0);
+    else if (mostrarRecomendacion && soloRecomendados) {
+      filtradas = lineas.filter((l) => (recomendaciones[l.id]?.pedir || 0) > 0 || Number(l.qty_pedido) > 0);
+    } else {
+      filtradas = lineas.filter(
+        (l) => l.sugerido > 0 || Number(l.qty_pedido) > 0 || (recomendaciones[l.id]?.pedir || 0) > 0,
+      );
+    }
+    if (!ventasListas) return filtradas;
+    return ordenarLineasCompra(filtradas, { modo: ordenTabla, metricas: metricasVentas, recomendaciones });
+  }, [
+    lineas, verTodoInventario, modoRecepcion, modoEntregaDirecta, mostrarRecomendacion, soloRecomendados,
+    recomendaciones, ventasListas, ordenTabla, metricasVentas,
+  ]);
 
   const pedidosDelProveedor = useMemo(
     () => pedidosPendientes.filter((p) => String(p.proveedor_id || '') === String(proveedorId || '')),
@@ -1163,10 +1312,108 @@ export default function Compras({
                   <span className="muted" style={{ fontSize: '0.8rem' }}>Sin vínculos — ve a Proveedores</span>
                 )}
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  Orden
+                  <select
+                    className="select"
+                    style={{ padding: '0.3rem 0.4rem' }}
+                    value={ordenTabla}
+                    onChange={(e) => setOrdenTabla(e.target.value)}
+                  >
+                    {ORDENES_COMPRA.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="muted" style={{ fontSize: '0.78rem' }}>
+                  <span style={{ color: '#d97706', fontWeight: 800 }}>★</span> alta frecuencia: vende en al menos{' '}
+                  {Math.round(UMBRAL_ALTA_FRECUENCIA * 100)}% de los días del periodo
+                </span>
+                <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
                   Umbral
                   <input type="number" min={1} className="input" style={{ width: '64px', padding: '0.35rem' }} value={umbralCatalogo} onChange={(e) => setUmbralCatalogo(parseInt(e.target.value, 10) || 8)} />
                 </label>
               </div>
+
+              {mostrarRecomendacion && (
+                <div
+                  style={{
+                    marginBottom: '0.75rem',
+                    padding: '0.65rem 0.8rem',
+                    borderRadius: '10px',
+                    background: '#fffbeb',
+                    border: '1.5px solid #f59e0b',
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: '#92400e', marginBottom: '0.3rem' }}>Recomendación de pedido</div>
+                  <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
+                    {horizonteCompra.proximaVisita ? (
+                      <>
+                        Próxima visita de <strong>{proveedorNombre || 'el proveedor'}</strong>:{' '}
+                        <strong>{etiquetaDiaSemana(horizonteCompra.proximaVisita.diaSemana, true)}</strong> (en{' '}
+                        {horizonteCompra.proximaVisita.dias} {horizonteCompra.proximaVisita.dias === 1 ? 'día' : 'días'}).
+                      </>
+                    ) : (
+                      <>
+                        Sin calendario de visitas para este proveedor en esta sucursal (Proveedores → matriz de entregas):
+                        se cubren {horizonteCompra.diasACubrir} días por defecto.
+                      </>
+                    )}{' '}
+                    Se calcula con la venta diaria promedio del periodo (sin contar hoy) y el inventario teórico:
+                    {' '}<strong>pedir = venta diaria × días a cubrir − teórico</strong>.
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+                    <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      Días a cubrir
+                      <input
+                        type="number"
+                        min={1}
+                        className="input"
+                        style={{ width: '64px', padding: '0.35rem' }}
+                        value={diasCubrirManual}
+                        placeholder={String(horizonteCompra.diasACubrir)}
+                        onChange={(e) => setDiasCubrirManual(e.target.value)}
+                        title="Vacío = calculado con el calendario de visitas"
+                      />
+                    </label>
+                    <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      Colchón (días)
+                      <input
+                        type="number"
+                        min={0}
+                        className="input"
+                        style={{ width: '64px', padding: '0.35rem' }}
+                        value={colchonDias}
+                        onChange={(e) => setColchonDias(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                      />
+                    </label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }} className="muted">
+                      <input type="checkbox" checked={soloRecomendados} onChange={(e) => setSoloRecomendados(e.target.checked)} />
+                      Ocultar los «No pedir»
+                    </label>
+                    <button type="button" className="btn btn-gold" disabled={!ventasListas} onClick={aplicarRecomendaciones}>
+                      Aplicar recomendación al Pedido
+                    </button>
+                  </div>
+                  <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+                    {ventasListas ? (
+                      <>
+                        Cubriendo <strong>{diasACubrir + colchonDias} día(s)</strong>: pedir{' '}
+                        <strong>{resumenRecomendacion.piezasRec} pieza(s)</strong> en{' '}
+                        <strong>{resumenRecomendacion.productosPedir} producto(s)</strong>; el Sugerido sumaba{' '}
+                        {resumenRecomendacion.piezasSug}
+                        {resumenRecomendacion.evitadas > 0 ? (
+                          <> → <strong style={{ color: '#15803d' }}>{resumenRecomendacion.evitadas} pieza(s) de compra innecesaria evitadas</strong></>
+                        ) : null}
+                        .
+                      </>
+                    ) : (
+                      <span className="muted">Calculando ventas del periodo…</span>
+                    )}
+                  </p>
+                </div>
+              )}
 
               {(modoRecepcion || modoEntregaDirecta) && (
                 <div style={{ marginBottom: '0.75rem' }}>
@@ -1194,6 +1441,20 @@ export default function Compras({
                       <th>Precio</th>
                       <th>Teórico</th>
                       <th>Sugerido</th>
+                      {mostrarRecomendacion && (
+                        <th
+                          style={{
+                            background: '#fef3c7',
+                            borderLeft: '2px solid #f59e0b',
+                            borderRight: '2px solid #f59e0b',
+                            color: '#92400e',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title="Cuánto pedir realmente: venta diaria × días a cubrir − inventario teórico"
+                        >
+                          Recomendación
+                        </th>
+                      )}
                       {verDetalleVentas &&
                         diasDetalle.map((d) => (
                           <th key={d} title={d} style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
@@ -1208,7 +1469,7 @@ export default function Compras({
                   <tbody>
                     {lineasVisibles.length === 0 ? (
                       <tr>
-                        <td colSpan={7 + (verDetalleVentas ? diasDetalle.length : 0) + (modoEntregaDirecta ? 0 : 1)} className="muted">
+                        <td colSpan={7 + (verDetalleVentas ? diasDetalle.length : 0) + (modoEntregaDirecta ? 0 : 1) + (mostrarRecomendacion ? 1 : 0)} className="muted">
                           Sin productos. Regístralos desde Proveedores → catálogo, o activa “Ver todo el catálogo”.
                         </td>
                       </tr>
@@ -1216,10 +1477,27 @@ export default function Compras({
                       lineasVisibles.map((l, idx) => (
                         <tr key={l.id}>
                           <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{l.id}</td>
-                          <td>{l.nombre}</td>
+                          <td>
+                            {metricasVentas[l.id]?.altaFrecuencia ? (
+                              <span
+                                title={`Alta frecuencia · ${descripcionFrecuencia(metricasVentas[l.id])}`}
+                                style={{ color: '#d97706', fontWeight: 800, marginRight: '0.3rem', cursor: 'help' }}
+                              >
+                                ★
+                              </span>
+                            ) : null}
+                            {l.nombre}
+                          </td>
                           <td>${Number(l.precio).toFixed(2)}</td>
                           <td>{l.teorico}</td>
                           <td style={{ fontWeight: 700, color: l.sugerido > 0 ? 'var(--brand-blue)' : 'var(--muted)' }}>{l.sugerido}</td>
+                          {mostrarRecomendacion && (
+                            <CeldaRecomendacion
+                              rec={recomendaciones[l.id]}
+                              cargando={!ventasListas}
+                              onUsar={(n) => setLinea(l.id, { qty_pedido: n })}
+                            />
+                          )}
                           {verDetalleVentas &&
                             diasDetalle.map((d) => (
                               <td key={d} style={{ textAlign: 'center', fontSize: '0.8rem' }}>
