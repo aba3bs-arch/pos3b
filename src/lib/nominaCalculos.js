@@ -292,7 +292,10 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     const merged = { ...nueva };
 
     if (ant.pagador_manual) merged.pagador_nomina = ant.pagador_nomina;
-    if (ant.pago_virtual != null && ant.pago_virtual !== '') merged.pago_virtual = ant.pago_virtual;
+    // Un $0 capturado antes no debe pisar la tarifa recuperada al recargar (localStorage/nóminas anteriores).
+    if (ant.pago_virtual != null && ant.pago_virtual !== '' && (Number(ant.pago_virtual) > 0 || !(Number(nueva.pago_virtual) > 0))) {
+      merged.pago_virtual = ant.pago_virtual;
+    }
     if (ant.dias_manual) {
       if (debeConservarDiasManual(ant, nueva)) {
         // Medio día u ajuste fino sobre la misma lectura del checador.

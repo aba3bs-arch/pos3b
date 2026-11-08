@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { numCuotasPorDefecto, primerCobroPorDefecto, textoCuotaPrestamo } from '../lib/prestamoCuotas.js';
 import {
   AVISO_FALTA_CONTABILIDAD,
   aprobarPrestamoAdmin,
@@ -260,6 +261,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     notas: '',
     fecha: hoyISO(),
     areaCorte: 'virtual',
+    numCuotas: '',
+    primerCobro: '',
   });
   const [editPrestamo, setEditPrestamo] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -267,6 +270,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     cuota_semanal: '',
     notas: '',
     monto_original: '',
+    num_cuotas: '',
+    primer_cobro: '',
   });
   const [categoriasTick, setCategoriasTick] = useState(0);
   const [nuevoTipoVale, setNuevoTipoVale] = useState({ label: '', descuentaNomina: false });
@@ -782,6 +787,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         nombre_empleado: emp.nombre,
         monto_original: monto,
         fecha: prestEmpForm.fecha || hoyISO(),
+        num_cuotas: Number(prestEmpForm.numCuotas) > 0 ? Number(prestEmpForm.numCuotas) : numCuotasPorDefecto(monto),
+        primer_cobro: prestEmpForm.primerCobro || primerCobroPorDefecto(prestEmpForm.fecha || hoyISO()),
         notas: prestEmpForm.notas.trim() || null,
         created_by: user?.nombre || null,
         area_corte: omitirCorte ? null : prestEmpForm.areaCorte,
@@ -805,6 +812,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       notas: '',
       fecha: hoyISO(),
       areaCorte: prestEmpForm.areaCorte,
+      numCuotas: '',
+      primerCobro: '',
     });
     recargarTodo();
   };
@@ -1176,6 +1185,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       cuota_semanal: p.cuota_semanal != null ? String(p.cuota_semanal) : '',
       notas: p.notas || '',
       monto_original: String(p.monto_original ?? ''),
+      num_cuotas: p.num_cuotas != null ? String(p.num_cuotas) : '',
+      primer_cobro: p.primer_cobro ? String(p.primer_cobro).slice(0, 10) : '',
     });
   };
 
@@ -1212,6 +1223,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         cuota_semanal: editForm.cuota_semanal,
         notas: editForm.notas,
         monto_original: editForm.monto_original,
+        ...(editForm.num_cuotas !== '' && editForm.primer_cobro
+          ? { num_cuotas: editForm.num_cuotas, primer_cobro: editForm.primer_cobro }
+          : {}),
       },
       { nombre: user?.nombre },
     );
@@ -3251,8 +3265,34 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   Sin cargo a corte · solo nómina
                 </div>
               )}
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                Número de cuotas (semanas)
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={prestEmpForm.numCuotas !== '' ? prestEmpForm.numCuotas : numCuotasPorDefecto(prestEmpForm.monto)}
+                  onChange={(e) => setPrestEmpForm({ ...prestEmpForm, numCuotas: e.target.value })}
+                  title="Por defecto: monto ÷ $500, redondeado hacia arriba"
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                Primer cobro (nómina)
+                <input
+                  className="input"
+                  type="date"
+                  value={prestEmpForm.primerCobro || primerCobroPorDefecto(prestEmpForm.fecha || hoyISO())}
+                  onChange={(e) => setPrestEmpForm({ ...prestEmpForm, primerCobro: e.target.value })}
+                  title="Por defecto: la nómina de la semana siguiente"
+                />
+              </label>
               <input className="input" placeholder="Notas" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
             </div>
+            <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>
+              Se descuenta en nómina desde el primer cobro, una cuota por semana, y se detiene después de la última cuota
+              (la última liquida el saldo). Puedes cambiar las cuotas y la fecha.
+            </p>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
               {prestamoSelOmiteCorte
                 ? 'Registrar préstamo MAIN (solo nómina)'
@@ -3318,10 +3358,37 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                  Número de cuotas (semanas)
+                  <input
+                    className="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={editForm.num_cuotas}
+                    placeholder={String(numCuotasPorDefecto(editForm.monto_original))}
+                    onChange={(e) => setEditForm({ ...editForm, num_cuotas: e.target.value })}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                  Primer cobro (nómina)
+                  <input
+                    className="input"
+                    type="date"
+                    value={editForm.primer_cobro}
+                    onChange={(e) => setEditForm({ ...editForm, primer_cobro: e.target.value })}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
                   Notas
                   <input className="input" value={editForm.notas} onChange={(e) => setEditForm({ ...editForm, notas: e.target.value })} />
                 </label>
               </div>
+              {!(Number(editForm.num_cuotas) > 0 && editForm.primer_cobro) && (
+                <p className="muted" style={{ fontSize: '0.8rem', margin: '0.4rem 0 0' }}>
+                  Este préstamo no tiene calendario: se cobra {fmt(CUOTA_SEMANAL_MINIMA)} por semana hasta liquidar.
+                  Llena el número de cuotas y la fecha del primer cobro para que la nómina se detenga después de la última cuota.
+                </p>
+              )}
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
                 <button type="button" className="btn btn-primary" onClick={guardarEdicionPrestamo}>Guardar cambios</button>
                 <button type="button" className="btn btn-ghost" onClick={() => setEditPrestamo(null)}>Cancelar</button>
@@ -3388,7 +3455,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td>{fmt(p.monto_original)}</td>
                           <td className="muted">{fmt(p.abono)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
-                          <td title="Descuento automático en nómina: $500/sem o remanente">{fmt(CUOTA_SEMANAL_MINIMA)}</td>
+                          <td title="Descuento automático en nómina: $500/sem o remanente">
+                            {fmt(CUOTA_SEMANAL_MINIMA)}
+                            {textoCuotaPrestamo(p) && (
+                              <div className="muted" style={{ fontSize: '0.7rem' }}>{textoCuotaPrestamo(p)}</div>
+                            )}
+                          </td>
                           <td className="muted">
                             {prestamoOmiteCorte(p)
                               ? 'Solo nómina'

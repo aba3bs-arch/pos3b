@@ -186,7 +186,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       const usuariosTodos = empleadosRes.data || [];
       const lista = empleadosParaNominaGlobal(aplicarIncluidosManuales(usuariosTodos, incluidosExtra), { bajasEnPeriodo });
       setCandidatosNomina(candidatosAgregarNomina(usuariosTodos, lista));
-      const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes } = await cargarDatosNomina(supabase, {
+      const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes, tarifasVirtualMap } = await cargarDatosNomina(supabase, {
         desde: inicio,
         hasta: fin,
         empleados: lista,
@@ -218,6 +218,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         inventarioRegistros: inventarioRes?.registros || [],
         periodoDesde: inicio,
         periodoHasta: fin,
+        tarifasVirtualMap,
       }).filter((l) => !excluidosIds.has(String(l.usuario_id)));
 
       setLineas((prev) => {
@@ -396,6 +397,17 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (!supabase) return alert('Sin conexión a Supabase.');
     if (!inicio || !fin) return alert('Indica inicio y fin del periodo.');
     if (lineas.length === 0) return alert('No hay empleados para la nómina.');
+    const mixtosSinTarifa = lineas.filter((l) => esPagoMixto(l) && !(Number(l.pago_virtual) > 0));
+    if (
+      mixtosSinTarifa.length
+      && !confirm(
+        `Pago mixto sin «Virtual $/día»: ${mixtosSinTarifa.map((l) => l.nombre).join(', ')}.\n\n`
+          + 'Si cierras así, todo su pago se registra en Abarrotes y nada en Virtual.\n'
+          + '¿Cerrar de todos modos?',
+      )
+    ) {
+      return;
+    }
     if (
       !confirm(
         `¿Cerrar nómina del ${inicio} al ${fin}?\n\n`
@@ -689,6 +701,11 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
                   × {l.dias_trabajados || 0} días = {fmtPago(partes.virtual)}
                 </span>
+                {!(Number(l.pago_virtual) > 0) && (
+                  <span style={{ fontSize: '0.64rem', display: 'block', color: '#b45309', fontWeight: 600 }}>
+                    Falta Virtual $/día: todo se paga por Abarrotes
+                  </span>
+                )}
                 <span className="muted" style={{ fontSize: '0.64rem', display: 'block' }}>
                   Se suma al sueldo. Pago {fmtPago(partes.total)}
                 </span>

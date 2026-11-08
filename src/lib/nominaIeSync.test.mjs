@@ -148,3 +148,34 @@ console.log('nominaIeSync.test.mjs OK');
   assert.ok(borrados.includes('L1') && borrados.includes('L1:virtual'));
 }
 console.log('nominaIeSync mixto: ok');
+
+// Pago mixto ya reportado en corte: solo se omite la cuenta reportada; la otra parte sí va a IE.
+{
+  const { cuentasLineaEnCorte, sincronizarEgresosPayrollNomina, partesPayrollPendientes } = await import('./nominaIeSync.js');
+  const enCorte = {
+    porId: new Set(['u1']),
+    porNombre: new Set(['amr']),
+    gastos: [{ usuario_id: 'u1', usuario_nombre: 'AMR', modulo: 'abarrotes' }],
+  };
+  assert.deepEqual([...cuentasLineaEnCorte({ usuario_id: 'u1', nombre: 'X' }, enCorte)], ['abarrotes']);
+  assert.deepEqual([...cuentasLineaEnCorte({ usuario_id: 'u9', nombre: 'Ana' }, enCorte)], []);
+  assert.equal(typeof sincronizarEgresosPayrollNomina, 'function');
+
+  const mixto = { usuario_id: 'u1', nombre: 'AMR', pagador_nomina: 'ambos', pago_virtual: 100, dias_trabajados: 5 };
+  // Ya reportó en Abarrotes: falta el Virtual (5 × 100 = 500).
+  assert.deepEqual(
+    partesPayrollPendientes(mixto, 3000, enCorte).map((x) => [x.cuenta, x.monto]),
+    [['virtual', 500]],
+  );
+  // Sin reporte en corte: ambas partes.
+  assert.deepEqual(
+    partesPayrollPendientes({ ...mixto, usuario_id: 'u9', nombre: 'Luz' }, 3000, enCorte).map((x) => [x.cuenta, x.monto]),
+    [['virtual', 500], ['abarrotes', 2500]],
+  );
+  // Reportó en ambas cuentas: nada pendiente.
+  const enAmbas = { ...enCorte, gastos: [...enCorte.gastos, { usuario_id: 'u1', modulo: 'virtual' }] };
+  assert.deepEqual(partesPayrollPendientes(mixto, 3000, enAmbas), []);
+  // Línea no mixta ya en corte: se omite completa.
+  assert.deepEqual(partesPayrollPendientes({ usuario_id: 'u1', nombre: 'AMR', pagador_nomina: 'abarrotes' }, 800, enCorte), []);
+}
+console.log('nominaIeSync.test.mjs mixto OK');

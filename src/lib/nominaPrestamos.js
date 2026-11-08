@@ -2,6 +2,7 @@ import { round2 } from './nominaGastos.js';
 import { indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { abonarPrestamo } from './valesPrestamos.js';
 import { CUOTA_SEMANAL_MINIMA, cuotaSemanalPrestamo } from './contabilidadConstants.js';
+import { cronogramaPrestamo, cuotaEnPeriodo } from './prestamoCuotas.js';
 
 /**
  * Estados que generan cuota en nómina:
@@ -22,7 +23,7 @@ export function prestamoDeducibleEnNomina(p) {
  * — $500 semanales mientras el saldo sea ≥ 500
  * — el remanente en la última semana hasta liquidar
  */
-export function cuotaDeducibleNomina(p) {
+export function cuotaDeducibleNomina(p, periodo = null) {
   const saldo = Number(p?.saldo) || 0;
   if (saldo <= 0) return 0;
   // Sin estado (tests / saldo suelto): calcular por saldo.
@@ -30,7 +31,10 @@ export function cuotaDeducibleNomina(p) {
   if (p?.estado != null && p.estado !== '' && !ESTADOS_PRESTAMO_DEDUCIBLE_NOMINA.includes(String(p.estado))) {
     return 0;
   }
-  // Ignora cuotas custom > 500: el descuento automático es fijo $500/sem.
+  // Con calendario (cuotas + primer cobro): solo se cobra en las semanas que le tocan,
+  // y después de la última cuota ya no se descuenta.
+  if (periodo?.inicio && cronogramaPrestamo(p)) return cuotaEnPeriodo(p, periodo).monto;
+  // Sin calendario (préstamo anterior): $500 fijos por semana hasta liquidar.
   return cuotaSemanalPrestamo(saldo, CUOTA_SEMANAL_MINIMA);
 }
 
@@ -40,7 +44,8 @@ function cuotaDeducible(p) {
 }
 
 /** Préstamos con saldo por empleado — cuota semanal fija $500 (o remanente). */
-export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados = [], todasSucursales = true }) {
+export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados = [], todasSucursales = true, desde = null, hasta = null }) {
+  const periodo = desde ? { inicio: desde, fin: hasta } : null;
   if (!supabase) return { map: {}, error: null, avisos: [] };
   const indice = indiceEmpleados(empleados);
 
@@ -65,8 +70,16 @@ export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, emplea
 
   for (const p of data || []) {
     if (!prestamoDeducibleEnNomina(p)) continue;
-    const ded = cuotaDeducibleNomina(p);
-    if (ded <= 0) continue;
+    const ded = cuotaDeducibleNomina(p, periodo);
+    if (ded <= 0) {
+      const cr = periodo && cronogramaPrestamo(p) ? cuotaEnPeriodo(p, periodo) : null;
+      if (cr?.estado === 'terminado' && (Number(p.saldo) || 0) > 0) {
+        avisos.push(
+          `${p.nombre_empleado || 'Empleado'}: ya pasaron sus ${cr.total} cuota(s) y aún debe $${Number(p.saldo).toFixed(2)}; no se descuenta más (revisar en Préstamos).`,
+        );
+      }
+      continue;
+    }
     const clave = resolverClaveEmpleado(p, indice);
     if (!clave) {
       sinMatch.push(p.nombre_empleado || p.id);
@@ -74,10 +87,13 @@ export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, emplea
     }
     if (!map[clave]) map[clave] = { total: 0, detalle: [], porSucursal: {} };
     map[clave].total = round2(map[clave].total + ded);
+    const cuotaInfo = periodo && cronogramaPrestamo(p) ? cuotaEnPeriodo(p, periodo) : null;
     map[clave].detalle.push({
       ...p,
       cuota_esta_semana: ded,
       cuota_semanal: CUOTA_SEMANAL_MINIMA,
+      cuota_numero: cuotaInfo?.numero ?? null,
+      cuotas_total: cuotaInfo?.total ?? null,
     });
     const suc = p.sucursal_id || 'MAIN';
     map[clave].porSucursal[suc] = round2((map[clave].porSucursal[suc] || 0) + ded);
@@ -98,7 +114,7 @@ export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, emplea
 }
 
 /** Aplica abonos semanales de nómina a préstamos deducibles del empleado. */
-export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, empleados = [], todasSucursales = true }) {
+export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, empleados = [], todasSucursales = true, periodo = null }) {
   if (!supabase) return { ok: true };
   const indice = indiceEmpleados(empleados);
 
@@ -125,7 +141,7 @@ export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, emple
       const saldo = Number(p.saldo) || 0;
       if (saldo <= 0) continue;
       // Por préstamo: máx. $500 esta semana (o el saldo si es menor).
-      const topeSemana = cuotaDeducibleNomina(p);
+      const topeSemana = cuotaDeducibleNomina(p, periodo);
       const abono = Math.min(restante, saldo, topeSemana);
       if (!(abono > 0)) continue;
       const res = await abonarPrestamo(supabase, p, abono);
