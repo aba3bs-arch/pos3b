@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import VisorTutorialModal from './VisorTutorialModal.jsx';
+import { TUTORIAL_INGRESOS_RUTA } from '../content/tutorialIngresosRuta.js';
 import {
   cargarAnalisisIngresosRuta,
   armarAnalisisIngresosRuta,
@@ -70,6 +72,7 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
   const [verTodos, setVerTodos] = useState(false);
   const [camionAbierto, setCamionAbierto] = useState(null);
   const [recolectorAbierto, setRecolectorAbierto] = useState(null);
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
 
   useEffect(() => {
     let ok = true;
@@ -104,9 +107,19 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
 
   return (
     <div className="card" style={{ marginBottom: '1rem' }}>
-      <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-        Venta en ruta · ingresos, créditos pendientes, entrega y camión
-      </h4>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+          Venta en ruta · ingresos, créditos pendientes, entrega y camión
+        </h4>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ fontSize: '0.8rem', padding: '0.25rem 0.6rem' }}
+          onClick={() => setTutorialAbierto(true)}
+        >
+          Tutorial con la banda de la ruta
+        </button>
+      </div>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
         Ingresos del periodo (contado + crédito cobrado) y lo que queda por cobrar, la cartera de créditos pendientes
         (todas las fechas), si cada recolector entrega el dinero completo y qué hay hoy en cada camión.
@@ -375,6 +388,12 @@ export default function EstadisticasIngresosRuta({ supabase, desde, hasta, sucur
           </p>
         </>
       )}
+
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_INGRESOS_RUTA}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }
