@@ -43,25 +43,39 @@ export function notaCuotaFaltanteInventario(sucursal, faltanteNeto, cuota, { bru
 }
 
 /**
- * Ventana de inventarios de una nómina: del día siguiente al inicio de la semana hasta el último día.
- * El primer día pertenece a la nómina anterior (ej. semana 31 oct–7 nov: se jalan del 1 al 7 de nov).
+ * Tiendas cuyo inventario se hace el primer día de la semana de pago (sábado) y pertenece
+ * a esa misma semana: sí cuenta el día de inicio.
  */
-export function ventanaInventarioNomina(inicio, fin) {
+export const TIENDAS_INVENTARIO_PRIMER_DIA = ['3B9', '3B10'];
+
+export function inventarioIncluyePrimerDia(sucursal) {
+  const suc = normalizarCodigoTienda(sucursal);
+  return !!suc && TIENDAS_INVENTARIO_PRIMER_DIA.includes(suc);
+}
+
+/**
+ * Ventana de inventarios de una nómina.
+ * Por defecto va del día siguiente al inicio de la semana hasta el último día (el primer día
+ * pertenece a la nómina anterior). Para 3B9 y 3B10 el sábado de inicio sí cuenta.
+ * Sin `sucursal` devuelve la ventana más amplia (para cargar datos).
+ */
+export function ventanaInventarioNomina(inicio, fin, sucursal = null) {
   const ini = String(inicio || '').slice(0, 10);
   const f = String(fin || '').slice(0, 10);
   if (!ini || !f) return { desde: ini, hasta: f };
+  if (sucursal == null ? true : inventarioIncluyePrimerDia(sucursal)) return { desde: ini, hasta: f };
   const desde = sumarDiasYmd(ini, 1);
   return { desde: desde > f ? f : desde, hasta: f };
 }
 
 /**
  * ¿El resultado de inventario aplica a esta nómina?
- * Solo cuenta si el inventario cerró (campo «hasta») dentro de la ventana de la semana en curso,
- * sin el primer día. Los inventarios de semanas anteriores ya no se vuelven a jalar.
+ * Solo cuenta si el inventario cerró (campo «hasta») dentro de la ventana de la semana en curso
+ * de su tienda. Los inventarios de semanas anteriores ya no se vuelven a jalar.
  */
 export function registroFaltanteAplicaASemana(reg, inicio, fin) {
   if (!reg?.desde || !reg?.hasta || !inicio || !fin) return false;
-  const ventana = ventanaInventarioNomina(inicio, fin);
+  const ventana = ventanaInventarioNomina(inicio, fin, reg.sucursal_id);
   if (reg.hasta < ventana.desde || reg.hasta > ventana.hasta) return false;
   if (faltanteNetoParaNomina(reg) > 0) return true;
   const bruto = Number(reg.valor_faltante);
@@ -69,7 +83,7 @@ export function registroFaltanteAplicaASemana(reg, inicio, fin) {
 }
 
 function scoreRegistroSemana(reg, inicio, fin) {
-  const v = ventanaInventarioNomina(inicio, fin);
+  const v = ventanaInventarioNomina(inicio, fin, reg.sucursal_id);
   let s = 0;
   if (reg.hasta >= v.desde && reg.hasta <= v.hasta) s += 100;
   if (reg.desde >= v.desde && reg.desde <= v.hasta) s += 20;
