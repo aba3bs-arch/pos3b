@@ -66,6 +66,7 @@ export const TUTORIAL_COMPRAS = {
         '**Sugerido:** cuánto conviene pedir. Se calcula con tu stock, el **mínimo** del producto (o el **Umbral** de la pantalla, 8 por defecto) y **lo vendido** en el periodo elegido.',
         '**Pedido:** lo que realmente vas a pedir. **Enter** acepta la sugerida y salta a la siguiente fila.',
         '**Costo:** costo estimado por pieza; puedes corregirlo si el proveedor te dio otro precio.',
+        '**Recomendación** (columna resaltada): te dice si **conviene pedir** y cuántas piezas, o **NO PEDIR** si el inventario alcanza hasta la próxima visita del proveedor. Usa la venta diaria, tu inventario y el calendario de visitas; con el botón **Aplicar recomendación al Pedido** la pasas a la columna Pedido.',
       ],
       imagen: `${IMG}/03-sugerido.jpg`,
       imagenAlt: 'Lulú muestra la tabla de sugeridos mientras Beto piensa frente al estante vacío',
