@@ -19,14 +19,14 @@ export const MANUAL_CAPACITACION_COMPRAS = {
   id: 'manual-capacitacion-compras',
   titulo: 'Manual de capacitación: cuánto pedir según la venta por día (sin compras innecesarias)',
   resumen:
-    'Capacitación para el personal: cómo usar el «Detalle ventas por día» de la herramienta de compras para calcular cuánto pedir y evitar compras innecesarias. Con Beto, Lulú, Ángel y Chispita en globos de diálogo, ejemplos con números, checklist y evaluación final.',
+    'Capacitación para el personal: cómo usar el «Detalle ventas por día» de la herramienta de compras para calcular cuánto pedir y evitar compras innecesarias. Incluye la columna Recomendación y las estrellas de alta frecuencia. Con Beto, Lulú, Ángel y Chispita en globos de diálogo, ejemplos con números, checklist y evaluación final.',
   secciones: [
     {
       id: 'portada',
       titulo: '1. Para qué es este manual',
       cuerpo: [
         '**Objetivo:** que cada persona que arma un pedido sepa **cuánto pedir** usando la venta real de cada día, y no «a ojo».',
-        '**Al terminar sabrás:** activar y leer el **Detalle ventas por día**, calcular la **venta diaria**, saber **cuántos días te alcanza** el inventario, decidir **cuánto pedir**, comparar tu cálculo con el **Sugerido** y detectar compras innecesarias.',
+        '**Al terminar sabrás:** activar y leer el **Detalle ventas por día**, calcular la **venta diaria**, saber **cuántos días te alcanza** el inventario, decidir **cuánto pedir**, comparar tu cálculo con el **Sugerido** y con la columna **Recomendación**, reconocer los productos de **alta frecuencia (★)** y detectar compras innecesarias.',
         '**Cómo se usa:** lee cada sección (los personajes platican en globos), haz las cuentas con los ejemplos y presenta la **evaluación final** (aprueba con 70% o más).',
       ],
       imagen: `${IMG}/01-portada.jpg`,
@@ -168,21 +168,67 @@ export const MANUAL_CAPACITACION_COMPRAS = {
       ],
     },
     {
+      id: 'recomendacion',
+      titulo: '8. La columna Recomendación: la herramienta hace la cuenta por ti',
+      cuerpo: [
+        'Arriba de la tabla hay un recuadro amarillo, **Recomendación de pedido**, y en la tabla una **columna sombreada de amarillo** llamada **Recomendación**. Dice, producto por producto, **si pedir o no y cuántas piezas**:',
+        '**PEDIR 21** (etiqueta verde): conviene pedir 21 piezas. Debajo dice cuánto te alcanza lo que tienes (*alcanza < 1 día*).',
+        '**NO PEDIR** (etiqueta gris): con lo que tienes llegas hasta la siguiente visita del proveedor. Debajo dice *alcanza 8 días* o *sin ventas*.',
+        '**Es la misma cuenta de la sección 5, hecha por la herramienta:** pedir = venta diaria × días a cubrir − Teórico. La **venta diaria** es el promedio del periodo que elegiste en *Ventas para sugerencia de pedido* (sin contar hoy, que va incompleto). Los **días a cubrir** salen del calendario de visitas del proveedor (matriz de entregas): se cuentan **hoy y el día de la visita** (de martes a jueves son **3 días**). Si el proveedor no tiene calendario, usa 7 días.',
+        '**Ejemplo (martes, el proveedor vuelve el jueves):** el **Refresco 600 ml** tiene Teórico 8 y vende 1 al día; el Sugerido marca 12. Días a cubrir = 3 → 1 × 3 = 3, y ya tienes 8: **NO PEDIR** (te alcanza para 8 días). Las 12 piezas del Sugerido eran compra innecesaria. El **Pan de caja** vende 8 al día y solo tiene 3: 8 × 3 = 24 − 3 = **PEDIR 21**.',
+        '**Los controles del recuadro:** **Días a cubrir** (vacío = el calendario; escribe un número si hay un cambio de visita), **Colchón (días)** (margen extra; arranca en 0), **Ocultar los «No pedir»** (deja solo lo que sí hay que pedir) y **Aplicar recomendación al Pedido** (llena la columna Pedido con lo recomendado, y abajo te dice cuántas piezas de compra innecesaria evitas).',
+        '**Para que coincida con la cuenta de las secciones 5 a 7** (días al surtido + 2) pon **Colchón = 1**, porque la herramienta ya cuenta hoy y el día de la visita. Tu encargado decide el colchón de cada tienda.',
+      ],
+      maqueta: 'recomendacion',
+      dialogo: [
+        t(LULU, 'Beto, ahora hay una columna amarilla que dice **PEDIR** o **NO PEDIR**. ¿Ya no tengo que hacer la cuenta?'),
+        t(BETO, 'La hace la herramienta, pero tú la **entiendes y la revisas**. Es la misma cuenta que practicamos.'),
+        p(CHISPITA, 'Si me pasan a visitar el jueves y les sobran refrescos para ocho días, ¡no me piden nada y todos contentos!'),
+        t(LULU, 'Y si el pan dice **PEDIR 21**, ya sé que se acaba hoy y que no me puedo esperar.'),
+        p(ANGEL, 'Una cosa: la cuenta usa el promedio. Si hubo una fiesta, ese promedio sube, así que revisen el detalle por día.'),
+        t(BETO, 'Exacto. **Aplicar recomendación** te ahorra captura, pero antes revisa picos, promociones y que el Teórico sea creíble.'),
+      ],
+      notas: [
+        'La recomendación **no sabe** de fiestas, promociones ni mermas sin registrar, y **no ve** lo que ya está en bodega sin capturar. Úsala como segunda opinión junto al Sugerido y al detalle por día; la decisión final es tuya.',
+        'La columna y el recuadro aparecen al armar un **pedido nuevo (Pedido)**; no en Recepción ni en Entrega directa.',
+        'Si la columna dice *Calculando ventas del periodo…* espera unos segundos: aún se están leyendo las ventas.',
+      ],
+    },
+    {
+      id: 'estrella',
+      titulo: '9. La ★ de alta frecuencia y cómo ordenar la tabla',
+      cuerpo: [
+        'Algunos productos llevan una **★ dorada junto al nombre**: son los de **alta frecuencia**, los que se venden **casi todos los días** (al menos **7 de cada 10 días** del periodo elegido; hoy no cuenta y se necesitan mínimo 3 días de periodo). Un solo día de fiesta **no** da estrella.',
+        '**Por qué importa:** son los productos que **no pueden faltar** en el estante. Al armar el pedido, revísalos **primero**. Pasa el cursor sobre la ★ y te dice, por ejemplo, *Vendió en 14 de 14 días · 8 pz/día*.',
+        '**Orden de la tabla:** junto a la casilla del detalle hay un selector **Orden** con tres opciones: **★ Alta frecuencia primero** (el predeterminado; dentro de las ★ van primero los que más venden), **Por pedir primero** (arriba lo que la Recomendación manda pedir) y **Nombre (A–Z)**.',
+        '**Cómo combinarlo:** una ★ con **PEDIR** es tu prioridad número uno. Una ★ con **NO PEDIR** y *alcanza 1 o 2 días* merece que vuelvas a mirar el Teórico. Un producto **sin ★** que pide mucho, revísalo con calma: puede ser un pico.',
+      ],
+      dialogo: [
+        t(LULU, 'Ya vi unas estrellitas junto al pan y al refresco. ¿Qué son?'),
+        t(BETO, 'Son los productos de **alta frecuencia**: se venden casi todos los días. Si esos faltan, el cliente lo nota.'),
+        p(ANGEL, 'O sea que mi pan lleva estrella porque sale todos los días del horno.'),
+        p(CHISPITA, 'Mis refrescos también, ¡pero una fiesta no da estrella! Solo da dolor de cabeza.'),
+        t(LULU, 'Entonces reviso primero las ★ y luego el resto. Y con **Orden** puedo pasar a «Por pedir primero».'),
+        t(BETO, 'Así es: **★ primero, y si dicen PEDIR, ahí empiezas**.'),
+      ],
+    },
+    {
       id: 'checklist',
-      titulo: '8. Checklist antes de generar el pedido',
+      titulo: '10. Checklist antes de generar el pedido',
       cuerpo: [
         '**1. Teórico creíble:** ¿coincide con lo que ves en el estante o la bodega?',
         '**2. Próximo surtido:** ¿cuántos días faltan para que llegue el siguiente pedido?',
         '**3. Eventos o promociones:** ¿hay promo, fin de semana largo, fiesta o temporada que cambie la venta?',
         '**4. Costo:** ¿el costo estimado de la columna Costo es el que te dio el proveedor?',
         '**5. Cajas o paquetes:** ¿la cantidad está redondeada a lo que vende el proveedor?',
+        '**6. Recomendación y ★:** ¿revisaste primero los productos con ★ y comparaste la columna **Recomendación** con tu cuenta? Si usaste **Aplicar recomendación al Pedido**, ¿revisaste picos y promociones?',
         'Después captura las **Notas al proveedor** si hace falta y pulsa **Generar pedido (sin tocar inventario)**. Con **Imprimir pedido** sacas el ticket.',
       ],
       imagen: `${IMG}/06-checklist.jpg`,
       imagenAlt: 'Beto muestra el checklist, Lulú está lista para generar el pedido y los proveedores esperan',
       dialogo: [
         t(BETO, 'Antes de dar clic en **Generar pedido**, repasamos el checklist.'),
-        t(LULU, 'Teórico creíble, días al próximo surtido, promos, costo y cajas. ¡Todo marcado!'),
+        t(LULU, 'Teórico creíble, días al próximo surtido, promos, costo, cajas y la Recomendación. ¡Todo marcado!'),
         p(ANGEL, 'Yo preferiría que también me avisen si esperan mucha venta el fin de semana.'),
         t(BETO, 'Buen punto: cuando haya evento, súbele a la cuenta. La herramienta no adivina fiestas.'),
         t(LULU, 'Y recuerden: el pedido **no mueve el inventario** hasta que recibamos la mercancía.'),
@@ -193,7 +239,7 @@ export const MANUAL_CAPACITACION_COMPRAS = {
     },
     {
       id: 'errores',
-      titulo: '9. Compras innecesarias: cómo reconocerlas',
+      titulo: '11. Compras innecesarias: cómo reconocerlas',
       cuerpo: [
         '**Aceptar el Sugerido de todas las filas con Enter sin revisar.** En productos lentos puede inflar el pedido.',
         '**Dejarse llevar por un pico.** Un día raro no es la venta normal.',
@@ -201,6 +247,8 @@ export const MANUAL_CAPACITACION_COMPRAS = {
         '**Pedir lo que ya tienes en bodega.** Cuenta primero; el Teórico puede estar desfasado.',
         '**Pedir porque «se ve vacío».** Un estante vacío no siempre significa que no hay en bodega.',
         '**Ignorar la tendencia.** Si la venta viene en caída de 7 días, no pidas como si fuera la semana pasada.',
+        '**Pulsar «Aplicar recomendación al Pedido» sin revisar.** La recomendación usa promedios: un pico o una promoción la pueden desviar.',
+        '**Dejar para el final los productos con ★.** Son los que más duele que falten.',
       ],
       dialogo: [
         t(BETO, 'La señal de alarma: un pedido gigante que no puedo explicar con el detalle de ventas.'),
@@ -210,23 +258,24 @@ export const MANUAL_CAPACITACION_COMPRAS = {
     },
     {
       id: 'tarjeta',
-      titulo: '10. Tarjeta de bolsillo',
+      titulo: '12. Tarjeta de bolsillo',
       cuerpo: [
         '**1.** Activa **Detalle ventas por día**.',
         '**2.** Venta diaria = suma de 7 días ÷ 7 (sin días raros; hoy va incompleto).',
         '**3.** Cobertura = Teórico ÷ venta diaria.',
         '**4.** Días a cubrir = días al próximo surtido + 2.',
         '**5.** Pedir = venta diaria × días a cubrir − Teórico (si es ≤ 0, no pidas). Redondea a caja o paquete.',
-        '**6.** Compara con el **Sugerido** y decide. Revisa el checklist y genera el pedido.',
+        '**6.** Compara con el **Sugerido** y con la columna **Recomendación** (PEDIR / NO PEDIR). Revisa primero los productos con **★**.',
+        '**7.** Decide, revisa el checklist y genera el pedido.',
         '**Frase:** *vendo Y al día, me surten en Z días, tengo T: pido X.*',
       ],
     },
     {
       id: 'quiz',
-      titulo: '11. Evaluación final (Beto y Lulú te califican)',
+      titulo: '13. Evaluación final (Beto y Lulú te califican)',
       cuerpo: [
-        'Responde las 12 preguntas. Al terminar verás **puntaje, porcentaje y calificación** (A–F).',
-        'Apruebas con **70% o más**. Si no, repasa las secciones 5 a 8 y reintenta.',
+        'Responde las 16 preguntas. Al terminar verás **puntaje, porcentaje y calificación** (A–F).',
+        'Apruebas con **70% o más** (12 aciertos). Si no, repasa las secciones 5 a 10 y reintenta.',
       ],
       imagen: `${IMG}/07-graduacion.jpg`,
       imagenAlt: 'Lulú con birrete y diploma, Beto con medalla y los proveedores celebrando con confeti',
@@ -345,6 +394,49 @@ export const MANUAL_CAPACITACION_COMPRAS = {
           correcta: 1,
           explicacion: 'El pedido va a Por recibir; el inventario cambia hasta que recibes la mercancía.',
         },
+        {
+          id: 'q13',
+          pregunta: 'La columna Recomendación dice «NO PEDIR · alcanza 8 días». ¿Qué significa?',
+          opciones: [
+            'Que el producto fue descontinuado',
+            'Que con lo que hay llegas hasta la siguiente visita del proveedor, sin pedir hoy',
+            'Que el proveedor no entrega ese producto',
+            'Que el producto no tiene precio',
+          ],
+          correcta: 1,
+          explicacion: 'NO PEDIR significa que el inventario cubre los días hasta la siguiente visita; «alcanza 8 días» dice cuánto te dura al ritmo de venta actual.',
+        },
+        {
+          id: 'q14',
+          pregunta: 'Es martes y el proveedor vuelve el jueves (Colchón 0). Teórico 8 y vende 1 al día. ¿Qué recomienda la herramienta?',
+          opciones: ['PEDIR 3', 'PEDIR 8', 'PEDIR 12', 'NO PEDIR'],
+          correcta: 3,
+          explicacion: 'Días a cubrir = 3 (hoy y el día de la visita). 1 × 3 = 3, y ya tienes 8: no hace falta pedir.',
+        },
+        {
+          id: 'q15',
+          pregunta: '¿Qué significa la ★ junto al nombre de un producto?',
+          opciones: [
+            'Que está en promoción',
+            'Que es el más caro del proveedor',
+            'Que se vende casi todos los días (7 de cada 10 o más): hay que revisarlo primero',
+            'Que el proveedor lo recomienda',
+          ],
+          correcta: 2,
+          explicacion: 'La ★ marca los productos de alta frecuencia: son los que no pueden faltar, así que se revisan primero.',
+        },
+        {
+          id: 'q16',
+          pregunta: 'Antes de pulsar «Aplicar recomendación al Pedido» debes…',
+          opciones: [
+            'Nada: la recomendación siempre es exacta',
+            'Revisar picos, promociones y que el Teórico sea creíble, porque la recomendación usa promedios',
+            'Borrar el detalle de ventas',
+            'Cambiar de proveedor',
+          ],
+          correcta: 1,
+          explicacion: 'La recomendación no conoce fiestas, promociones ni mermas sin registrar; un pico infla el promedio. Revisa antes de aplicar.',
+        },
       ],
     },
     {
@@ -352,7 +444,7 @@ export const MANUAL_CAPACITACION_COMPRAS = {
       titulo: 'Frase para el equipo',
       cuerpo: [
         '**Vendo Y al día, me surten en Z días, tengo T: pido X. Y si no puedo explicar mi pedido con el detalle de ventas, lo reviso antes de generarlo.**',
-        'Si no aprobaste: repasa las secciones 5 a 8 (la cuenta, el Sugerido y el checklist) y presenta la evaluación otra vez.',
+        'Si no aprobaste: repasa las secciones 5 a 10 (la cuenta, el Sugerido, la Recomendación, las ★ y el checklist) y presenta la evaluación otra vez.',
       ],
     },
   ],
@@ -375,3 +467,15 @@ export function resolverPractica(caso) {
   const pedir = Math.max(0, Math.round(ventaDiaria * diasACubrir - caso.teorico));
   return { ventaDiaria, cobertura, diasACubrir, pedir };
 }
+
+/** Filas de la maqueta de la columna Recomendación (la recomendación se calcula con la misma función de la app). */
+export const MAQUETA_RECOMENDACION = {
+  diasACubrir: 3,
+  colchonDias: 0,
+  filas: [
+    { estrella: true, producto: 'Pan de caja', teorico: 3, sugerido: 53, ventaDiaria: 8 },
+    { estrella: true, producto: 'Leche 1 L', teorico: 5, sugerido: 10, ventaDiaria: 2 },
+    { estrella: true, producto: 'Refresco 600 ml', teorico: 8, sugerido: 12, ventaDiaria: 1 },
+    { estrella: false, producto: 'Galletas (paquete)', teorico: 4, sugerido: 12, ventaDiaria: 0 },
+  ],
+};

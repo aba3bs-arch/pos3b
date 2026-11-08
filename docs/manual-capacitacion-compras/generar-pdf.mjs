@@ -11,7 +11,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { MANUAL_CAPACITACION_COMPRAS as M, PRACTICAS, COLCHON_DIAS, resolverPractica } from './contenido.mjs';
+import { MANUAL_CAPACITACION_COMPRAS as M, PRACTICAS, COLCHON_DIAS, resolverPractica, MAQUETA_RECOMENDACION } from './contenido.mjs';
+import { recomendarPedido, textoRecomendacion } from '../../src/lib/comprasRecomendacion.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const SALIDA = path.join(DIR, 'Manual_Capacitacion_Compras_Las3B.pdf');
@@ -74,9 +75,29 @@ function dialogoHtml(dialogo) {
     .join('')}</div>`;
 }
 
+function maquetaRecomendacionHtml() {
+  const { diasACubrir, colchonDias, filas } = MAQUETA_RECOMENDACION;
+  const cuerpo = filas
+    .map((f) => {
+      const rec = recomendarPedido({ stock: f.teorico, ventaDiaria: f.ventaDiaria, diasACubrir, colchonDias, sugerido: f.sugerido });
+      const { principal, detalle } = textoRecomendacion(rec);
+      const clase = rec.accion === 'pedir' ? 'si' : 'no';
+      return `<tr><td class="nom">${f.estrella ? '<span class="star">★</span> ' : ''}${esc(f.producto)}</td>
+        <td>${f.teorico}</td><td class="sug">${f.sugerido}</td>
+        <td class="rec"><span class="pill ${clase}">${esc(principal)}</span><small>${esc(detalle)}</small></td>
+        <td class="ped">${rec.pedir}</td></tr>`;
+    })
+    .join('');
+  return `<figure class="maqueta"><table>
+    <thead><tr><th>Descripción</th><th>Teórico</th><th>Sugerido</th><th class="rec">Recomendación</th><th>Pedido</th></tr></thead>
+    <tbody>${cuerpo}</tbody></table>
+    <figcaption>Así se ve la columna (ejemplo, martes con visita el jueves, Colchón 0). «Aplicar recomendación al Pedido» llena la última columna con lo recomendado.</figcaption></figure>`;
+}
+
 function seccionHtml(s) {
   const partes = [`<h2>${esc(s.titulo)}</h2>`];
   for (const l of s.cuerpo || []) partes.push(`<p>${inline(l)}</p>`);
+  if (s.maqueta === 'recomendacion') partes.push(maquetaRecomendacionHtml());
   if (s.imagen) partes.push(`<figure><img src="${img(s.imagen)}" alt=""><figcaption>${esc(s.imagenAlt || '')}</figcaption></figure>`);
   if (s.dialogo?.length) partes.push(dialogoHtml(s.dialogo));
   if (s.notas?.length) partes.push(`<div class="nota">${s.notas.map((n) => `<p>${inline(n)}</p>`).join('')}</div>`);
@@ -116,7 +137,7 @@ function practicaHtml() {
       </tr><tr>${['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7'].map((d) => `<th class="dia">${d}</th>`).join('')}</tr></thead>
       <tbody>${filas}${vacias}</tbody>
     </table>
-    <div class="nota"><p><strong>Recuerda:</strong> si hubo un día raro (pico o día sin surtido) no lo cuentes y divide entre los días normales. Si el resultado es cero o negativo, <strong>no pidas</strong>. Redondea a la caja o paquete del proveedor.</p></div>
+    <div class="nota"><p><strong>Recuerda:</strong> en la herramienta compara tu resultado con la columna <strong>Recomendación</strong>. Si hubo un día raro (pico o día sin surtido) no lo cuentes y divide entre los días normales. Si el resultado es cero o negativo, <strong>no pidas</strong>. Redondea a la caja o paquete del proveedor.</p></div>
   </section>`;
 }
 
@@ -129,7 +150,7 @@ function examenHtml(s, preguntas) {
     <div class="datos">
       <span>Nombre: <i class="linea l1"></i></span><span>Tienda: <i class="linea l2"></i></span><span>Fecha: <i class="linea l3"></i></span>
     </div>
-    <p><strong>Instrucciones:</strong> marca con una <strong>X</strong> la opción correcta de cada pregunta. Puedes usar calculadora. Son <strong>${preguntas.length} preguntas</strong>; se aprueba con <strong>70% o más</strong> (9 aciertos o más).</p>
+    <p><strong>Instrucciones:</strong> marca con una <strong>X</strong> la opción correcta de cada pregunta. Puedes usar calculadora. Son <strong>${preguntas.length} preguntas</strong>; se aprueba con <strong>70% o más</strong> (${Math.ceil(preguntas.length * 0.7 - 1e-9)} aciertos o más).</p>
     <div class="preguntas">${items}</div>
     <div class="calif">Aciertos: <i class="linea l4"></i> de ${preguntas.length} &nbsp;&nbsp; Calificación: <i class="linea l4"></i> % &nbsp;&nbsp; Aprobó:&nbsp; ☐ Sí &nbsp; ☐ No</div>
   </section>`;
@@ -157,7 +178,7 @@ function claveHtml(preguntas) {
     <table class="clave-t"><thead><tr><th>#</th><th>Resp.</th><th>Por qué</th></tr></thead><tbody>${filas}</tbody></table>
     <h3>Hoja de práctica</h3>
     <table class="clave-t"><thead><tr><th>#</th><th>Producto</th><th>Venta diaria</th><th>Cobertura (días)</th><th>Días a cubrir</th><th>Pedir</th></tr></thead><tbody>${prac}</tbody></table>
-    <p class="muted">Práctica 3: se calcula con los 6 días normales (sin el pico de 14). Calificación: 12 aciertos = 100%, 11 = 92%, 10 = 83%, 9 = 75% (mínimo para aprobar), 8 o menos = reprobado.</p>
+    <p class="muted">Práctica 3: se calcula con los 6 días normales (sin el pico de 14). Cada pregunta vale ${(100 / preguntas.length).toFixed(1)}%. Se aprueba con ${Math.ceil(preguntas.length * 0.7 - 1e-9)} aciertos o más (${Math.round((Math.ceil(preguntas.length * 0.7 - 1e-9) / preguntas.length) * 100)}%); con ${Math.ceil(preguntas.length * 0.7 - 1e-9) - 1} o menos, repasa y repite.</p>
   </section>`;
 }
 
@@ -211,6 +232,18 @@ figcaption { font-size: 8.5pt; color: #6b7280; font-style: italic; margin-top: 1
 .globo.tienda { background: #e0e7ff; border: 1px solid #a5b4fc; border-bottom-left-radius: 3px; }
 .globo.prov { background: #ffedd5; border: 1px solid #fdba74; border-bottom-right-radius: 3px; }
 .quien { font-size: 7.5pt; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #4b5563; }
+.maqueta table { font-size: 9pt; border: 1px solid #d1d5db; }
+.maqueta th, .maqueta td { border-bottom: 1px solid #e5e7eb; padding: 1.4mm 2.5mm; text-align: center; }
+.maqueta th { background: #f3f4f6; font-size: 8pt; text-transform: uppercase; color: #4b5563; }
+.maqueta td.nom, .maqueta th:first-child { text-align: left; }
+.maqueta .rec { background: #fffbeb; border-left: 2px solid #f59e0b; border-right: 2px solid #f59e0b; }
+.maqueta th.rec { background: #fef3c7; color: #92400e; }
+.maqueta .pill { display: inline-block; padding: .4mm 3mm; border-radius: 99px; font-weight: 800; font-size: 8.5pt; }
+.maqueta .pill.si { background: #16a34a; color: #fff; }
+.maqueta .pill.no { background: #e5e7eb; color: #374151; }
+.maqueta small { display: block; color: #6b7280; font-size: 7.5pt; margin-top: .3mm; }
+.maqueta .star { color: #d97706; font-weight: 800; }
+.maqueta .sug { color: #1e40af; font-weight: 700; }
 .nota { margin: 3mm 0; padding: 2.5mm 3.5mm; border-left: 4px solid #b5a642; background: #fbf7e1; border-radius: 4px; font-size: 9.5pt; break-inside: avoid; }
 .nota p:last-child { margin: 0; }
 .tarjeta { border: 2px dashed #1e40af; border-radius: 10px; padding: 4mm 5mm; background: #eff6ff; break-inside: avoid; }
@@ -230,10 +263,10 @@ table { border-collapse: collapse; width: 100%; }
 .linea { display: inline-block; border-bottom: 1px solid #111827; height: 1em; vertical-align: bottom; }
 .l1 { width: 46mm; } .l2 { width: 36mm; } .l3 { width: 26mm; } .l4 { width: 14mm; } .l5 { width: 55mm; } .l6 { width: 55mm; }
 .preguntas { columns: 2; column-gap: 8mm; }
-.preg { break-inside: avoid; margin-bottom: 2.6mm; font-size: 8.6pt; line-height: 1.32; }
-.preg .enun { margin-bottom: 1mm; }
-.opc { margin: 0 0 .7mm 1mm; display: flex; gap: 1.5mm; align-items: flex-start; }
-.circ { flex: 0 0 3.2mm; width: 3.2mm; height: 3.2mm; border: 1.2px solid #374151; border-radius: 50%; margin-top: .5mm; }
+.preg { break-inside: avoid; margin-bottom: 1.9mm; font-size: 7.9pt; line-height: 1.26; }
+.preg .enun { margin-bottom: .6mm; }
+.opc { margin: 0 0 .3mm 1mm; display: flex; gap: 1.5mm; align-items: flex-start; }
+.circ { flex: 0 0 2.8mm; width: 2.8mm; height: 2.8mm; border: 1.2px solid #374151; border-radius: 50%; margin-top: .5mm; }
 .calif { margin-top: 3mm; border-top: 1.5px solid #b5a642; padding-top: 3mm; font-size: 10pt; }
 .constancia { break-before: page; }
 .constancia figure img { max-height: 75mm; }

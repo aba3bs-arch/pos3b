@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { MANUAL_CAPACITACION_COMPRAS as M, PRACTICAS, resolverPractica } from './contenido.mjs';
+import { MANUAL_CAPACITACION_COMPRAS as M, PRACTICAS, resolverPractica, MAQUETA_RECOMENDACION } from './contenido.mjs';
 import { sugerirQtyPedido } from '../../src/lib/comprasPedido.js';
+import { recomendarPedido, textoRecomendacion, horizonteDesdeCalendario, frecuenciaVentas } from '../../src/lib/comprasRecomendacion.js';
 
 assert.equal(new Set(M.secciones.map((s) => s.id)).size, M.secciones.length);
 
@@ -24,7 +25,7 @@ for (const s of conDialogo) {
 assert.ok(conDialogo.some((s) => s.dialogo.some((d) => d.lado === 'proveedor')));
 
 const quiz = M.secciones.find((s) => s.id === 'quiz').quiz;
-assert.equal(quiz.length, 12);
+assert.equal(quiz.length, 16);
 assert.equal(new Set(quiz.map((q) => q.id)).size, quiz.length);
 for (const q of quiz) {
   assert.ok(q.pregunta && q.explicacion);
@@ -50,4 +51,20 @@ assert.equal(p1.pedir, 9, 'práctica 1');
 assert.equal(p2.pedir, 14, 'práctica 2');
 assert.equal(p3.pedir, 0, 'práctica 3 (sin pico)');
 assert.ok(p2.cobertura < 1, 'práctica 2: menos de un día de cobertura');
+// Ejemplos de la sección «Recomendación» contra la lógica real de la app.
+const hor = horizonteDesdeCalendario([4], 2); // martes → visita el jueves
+assert.equal(hor.diasACubrir, 3, 'martes→jueves = 3 días a cubrir');
+const recRefresco = recomendarPedido({ stock: 8, ventaDiaria: 1, diasACubrir: 3, sugerido: 12 });
+assert.equal(recRefresco.accion, 'no_pedir');
+assert.equal(textoRecomendacion(recRefresco).detalle, 'alcanza 8 días');
+assert.equal(recomendarPedido({ stock: 3, ventaDiaria: 8, diasACubrir: 3 }).pedir, 21, 'pan: PEDIR 21');
+// Colchón 1 equivale a «días al surtido + 2» de las secciones 5 a 7.
+assert.equal(
+  recomendarPedido({ stock: 10, ventaDiaria: 2.6, diasACubrir: horizonteDesdeCalendario([5], 2).diasACubrir, colchonDias: 1 }).necesario,
+  Math.ceil(2.6 * (3 + 2)),
+  'colchón 1 = surtido + 2',
+);
+const dias14 = Array.from({ length: 14 }, (_, i) => `2026-01-${String(i + 1).padStart(2, '0')}`);
+assert.equal(frecuenciaVentas(Object.fromEntries(dias14.map((d) => [d, 8])), dias14).altaFrecuencia, true);
+assert.equal(MAQUETA_RECOMENDACION.filas.length, 4);
 console.log('docs/manual-capacitacion-compras/contenido.test.mjs OK');
