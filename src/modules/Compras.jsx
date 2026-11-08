@@ -41,6 +41,8 @@ import {
   excluirArchivados,
 } from '../lib/archivo.js';
 import { normalizarRol } from '../lib/roles.js';
+import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
+import { TUTORIAL_COMPRAS } from '../content/tutorialCompras.js';
 
 async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user, folio }) {
   const errores = [];
@@ -114,6 +116,7 @@ export default function Compras({
   onCompraInicialConsumida,
 }) {
   const [pestana, setPestana] = useState('herramienta');
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
   const [proveedores, setProveedores] = useState([]);
   const [historial, setHistorial] = useState([]);
   const [pedidosPendientes, setPedidosPendientes] = useState([]);
@@ -995,6 +998,9 @@ export default function Compras({
         <button type="button" className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestana('historial')}>
           Historial de compras
         </button>
+        <button type="button" className="btn btn-gold" style={{ marginLeft: 'auto' }} onClick={() => setTutorialAbierto(true)}>
+          Tutorial de compras
+        </button>
       </div>
 
       {pestana === 'herramienta' && (
@@ -1566,6 +1572,12 @@ export default function Compras({
           </div>
         </div>
       )}
+
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_COMPRAS}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }
