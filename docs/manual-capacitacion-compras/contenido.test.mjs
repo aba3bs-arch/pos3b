@@ -1,18 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { MANUAL_CAPACITACION_COMPRAS as M } from './manualCapacitacionCompras.js';
-import { TUTORIALES } from './tutoriales.js';
-import { sugerirQtyPedido } from '../lib/comprasPedido.js';
+import { MANUAL_CAPACITACION_COMPRAS as M, PRACTICAS, resolverPractica } from './contenido.mjs';
+import { sugerirQtyPedido } from '../../src/lib/comprasPedido.js';
 
-assert.ok(TUTORIALES.includes(M), 'registrado en el módulo Tutorial');
-assert.equal(new Set(TUTORIALES.map((t) => t.id)).size, TUTORIALES.length, 'ids de tutorial únicos');
 assert.equal(new Set(M.secciones.map((s) => s.id)).size, M.secciones.length);
 
 const conImg = M.secciones.filter((s) => s.imagen);
 assert.ok(conImg.length >= 7);
 for (const s of conImg) {
-  assert.match(s.imagen, /^\/manual-compras\/.+\.jpg$/);
-  assert.ok(fs.existsSync(new URL(`../../public${s.imagen}`, import.meta.url)), `falta ${s.imagen}`);
+  assert.match(s.imagen, /^imagenes\/.+\.jpg$/);
+  assert.ok(fs.existsSync(new URL(`./${s.imagen}`, import.meta.url)), `falta ${s.imagen}`);
   assert.ok(s.imagenAlt);
 }
 
@@ -48,4 +45,9 @@ assert.equal(Math.round(pedir([6, 8, 7, 9, 8, 10, 8], 3, 3)), 37, 'ejemplo B: pe
 assert.equal(pedir([2, 2, 2, 2, 2, 2], 5, 2), 3, 'ejemplo C sin pico: pedir 3');
 assert.equal(pedir([2, 2, 2, 2, 2, 2, 30], 5, 2), 19, 'con pico saldría 19');
 assert.equal(pedir([2, 2, 2, 2, 2, 2, 2], 6, 3), 4, 'q6: pedir 4');
-console.log('manualCapacitacionCompras.test.mjs OK');
+const [p1, p2, p3] = PRACTICAS.map(resolverPractica);
+assert.equal(p1.pedir, 9, 'práctica 1');
+assert.equal(p2.pedir, 14, 'práctica 2');
+assert.equal(p3.pedir, 0, 'práctica 3 (sin pico)');
+assert.ok(p2.cobertura < 1, 'práctica 2: menos de un día de cobertura');
+console.log('docs/manual-capacitacion-compras/contenido.test.mjs OK');

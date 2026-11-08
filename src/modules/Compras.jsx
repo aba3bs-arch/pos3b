@@ -43,7 +43,6 @@ import {
 import { normalizarRol } from '../lib/roles.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_COMPRAS } from '../content/tutorialCompras.js';
-import { MANUAL_CAPACITACION_COMPRAS } from '../content/manualCapacitacionCompras.js';
 
 async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user, folio }) {
   const errores = [];
@@ -118,7 +117,6 @@ export default function Compras({
 }) {
   const [pestana, setPestana] = useState('herramienta');
   const [tutorialAbierto, setTutorialAbierto] = useState(false);
-  const [manualAbierto, setManualAbierto] = useState(false);
   const [proveedores, setProveedores] = useState([]);
   const [historial, setHistorial] = useState([]);
   const [pedidosPendientes, setPedidosPendientes] = useState([]);
@@ -1003,9 +1001,6 @@ export default function Compras({
         <button type="button" className="btn btn-gold" style={{ marginLeft: 'auto' }} onClick={() => setTutorialAbierto(true)}>
           Tutorial de compras
         </button>
-        <button type="button" className="btn btn-gold" onClick={() => setManualAbierto(true)}>
-          Manual de capacitación
-        </button>
       </div>
 
       {pestana === 'herramienta' && (
@@ -1582,11 +1577,6 @@ export default function Compras({
         abierto={tutorialAbierto}
         tutorial={TUTORIAL_COMPRAS}
         onCerrar={() => setTutorialAbierto(false)}
-      />
-      <VisorTutorialModal
-        abierto={manualAbierto}
-        tutorial={MANUAL_CAPACITACION_COMPRAS}
-        onCerrar={() => setManualAbierto(false)}
       />
     </div>
   );

@@ -1,10 +1,11 @@
 /**
- * Manual de capacitación · Cómo decidir cuánto pedir con el «Detalle ventas por día».
+ * Contenido del manual impreso · Cómo decidir cuánto pedir con el «Detalle ventas por día».
  * Mismo elenco del tutorial de compras: Beto y Lulú (Las 3B), Ángel (encargado del pan) y Chispita (refrescos).
  * Los ejemplos numéricos son ficticios; los pasos y botones son los de la herramienta de compras.
+ * El PDF se genera con generar-pdf.mjs; este archivo no forma parte de la app.
  */
 
-const IMG = '/manual-compras';
+const IMG = 'imagenes';
 
 const BETO = 'Beto · Las 3B';
 const LULU = 'Lulú · Las 3B';
@@ -19,7 +20,6 @@ export const MANUAL_CAPACITACION_COMPRAS = {
   titulo: 'Manual de capacitación: cuánto pedir según la venta por día (sin compras innecesarias)',
   resumen:
     'Capacitación para el personal: cómo usar el «Detalle ventas por día» de la herramienta de compras para calcular cuánto pedir y evitar compras innecesarias. Con Beto, Lulú, Ángel y Chispita en globos de diálogo, ejemplos con números, checklist y evaluación final.',
-  interactivo: true,
   secciones: [
     {
       id: 'portada',
@@ -357,3 +357,21 @@ export const MANUAL_CAPACITACION_COMPRAS = {
     },
   ],
 };
+
+/** Casos de la hoja de práctica impresa (la clave de respuestas se calcula con la misma cuenta del manual). */
+export const PRACTICAS = [
+  { producto: 'Galletas (paquete)', ventas: [3, 3, 3, 3, 3, 3, 3], teorico: 9, diasSurtido: 4, nota: 'Venta pareja, sin picos.' },
+  { producto: 'Pan de caja', ventas: [5, 7, 6, 8, 6, 5, 5], teorico: 4, diasSurtido: 1, nota: 'Producto estrella; surten mañana.' },
+  { producto: 'Refresco 2 L', ventas: [1, 1, 1, 1, 1, 1, 14], teorico: 7, diasSurtido: 5, nota: 'El último día hubo una fiesta (pico): no es venta normal.', picoUltimoDia: true },
+];
+
+export const COLCHON_DIAS = 2;
+
+export function resolverPractica(caso) {
+  const normales = caso.picoUltimoDia ? caso.ventas.slice(0, -1) : caso.ventas;
+  const ventaDiaria = normales.reduce((a, b) => a + b, 0) / normales.length;
+  const cobertura = caso.teorico / ventaDiaria;
+  const diasACubrir = caso.diasSurtido + COLCHON_DIAS;
+  const pedir = Math.max(0, Math.round(ventaDiaria * diasACubrir - caso.teorico));
+  return { ventaDiaria, cobertura, diasACubrir, pedir };
+}
