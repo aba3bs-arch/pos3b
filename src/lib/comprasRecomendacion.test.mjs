@@ -68,3 +68,52 @@ assert.ok(sugerirQtyPedido({ stock: 2 }, 8, 7) > recomendarPedido({ stock: 2, ve
 // Periodo de un solo día: se conserva (no se excluye hoy).
 assert.deepEqual(diasParaPromedio('2026-11-10', '2026-11-10', '2026-11-10'), ['2026-11-10']);
 console.log('comprasRecomendacion.test.mjs OK');
+
+// ── Alta frecuencia y orden ──
+import {
+  descripcionFrecuencia,
+  frecuenciaVentas,
+  ordenarLineasCompra,
+} from './comprasRecomendacion.js';
+{
+  const dias = ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07'];
+  const diario = Object.fromEntries(dias.map((d) => [d, 1]));
+  const f1 = frecuenciaVentas(diario, dias);
+  assert.equal(f1.diasConVenta, 7);
+  assert.equal(f1.altaFrecuencia, true);
+  assert.equal(f1.ventaDiaria, 1);
+
+  // 5 de 7 días = 71% → alta; 4 de 7 = 57% → no.
+  assert.equal(frecuenciaVentas({ [dias[0]]: 2, [dias[1]]: 2, [dias[2]]: 2, [dias[3]]: 2, [dias[4]]: 2 }, dias).altaFrecuencia, true);
+  assert.equal(frecuenciaVentas({ [dias[0]]: 9, [dias[1]]: 9, [dias[2]]: 9, [dias[3]]: 9 }, dias).altaFrecuencia, false);
+  // Un solo día de ventas enormes no es frecuencia.
+  assert.equal(frecuenciaVentas({ [dias[6]]: 30 }, dias).altaFrecuencia, false);
+  // Periodo demasiado corto: no se marca.
+  assert.equal(frecuenciaVentas({ [dias[0]]: 5 }, [dias[0]]).altaFrecuencia, false);
+  assert.equal(frecuenciaVentas({}, []).altaFrecuencia, false);
+  assert.equal(descripcionFrecuencia(f1), 'Vendió en 7 de 7 días · 1 pz/día');
+
+  const lineas = [
+    { id: 'galle', nombre: 'Galletas' },
+    { id: 'refre', nombre: 'Refresco' },
+    { id: 'pan', nombre: 'Pan' },
+    { id: 'pico', nombre: 'Producto de fiesta' },
+    { id: 'cero', nombre: 'Alfa sin ventas' },
+  ];
+  const metricas = {
+    refre: frecuenciaVentas(diario, dias),
+    pan: frecuenciaVentas(Object.fromEntries(dias.map((d) => [d, 8])), dias),
+    galle: frecuenciaVentas({ [dias[0]]: 1, [dias[3]]: 1 }, dias),
+    pico: frecuenciaVentas({ [dias[6]]: 30 }, dias),
+    cero: frecuenciaVentas({}, dias),
+  };
+  const ids = (modo, recs = {}) => ordenarLineasCompra(lineas, { modo, metricas, recomendaciones: recs }).map((l) => l.id);
+  // Estrellas primero (pan 8/día antes que refresco 1/día); luego el resto por venta diaria.
+  assert.deepEqual(ids('frecuencia'), ['pan', 'refre', 'pico', 'galle', 'cero']);
+  assert.deepEqual(ids('nombre'), ['cero', 'galle', 'pan', 'pico', 'refre']);
+  // «Por pedir primero»: los que hay que pedir arriba, y dentro de cada grupo por frecuencia.
+  assert.deepEqual(ids('pedir', { galle: { pedir: 3 }, pan: { pedir: 0 } }), ['galle', 'pan', 'refre', 'pico', 'cero']);
+  // No muta el arreglo original.
+  assert.equal(lineas[0].id, 'galle');
+}
+console.log('orden alta frecuencia OK');

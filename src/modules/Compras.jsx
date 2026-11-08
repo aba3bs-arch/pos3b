@@ -43,12 +43,16 @@ import {
 import { normalizarRol } from '../lib/roles.js';
 import { diaSemanaDesdeFecha, listarEntregasProveedores } from '../lib/proveedorEntregas.js';
 import {
+  ORDENES_COMPRA,
+  UMBRAL_ALTA_FRECUENCIA,
+  descripcionFrecuencia,
   diasParaPromedio,
   etiquetaDiaSemana,
+  frecuenciaVentas,
   horizonteDesdeCalendario,
+  ordenarLineasCompra,
   recomendarPedido,
   textoRecomendacion,
-  ventaDiariaPromedio,
 } from '../lib/comprasRecomendacion.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_COMPRAS } from '../content/tutorialCompras.js';
@@ -195,6 +199,7 @@ export default function Compras({
   const [diasCubrirManual, setDiasCubrirManual] = useState('');
   const [colchonDias, setColchonDias] = useState(0);
   const [soloRecomendados, setSoloRecomendados] = useState(false);
+  const [ordenTabla, setOrdenTabla] = useState('frecuencia');
   const [presetVentasCompras, setPresetVentasCompras] = useState('14d');
   const [ventasDesde, setVentasDesde] = useState('');
   const [ventasHasta, setVentasHasta] = useState('');
@@ -689,20 +694,27 @@ export default function Compras({
     [rangoVentasCompras],
   );
 
+  const metricasVentas = useMemo(() => {
+    if (!herramientaAbierta || !ventasListas) return {};
+    const out = {};
+    for (const l of lineas) out[l.id] = frecuenciaVentas(ventasPorDia[l.id], diasPromedioVentas);
+    return out;
+  }, [herramientaAbierta, ventasListas, lineas, ventasPorDia, diasPromedioVentas]);
+
   const recomendaciones = useMemo(() => {
     if (!mostrarRecomendacion || !ventasListas) return {};
     const out = {};
     for (const l of lineas) {
       out[l.id] = recomendarPedido({
         stock: l.teorico,
-        ventaDiaria: ventaDiariaPromedio(ventasPorDia[l.id], diasPromedioVentas),
+        ventaDiaria: metricasVentas[l.id]?.ventaDiaria || 0,
         diasACubrir,
         colchonDias,
         sugerido: l.sugerido,
       });
     }
     return out;
-  }, [mostrarRecomendacion, ventasListas, lineas, ventasPorDia, diasPromedioVentas, diasACubrir, colchonDias]);
+  }, [mostrarRecomendacion, ventasListas, lineas, metricasVentas, diasACubrir, colchonDias]);
 
   const resumenRecomendacion = useMemo(() => {
     let productosPedir = 0;
@@ -728,16 +740,23 @@ export default function Compras({
   };
 
   const lineasVisibles = useMemo(() => {
-    if (verTodoInventario) return lineas;
-    if (modoEntregaDirecta) return lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
-    if (modoRecepcion) return lineas.filter((l) => Number(l.qty_pedido) > 0 || Number(l.qty_recibido) > 0);
-    if (mostrarRecomendacion && soloRecomendados) {
-      return lineas.filter((l) => (recomendaciones[l.id]?.pedir || 0) > 0 || Number(l.qty_pedido) > 0);
+    let filtradas;
+    if (verTodoInventario) filtradas = lineas;
+    else if (modoEntregaDirecta) filtradas = lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
+    else if (modoRecepcion) filtradas = lineas.filter((l) => Number(l.qty_pedido) > 0 || Number(l.qty_recibido) > 0);
+    else if (mostrarRecomendacion && soloRecomendados) {
+      filtradas = lineas.filter((l) => (recomendaciones[l.id]?.pedir || 0) > 0 || Number(l.qty_pedido) > 0);
+    } else {
+      filtradas = lineas.filter(
+        (l) => l.sugerido > 0 || Number(l.qty_pedido) > 0 || (recomendaciones[l.id]?.pedir || 0) > 0,
+      );
     }
-    return lineas.filter(
-      (l) => l.sugerido > 0 || Number(l.qty_pedido) > 0 || (recomendaciones[l.id]?.pedir || 0) > 0,
-    );
-  }, [lineas, verTodoInventario, modoRecepcion, modoEntregaDirecta, mostrarRecomendacion, soloRecomendados, recomendaciones]);
+    if (!ventasListas) return filtradas;
+    return ordenarLineasCompra(filtradas, { modo: ordenTabla, metricas: metricasVentas, recomendaciones });
+  }, [
+    lineas, verTodoInventario, modoRecepcion, modoEntregaDirecta, mostrarRecomendacion, soloRecomendados,
+    recomendaciones, ventasListas, ordenTabla, metricasVentas,
+  ]);
 
   const pedidosDelProveedor = useMemo(
     () => pedidosPendientes.filter((p) => String(p.proveedor_id || '') === String(proveedorId || '')),
@@ -1293,6 +1312,25 @@ export default function Compras({
                   <span className="muted" style={{ fontSize: '0.8rem' }}>Sin vínculos — ve a Proveedores</span>
                 )}
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  Orden
+                  <select
+                    className="select"
+                    style={{ padding: '0.3rem 0.4rem' }}
+                    value={ordenTabla}
+                    onChange={(e) => setOrdenTabla(e.target.value)}
+                  >
+                    {ORDENES_COMPRA.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="muted" style={{ fontSize: '0.78rem' }}>
+                  <span style={{ color: '#d97706', fontWeight: 800 }}>★</span> alta frecuencia: vende en al menos{' '}
+                  {Math.round(UMBRAL_ALTA_FRECUENCIA * 100)}% de los días del periodo
+                </span>
+                <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
                   Umbral
                   <input type="number" min={1} className="input" style={{ width: '64px', padding: '0.35rem' }} value={umbralCatalogo} onChange={(e) => setUmbralCatalogo(parseInt(e.target.value, 10) || 8)} />
                 </label>
@@ -1439,7 +1477,17 @@ export default function Compras({
                       lineasVisibles.map((l, idx) => (
                         <tr key={l.id}>
                           <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{l.id}</td>
-                          <td>{l.nombre}</td>
+                          <td>
+                            {metricasVentas[l.id]?.altaFrecuencia ? (
+                              <span
+                                title={`Alta frecuencia · ${descripcionFrecuencia(metricasVentas[l.id])}`}
+                                style={{ color: '#d97706', fontWeight: 800, marginRight: '0.3rem', cursor: 'help' }}
+                              >
+                                ★
+                              </span>
+                            ) : null}
+                            {l.nombre}
+                          </td>
                           <td>${Number(l.precio).toFixed(2)}</td>
                           <td>{l.teorico}</td>
                           <td style={{ fontWeight: 700, color: l.sugerido > 0 ? 'var(--brand-blue)' : 'var(--muted)' }}>{l.sugerido}</td>

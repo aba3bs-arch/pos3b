@@ -125,3 +125,75 @@ function formatoDias(d) {
   const n = Math.floor(d);
   return `${n} ${n === 1 ? 'día' : 'días'}`;
 }
+
+/** Un producto es de alta frecuencia si vende en al menos este porcentaje de los días del periodo. */
+export const UMBRAL_ALTA_FRECUENCIA = 0.7;
+/** Con menos días de periodo no se marca ningún producto (un solo día no dice nada de frecuencia). */
+export const MIN_DIAS_PARA_FRECUENCIA = 3;
+
+/**
+ * Frecuencia de venta de un producto en los días del periodo (los mismos que se usan para el promedio).
+ * @returns {{ diasConVenta: number, diasTotal: number, ratio: number, ventaDiaria: number, altaFrecuencia: boolean }}
+ */
+export function frecuenciaVentas(ventasPorDiaProducto, dias) {
+  const diasTotal = dias?.length || 0;
+  let diasConVenta = 0;
+  let total = 0;
+  for (const d of dias || []) {
+    const q = Number(ventasPorDiaProducto?.[d]) || 0;
+    if (q > 0) diasConVenta += 1;
+    total += q;
+  }
+  const ratio = diasTotal ? diasConVenta / diasTotal : 0;
+  return {
+    diasConVenta,
+    diasTotal,
+    ratio,
+    ventaDiaria: diasTotal ? total / diasTotal : 0,
+    altaFrecuencia: diasTotal >= MIN_DIAS_PARA_FRECUENCIA && ratio >= UMBRAL_ALTA_FRECUENCIA,
+  };
+}
+
+export const ORDENES_COMPRA = [
+  { id: 'frecuencia', label: '★ Alta frecuencia primero' },
+  { id: 'pedir', label: 'Por pedir primero' },
+  { id: 'nombre', label: 'Nombre (A–Z)' },
+];
+
+/**
+ * Ordena líneas de compra (estable, no muta el arreglo).
+ * @param {Array<{id: string|number, nombre?: string}>} lineas
+ * @param {Record<string, {altaFrecuencia:boolean, ventaDiaria:number, ratio:number}>} metricas por id
+ * @param {Record<string, {pedir:number}>} recomendaciones por id
+ */
+export function ordenarLineasCompra(lineas, { modo = 'frecuencia', metricas = {}, recomendaciones = {} } = {}) {
+  const nombre = (l) => String(l.nombre || l.id || '');
+  const porNombre = (a, b) => nombre(a).localeCompare(nombre(b), 'es', { sensitivity: 'base' });
+  const m = (l) => metricas[l.id] || { altaFrecuencia: false, ventaDiaria: 0, ratio: 0 };
+  const porFrecuencia = (a, b) => {
+    const A = m(a);
+    const B = m(b);
+    if (A.altaFrecuencia !== B.altaFrecuencia) return A.altaFrecuencia ? -1 : 1;
+    if (B.ventaDiaria !== A.ventaDiaria) return B.ventaDiaria - A.ventaDiaria;
+    if (B.ratio !== A.ratio) return B.ratio - A.ratio;
+    return porNombre(a, b);
+  };
+  const copia = [...lineas];
+  if (modo === 'nombre') return copia.sort(porNombre);
+  if (modo === 'pedir') {
+    return copia.sort((a, b) => {
+      const pa = recomendaciones[a.id]?.pedir || 0;
+      const pb = recomendaciones[b.id]?.pedir || 0;
+      if ((pa > 0) !== (pb > 0)) return pa > 0 ? -1 : 1;
+      return porFrecuencia(a, b);
+    });
+  }
+  return copia.sort(porFrecuencia);
+}
+
+/** Texto del tooltip de la estrella. */
+export function descripcionFrecuencia(f) {
+  if (!f || !f.diasTotal) return '';
+  const pz = f.ventaDiaria >= 10 ? Math.round(f.ventaDiaria) : Math.round(f.ventaDiaria * 10) / 10;
+  return `Vendió en ${f.diasConVenta} de ${f.diasTotal} días · ${pz} pz/día`;
+}
