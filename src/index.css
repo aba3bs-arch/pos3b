@@ -5600,6 +5600,41 @@ table.data th {
   gap: 0.4rem;
   margin-bottom: 0.75rem;
 }
+.tut-dialogo {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.tut-dialogo__globo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 88%;
+  padding: 0.55rem 0.8rem;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.tut-dialogo__globo--tienda {
+  align-self: flex-start;
+  background: rgba(30, 64, 175, 0.1);
+  border: 1px solid rgba(30, 64, 175, 0.25);
+  border-bottom-left-radius: 4px;
+}
+.tut-dialogo__globo--proveedor {
+  align-self: flex-end;
+  background: rgba(217, 119, 6, 0.12);
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  border-bottom-right-radius: 4px;
+}
+.tut-dialogo__quien {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
 .tut-nota {
   margin-top: 0.9rem;
   padding: 0.65rem 0.85rem;

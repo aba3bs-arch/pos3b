@@ -9,12 +9,23 @@ assert.equal(new Set(TUTORIALES.map((t) => t.id)).size, TUTORIALES.length, 'ids 
 const ids = new Set(T.secciones.map((s) => s.id));
 assert.equal(ids.size, T.secciones.length, 'ids de sección únicos');
 const conImg = T.secciones.filter((s) => s.imagen);
-assert.ok(conImg.length >= 6);
+assert.ok(conImg.length >= 8);
 for (const s of conImg) {
   assert.match(s.imagen, /^\/tutorial-compras\/.+\.jpg$/);
   assert.ok(fs.existsSync(new URL(`../../public${s.imagen}`, import.meta.url)), `falta ${s.imagen}`);
   assert.ok(s.imagenAlt);
 }
+const conDialogo = T.secciones.filter((s) => s.dialogo);
+assert.ok(conDialogo.length >= 6, 'secciones con diálogo entre personajes');
+for (const s of conDialogo) {
+  assert.ok(s.dialogo.some((d) => d.lado === 'tienda'));
+  for (const d of s.dialogo) {
+    assert.ok(d.quien && d.texto);
+    assert.ok(d.lado === 'tienda' || d.lado === 'proveedor');
+  }
+}
+assert.ok(conDialogo.some((s) => s.dialogo.some((d) => d.lado === 'proveedor')), 'hay voces de proveedores');
+assert.ok(T.secciones.some((s) => s.id === 'beneficios'), 'sección de beneficios');
 const quiz = T.secciones.find((s) => s.id === 'quiz').quiz;
 assert.ok(quiz.length >= 6);
 assert.equal(new Set(quiz.map((q) => q.id)).size, quiz.length);

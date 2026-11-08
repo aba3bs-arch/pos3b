@@ -111,6 +111,20 @@ export default function VisorTutorialModal({ tutorial, abierto, onCerrar, titulo
                 ) : null}
               </figure>
             ) : null}
+            {(seccion.dialogo || []).length > 0 ? (
+              <div className="tut-dialogo" role="list">
+                {seccion.dialogo.map((d, i) => (
+                  <div
+                    key={i}
+                    role="listitem"
+                    className={`tut-dialogo__globo tut-dialogo__globo--${d.lado === 'proveedor' ? 'proveedor' : 'tienda'}`}
+                  >
+                    <span className="tut-dialogo__quien">{d.quien}</span>
+                    <span>{renderTexto(d.texto)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {(seccion.notas || []).length > 0 ? (
               <div className="tut-nota">
                 {(seccion.notas || []).map((n, i) => (
