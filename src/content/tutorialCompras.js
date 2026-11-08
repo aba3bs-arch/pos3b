@@ -1,6 +1,6 @@
 /**
  * Tutorial (con humor) · Herramienta de compras.
- * Personajes originales: Beto y Lulú (Las 3B) platican con Don Pancho (pan) y Chispita (refrescos),
+ * Personajes originales: Beto y Lulú (Las 3B) platican con Ángel (pan) y Chispita (refrescos),
  * mascotas de proveedores inspiradas en los repartidores de pan y refrescos. Sin logos ni marcas.
  */
 
@@ -8,7 +8,7 @@ const IMG = '/tutorial-compras';
 
 const BETO = 'Beto · Las 3B';
 const LULU = 'Lulú · Las 3B';
-const PANCHO = 'Don Pancho · Pan';
+const PANCHO = 'Ángel · Encargado';
 const CHISPITA = 'Chispita · Refrescos';
 
 const t = (quien, texto) => ({ quien, texto, lado: 'tienda' });
@@ -16,9 +16,9 @@ const p = (quien, texto) => ({ quien, texto, lado: 'proveedor' });
 
 export const TUTORIAL_COMPRAS = {
   id: 'herramienta-compras',
-  titulo: 'Compras, platicado: Las 3B y sus proveedores (Don Pancho y Chispita)',
+  titulo: 'Compras, platicado: Las 3B y sus proveedores (Ángel y Chispita)',
   resumen:
-    'Beto y Lulú, de Las 3B, platican con Don Pancho (el del pan) y Chispita (el de los refrescos) sobre cómo usar la herramienta de compras: elegir proveedor, cantidad sugerida, pedido, recepción, entrega directa, historial y los beneficios para la tienda y para el proveedor. Con evaluación.',
+    'Beto y Lulú, de Las 3B, platican con Ángel, el encargado del pan, y Chispita (el de los refrescos) sobre cómo usar la herramienta de compras: elegir proveedor, cantidad sugerida, pedido, recepción, entrega directa, historial y los beneficios para la tienda y para el proveedor. Con evaluación.',
   interactivo: true,
   secciones: [
     {
@@ -28,12 +28,12 @@ export const TUTORIAL_COMPRAS = {
         'Hoy la herramienta de compras la explican quienes la usan a diario. Los personajes son **originales**; sus proveedores están inspirados en los repartidores de pan y de refrescos, sin logos ni marcas.',
         '**Beto** (Las 3B): el gerente. Revisa que los números cuadren.',
         '**Lulú** (Las 3B): la que compra, escanea y recibe la mercancía.',
-        '**Don Pancho:** el proveedor del pan. Pasa a surtir y entrega **directo** al estante.',
+        '**Ángel:** el encargado del pan (proveedor). Pasa a surtir y entrega **directo** al estante.',
         '**Chispita:** el proveedor de refrescos. Trabaja **por pedido**: se pide hoy y se recibe cuando llega el camión.',
         'La herramienta tiene **tres pestañas**: **Herramienta de compra** (pedir o recibir), **Por recibir** (pedidos esperando mercancía) e **Historial de compras** (lo ya recibido).',
       ],
       imagen: `${IMG}/01-elenco.jpg`,
-      imagenAlt: 'Beto y Lulú de Las 3B con Don Pancho (pan) y Chispita (refrescos)',
+      imagenAlt: 'Beto y Lulú de Las 3B con Ángel (pan) y Chispita (refrescos)',
     },
     {
       id: 'caminos',
@@ -44,10 +44,10 @@ export const TUTORIAL_COMPRAS = {
         '**Entrega directa a inventario:** capturas lo que ya te entregaron y entra **de inmediato** al inventario (CEDIS en MAIN, piso en tiendas).',
       ],
       imagen: `${IMG}/02-caminos.jpg`,
-      imagenAlt: 'Chispita con su pedido pendiente a la izquierda y Don Pancho con su entrega directa a la derecha',
+      imagenAlt: 'Chispita con su pedido pendiente a la izquierda y Ángel con su entrega directa a la derecha',
       dialogo: [
-        t(BETO, 'Lulú, con Chispita siempre es **Pedido**: se lo encargo hoy y me llega después. ¿Y con Don Pancho?'),
-        t(LULU, 'Con Don Pancho es **Entrega directa**: llega con el pan, lo cuento y entra al inventario en ese momento.'),
+        t(BETO, 'Lulú, con Chispita siempre es **Pedido**: se lo encargo hoy y me llega después. ¿Y con Ángel?'),
+        t(LULU, 'Con Ángel es **Entrega directa**: llega con el pan, lo cuento y entra al inventario en ese momento.'),
         p(PANCHO, '¡Fresquecito! Yo llego, descargo y me voy. Prefiero no dejar nada «pendiente».'),
         p(CHISPITA, 'Yo prefiero que me manden el pedido con tiempo para que mi camión salga bien cargado.'),
         t(LULU, 'Y si el proveedor ya está configurado como entrega directa, la pantalla me lo avisa. Si quiero retomar un pedido que ya hice, lo elijo en **Pedido pendiente (recepción)**.'),
@@ -135,7 +135,7 @@ export const TUTORIAL_COMPRAS = {
         'Igual que en la recepción, te pide el **total del ticket / nota del proveedor**, sube el inventario, guarda el registro como **recibida** en el Historial y carga el gasto al **Corte Abarrotes**. **Imprimir entrega** saca el comprobante.',
       ],
       imagen: `${IMG}/06-directa.jpg`,
-      imagenAlt: 'Don Pancho surte pan directo al estante mientras Lulu escanea y Beto muestra el comprobante',
+      imagenAlt: 'Ángel surte pan directo al estante mientras Lulu escanea y Beto muestra el comprobante',
       dialogo: [
         p(PANCHO, 'Buenos días, Beto. Aquí el pan de hoy.'),
         t(LULU, 'Lo escaneo y lo capturo en **Cantidad entregada**. Con **Registrar entrega e inventario** ya queda en el estante, sin pasos intermedios.'),
