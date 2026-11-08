@@ -1,4 +1,5 @@
 import { normalizarRol } from './roles.js';
+import { numCuotasPorDefecto, primerCobroPorDefecto } from './prestamoCuotas.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import {
   beneficiarioValePermitido,
@@ -663,11 +664,21 @@ function faltaColumnaPrestamo(error, col) {
  * Inserta préstamo con reintentos si faltan columnas nuevas (omitir_corte / area_corte).
  * Si se pidió omitir_corte y la columna no existe, falla (hay que correr fix_prestamos_omitir_corte.sql).
  */
-async function insertPrestamoCompat(supabase, payload) {
+async function insertPrestamoCompat(supabase, payloadIn) {
+  let payload = payloadIn;
   let { data, error } = await supabase.from('prestamos').insert([payload]).select('*').single();
   if (!error) return { data, error: null };
 
   if (faltaTablaPrestamos(error)) return { data: null, error, faltaTabla: true };
+
+  // Calendario de cuotas (num_cuotas / primer_cobro): si la columna aún no existe, guardar sin él.
+  if (faltaColumnaPrestamo(error, 'num_cuotas') || faltaColumnaPrestamo(error, 'primer_cobro')) {
+    const { num_cuotas: _n, primer_cobro: _p, ...sinCuotas } = payload;
+    payload = sinCuotas;
+    ({ data, error } = await supabase.from('prestamos').insert([payload]).select('*').single());
+    if (!error) return { data: { ...data, num_cuotas: payloadIn.num_cuotas, primer_cobro: payloadIn.primer_cobro }, error: null, sinCalendario: true };
+    if (faltaTablaPrestamos(error)) return { data: null, error, faltaTabla: true };
+  }
 
   const queriaOmitir = Boolean(payload.omitir_corte);
   if (faltaColumnaPrestamo(error, 'omitir_corte') && 'omitir_corte' in payload) {
@@ -730,8 +741,13 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
     }
   }
 
+  const numCuotas = Math.floor(Number(row.num_cuotas)) > 0 ? Math.floor(Number(row.num_cuotas)) : numCuotasPorDefecto(monto);
+  const primerCobro = String(row.primer_cobro || '').slice(0, 10) || primerCobroPorDefecto(row.fecha || new Date());
+
   const payload = {
     ...row,
+    num_cuotas: numCuotas,
+    primer_cobro: primerCobro,
     area_corte: areaCorte,
     saldo: monto,
     abono: 0,
@@ -1026,6 +1042,16 @@ export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } 
     const saldoRef = Number(prestamo.saldo) || Number(prestamo.monto_original) || 0;
     upd.cuota_semanal = cuotaSemanalPrestamo(saldoRef, CUOTA_SEMANAL_MINIMA);
   }
+  if (patch.num_cuotas != null && patch.num_cuotas !== '') {
+    const n = Math.floor(Number(patch.num_cuotas));
+    if (!(n > 0)) return { ok: false, error: 'El número de cuotas debe ser 1 o más.' };
+    upd.num_cuotas = n;
+  }
+  if (patch.primer_cobro != null && patch.primer_cobro !== '') {
+    const f = String(patch.primer_cobro).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return { ok: false, error: 'Fecha de primer cobro inválida.' };
+    upd.primer_cobro = f;
+  }
   if (patch.notas !== undefined) {
     upd.notas = String(patch.notas || '').trim() || null;
   }
@@ -1041,6 +1067,7 @@ export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } 
     upd.monto_original = monto;
     upd.saldo = monto;
     upd.abono = 0;
+    if (upd.num_cuotas == null && Number(prestamo.num_cuotas) > 0) upd.num_cuotas = numCuotasPorDefecto(monto);
     upd.requiere_aprobacion_socio = prestamoRequiereSocio(monto);
   } else if (patch.monto_original != null && patch.monto_original !== '' && !puedeCambiarMonto) {
     return { ok: false, error: 'No se puede cambiar el monto si ya hay abonos.' };
@@ -1065,6 +1092,10 @@ export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } 
     .select('*')
     .single();
   if (error) {
+    const msgE = String(error.message || '').toLowerCase();
+    if (msgE.includes('num_cuotas') || msgE.includes('primer_cobro')) {
+      return { ok: false, error: 'Faltan las columnas de cuotas en préstamos. Ejecuta supabase/fix_prestamos_cuotas_nomina.sql en Supabase.' };
+    }
     // Columnas opcionales de auditoría: reintentar sin ellas
     if (String(error.message || '').toLowerCase().includes('actualizado_')) {
       delete upd.actualizado_por;

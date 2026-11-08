@@ -8,7 +8,7 @@ import { registrarEgresoContVirtual } from './contVirtualEgresos.js';
 import { indiceEmpleados, resolverClaveEmpleado, normalizarNombreEmpleado } from './nominaMatch.js';
 import { MODULOS_CORTE_NOMINA, round2 } from './nominaGastos.js';
 import { pagoNominaLinea } from './nominaCalculos.js';
-import { repartoPagoPorCuenta } from './nominaPagoMixto.js';
+import { repartoPagoPorCuenta, esPagoMixto } from './nominaPagoMixto.js';
 
 export const FUENTE_NOM_CORTE = 'nom_corte';
 export const FUENTE_PAYROLL = 'payroll';
@@ -77,6 +77,43 @@ export function lineaNominaYaEnCorte(linea, empleadosEnCorte, indice = null) {
 }
 
 /**
+ * Cuentas (virtual / abarrotes / garage) en las que el empleado ya reportó «NOMINA EMPLEADO» en corte.
+ * Sirve para no omitir toda la línea de un pago mixto cuando solo una de sus partes está en corte.
+ */
+export function cuentasLineaEnCorte(linea, empleadosEnCorte, indice = null) {
+  const cuentas = new Set();
+  if (!linea || !empleadosEnCorte?.gastos) return cuentas;
+  const uid = linea.usuario_id != null ? String(linea.usuario_id) : '';
+  const nom = normalizarNombreEmpleado(linea.nombre);
+  let claveIdx = null;
+  if (indice && uid) claveIdx = resolverClaveEmpleado({ usuario_id: uid, usuario_nombre: linea.nombre }, indice);
+  for (const g of empleadosEnCorte.gastos) {
+    const gid = g.usuario_id != null ? String(g.usuario_id) : '';
+    const coincide =
+      (uid && gid && gid === uid)
+      || (claveIdx && gid && gid === String(claveIdx))
+      || (nom && normalizarNombreEmpleado(g.usuario_nombre) === nom);
+    if (!coincide) continue;
+    const mod = String(g.modulo || '').toLowerCase();
+    if (mod) cuentas.add(mod);
+  }
+  return cuentas;
+}
+
+/**
+ * Partes (cuenta + monto) de una línea que faltan por registrar como egreso `payroll`.
+ * Línea normal ya en corte → ninguna. Pago mixto → solo las cuentas que no se reportaron en corte.
+ */
+export function partesPayrollPendientes(linea, monto, enCorte, indice = null) {
+  const yaEnCorte = lineaNominaYaEnCorte(linea, enCorte, indice);
+  if (yaEnCorte && !esPagoMixto(linea)) return [];
+  const partes = repartoPagoPorCuenta(linea, monto, cuentaIeDesdePagadorNomina(linea.pagador_nomina));
+  if (!yaEnCorte) return partes;
+  const enCuentas = cuentasLineaEnCorte(linea, enCorte, indice);
+  return partes.filter((x) => !enCuentas.has(x.cuenta));
+}
+
+/**
  * Al cerrar nómina: crea egresos IE `payroll` solo para quien NO reportó en corte.
  * Monto = neto pagado (total de la línea).
  */
@@ -111,12 +148,11 @@ export async function sincronizarEgresosPayrollNomina(supabase, {
     if (!(monto > 0.001)) continue;
     if (!l.id) continue;
 
-    if (lineaNominaYaEnCorte(l, enCorte, indice)) {
+    const partes = partesPayrollPendientes(l, monto, enCorte, indice);
+    if (partes.length === 0) {
       omitidosCorte += 1;
       continue;
     }
-
-    const partes = repartoPagoPorCuenta(l, monto, cuentaIeDesdePagadorNomina(l.pagador_nomina));
     for (const parte of partes) {
       const res = await registrarEgresoContVirtual(supabase, {
         sucursal_id: periodo.sucursal_id || 'MAIN',

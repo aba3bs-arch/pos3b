@@ -56,3 +56,12 @@ const soloAb = filasDesgloseCuentas(sumarPagosPorCuenta([{ pagador_nomina: 'abar
 assert.equal(soloAb.mostrar, false);
 assert.equal(soloAb.total, 400);
 console.log('nominaPagoMixto: ok');
+
+{
+  const { fusionarLineasNomina } = await import('./nominaCalculos.js');
+  const ant = [{ usuario_id: 7, pago_virtual: 0 }];
+  const nuevas = [{ usuario_id: 7, pago_virtual: 120 }];
+  assert.equal(fusionarLineasNomina(ant, nuevas)[0].pago_virtual, 120);
+  assert.equal(fusionarLineasNomina([{ usuario_id: 7, pago_virtual: 90 }], nuevas)[0].pago_virtual, 90);
+  assert.equal(fusionarLineasNomina([{ usuario_id: 7, pago_virtual: 0 }], [{ usuario_id: 7, pago_virtual: 0 }])[0].pago_virtual, 0);
+}

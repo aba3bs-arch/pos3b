@@ -4,6 +4,7 @@ import {
   cuotaFaltanteInventarioNomina,
   faltanteNetoParaNomina,
   registroFaltanteAplicaASemana,
+  ventanaInventarioNomina,
   registroFaltantePorTienda,
   mapaCuotasFaltantePorEmpleado,
   combinarDeduccionInventario,
@@ -111,3 +112,14 @@ const elegido = registroFaltantePorTienda(
 assert.equal(elegido.valor_faltante, 3000);
 
 console.log('nominaInventario.test.mjs OK');
+
+// Ventana de inventarios: sin el primer día de la semana (sáb 31 oct – vie 6 nov → del 1 al 6).
+const sem2 = { inicio: '2026-10-31', fin: '2026-11-06' };
+assert.deepEqual(ventanaInventarioNomina(sem2.inicio, sem2.fin), { desde: '2026-11-01', hasta: '2026-11-06' });
+const regVentana = (hasta) => ({ ...regOk, desde: '2026-10-25', hasta });
+assert.equal(registroFaltanteAplicaASemana(regVentana('2026-10-31'), sem2.inicio, sem2.fin), false);
+assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-01'), sem2.inicio, sem2.fin), true);
+assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-06'), sem2.inicio, sem2.fin), true);
+assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-07'), sem2.inicio, sem2.fin), false);
+assert.equal(registroFaltanteAplicaASemana(regVentana('2026-10-28'), sem2.inicio, sem2.fin), false);
+console.log('nominaInventario.test.mjs ventana OK');

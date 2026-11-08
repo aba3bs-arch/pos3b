@@ -33,6 +33,7 @@ import { listarResultadosInventario } from './resultadoInventario.js';
 import {
   combinarDeduccionInventario,
   mapaCuotasFaltantePorEmpleado,
+  ventanaInventarioNomina,
 } from './nominaInventario.js';
 
 const LS_SUELDOS = 'pos3b_nomina_salario_dia';
@@ -130,6 +131,11 @@ function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, falt
     const porSuc = prestEmp.porSucursal;
     const nPendSocio = prestEmp.detalle.filter((p) => p.estado === 'pendiente_socio').length;
     const sufijoPend = nPendSocio > 0 ? `; ${nPendSocio} pend. socio` : '';
+    const cuotasTxt = prestEmp.detalle
+      .filter((p) => p.cuota_numero && p.cuotas_total)
+      .map((p) => `cuota ${p.cuota_numero}/${p.cuotas_total}`)
+      .join(', ');
+    if (cuotasTxt) notas.push(`Préstamo ${cuotasTxt}`);
     if (porSuc && Object.keys(porSuc).length) {
       const partes = Object.entries(porSuc)
         .filter(([, m]) => Number(m) > 0)
@@ -188,6 +194,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     inventarioRegistros = [],
     periodoDesde = '',
     periodoHasta = '',
+    tarifasVirtualMap = {},
   } = opts;
 
   const turnos = leerTurnos();
@@ -250,7 +257,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       rol: u.rol || '—',
       sucursal_id: u.sucursal_id || null,
       pagador_nomina: u.nomina_pagador || 'abarrotes',
-      pago_virtual: leerPagoVirtualDefault(u.id),
+      pago_virtual: leerPagoVirtualDefault(u.id) || Number(tarifasVirtualMap[String(u.id)]) || 0,
       fecha_baja: u.fecha_baja_nomina || null,
       es_indirecto: indirecto,
       salario_dia: salarioDia,
@@ -292,17 +299,45 @@ export function recalcularSueldoLinea(linea) {
 }
 
 /** Carga gastos (3 cortes), préstamos, cierres, vales e asistencias del checador. */
+/**
+ * Última tarifa Virtual/día guardada en nóminas cerradas (por usuario).
+ * Respaldo cuando la tarifa no está en este navegador (otro equipo o caché borrada).
+ */
+export async function cargarTarifasVirtualGuardadas(supabase, usuarioIds = []) {
+  const ids = [...new Set((usuarioIds || []).filter((x) => x != null).map(String))];
+  if (!supabase || !ids.length) return {};
+  const mapa = {};
+  try {
+    const { data, error } = await supabase
+      .from('nomina_lineas')
+      .select('usuario_id, pago_virtual, created_at')
+      .in('usuario_id', ids)
+      .gt('pago_virtual', 0)
+      .order('created_at', { ascending: false })
+      .limit(1000);
+    if (error) return {};
+    for (const r of data || []) {
+      const k = String(r.usuario_id);
+      if (mapa[k] == null) mapa[k] = Number(r.pago_virtual) || 0;
+    }
+  } catch {
+    return {};
+  }
+  return mapa;
+}
+
 export async function cargarDatosNomina(supabase, { desde, hasta, empleados, todasSucursales = true, sucursal }) {
   const opts = { desde, hasta, empleados, todasSucursales, sucursal };
-  const [gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes] = await Promise.all([
+  const [gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes, tarifasVirtualMap] = await Promise.all([
     gastosDeduccionPorEmpleado(supabase, opts),
     prestamosDeduccionPorEmpleado(supabase, opts),
     cortesPorEmpleado(supabase, opts),
     valesGasolinaPorEmpleado(supabase, opts),
     asistenciasPorEmpleado(supabase, opts),
-    listarResultadosInventario(supabase, { desde: opts.desde, hasta: opts.hasta, limit: 200 }),
+    listarResultadosInventario(supabase, { desde: ventanaInventarioNomina(opts.desde, opts.hasta).desde, hasta: opts.hasta, limit: 200 }),
+    cargarTarifasVirtualGuardadas(supabase, (empleados || []).map((u) => u.id)),
   ]);
-  return { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes };
+  return { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes, tarifasVirtualMap };
 }
 
 export function faltaTablaNomina(error) {
@@ -490,6 +525,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     sucursal: periodo.sucursal_id,
     empleados: listaEmp,
     todasSucursales,
+    periodo: { inicio: periodo.periodo_inicio, fin: periodo.periodo_fin },
   });
   if (!prestRes.ok) return { ok: false, error: prestRes.error };
 
