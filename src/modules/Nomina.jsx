@@ -24,6 +24,7 @@ import {
 } from '../lib/nominaPagoMixto.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
+import { aplicarIncluidosManuales, candidatosAgregarNomina } from '../lib/nominaIncluirManual.js';
 import { leerBorradorNomina, guardarBorradorNomina, limpiarBorradorNomina } from '../lib/nominaBorrador.js';
 import { cargarMapaSaldosArrastre } from '../lib/nominaSaldoArrastre.js';
 import { reabrirPeriodoNomina, eliminarPeriodoNomina } from '../lib/nominaReabrir.js';
@@ -137,6 +138,9 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [lineas, setLineas] = useState([]);
   const [empleadosCache, setEmpleadosCache] = useState([]);
   const [excluidos, setExcluidos] = useState(() => new Set(leerBorradorNomina()?.excluidos || []));
+  const [incluidosExtra, setIncluidosExtra] = useState(() => new Set(leerBorradorNomina()?.incluidos || []));
+  const [candidatosNomina, setCandidatosNomina] = useState([]);
+  const [candidatoElegido, setCandidatoElegido] = useState('');
   const [modoNomina, setModoNomina] = useState(() => (leerBorradorNomina()?.modo === 'manual' ? 'manual' : 'automatico'));
   const [borradorListo, setBorradorListo] = useState(false);
   const [saldosArrastre, setSaldosArrastre] = useState({});
@@ -179,7 +183,9 @@ export default function Nomina({ supabase, sucursal, user }) {
         return;
       }
       const bajasEnPeriodo = await bajasEnPeriodoNomina(supabase, { desde: inicio, hasta: fin });
-      const lista = empleadosParaNominaGlobal(empleadosRes.data || [], { bajasEnPeriodo });
+      const usuariosTodos = empleadosRes.data || [];
+      const lista = empleadosParaNominaGlobal(aplicarIncluidosManuales(usuariosTodos, incluidosExtra), { bajasEnPeriodo });
+      setCandidatosNomina(candidatosAgregarNomina(usuariosTodos, lista));
       const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes } = await cargarDatosNomina(supabase, {
         desde: inicio,
         hasta: fin,
@@ -221,7 +227,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       setEmpleadosCache(lista);
       setCargando(false);
     },
-    [supabase, sucursal, inicio, fin, pagadorFiltro, tipoFiltro, excluidos, saldosArrastre],
+    [supabase, sucursal, inicio, fin, pagadorFiltro, tipoFiltro, excluidos, incluidosExtra, saldosArrastre],
   );
 
   const cargarPeriodos = useCallback(async () => {
@@ -262,6 +268,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         if (b.tipoFiltro != null) setTipoFiltro(b.tipoFiltro);
         if (b.notasPeriodo) setNotasPeriodo(b.notasPeriodo);
         if (Array.isArray(b.excluidos)) setExcluidos(new Set(b.excluidos));
+        if (Array.isArray(b.incluidos)) setIncluidosExtra(new Set(b.incluidos));
         if (b.modo === 'manual' || b.modo === 'automatico') setModoNomina(b.modo);
         // Restaurar líneas de inmediato para que el borrador no se pierda antes de la carga.
         if (Array.isArray(b.lineas) && b.lineas.length) {
@@ -322,9 +329,10 @@ export default function Nomina({ supabase, sucursal, user }) {
       notasPeriodo,
       lineas,
       excluidos: [...excluidos],
+      incluidos: [...incluidosExtra],
       modo: modoNomina,
     });
-  }, [lineas, inicio, fin, pagadorFiltro, tipoFiltro, notasPeriodo, excluidos, modoNomina, borradorListo]);
+  }, [lineas, inicio, fin, pagadorFiltro, tipoFiltro, notasPeriodo, excluidos, incluidosExtra, modoNomina, borradorListo]);
 
   const cambiarModoNomina = (nuevo) => {
     if (nuevo === modoNomina) return;
@@ -574,6 +582,28 @@ export default function Nomina({ supabase, sucursal, user }) {
     const id = String(linea.usuario_id);
     setExcluidos((prev) => new Set([...prev, id]));
     setLineas((prev) => prev.filter((l) => String(l.usuario_id) !== id));
+  };
+
+  const agregarCandidatoNomina = () => {
+    const cand = candidatosNomina.find((u) => String(u.id) === String(candidatoElegido));
+    if (!cand) return;
+    const id = String(cand.id);
+    setExcluidos((prev) => {
+      if (!prev.has(id)) return prev;
+      const n = new Set(prev);
+      n.delete(id);
+      return n;
+    });
+    setIncluidosExtra((prev) => new Set([...prev, id]));
+    setCandidatoElegido('');
+  };
+
+  const quitarIncluidosManuales = () => {
+    if (!incluidosExtra.size) return;
+    if (!window.confirm('¿Quitar de esta nómina a los empleados agregados a mano?')) return;
+    const ids = new Set(incluidosExtra);
+    setIncluidosExtra(new Set());
+    setLineas((prev) => prev.filter((l) => !ids.has(String(l.usuario_id))));
   };
 
   const restaurarExcluidos = () => {
@@ -1100,6 +1130,32 @@ export default function Nomina({ supabase, sucursal, user }) {
             <button type="button" className="btn btn-ghost" onClick={restaurarExcluidos}>
               Restaurar quitados ({excluidos.size})
             </button>
+          )}
+          {esAdmin && (candidatosNomina.length > 0 || incluidosExtra.size > 0) && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+              <select
+                className="select"
+                value={candidatoElegido}
+                onChange={(e) => setCandidatoElegido(e.target.value)}
+                title="Personas que no salen en la nómina (inactivas, Cubre Turno, bajas de otras semanas)"
+              >
+                <option value="">Agregar a la nómina…</option>
+                {candidatosNomina.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre}
+                    {u.activo === false ? ' (inactivo)' : ''}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn btn-ghost" disabled={!candidatoElegido} onClick={agregarCandidatoNomina}>
+                Agregar
+              </button>
+              {incluidosExtra.size > 0 && (
+                <button type="button" className="btn btn-ghost" onClick={quitarIncluidosManuales}>
+                  Quitar agregados ({incluidosExtra.size})
+                </button>
+              )}
+            </span>
           )}
         </div>
       </div>

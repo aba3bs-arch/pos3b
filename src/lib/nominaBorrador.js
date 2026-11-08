@@ -10,6 +10,7 @@ export function leerBorradorNomina() {
       ...o,
       lineas: Array.isArray(o.lineas) ? o.lineas : [],
       excluidos: Array.isArray(o.excluidos) ? o.excluidos : [],
+      incluidos: Array.isArray(o.incluidos) ? o.incluidos : [],
     };
   } catch {
     return null;
@@ -34,6 +35,7 @@ export function guardarBorradorNomina(draft) {
         ...draft,
         lineas: Array.isArray(draft.lineas) ? draft.lineas : [],
         excluidos: Array.isArray(draft.excluidos) ? draft.excluidos : [],
+        incluidos: Array.isArray(draft.incluidos) ? draft.incluidos : [],
         savedAt: Date.now(),
       }),
     );
