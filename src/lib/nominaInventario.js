@@ -43,39 +43,29 @@ export function notaCuotaFaltanteInventario(sucursal, faltanteNeto, cuota, { bru
 }
 
 /**
- * Tiendas cuyo inventario se hace el primer día de la semana de pago (sábado) y pertenece
- * a esa misma semana: sí cuenta el día de inicio.
+ * Ventana de inventarios de una nómina (semana de pago sáb–vie; semana de inventarios lun–sáb).
+ * Va del día siguiente al inicio de la semana de pago hasta el sábado posterior al fin:
+ * nómina 31 oct–6 nov → inventarios cerrados del 1 al 7 nov. El inventario del sábado de inicio
+ * (31 oct) es de la semana anterior, y el del sábado siguiente al fin (7 nov) es de esta.
+ * Así, el día que arranca una semana nueva todavía no hay inventarios cargados.
  */
-export const TIENDAS_INVENTARIO_PRIMER_DIA = ['3B9', '3B10'];
-
-export function inventarioIncluyePrimerDia(sucursal) {
-  const suc = normalizarCodigoTienda(sucursal);
-  return !!suc && TIENDAS_INVENTARIO_PRIMER_DIA.includes(suc);
-}
-
-/**
- * Ventana de inventarios de una nómina.
- * Por defecto va del día siguiente al inicio de la semana hasta el último día (el primer día
- * pertenece a la nómina anterior). Para 3B9 y 3B10 el sábado de inicio sí cuenta.
- * Sin `sucursal` devuelve la ventana más amplia (para cargar datos).
- */
-export function ventanaInventarioNomina(inicio, fin, sucursal = null) {
+export function ventanaInventarioNomina(inicio, fin) {
   const ini = String(inicio || '').slice(0, 10);
   const f = String(fin || '').slice(0, 10);
   if (!ini || !f) return { desde: ini, hasta: f };
-  if (sucursal == null ? true : inventarioIncluyePrimerDia(sucursal)) return { desde: ini, hasta: f };
   const desde = sumarDiasYmd(ini, 1);
-  return { desde: desde > f ? f : desde, hasta: f };
+  const hasta = sumarDiasYmd(f, 1);
+  return { desde: desde > hasta ? hasta : desde, hasta };
 }
 
 /**
  * ¿El resultado de inventario aplica a esta nómina?
- * Solo cuenta si el inventario cerró (campo «hasta») dentro de la ventana de la semana en curso
- * de su tienda. Los inventarios de semanas anteriores ya no se vuelven a jalar.
+ * Solo cuenta si el inventario cerró (campo «hasta») dentro de la ventana de la semana de pago.
+ * Los inventarios de semanas anteriores ya no se vuelven a jalar.
  */
 export function registroFaltanteAplicaASemana(reg, inicio, fin) {
   if (!reg?.desde || !reg?.hasta || !inicio || !fin) return false;
-  const ventana = ventanaInventarioNomina(inicio, fin, reg.sucursal_id);
+  const ventana = ventanaInventarioNomina(inicio, fin);
   if (reg.hasta < ventana.desde || reg.hasta > ventana.hasta) return false;
   if (faltanteNetoParaNomina(reg) > 0) return true;
   const bruto = Number(reg.valor_faltante);
@@ -83,7 +73,7 @@ export function registroFaltanteAplicaASemana(reg, inicio, fin) {
 }
 
 function scoreRegistroSemana(reg, inicio, fin) {
-  const v = ventanaInventarioNomina(inicio, fin, reg.sucursal_id);
+  const v = ventanaInventarioNomina(inicio, fin);
   let s = 0;
   if (reg.hasta >= v.desde && reg.hasta <= v.hasta) s += 100;
   if (reg.desde >= v.desde && reg.desde <= v.hasta) s += 20;
