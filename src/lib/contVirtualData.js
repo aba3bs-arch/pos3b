@@ -213,10 +213,10 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
   };
 }
 
-/** Monto de venta de un cierre abarrotes (columna + detalle). */
+/** Monto de venta en efectivo de un cierre abarrotes (descuenta pago con tarjeta). */
 export function montoVentaCierreAbarrotes(c) {
   const detalle = c?.detalle && typeof c.detalle === 'object' ? c.detalle : {};
-  return round2(
+  const ventaTotal = round2(
     Number(c?.ventas)
     || Number(detalle.venta)
     || Number(detalle.venta_neta)
@@ -224,6 +224,9 @@ export function montoVentaCierreAbarrotes(c) {
     || Number(detalle.subtotal)
     || 0,
   );
+  // El libro diario mide flujo de efectivo; el pago con tarjeta no entra a la caja.
+  const tarjeta = round2(Number(detalle.tarjeta) || 0);
+  return round2(ventaTotal - tarjeta);
 }
 
 /**
