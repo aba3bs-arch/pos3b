@@ -114,6 +114,8 @@ export function construirLibroDiario({ desde, hasta, ingresos = [], gastos = [] 
       empleado: it.empleado || '',
       concepto: it.tipo_mov === 'venta_cierre'
         ? `Venta del corte${it.folio ? ` ${it.folio}` : ''}${etiquetaTurno(it) ? ` · ${etiquetaTurno(it)}` : ''}`
+        : it.tipo_mov === 'cobro_credito'
+        ? `Cobro de crédito${it.folio ? ` · ${it.folio}` : ''}`
         : (it.comentario || 'Ingreso capturado'),
       monto,
     };
