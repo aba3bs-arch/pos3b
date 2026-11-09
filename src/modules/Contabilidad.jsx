@@ -90,19 +90,24 @@ const DESCRIPCIONES = {
   },
 };
 
+/** Submódulos que no se muestran como botón en el hub (siguen disponibles en Venta en Ruta y para el cajero). */
+export const SUBMODULOS_OCULTOS_HUB_CONTABILIDAD = ['Crédito', 'Cobranza'];
+
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */
 export default function Contabilidad({ submodulosVisibles, onNavigate }) {
-  const items = (submodulosVisibles || []).map((id) => {
-    const meta = DESCRIPCIONES[id] || {};
-    return {
-      id,
-      label: id,
-      desc: meta.desc || '',
-      ayuda: meta.ayuda || meta.desc || '',
-      icon: iconoDeModulo(id),
-      color: colorDeModulo(id),
-    };
-  });
+  const items = (submodulosVisibles || [])
+    .filter((id) => !SUBMODULOS_OCULTOS_HUB_CONTABILIDAD.includes(id))
+    .map((id) => {
+      const meta = DESCRIPCIONES[id] || {};
+      return {
+        id,
+        label: id,
+        desc: meta.desc || '',
+        ayuda: meta.ayuda || meta.desc || '',
+        icon: iconoDeModulo(id),
+        color: colorDeModulo(id),
+      };
+    });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -118,7 +123,7 @@ export default function Contabilidad({ submodulosVisibles, onNavigate }) {
         color="#7c3aed"
       />
       <p className="muted" style={{ fontSize: '0.78rem' }}>
-        Submódulos disponibles: {SUBMODULOS_CONTABILIDAD.join(' · ')}
+        Submódulos disponibles: {SUBMODULOS_CONTABILIDAD.filter((m) => !SUBMODULOS_OCULTOS_HUB_CONTABILIDAD.includes(m)).join(' · ')}
       </p>
     </div>
   );
