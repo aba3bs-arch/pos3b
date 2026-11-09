@@ -29,6 +29,7 @@ const libro = construirLibroDiario({
     { id: 'v2', fecha: '2026-10-31', monto: 500, tipo_mov: 'venta_cierre', folio: 'AB-002', created_at: '2026-10-31T23:00:00Z' },
     { id: 'v3', fecha: '2026-11-02', monto: 700, tipo_mov: 'venta_cierre', folio: 'AB-003' },
     { id: 'm1', fecha: '2026-11-02', monto: 50, tipo_mov: 'manual', comentario: 'Ingreso extra' },
+    { id: 'cxc1', fecha: '2026-10-31', monto: 300, tipo_mov: 'cobro_credito', folio: 'VM-01', comentario: 'Cobro de crédito · VM-01', empleado: 'AMR' },
     { id: 'x', fecha: '2026-11-09', monto: 99, tipo_mov: 'venta_cierre' },
     { id: 'cero', fecha: '2026-11-03', monto: 0, tipo_mov: 'venta_cierre' },
   ],
@@ -45,23 +46,25 @@ assert.equal(libro.dias[0].nombre, 'Sábado');
 assert.equal(libro.dias[6].nombre, 'Viernes');
 const d0 = libro.dias[0];
 assert.equal(d0.totalVentas, 1500);
+assert.equal(d0.totalOtrosIngresos, 300); // cobro crédito VM-01
 assert.equal(d0.totalGastos, 200);
-assert.equal(d0.resultado, 1300);
-assert.equal(d0.acumulado, 1300);
+assert.equal(d0.resultado, 1600);
+assert.equal(d0.acumulado, 1600);
 assert.equal(d0.ventas[0].folio, 'AB-001');
 assert.match(d0.ventas[0].concepto, /AB-001 · Turno diurno/);
+assert.ok(d0.otrosIngresos.some((x) => x.concepto === 'Cobro de crédito · VM-01'));
 const d2 = libro.dias[2]; // 2 nov
 assert.equal(d2.totalIngresos, 750);
 assert.equal(d2.totalGastos, 1000);
 assert.equal(d2.resultado, -250);
-assert.equal(d2.acumulado, 1050);
+assert.equal(d2.acumulado, 1350); // 1600 (sáb) - 250 (lun) = 1350
 assert.equal(d2.gastos[0].categoria, 'Proveedores'); // más grande primero
 assert.equal(libro.dias[1].sinMovimiento, true);
 assert.equal(libro.totales.ventas, 2200);
-assert.equal(libro.totales.otrosIngresos, 50);
-assert.equal(libro.totales.ingresos, 2250);
+assert.equal(libro.totales.otrosIngresos, 350); // 50 manual + 300 cobro crédito
+assert.equal(libro.totales.ingresos, 2550);
 assert.equal(libro.totales.gastos, 1200);
-assert.equal(libro.totales.resultado, 1050);
+assert.equal(libro.totales.resultado, 1350);
 assert.equal(libro.totales.diasConMovimiento, 2);
 assert.equal(libro.gastosPorCategoria[0].categoria, 'Proveedores');
 assert.equal(libro.gastosPorCategoria[0].total, 900);

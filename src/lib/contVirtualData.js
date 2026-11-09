@@ -875,6 +875,42 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     ingresosItems.push(item);
   }
 
+  // Créditos cobrados: cada gasto CREDITO/CREDITO RUTA representa efectivo
+  // recibido del cliente que luego sale a tránsito del recolector.
+  // Se registra también como ENTRADA para que el libro diario muestre el flujo completo
+  // (entrada del cliente + salida al recolector = neto cero, que es lo correcto).
+  for (const g of gastos) {
+    const catUpper = String(g.categoria || '').toUpperCase();
+    if (catUpper !== 'CREDITO' && catUpper !== 'CREDITO RUTA') continue;
+    const monto = round2(g.monto);
+    if (!(monto > 0)) continue;
+    const t = normalizarCodigoTienda(g.sucursal_id) || 'MAIN';
+    if (sucFiltro && t !== sucFiltro) continue;
+    const f = ymdNegocio(g.created_at) || desde;
+    // comentario del gasto: "CREDITO COBRADO · folio · cajero"
+    const partes = (g.comentario || '').split(' · ');
+    const folio = partes[1] ? partes[1].trim() : '';
+    ingresosTotal = round2(ingresosTotal + monto);
+    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + monto);
+    if (!ingresosPorTienda[t]) {
+      ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
+    }
+    ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + monto);
+    ingresosItems.push({
+      id: `cxc-cobro-${g.id}`,
+      fecha: f,
+      created_at: g.created_at,
+      folio,
+      monto,
+      comentario: `Cobro de crédito${folio ? ` · ${folio}` : ''}`,
+      empleado: g.usuario_nombre || '',
+      turno: '',
+      tipo_mov: 'cobro_credito',
+      tienda: t,
+      cuenta: 'abarrotes',
+    });
+  }
+
   const ingresosPorDia = ingresosItems.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
 
   const prestamosPeriodo = prestamosAll.filter((p) => {
