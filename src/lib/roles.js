@@ -124,6 +124,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'RC Abarrotes',
   'IE VIRTUAL',
   'IE ABARROTES',
+  'Libro diario',
   'Auto Fin',
   'Crédito',
   'Cobranza',

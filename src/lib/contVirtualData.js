@@ -708,7 +708,7 @@ function fmtMoneyPlain(n) {
  * Ingresos = ventas de cierres de corte (aunque no se recolecte) + capturas manuales.
  * Independiente de Virtual/Garage (Antonio).
  */
-export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = null } = {}) {
+export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = null, limiteDetalle = 500 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!desde || !hasta) return { ok: false, error: 'Indica el periodo.' };
 
@@ -935,7 +935,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     egresosPorCat,
     ingresosPorTienda: Object.values(ingresosPorTienda).sort((a, b) => b.ingresos - a.ingresos),
     egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
-    detalleGastos: unificado.detalle.slice(0, 500),
+    detalleGastos: unificado.detalle.slice(0, Math.max(1, Number(limiteDetalle) || 500)),
     ingresosPorDia,
     porCuenta,
     pastelCategorias: unificado.pastelCategorias,

@@ -64,6 +64,10 @@ const DESCRIPCIONES = {
     desc: 'Francisco · ingresos, egresos, proveedores y utilidades',
     ayuda: 'Ingresos y egresos de Abarrotes (cuenta Francisco). Incluye ventas/gastos por proveedor, utilidad bruta y ganancia neta.',
   },
+  'Libro diario': {
+    desc: 'Abarrotes por tienda · día por día de la semana',
+    ayuda: 'Reporte semanal (sábado a viernes) por tienda: lo que entró por ventas, lo que salió por gastos, resultado de cada día y en qué se gastó.',
+  },
   'Auto Fin': {
     desc: 'Antonio · vehículos y préstamos a externos o empleados (MAIN)',
     ayuda: 'Financia clientes externos (no 3B) o empleados de tiendas y MAIN. Enganche, cuotas e historial de pagos.',
