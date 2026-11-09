@@ -1,55 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, supabaseConfigured } from './lib/supabase.js';
 import Inicio from './modules/Inicio.jsx';
 import Ventas from './modules/Ventas.jsx';
-import EscanerMovil from './modules/EscanerMovil.jsx';
-import Productos from './modules/Productos.jsx';
-import Compras from './modules/Compras.jsx';
-import Checador from './modules/Checador.jsx';
-import CheckList from './modules/CheckList.jsx';
-import EvaluacionOperativa from './modules/EvaluacionOperativa.jsx';
-import Proveedores from './modules/Proveedores.jsx';
-import Clientes from './modules/Clientes.jsx';
-import Usuarios from './modules/Usuarios.jsx';
-import Consultas from './modules/Consultas.jsx';
-import Estadisticas from './modules/Estadisticas.jsx';
 import EstadisticasArea from './components/EstadisticasArea.jsx';
 import VolverEstadisticas from './components/VolverEstadisticas.jsx';
-import ResumenOperativo from './modules/ResumenOperativo.jsx';
-import AuditoriaUso from './modules/AuditoriaUso.jsx';
-import Reportes from './modules/Reportes.jsx';
-import Nomina from './modules/Nomina.jsx';
-import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
-import Contabilidad from './modules/Contabilidad.jsx';
-import Tesoreria from './modules/Tesoreria.jsx';
-import ContVirtual from './modules/ContVirtual.jsx';
-import VentaEnRuta from './modules/VentaEnRuta.jsx';
-import CreditoRuta from './modules/CreditoRuta.jsx';
-import CobranzaRuta from './modules/CobranzaRuta.jsx';
-import AutoFin from './modules/AutoFin.jsx';
 import VolverContabilidad from './components/VolverContabilidad.jsx';
-import ValesPrestamos from './modules/ValesPrestamos.jsx';
-import Archivo from './modules/Archivo.jsx';
-import CorteVirtual from './modules/cortes/CorteVirtual.jsx';
-import CorteAbarrotes from './modules/cortes/CorteAbarrotes.jsx';
-import CorteGarage from './modules/cortes/CorteGarage.jsx';
-import CorteCaja from './modules/CorteCaja.jsx';
-import Configuracion from './modules/Configuracion.jsx';
-import Buzon from './modules/Buzon.jsx';
-import Mensajes from './modules/Mensajes.jsx';
-import Ayuda from './modules/Ayuda.jsx';
-import Tutorial from './modules/Tutorial.jsx';
-import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
-import Conciliaciones from './modules/Conciliaciones.jsx';
-import Consolidacion from './modules/Consolidacion.jsx';
-import ConsolidacionComprasInventario from './modules/ConsolidacionComprasInventario.jsx';
-import RevisionCompras from './modules/RevisionCompras.jsx';
-import GastosEvidencia from './modules/GastosEvidencia.jsx';
-import ClientesMaquinas from './modules/ClientesMaquinas.jsx';
-import RcVirtual from './modules/RcVirtual.jsx';
-import RhAba3b from './modules/RhAba3b.jsx';
-import Contratacion from './modules/Contratacion.jsx';
-import ContratacionPublica from './modules/ContratacionPublica.jsx';
 import {
   listarSucursalesParaUI,
   etiquetaTienda,
@@ -193,6 +148,100 @@ import {
 import { EVENTO_TEMA_INTERFAZ, aplicarTemaInterfaz, leerTemaInterfaz } from './lib/temasInterfaz.js';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
+/** Módulos bajo demanda: el arranque (Inicio/Ventas) no descarga el resto del POS. */
+const CARGADORES_MODULOS = {
+  EscanerMovil: () => import('./modules/EscanerMovil.jsx'),
+  Productos: () => import('./modules/Productos.jsx'),
+  Compras: () => import('./modules/Compras.jsx'),
+  Checador: () => import('./modules/Checador.jsx'),
+  CheckList: () => import('./modules/CheckList.jsx'),
+  EvaluacionOperativa: () => import('./modules/EvaluacionOperativa.jsx'),
+  Proveedores: () => import('./modules/Proveedores.jsx'),
+  Clientes: () => import('./modules/Clientes.jsx'),
+  Usuarios: () => import('./modules/Usuarios.jsx'),
+  Consultas: () => import('./modules/Consultas.jsx'),
+  Estadisticas: () => import('./modules/Estadisticas.jsx'),
+  ResumenOperativo: () => import('./modules/ResumenOperativo.jsx'),
+  AuditoriaUso: () => import('./modules/AuditoriaUso.jsx'),
+  Reportes: () => import('./modules/Reportes.jsx'),
+  Nomina: () => import('./modules/Nomina.jsx'),
+  RecoleccionesTraspasosContabilidad: () => import('./modules/RecoleccionesTraspasosContabilidad.jsx'),
+  Contabilidad: () => import('./modules/Contabilidad.jsx'),
+  Tesoreria: () => import('./modules/Tesoreria.jsx'),
+  ContVirtual: () => import('./modules/ContVirtual.jsx'),
+  VentaEnRuta: () => import('./modules/VentaEnRuta.jsx'),
+  CreditoRuta: () => import('./modules/CreditoRuta.jsx'),
+  CobranzaRuta: () => import('./modules/CobranzaRuta.jsx'),
+  AutoFin: () => import('./modules/AutoFin.jsx'),
+  ValesPrestamos: () => import('./modules/ValesPrestamos.jsx'),
+  Archivo: () => import('./modules/Archivo.jsx'),
+  CorteVirtual: () => import('./modules/cortes/CorteVirtual.jsx'),
+  CorteAbarrotes: () => import('./modules/cortes/CorteAbarrotes.jsx'),
+  CorteGarage: () => import('./modules/cortes/CorteGarage.jsx'),
+  CorteCaja: () => import('./modules/CorteCaja.jsx'),
+  Configuracion: () => import('./modules/Configuracion.jsx'),
+  Buzon: () => import('./modules/Buzon.jsx'),
+  Mensajes: () => import('./modules/Mensajes.jsx'),
+  Ayuda: () => import('./modules/Ayuda.jsx'),
+  Tutorial: () => import('./modules/Tutorial.jsx'),
+  LiquidacionRecolecciones: () => import('./modules/LiquidacionRecolecciones.jsx'),
+  Conciliaciones: () => import('./modules/Conciliaciones.jsx'),
+  Consolidacion: () => import('./modules/Consolidacion.jsx'),
+  ConsolidacionComprasInventario: () => import('./modules/ConsolidacionComprasInventario.jsx'),
+  RevisionCompras: () => import('./modules/RevisionCompras.jsx'),
+  GastosEvidencia: () => import('./modules/GastosEvidencia.jsx'),
+  ClientesMaquinas: () => import('./modules/ClientesMaquinas.jsx'),
+  RcVirtual: () => import('./modules/RcVirtual.jsx'),
+  RhAba3b: () => import('./modules/RhAba3b.jsx'),
+  Contratacion: () => import('./modules/Contratacion.jsx'),
+  ContratacionPublica: () => import('./modules/ContratacionPublica.jsx'),
+};
+const EscanerMovil = lazy(CARGADORES_MODULOS.EscanerMovil);
+const Productos = lazy(CARGADORES_MODULOS.Productos);
+const Compras = lazy(CARGADORES_MODULOS.Compras);
+const Checador = lazy(CARGADORES_MODULOS.Checador);
+const CheckList = lazy(CARGADORES_MODULOS.CheckList);
+const EvaluacionOperativa = lazy(CARGADORES_MODULOS.EvaluacionOperativa);
+const Proveedores = lazy(CARGADORES_MODULOS.Proveedores);
+const Clientes = lazy(CARGADORES_MODULOS.Clientes);
+const Usuarios = lazy(CARGADORES_MODULOS.Usuarios);
+const Consultas = lazy(CARGADORES_MODULOS.Consultas);
+const Estadisticas = lazy(CARGADORES_MODULOS.Estadisticas);
+const ResumenOperativo = lazy(CARGADORES_MODULOS.ResumenOperativo);
+const AuditoriaUso = lazy(CARGADORES_MODULOS.AuditoriaUso);
+const Reportes = lazy(CARGADORES_MODULOS.Reportes);
+const Nomina = lazy(CARGADORES_MODULOS.Nomina);
+const RecoleccionesTraspasosContabilidad = lazy(CARGADORES_MODULOS.RecoleccionesTraspasosContabilidad);
+const Contabilidad = lazy(CARGADORES_MODULOS.Contabilidad);
+const Tesoreria = lazy(CARGADORES_MODULOS.Tesoreria);
+const ContVirtual = lazy(CARGADORES_MODULOS.ContVirtual);
+const VentaEnRuta = lazy(CARGADORES_MODULOS.VentaEnRuta);
+const CreditoRuta = lazy(CARGADORES_MODULOS.CreditoRuta);
+const CobranzaRuta = lazy(CARGADORES_MODULOS.CobranzaRuta);
+const AutoFin = lazy(CARGADORES_MODULOS.AutoFin);
+const ValesPrestamos = lazy(CARGADORES_MODULOS.ValesPrestamos);
+const Archivo = lazy(CARGADORES_MODULOS.Archivo);
+const CorteVirtual = lazy(CARGADORES_MODULOS.CorteVirtual);
+const CorteAbarrotes = lazy(CARGADORES_MODULOS.CorteAbarrotes);
+const CorteGarage = lazy(CARGADORES_MODULOS.CorteGarage);
+const CorteCaja = lazy(CARGADORES_MODULOS.CorteCaja);
+const Configuracion = lazy(CARGADORES_MODULOS.Configuracion);
+const Buzon = lazy(CARGADORES_MODULOS.Buzon);
+const Mensajes = lazy(CARGADORES_MODULOS.Mensajes);
+const Ayuda = lazy(CARGADORES_MODULOS.Ayuda);
+const Tutorial = lazy(CARGADORES_MODULOS.Tutorial);
+const LiquidacionRecolecciones = lazy(CARGADORES_MODULOS.LiquidacionRecolecciones);
+const Conciliaciones = lazy(CARGADORES_MODULOS.Conciliaciones);
+const Consolidacion = lazy(CARGADORES_MODULOS.Consolidacion);
+const ConsolidacionComprasInventario = lazy(CARGADORES_MODULOS.ConsolidacionComprasInventario);
+const RevisionCompras = lazy(CARGADORES_MODULOS.RevisionCompras);
+const GastosEvidencia = lazy(CARGADORES_MODULOS.GastosEvidencia);
+const ClientesMaquinas = lazy(CARGADORES_MODULOS.ClientesMaquinas);
+const RcVirtual = lazy(CARGADORES_MODULOS.RcVirtual);
+const RhAba3b = lazy(CARGADORES_MODULOS.RhAba3b);
+const Contratacion = lazy(CARGADORES_MODULOS.Contratacion);
+const ContratacionPublica = lazy(CARGADORES_MODULOS.ContratacionPublica);
+
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
 /** MAIN como VITE_SUCURSAL_FIJA no bloquea el selector (es panel admin). */
 const CAJA_FISICA_FIJA_ENV = sucursalFijaEsCajaFisica();
@@ -278,6 +327,29 @@ function App() {
       setTipoCambioRaw(guardarTipoCambio(val));
     }
   }, []);
+
+  // Con sesión iniciada, baja el resto de módulos en segundo plano (uno cada 400 ms) para que
+  // abrirlos sea instantáneo y sigan disponibles si se cae la red.
+  useEffect(() => {
+    if (!sesion || modoContratacionPublica) return undefined;
+    const conn = typeof navigator !== 'undefined' ? navigator.connection : null;
+    if (conn?.saveData || /(^|-)2g$/.test(String(conn?.effectiveType || ''))) return undefined;
+    const nombres = Object.keys(CARGADORES_MODULOS);
+    let i = 0;
+    let cancelado = false;
+    let t = null;
+    const siguiente = () => {
+      if (cancelado || i >= nombres.length) return;
+      CARGADORES_MODULOS[nombres[i]]().catch(() => {});
+      i += 1;
+      t = setTimeout(siguiente, 400);
+    };
+    t = setTimeout(siguiente, 5000);
+    return () => {
+      cancelado = true;
+      clearTimeout(t);
+    };
+  }, [sesion, modoContratacionPublica]);
 
   useEffect(() => {
     const onTc = () => setTipoCambioRaw(leerTipoCambio());
@@ -1495,7 +1567,11 @@ function App() {
   }, [user, modoOffline]);
 
   if (modoContratacionPublica) {
-    return <ContratacionPublica supabase={supabaseConfigured ? supabase : null} />;
+    return (
+      <Suspense fallback={<div className="app-modulo-cargando" role="status">Cargando…</div>}>
+        <ContratacionPublica supabase={supabaseConfigured ? supabase : null} />
+      </Suspense>
+    );
   }
 
   if (!sesion) {
@@ -1751,6 +1827,7 @@ function App() {
         )}
 
         <div key={vista} className="app-content app-page-enter">
+          <Suspense fallback={<div className="app-modulo-cargando" role="status">Cargando…</div>}>
           {vista === 'Inicio' && (
             <Inicio
               supabase={supabase}
@@ -2130,6 +2207,7 @@ function App() {
             />
           )}
           {vista === 'Ayuda' && <Ayuda user={user} />}
+          </Suspense>
         </div>
         {user ? <ReleaseAvisoOverlay user={user} /> : null}
         {user ? <ActualizacionPendienteOverlay /> : null}
