@@ -334,7 +334,7 @@ export async function cargarDatosNomina(supabase, { desde, hasta, empleados, tod
     cortesPorEmpleado(supabase, opts),
     valesGasolinaPorEmpleado(supabase, opts),
     asistenciasPorEmpleado(supabase, opts),
-    listarResultadosInventario(supabase, { desde: ventanaInventarioNomina(opts.desde, opts.hasta).desde, hasta: opts.hasta, limit: 200 }),
+    listarResultadosInventario(supabase, { ...ventanaInventarioNomina(opts.desde, opts.hasta), limit: 200 }),
     cargarTarifasVirtualGuardadas(supabase, (empleados || []).map((u) => u.id)),
   ]);
   return { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes, tarifasVirtualMap };

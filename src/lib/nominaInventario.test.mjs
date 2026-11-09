@@ -5,7 +5,6 @@ import {
   faltanteNetoParaNomina,
   registroFaltanteAplicaASemana,
   ventanaInventarioNomina,
-  inventarioIncluyePrimerDia,
   registroFaltantePorTienda,
   mapaCuotasFaltantePorEmpleado,
   combinarDeduccionInventario,
@@ -114,28 +113,29 @@ assert.equal(elegido.valor_faltante, 3000);
 
 console.log('nominaInventario.test.mjs OK');
 
-// Ventana de inventarios: sin el primer día de la semana (sáb 31 oct – vie 6 nov → del 1 al 6).
+// Semana de pago sáb 31 oct – vie 6 nov; semana de inventarios lun–sáb → inventarios cerrados del 1 al 7 nov.
 const sem2 = { inicio: '2026-10-31', fin: '2026-11-06' };
-assert.deepEqual(ventanaInventarioNomina(sem2.inicio, sem2.fin, '3B5'), { desde: '2026-11-01', hasta: '2026-11-06' });
-const regVentana = (hasta) => ({ ...regOk, desde: '2026-10-25', hasta });
-assert.equal(registroFaltanteAplicaASemana(regVentana('2026-10-31'), sem2.inicio, sem2.fin), false);
-assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-01'), sem2.inicio, sem2.fin), true);
-assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-06'), sem2.inicio, sem2.fin), true);
-assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-07'), sem2.inicio, sem2.fin), false);
-assert.equal(registroFaltanteAplicaASemana(regVentana('2026-10-28'), sem2.inicio, sem2.fin), false);
-console.log('nominaInventario.test.mjs ventana OK');
+assert.deepEqual(ventanaInventarioNomina(sem2.inicio, sem2.fin), { desde: '2026-11-01', hasta: '2026-11-07' });
+const regVentana = (hasta, suc = '3B5') => ({ ...regOk, sucursal_id: suc, desde: '2026-10-25', hasta });
+for (const suc of ['3B5', '3B9', '3B10']) {
+  // Sábado de inicio = inventario de la semana anterior.
+  assert.equal(registroFaltanteAplicaASemana(regVentana('2026-10-31', suc), sem2.inicio, sem2.fin), false);
+  assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-02', suc), sem2.inicio, sem2.fin), true);
+  assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-06', suc), sem2.inicio, sem2.fin), true);
+  // Sábado siguiente al viernes de cierre = inventario de esta semana.
+  assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-07', suc), sem2.inicio, sem2.fin), true);
+  assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-08', suc), sem2.inicio, sem2.fin), false);
+}
 
-// 3B9 y 3B10 inventarían el sábado de inicio y ese inventario pertenece a la semana que se paga.
-assert.equal(inventarioIncluyePrimerDia('3B9'), true);
-assert.equal(inventarioIncluyePrimerDia('3B10'), true);
-assert.equal(inventarioIncluyePrimerDia('3B5'), false);
-assert.deepEqual(ventanaInventarioNomina(sem2.inicio, sem2.fin, '3B10'), { desde: '2026-10-31', hasta: '2026-11-06' });
-assert.deepEqual(ventanaInventarioNomina(sem2.inicio, sem2.fin, '3B5'), { desde: '2026-11-01', hasta: '2026-11-06' });
-const regSab = (suc, hasta) => ({ ...regOk, sucursal_id: suc, desde: '2026-10-25', hasta });
-assert.equal(registroFaltanteAplicaASemana(regSab('3B10', '2026-10-31'), sem2.inicio, sem2.fin), true);
-assert.equal(registroFaltanteAplicaASemana(regSab('3B9', '2026-10-31'), sem2.inicio, sem2.fin), true);
-assert.equal(registroFaltanteAplicaASemana(regSab('3B5', '2026-10-31'), sem2.inicio, sem2.fin), false);
-// El sábado siguiente ya es de la próxima semana.
-assert.equal(registroFaltanteAplicaASemana(regSab('3B10', '2026-11-07'), sem2.inicio, sem2.fin), false);
-assert.equal(registroFaltanteAplicaASemana(regSab('3B10', '2026-10-24'), sem2.inicio, sem2.fin), false);
-console.log('nominaInventario.test.mjs 3B9/3B10 OK');
+// Semana nueva (sáb 7 – vie 13 nov): el día que arranca aún no hay inventarios; el del sáb 7 ya es de la semana cerrada.
+const sem3 = { inicio: '2026-11-07', fin: '2026-11-13' };
+assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-07', '3B9'), sem3.inicio, sem3.fin), false);
+assert.equal(registroFaltanteAplicaASemana(regVentana('2026-11-14', '3B9'), sem3.inicio, sem3.fin), true);
+const mapaNueva = mapaCuotasFaltantePorEmpleado({
+  registros: [regVentana('2026-11-07', '3B5')],
+  empleados,
+  desde: sem3.inicio,
+  hasta: sem3.fin,
+});
+assert.equal(mapaNueva['1'], undefined);
+console.log('nominaInventario.test.mjs ventana lun-sáb OK');
