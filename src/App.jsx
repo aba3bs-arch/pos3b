@@ -23,6 +23,7 @@ import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasos
 import Contabilidad from './modules/Contabilidad.jsx';
 import Tesoreria from './modules/Tesoreria.jsx';
 import ContVirtual from './modules/ContVirtual.jsx';
+import LibroDiario from './modules/LibroDiario.jsx';
 import VentaEnRuta from './modules/VentaEnRuta.jsx';
 import CreditoRuta from './modules/CreditoRuta.jsx';
 import CobranzaRuta from './modules/CobranzaRuta.jsx';
@@ -2028,6 +2029,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <ContVirtual supabase={supabase} user={user} libro="francisco" sucursal={sucursal} />
+            </>
+          )}
+          {vista === 'Libro diario' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <LibroDiario supabase={supabase} sucursal={sucursal} />
             </>
           )}
           {vista === 'Auto Fin' && (

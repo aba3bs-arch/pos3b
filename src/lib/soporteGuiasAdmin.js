@@ -269,6 +269,15 @@ export const GUIAS_MODULOS = [
     texto: 'Contabilidad → «IE VIRTUAL» o «IE ABARROTES». Barra inferior: «Trans.» («Diario», «Calendario», «Mensual», «Total», «Nota»), «Estad.», «Cuentas» y «Más» («Cuentas / subcuentas», «Exportar»; en Abarrotes también «Inversión proveedor»). El administrador captura con los botones «＋I» y «＋E»: «Nuevo ingreso» → «Registrar ingreso», «Nuevo egreso» → «Registrar egreso».',
   },
   {
+    id: 'libro_diario',
+    tema: 'libro diario de Abarrotes por tienda y semana',
+    modulos: ['Libro diario'],
+    claves: [
+      ['libro diario', 8], ['reporte semanal tienda', 6], ['resultado del dia', 6], ['entro y salio', 6], ['ventas y gastos por dia', 7],
+    ],
+    texto: 'Contabilidad → «Libro diario». Elige la tienda (o «Todas las tiendas» para el resumen) y la semana de sábado a viernes con «← Anterior», «Esta semana» o «Siguiente →». Cada día muestra lo que entró (ventas de los cortes), lo que salió (gastos) y el resultado; toca un día para abrir o cerrar su detalle. «Imprimir» saca el reporte de la tienda y semana elegidas.',
+  },
+  {
     id: 'archivo',
     tema: 'archivo de cortes y registros',
     modulos: ['Archivo'],

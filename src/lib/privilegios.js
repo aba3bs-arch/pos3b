@@ -37,6 +37,7 @@ export const MODULOS_IDS = [
   'RC Abarrotes',
   'IE VIRTUAL',
   'IE ABARROTES',
+  'Libro diario',
   'Auto Fin',
   'Crédito',
   'Cobranza',
