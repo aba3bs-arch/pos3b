@@ -54,6 +54,7 @@ import {
   motivoDeGasto,
   gastosDeMovimientosPorDia,
   totalGastosLista,
+  agruparGastosPorTienda,
 } from '../lib/contVirtualGastosResumen.js';
 import { empleadosParaCorte, etiquetaEmpleadoSelectGastos } from '../lib/empleadosVisibles.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual, actualizarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
@@ -738,7 +739,12 @@ function SummaryBar({
   const listaGastos = gastosItems || [];
   const tieneGastosDetalle = listaGastos.length > 0;
   const sumaGastos = totalGastosLista(listaGastos);
+  const gastosPorTienda = useMemo(
+    () => agruparGastosPorTienda(gastosItems || []),
+    [gastosItems],
+  );
   const [tiendaAbierta, setTiendaAbierta] = useState(null);
+  const [tiendaGastoAbierta, setTiendaGastoAbierta] = useState(null);
   const [recAbierta, setRecAbierta] = useState(null);
   const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
   const tieneDesglose = desglose.length > 0;
@@ -753,6 +759,7 @@ function SummaryBar({
               className={`cv-summary-ingreso-btn${abierto ? ' open' : ''}`}
               onClick={() => {
                 setGastosAbierto(false);
+                setTiendaGastoAbierta(null);
                 setAbierto((v) => {
                   if (v) {
                     setTiendaAbierta(null);
@@ -782,10 +789,13 @@ function SummaryBar({
                 setAbierto(false);
                 setTiendaAbierta(null);
                 setRecAbierta(null);
-                setGastosAbierto((v) => !v);
+                setGastosAbierto((v) => {
+                  if (v) setTiendaGastoAbierta(null);
+                  return !v;
+                });
               }}
               aria-expanded={gastosAbierto}
-              title="Ver el detalle de los gastos"
+              title="Ver el detalle de los gastos por tienda"
             >
               <div className="lbl">{labelGastos} <span className="chev" aria-hidden>▾</span></div>
               <div className="val gasto">{fmt(gastos)}</div>
@@ -805,39 +815,67 @@ function SummaryBar({
       {tieneGastosDetalle && gastosAbierto && (
         <div className="cv-summary-desglose cv-summary-gastos">
           <div className="cv-summary-desglose-hd">
-            {listaGastos.length} gasto{listaGastos.length === 1 ? '' : 's'} · {fmt(sumaGastos)}
+            Por sucursal · {listaGastos.length} gasto{listaGastos.length === 1 ? '' : 's'} · {fmt(sumaGastos)}
           </div>
           {Math.abs(sumaGastos - (Number(gastos) || 0)) > 0.5 && (
             <div className="cv-summary-gasto-nota">
               El total de arriba ({fmt(gastos)}) incluye gastos que no traen detalle en esta lista.
             </div>
           )}
-          {listaGastos.map((g) => (
-            <div
-              key={`${g.id}`}
-              className={`cv-summary-gasto${onVerGasto ? ' click' : ''}`}
-              role={onVerGasto ? 'button' : undefined}
-              tabIndex={onVerGasto ? 0 : undefined}
-              onClick={onVerGasto ? () => onVerGasto(g) : undefined}
-              onKeyDown={onVerGasto ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onVerGasto(g);
-                }
-              } : undefined}
-            >
-              <div className="cv-summary-gasto-top">
-                <span className="concepto">{conceptoDeGasto(g)}</span>
-                <span className="amt-g">{fmt(g.monto)}</span>
+          {gastosPorTienda.map((t) => {
+            const expandida = tiendaGastoAbierta === t.id;
+            return (
+              <div key={t.id} className="cv-summary-tienda">
+                <button
+                  type="button"
+                  className={`cv-summary-desglose-row btn gasto${expandida ? ' open' : ''}`}
+                  onClick={() => setTiendaGastoAbierta((prev) => (prev === t.id ? null : t.id))}
+                  aria-expanded={expandida}
+                >
+                  <span>
+                    {t.label}
+                    <span className="cv-summary-tienda-count">
+                      {' '}· {t.items.length} gasto{t.items.length === 1 ? '' : 's'}
+                    </span>
+                  </span>
+                  <span className="amt">
+                    {fmt(t.gastos)}
+                    <span className="chev" aria-hidden>▾</span>
+                  </span>
+                </button>
+                {expandida && (
+                  <div className="cv-summary-gastos-tienda">
+                    {t.items.map((g) => (
+                      <div
+                        key={`${g.id}`}
+                        className={`cv-summary-gasto${onVerGasto ? ' click' : ''}`}
+                        role={onVerGasto ? 'button' : undefined}
+                        tabIndex={onVerGasto ? 0 : undefined}
+                        onClick={onVerGasto ? () => onVerGasto(g) : undefined}
+                        onKeyDown={onVerGasto ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onVerGasto(g);
+                          }
+                        } : undefined}
+                      >
+                        <div className="cv-summary-gasto-top">
+                          <span className="concepto">{conceptoDeGasto(g)}</span>
+                          <span className="amt-g">{fmt(g.monto)}</span>
+                        </div>
+                        <dl className="cv-summary-gasto-datos">
+                          <dt>Corte</dt><dd>{corteDeGasto(g)}</dd>
+                          <dt>Fecha</dt><dd>{g.fecha ? fmtFechaCorta(g.fecha) : '—'}</dd>
+                          <dt>Cajero</dt><dd>{cajeroDeGasto(g)}</dd>
+                          <dt>Motivo</dt><dd>{motivoDeGasto(g)}</dd>
+                        </dl>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <dl className="cv-summary-gasto-datos">
-                <dt>Corte</dt><dd>{corteDeGasto(g)} · {etiquetaTienda(g.tienda || 'MAIN')}</dd>
-                <dt>Fecha</dt><dd>{g.fecha ? fmtFechaCorta(g.fecha) : '—'}</dd>
-                <dt>Cajero</dt><dd>{cajeroDeGasto(g)}</dd>
-                <dt>Motivo</dt><dd>{motivoDeGasto(g)}</dd>
-              </dl>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {tieneDesglose && abierto && (

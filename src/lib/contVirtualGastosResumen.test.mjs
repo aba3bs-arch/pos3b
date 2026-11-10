@@ -7,6 +7,7 @@ import {
   motivoDeGasto,
   gastosDeMovimientosPorDia,
   totalGastosLista,
+  agruparGastosPorTienda,
 } from './contVirtualGastosResumen.js';
 
 test('corte, cajero, concepto y motivo del gasto', () => {
@@ -32,4 +33,20 @@ test('lista de gastos desde movimientos por día, más reciente primero', () => 
   const l = gastosDeMovimientosPorDia(porDia);
   assert.deepEqual(l.map((x) => x.id), ['b', 'a']);
   assert.equal(totalGastosLista(l), 15.5);
+});
+
+test('agrupa gastos por tienda con total y mayor monto primero', () => {
+  const lista = [
+    { id: '1', tienda: '3B6', monto: 100, fecha: '2026-11-09' },
+    { id: '2', tienda: 'MAIN', monto: 50, fecha: '2026-11-09' },
+    { id: '3', tienda: '3B6', monto: 20.55, fecha: '2026-11-08' },
+    { id: '4', tienda: '', monto: 10, fecha: '2026-11-07' },
+  ];
+  const grupos = agruparGastosPorTienda(lista);
+  assert.deepEqual(grupos.map((g) => g.id), ['3B6', 'MAIN']);
+  assert.equal(grupos[0].gastos, 120.55);
+  assert.deepEqual(grupos[0].items.map((x) => x.id), ['1', '3']);
+  assert.equal(grupos[1].gastos, 60);
+  assert.deepEqual(grupos[1].items.map((x) => x.id), ['2', '4']);
+  assert.deepEqual(agruparGastosPorTienda([]), []);
 });
