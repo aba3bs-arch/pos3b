@@ -589,7 +589,8 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     egresosPorCat,
     ingresosPorTienda: Object.values(ingresosPorTienda).sort((a, b) => b.ingresos - a.ingresos),
     egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
-    detalleGastos: unificado.detalle.slice(0, 500),
+    // Hasta 5000 para pestaña Estad.→Gasto (totales por concepto/tienda sin truncar el periodo).
+    detalleGastos: unificado.detalle.slice(0, 5000),
     ingresosPorDia,
     porCuenta,
     panorama,
