@@ -175,14 +175,96 @@ export function categoriaEnCatalogoCortes(c) {
   if (nom === 'EMPLEADO' || nom.startsWith('EMPLEADO ')) return true;
   if (normalizarFlujoCatalogo(c.flujo) === 'ingreso') return false;
   // null/undefined = true (catálogo previo a la columna)
+  const guardados = parseDestinosCatalogo(c.destinos_catalogo);
+  if (guardados) return guardados.some((d) => ['abarrotes', 'virtual', 'garage'].includes(d));
   return c.en_catalogo_cortes !== false;
+}
+
+/**
+ * Módulos que consumen el catálogo de categorías de IE.
+ * El admin elige a cuáles se envía cada cuenta (botón «Enviar» en Cuentas y subcuentas).
+ */
+export const DESTINOS_CATALOGO = [
+  { id: 'abarrotes', label: 'Corte Abarrotes', corte: true },
+  { id: 'virtual', label: 'Corte Virtual', corte: true },
+  { id: 'garage', label: 'Corte Garage', corte: true },
+  { id: 'vales', label: 'Vales', corte: false },
+  { id: 'registro_gastos', label: 'Registro de gastos', corte: false },
+];
+
+const IDS_DESTINOS = DESTINOS_CATALOGO.map((d) => d.id);
+const DESTINOS_NINGUNO = '-';
+const IDS_CORTES = ['abarrotes', 'virtual', 'garage'];
+
+/** Texto «a,b» o arreglo → lista válida; null si no hay selección guardada (comportamiento previo). */
+export function parseDestinosCatalogo(raw) {
+  if (raw == null || raw === '') return null;
+  // «-» = selección guardada sin ningún módulo (quitada de todos).
+  if (raw === DESTINOS_NINGUNO) return [];
+  const lista = Array.isArray(raw)
+    ? raw
+    : String(raw).replace(/[{}"]/g, '').split(',');
+  const limpio = [...new Set(lista.map((x) => String(x).trim().toLowerCase()).filter((x) => IDS_DESTINOS.includes(x)))];
+  return limpio;
+}
+
+export function serializarDestinosCatalogo(destinos) {
+  const txt = [...new Set((destinos || []).map((x) => String(x).trim().toLowerCase()).filter((x) => IDS_DESTINOS.includes(x)))].join(',');
+  return txt || DESTINOS_NINGUNO;
+}
+
+/** Cuentas de sistema que por defecto no salen en Vales (el admin puede enviarlas con «Enviar»). */
+export const IDS_CATEGORIA_FUERA_DE_VALES = ['prestamos', 'ingresos', 'manual'];
+
+/**
+ * Destinos efectivos de una categoría.
+ * Sin selección guardada: cortes según el flag previo (en_catalogo_cortes), Registro de gastos sí
+ * y Vales sí (salvo cuentas de sistema como Préstamos / Otros-manual).
+ */
+export function destinosDeCategoria(c) {
+  if (!c) return [];
+  const guardados = parseDestinosCatalogo(c.destinos_catalogo);
+  if (guardados) return guardados;
+  const cortes = c.en_catalogo_cortes !== false ? ['abarrotes', 'virtual', 'garage'] : [];
+  const vales = IDS_CATEGORIA_FUERA_DE_VALES.includes(String(c.id || '').toLowerCase()) ? [] : ['vales'];
+  return [...cortes, ...vales, 'registro_gastos'];
+}
+
+/** ¿La categoría debe aparecer en este módulo (abarrotes, virtual, garage, vales, registro_gastos)? */
+export function categoriaVisibleEnDestino(c, destino) {
+  if (!c || c.activo === false) return false;
+  const esEmpleado = String(c.id || '').toLowerCase() === 'empleado'
+    || String(c.nombre || '').trim().toUpperCase() === 'EMPLEADO';
+  if (esEmpleado) return true;
+  if (normalizarFlujoCatalogo(c.flujo) === 'ingreso') return false;
+  return destinosDeCategoria(c).includes(String(destino || '').toLowerCase());
 }
 
 /** ¿La subcuenta debe aparecer en el catálogo de gastos de cortes? */
 export function subcategoriaEnCatalogoCortes(s) {
   if (!s || s.activo === false) return false;
+  const guardados = parseDestinosCatalogo(s.destinos_catalogo);
+  if (guardados && !guardados.some((d) => IDS_CORTES.includes(d))) return false;
   // null/undefined = true (comportamiento previo / sin columna)
   return s.en_catalogo_cortes !== false;
+}
+
+/**
+ * ¿La subcuenta aparece en este módulo? Además de la cuenta, cuenta la selección propia de la subcuenta
+ * (botón Enviar) y, en cortes, el ocultar/mostrar por subcuenta.
+ */
+export function subcategoriaVisibleEnDestino(s, cat, destino) {
+  if (!s || s.activo === false) return false;
+  const d = String(destino || '').toLowerCase();
+  const propios = parseDestinosCatalogo(s.destinos_catalogo);
+  if (propios && !propios.includes(d)) return false;
+  if (IDS_CORTES.includes(d) && s.en_catalogo_cortes === false) return false;
+  return cat ? categoriaVisibleEnDestino(cat, d) : true;
+}
+
+/** Módulos a los que llega la subcuenta (para mostrar la selección actual). */
+export function destinosDeSubcategoria(s, cat) {
+  return DESTINOS_CATALOGO.filter((d) => subcategoriaVisibleEnDestino(s, cat, d.id)).map((d) => d.id);
 }
 
 /** Mapeo categoría de vale → subcategoría Cont Virtual. */
@@ -478,6 +560,7 @@ function armarCatalogo(cats, subs, detalles = []) {
       flujo: normalizarFlujoCatalogo(c.flujo || (String(c.id || '').startsWith('ing-') ? 'ingreso' : 'egreso')),
       // Si la columna aún no existe / es null → true (comportamiento previo).
       en_catalogo_cortes: c.en_catalogo_cortes !== false,
+      destinos_catalogo: parseDestinosCatalogo(c.destinos_catalogo),
       subcategorias: [],
     };
   }
@@ -493,6 +576,7 @@ function armarCatalogo(cats, subs, detalles = []) {
       categoria_id: s.categoria_id,
       // null/undefined → true (compat sin columna)
       en_catalogo_cortes: s.en_catalogo_cortes !== false,
+      destinos_catalogo: parseDestinosCatalogo(s.destinos_catalogo),
       detalles: [],
     };
     parent.subcategorias.push(row);
@@ -842,6 +926,117 @@ export async function setCategoriaEnCatalogoCortes(supabase, id, enabled) {
     return { ok: false, error: error.message };
   }
   return { ok: true };
+}
+
+/**
+ * Admin: envía una cuenta solo a los módulos elegidos (cortes Abarrotes/Virtual/Garage, Vales, Registro de gastos).
+ * `destinos` vacío = quitarla de todos.
+ */
+export async function setDestinosCategoria(supabase, id, destinos) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  if (String(id).toLowerCase() === 'empleado') {
+    return { ok: false, error: 'Empleado siempre está disponible (nómina de cortes).' };
+  }
+  const lista = parseDestinosCatalogo(destinos) || [];
+  const texto = serializarDestinosCatalogo(lista);
+  const enCortes = lista.some((d) => ['abarrotes', 'virtual', 'garage'].includes(d));
+
+  if (!supabase) {
+    const todas = leerLocal();
+    const cat = todas.find((c) => c.id === id);
+    if (!cat) return { ok: false, error: 'Categoría no encontrada.' };
+    if (normalizarFlujoCatalogo(cat.flujo) === 'ingreso') {
+      return { ok: false, error: 'Las cuentas de ingreso no se envían a cortes.' };
+    }
+    cat.destinos_catalogo = lista;
+    cat.en_catalogo_cortes = enCortes;
+    guardarLocal(todas);
+    return { ok: true, destinos: lista };
+  }
+
+  const { error } = await supabase
+    .from('cont_virtual_categorias')
+    .update({ destinos_catalogo: texto, en_catalogo_cortes: enCortes })
+    .eq('id', id);
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('destinos_catalogo') || msg.includes('schema cache')) {
+      // Sin la columna nueva: al menos aplica a cortes con la columna anterior.
+      const retry = await supabase
+        .from('cont_virtual_categorias')
+        .update({ en_catalogo_cortes: enCortes })
+        .eq('id', id);
+      if (retry.error) return { ok: false, error: retry.error.message };
+      return {
+        ok: true,
+        destinos: lista,
+        aviso: 'Se aplicó solo a cortes. Para elegir también Vales y Registro de gastos ejecuta supabase/fix_cont_virtual_destinos_catalogo.sql en Supabase.',
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, destinos: lista };
+}
+
+/**
+ * Admin: envía una cuenta a los módulos elegidos y SOLO las subcuentas seleccionadas.
+ * Las subcuentas no seleccionadas quedan sin enviar a ningún módulo (siguen en IE).
+ */
+export async function enviarCategoriaConSubcuentas(supabase, id, destinos, { subsEnviar = [], subsTodas = [] } = {}) {
+  const base = await setDestinosCategoria(supabase, id, destinos);
+  if (!base.ok) return base;
+  const lista = parseDestinosCatalogo(destinos) || [];
+  const texto = serializarDestinosCatalogo(lista);
+  const enviar = [...new Set((subsEnviar || []).map(String))];
+  const resto = [...new Set((subsTodas || []).map(String))].filter((x) => !enviar.includes(x));
+  if (!enviar.length && !resto.length) return base;
+  const ninguno = lista.length === 0;
+  const aplicarLocal = () => {
+    const todas = leerLocal();
+    for (const c of todas) {
+      for (const s of c.subcategorias || []) {
+        const sid = String(s.id);
+        if (enviar.includes(sid)) {
+          s.destinos_catalogo = ninguno ? [] : lista;
+          s.en_catalogo_cortes = true;
+        } else if (resto.includes(sid)) {
+          s.destinos_catalogo = [];
+          s.en_catalogo_cortes = false;
+        }
+      }
+    }
+    guardarLocal(todas);
+  };
+  if (!supabase) {
+    aplicarLocal();
+    return base;
+  }
+  let aviso = base.aviso || null;
+  const grupos = [
+    { ids: ninguno ? [] : enviar, patch: { destinos_catalogo: texto, en_catalogo_cortes: true } },
+    { ids: ninguno ? [...enviar, ...resto] : resto, patch: { destinos_catalogo: DESTINOS_NINGUNO, en_catalogo_cortes: false } },
+  ];
+  for (const g of grupos) {
+    if (!g.ids.length) continue;
+    const { error } = await supabase.from('cont_virtual_subcategorias').update(g.patch).in('id', g.ids);
+    if (!error) continue;
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('destinos_catalogo') || msg.includes('schema cache')) {
+      const { destinos_catalogo: _d, ...soloCortes } = g.patch;
+      const retry = await supabase.from('cont_virtual_subcategorias').update(soloCortes).in('id', g.ids);
+      if (retry.error) return { ok: false, error: retry.error.message };
+      aviso = 'Las subcuentas se aplicaron solo a cortes. Para elegir por módulo ejecuta supabase/fix_cont_virtual_destinos_catalogo.sql en Supabase.';
+      continue;
+    }
+    return { ok: false, error: error.message };
+  }
+  try {
+    aplicarLocal();
+  } catch {
+    /* ignore */
+  }
+  return { ...base, aviso };
 }
 
 /**

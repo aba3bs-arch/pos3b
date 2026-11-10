@@ -34,7 +34,10 @@ import {
   resolverNombresCatalogo,
   filtrarCatalogoPorFlujo,
   categoriaEnCatalogoCortes,
-  setCategoriaEnCatalogoCortes,
+  DESTINOS_CATALOGO,
+  destinosDeCategoria,
+  enviarCategoriaConSubcuentas,
+  destinosDeSubcategoria,
   subcategoriaEnCatalogoCortes,
   setSubcategoriasEnCatalogoCortes,
   AVISO_FALTA_CONT_VIRTUAL,
@@ -937,6 +940,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [catalogoFlujo, setCatalogoFlujo] = useState('egreso'); // egreso | ingreso
   /** Subcuentas seleccionadas para ocultar/mostrar en catálogo de cortes. */
   const [selSubsCortes, setSelSubsCortes] = useState(() => ({}));
+  const [envioCat, setEnvioCat] = useState(null);
 
   const [cargando, setCargando] = useState(false);
   const [datos, setDatos] = useState(null);
@@ -1836,24 +1840,68 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     await cargarCatalogo();
   };
 
-  const toggleEnviarACortes = async (cat) => {
+  const abrirEnviarCategoria = (cat) => {
     if (!esAdmin || !cat) return;
     if (esCategoriaEmpleado(cat)) {
       return alert('Empleado siempre está en el catálogo de cortes (nómina).');
     }
     if (String(cat.flujo || '').toLowerCase() === 'ingreso') {
-      return alert('Las cuentas de ingreso no se envían al catálogo de gastos de cortes.');
+      return alert('Las cuentas de ingreso no se envían a otros módulos.');
     }
-    const yaEnCortes = categoriaEnCatalogoCortes(cat);
-    const msg = yaEnCortes
-      ? `¿Quitar «${cat.nombre}» del catálogo de gastos de cortes?\n\nDejará de aparecer en Corte Virtual, Abarrotes y Garage.`
-      : `¿Enviar «${cat.nombre}» al catálogo de gastos de cortes?\n\nAparecerá para capturar gastos en Corte Virtual, Abarrotes y Garage.`;
+    setEnvioCat((prev) => {
+      if (prev?.id === cat.id) return null;
+      const subsCat = (cat.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo);
+      const marcadas = subsCat.filter((x) => selSubsCortes[x.id]).map((x) => String(x.id));
+      const actuales = subsCat.filter((x) => destinosDeSubcategoria(x, cat).length > 0).map((x) => String(x.id));
+      // Si ya marcaste subcuentas con la casilla, solo esas se preseleccionan.
+      return { id: cat.id, sel: destinosDeCategoria(cat), subs: marcadas.length ? marcadas : actuales };
+    });
+  };
+
+  const alternarSubEnvio = (subId) => {
+    const id = String(subId);
+    setEnvioCat((prev) => {
+      if (!prev) return prev;
+      const subs = prev.subs.includes(id) ? prev.subs.filter((x) => x !== id) : [...prev.subs, id];
+      return { ...prev, subs };
+    });
+  };
+
+  const alternarDestinoEnvio = (destino) => {
+    setEnvioCat((prev) => {
+      if (!prev) return prev;
+      const sel = prev.sel.includes(destino) ? prev.sel.filter((x) => x !== destino) : [...prev.sel, destino];
+      return { ...prev, sel };
+    });
+  };
+
+  const confirmarEnviarCategoria = async (cat) => {
+    if (!esAdmin || !cat || !envioCat || envioCat.id !== cat.id) return;
+    const etiquetas = DESTINOS_CATALOGO.filter((d) => envioCat.sel.includes(d.id)).map((d) => d.label);
+    const subsCat = (cat.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo);
+    const subsOk = envioCat.subs.filter((id) => subsCat.some((x) => String(x.id) === id));
+    if (etiquetas.length && subsCat.length && !subsOk.length) {
+      return alert('Marca al menos una subcuenta para enviar.');
+    }
+    const nombresSubs = subsCat.filter((x) => subsOk.includes(String(x.id))).map((x) => x.nombre);
+    const msg = etiquetas.length
+      ? `¿Enviar «${cat.nombre}» solo a:\n\n• ${etiquetas.join('\n• ')}\n\n`
+        + (subsCat.length
+          ? `Subcuentas que se envían (${nombresSubs.length} de ${subsCat.length}):\n• ${nombresSubs.join('\n• ')}\n\n`
+          : '')
+        + 'En los demás módulos y subcuentas dejará de aparecer.'
+      : `¿Quitar «${cat.nombre}» de todos los módulos (cortes, Vales y Registro de gastos)?\n\nSigue existiendo en IE.`;
     if (!confirm(msg)) return;
     setGuardando(true);
-    const res = await setCategoriaEnCatalogoCortes(supabase, cat.id, !yaEnCortes);
+    const res = await enviarCategoriaConSubcuentas(supabase, cat.id, envioCat.sel, {
+      subsEnviar: subsOk,
+      subsTodas: subsCat.map((x) => String(x.id)),
+    });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
+    setEnvioCat(null);
     await cargarCatalogo();
+    if (res.aviso) alert(res.aviso);
   };
 
   const toggleSelSubCortes = (subId) => {
@@ -2876,8 +2924,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
             En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas Main se dan de alta aquí (+ Main). No renombres ni elimines Empleado.
-            {' '}El administrador puede <strong>enviar o quitar</strong> cada egreso del catálogo de gastos de cortes,
-            y con las casillas de subcuenta + <strong>Ocultar</strong> sacar solo algunas opciones del corte (siguen en IE).
+            {' '}El administrador usa <strong>Enviar</strong> para elegir a qué módulos va cada egreso
+            (Corte Abarrotes, Virtual, Garage, Vales, Registro de gastos), y con las casillas de subcuenta + <strong>Ocultar</strong> sacar solo algunas opciones del corte (siguen en IE).
           </p>
           {esAdmin && catalogoFlujo === 'egreso' && (
             <div
@@ -2934,7 +2982,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   {c.nombre}
                   {c.fijo ? ' · sistema' : ''}
                   {esCategoriaEmpleado(c) ? ' · nómina cortes' : ''}
-                  {!esCategoriaEmpleado(c) && catalogoFlujo === 'egreso' && categoriaEnCatalogoCortes(c) ? ' · en cortes' : ''}
+                  {!esCategoriaEmpleado(c) && catalogoFlujo === 'egreso' && Array.isArray(c.destinos_catalogo)
+                    ? (c.destinos_catalogo.length
+                      ? ` · enviada a: ${DESTINOS_CATALOGO.filter((d) => c.destinos_catalogo.includes(d.id)).map((d) => d.label.replace('Corte ', '')).join(', ')}`
+                      : ' · sin enviar')
+                    : (!esCategoriaEmpleado(c) && catalogoFlujo === 'egreso' && categoriaEnCatalogoCortes(c) ? ' · en cortes' : '')}
                 </strong>
                 {esAdmin && (
                   <span className="cv-cat-actions">
@@ -2943,19 +2995,16 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                         type="button"
                         className="cv-btn ghost cv-cat-btn"
                         disabled={guardando}
-                        title={
-                          categoriaEnCatalogoCortes(c)
-                            ? 'Quitar del catálogo de gastos de cortes'
-                            : 'Evaluar y enviar esta cuenta al catálogo de cortes'
-                        }
-                        onClick={() => toggleEnviarACortes(c)}
+                        title="Elegir a qué módulos se envía esta cuenta (cortes, Vales, Registro de gastos)"
+                        aria-expanded={envioCat?.id === c.id}
+                        onClick={() => abrirEnviarCategoria(c)}
                         style={
-                          categoriaEnCatalogoCortes(c)
+                          envioCat?.id === c.id
                             ? { borderColor: '#6c3483', color: '#6c3483', fontWeight: 700 }
                             : undefined
                         }
                       >
-                        {categoriaEnCatalogoCortes(c) ? 'Quitar de cortes' : 'Enviar a cortes'}
+                        Enviar {envioCat?.id === c.id ? '▲' : '▼'}
                       </button>
                     )}
                     <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Subcuenta</button>
@@ -2970,6 +3019,103 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   </span>
                 )}
               </div>
+              {esAdmin && envioCat?.id === c.id && catalogoFlujo === 'egreso' && (
+                <div
+                  style={{
+                    margin: '0.4rem 0 0.6rem',
+                    padding: '0.6rem 0.7rem',
+                    borderRadius: 8,
+                    border: '1px solid rgba(108,52,131,0.35)',
+                    background: 'rgba(108,52,131,0.07)',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                    Enviar «{c.nombre}» a:
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    {DESTINOS_CATALOGO.map((d) => (
+                      <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, cursor: 'pointer', fontSize: '0.88rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={envioCat.sel.includes(d.id)}
+                          onChange={() => alternarDestinoEnvio(d.id)}
+                        />
+                        {d.label}
+                      </label>
+                    ))}
+                  </div>
+                  {(c.subcategorias || []).some((x) => x.activo !== false && !x.es_empleado_vivo) && (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', margin: '0.65rem 0 0.3rem' }}>
+                        Subcuentas que se envían:
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                        {(c.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo).map((x) => (
+                          <label key={x.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, cursor: 'pointer', fontSize: '0.88rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={envioCat.subs.includes(String(x.id))}
+                              onChange={() => alternarSubEnvio(x.id)}
+                            />
+                            {x.nombre}
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem' }}>
+                        <button
+                          type="button"
+                          className="cv-btn ghost cv-cat-btn"
+                          disabled={guardando}
+                          onClick={() => setEnvioCat((p) => (p ? { ...p, subs: (c.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo).map((x) => String(x.id)) } : p))}
+                        >
+                          Todas las subcuentas
+                        </button>
+                        <button
+                          type="button"
+                          className="cv-btn ghost cv-cat-btn"
+                          disabled={guardando}
+                          onClick={() => setEnvioCat((p) => (p ? { ...p, subs: [] } : p))}
+                        >
+                          Ninguna
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.55rem' }}>
+                    <button
+                      type="button"
+                      className="cv-btn cv-cat-btn"
+                      disabled={guardando}
+                      onClick={() => confirmarEnviarCategoria(c)}
+                      style={{ background: '#6c3483', color: '#fff', borderColor: '#6c3483', fontWeight: 700 }}
+                    >
+                      Enviar
+                    </button>
+                    <button
+                      type="button"
+                      className="cv-btn ghost cv-cat-btn"
+                      disabled={guardando}
+                      onClick={() => setEnvioCat((p) => (p ? { ...p, sel: DESTINOS_CATALOGO.map((d) => d.id) } : p))}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      className="cv-btn ghost cv-cat-btn"
+                      disabled={guardando}
+                      onClick={() => setEnvioCat((p) => (p ? { ...p, sel: [] } : p))}
+                    >
+                      Ninguno
+                    </button>
+                    <button type="button" className="cv-btn ghost cv-cat-btn" disabled={guardando} onClick={() => setEnvioCat(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                  <p className="muted" style={{ fontSize: '0.72rem', margin: '0.4rem 0 0' }}>
+                    Solo se envía lo marcado: los módulos y las subcuentas elegidos. Lo demás deja de aparecer (sigue en IE).
+                  </p>
+                </div>
+              )}
               <ul>
                 {(c.subcategorias || []).filter((s) => s.activo !== false).map((s) => {
                   const ocultaCortes = catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && !subcategoriaEnCatalogoCortes(s);

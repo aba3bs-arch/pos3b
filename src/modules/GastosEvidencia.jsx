@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { puedeVerModulo, puedeGestionarUsuarios } from '../lib/roles.js';
-import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo } from '../lib/contVirtualCatalogo.js';
+import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo, categoriaVisibleEnDestino, subcategoriaVisibleEnDestino } from '../lib/contVirtualCatalogo.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import { etiquetaTienda, listarSucursalesParaUI, normalizarCodigoTienda } from '../constants/sucursales.js';
 import {
@@ -72,13 +72,16 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
 
   const tiendasGasto = useMemo(() => listarSucursalesParaUI(), []);
 
-  const catsEgreso = useMemo(() => filtrarCatalogoPorFlujo(catalogo, 'egreso') || catalogo || [], [catalogo]);
+  const catsEgreso = useMemo(
+    () => (filtrarCatalogoPorFlujo(catalogo, 'egreso') || catalogo || []).filter((c) => categoriaVisibleEnDestino(c, 'registro_gastos')),
+    [catalogo],
+  );
   const catSel = useMemo(
     () => catsEgreso.find((c) => c.id === form.categoria_id) || catsEgreso[0] || null,
     [catsEgreso, form.categoria_id],
   );
   const subs = useMemo(
-    () => (catSel?.subcategorias || []).filter((s) => s.activo !== false),
+    () => (catSel?.subcategorias || []).filter((s) => subcategoriaVisibleEnDestino(s, catSel, 'registro_gastos')),
     [catSel],
   );
 
