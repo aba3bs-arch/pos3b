@@ -296,6 +296,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         onEliminar={eliminarCierreHistorial}
         onGuardarEdicion={editarCierreHistorial}
         onRestaurar={restaurarCierreHistorial}
+        columnasExtra={[
+          { key: 'cajero', label: 'Cajero', render: (h) => h.usuario_nombre || h.detalle?.usuario_nombre || h.detalle?.cajero || '—' },
+        ]}
       />
     </div>
     </CorteConTeclado>
