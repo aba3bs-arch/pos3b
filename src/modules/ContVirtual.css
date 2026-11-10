@@ -904,18 +904,22 @@
 .cv-estad-tabs {
   display: flex;
   border-bottom: 1px solid var(--cv-line);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .cv-estad-tabs button {
   flex: 1;
+  min-width: 4.2rem;
   background: transparent;
   border: none;
   color: var(--cv-muted);
-  padding: 0.65rem;
+  padding: 0.65rem 0.4rem;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .cv-estad-tabs button.active {
@@ -1927,6 +1931,146 @@
   color: var(--cv-gasto);
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* Estad → Gasto (conceptos: Bono, CT, Taxis, Limpieza…) */
+.cv-gasto-panel {
+  padding: 0.65rem 0.85rem 1.25rem;
+}
+
+.cv-gasto-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.cv-gasto-row {
+  border-top: 1px solid var(--cv-line);
+  padding: 0.2rem 0;
+}
+
+.cv-gasto-row-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--cv-text);
+  font-weight: 650;
+  font-size: 0.92rem;
+  padding: 0.55rem 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cv-gasto-row-hd .name {
+  flex: 1;
+  min-width: 0;
+}
+
+.cv-gasto-row-hd .amt,
+.cv-gasto-total-btn .amt,
+.cv-gasto-tienda-hd .amt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--cv-gasto);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cv-gasto-row-hd .chev,
+.cv-gasto-total-btn .chev,
+.cv-gasto-tienda-hd .chev {
+  color: var(--cv-muted);
+  font-size: 0.85rem;
+}
+
+.cv-gasto-row-det {
+  margin: 0 0 0.55rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--cv-bg2);
+  border-radius: 8px;
+}
+
+.cv-gasto-total-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--cv-text);
+  font-weight: 700;
+  font-size: 0.86rem;
+  padding: 0.4rem 0.15rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cv-gasto-tiendas {
+  margin-top: 0.25rem;
+  border-top: 1px solid rgba(51, 51, 60, 0.45);
+  padding-top: 0.25rem;
+}
+
+.cv-gasto-vacio {
+  margin: 0.35rem 0;
+  font-size: 0.78rem;
+}
+
+.cv-gasto-tienda-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--cv-text);
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.1rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cv-gasto-tienda-hd .count {
+  color: var(--cv-muted);
+  font-weight: 500;
+}
+
+.cv-gasto-items {
+  padding: 0.15rem 0 0.35rem 0.35rem;
+}
+
+.cv-gasto-item {
+  padding: 0.35rem 0;
+  border-top: 1px solid rgba(51, 51, 60, 0.4);
+  font-size: 0.76rem;
+}
+
+.cv-gasto-item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+  color: var(--cv-text);
+  font-weight: 600;
+}
+
+.cv-gasto-item-top .amt-g {
+  color: var(--cv-gasto);
+  white-space: nowrap;
+}
+
+.cv-gasto-item .meta,
+.cv-gasto-item .motivo {
+  color: var(--cv-muted);
+  margin-top: 0.15rem;
+  line-height: 1.35;
 }
 
 /* —— Barra continua de periodo (panorama IE Abarrotes) —— */

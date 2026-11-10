@@ -8,6 +8,9 @@ import {
   gastosDeMovimientosPorDia,
   totalGastosLista,
   agruparGastosPorTienda,
+  etiquetaConceptoGasto,
+  gastoCoincideConcepto,
+  listarConceptosGastoPeriodo,
 } from './contVirtualGastosResumen.js';
 
 test('corte, cajero, concepto y motivo del gasto', () => {
@@ -49,4 +52,53 @@ test('agrupa gastos por tienda con total y mayor monto primero', () => {
   assert.equal(grupos[1].gastos, 60);
   assert.deepEqual(grupos[1].items.map((x) => x.id), ['2', '4']);
   assert.deepEqual(agruparGastosPorTienda([]), []);
+});
+
+test('etiqueta corta CT / Bono / Limpieza', () => {
+  assert.equal(etiquetaConceptoGasto({ id: 'cubre-turno', nombre: 'Cubre turno' }), 'CT');
+  assert.equal(etiquetaConceptoGasto({ id: 'bono', nombre: 'Bono' }), 'Bono');
+  assert.equal(etiquetaConceptoGasto({ id: 'limpieza', nombre: 'Limpieza' }), 'Limpieza');
+  assert.equal(etiquetaConceptoGasto({ id: 'taxis', nombre: 'Taxis' }), 'Taxis');
+});
+
+test('gastoCoincideConcepto por id, nombre y alias', () => {
+  const bono = { id: 'bono', nombre: 'Bono', label: 'Bono' };
+  assert.equal(gastoCoincideConcepto({ categoria_id: 'bono', monto: 10 }, bono), true);
+  assert.equal(gastoCoincideConcepto({ categoria: 'Bono', monto: 10 }, bono), true);
+  assert.equal(gastoCoincideConcepto({ categoria: 'Otros', comentario: 'pago de bono semanal', monto: 10 }, bono), true);
+  assert.equal(gastoCoincideConcepto({ categoria_id: 'taxis', categoria: 'Taxis', monto: 10 }, bono), false);
+
+  const ct = { id: 'cubre-turno', nombre: 'Cubre turno', label: 'CT' };
+  assert.equal(gastoCoincideConcepto({ categoria_id: 'cubre-turno', monto: 5 }, ct), true);
+  assert.equal(gastoCoincideConcepto({ categoria: 'CUBRE TURNO', monto: 5 }, ct), true);
+});
+
+test('listarConceptosGastoPeriodo total y desglose por tienda', () => {
+  const catalogo = [
+    { id: 'bono', nombre: 'Bono', orden: 10, activo: true },
+    { id: 'taxis', nombre: 'Taxis', orden: 20, activo: true },
+    { id: 'cubre-turno', nombre: 'Cubre turno', orden: 15, activo: true },
+    { id: 'limpieza', nombre: 'Limpieza', orden: 30, activo: true },
+  ];
+  const detalle = [
+    { id: '1', categoria_id: 'bono', categoria: 'Bono', tienda: '3B1', monto: 100 },
+    { id: '2', categoria_id: 'bono', categoria: 'Bono', tienda: '3B2', monto: 50 },
+    { id: '3', categoria_id: 'taxis', categoria: 'Taxis', tienda: '3B1', monto: 80 },
+    { id: '4', categoria: 'Otros', comentario: 'limpieza local', tienda: 'MAIN', monto: 20 },
+  ];
+  const conceptos = listarConceptosGastoPeriodo({ catalogoEgreso: catalogo, detalleGastos: detalle });
+  const bono = conceptos.find((c) => c.id === 'bono');
+  const taxis = conceptos.find((c) => c.id === 'taxis');
+  const ct = conceptos.find((c) => c.id === 'cubre-turno');
+  const lim = conceptos.find((c) => c.id === 'limpieza');
+  assert.ok(bono && taxis && ct && lim);
+  assert.equal(bono.label, 'Bono');
+  assert.equal(ct.label, 'CT');
+  assert.equal(bono.total, 150);
+  assert.deepEqual(bono.porTienda.map((t) => t.id), ['3B1', '3B2']);
+  assert.equal(taxis.total, 80);
+  assert.equal(lim.total, 20);
+  assert.equal(ct.total, 0);
+  // Con monto aparecen antes que los en cero.
+  assert.ok(conceptos.findIndex((c) => c.id === 'bono') < conceptos.findIndex((c) => c.id === 'cubre-turno'));
 });
