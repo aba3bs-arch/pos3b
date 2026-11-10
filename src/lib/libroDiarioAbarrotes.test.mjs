@@ -34,6 +34,7 @@ const libro = construirLibroDiario({
     { id: 'cero', fecha: '2026-11-03', monto: 0, tipo_mov: 'venta_cierre' },
   ],
   gastos: [
+    { id: 'cr1', fecha: '2026-10-31', monto: 400, categoria: 'CREDITO', comentario: 'CREDITO COBRADO · VM-01 · AMR' },
     { id: 'g1', fecha: '2026-10-31', monto: 200, categoria: 'Empleado', subcategoria: 'Consumo', comentario: 'Refresco' },
     { id: 'g2', fecha: '2026-11-02', monto: 900, categoria: 'Proveedores', subcategoria: 'Bimbo' },
     { id: 'g3', fecha: '2026-11-02', monto: 100, categoria: 'Empleado' },
@@ -46,30 +47,31 @@ assert.equal(libro.dias[0].nombre, 'Sábado');
 assert.equal(libro.dias[6].nombre, 'Viernes');
 const d0 = libro.dias[0];
 assert.equal(d0.totalVentas, 1500);
-assert.equal(d0.totalOtrosIngresos, 300); // cobro crédito VM-01
-assert.equal(d0.totalGastos, 200);
-assert.equal(d0.resultado, 1600);
-assert.equal(d0.acumulado, 1600);
+assert.equal(d0.totalOtrosIngresos, 0); // el cobro de crédito NO es ingreso
+assert.equal(d0.totalGastos, 600); // 200 consumo + 400 crédito (egreso)
+assert.equal(d0.resultado, 900);
+assert.equal(d0.acumulado, 900);
 assert.equal(d0.ventas[0].folio, 'AB-001');
 assert.match(d0.ventas[0].concepto, /AB-001 · Turno diurno/);
-assert.ok(d0.otrosIngresos.some((x) => x.concepto === 'Cobro de crédito · VM-01'));
+assert.equal(d0.otrosIngresos.length, 0);
+assert.ok(d0.gastos.some((x) => x.categoria === 'CREDITO'));
 const d2 = libro.dias[2]; // 2 nov
 assert.equal(d2.totalIngresos, 750);
 assert.equal(d2.totalGastos, 1000);
 assert.equal(d2.resultado, -250);
-assert.equal(d2.acumulado, 1350); // 1600 (sáb) - 250 (lun) = 1350
+assert.equal(d2.acumulado, 650); // 900 (sáb) - 250 (lun)
 assert.equal(d2.gastos[0].categoria, 'Proveedores'); // más grande primero
 assert.equal(libro.dias[1].sinMovimiento, true);
 assert.equal(libro.totales.ventas, 2200);
-assert.equal(libro.totales.otrosIngresos, 350); // 50 manual + 300 cobro crédito
-assert.equal(libro.totales.ingresos, 2550);
-assert.equal(libro.totales.gastos, 1200);
-assert.equal(libro.totales.resultado, 1350);
+assert.equal(libro.totales.otrosIngresos, 50);
+assert.equal(libro.totales.ingresos, 2250);
+assert.equal(libro.totales.gastos, 1600);
+assert.equal(libro.totales.resultado, 650);
 assert.equal(libro.totales.diasConMovimiento, 2);
 assert.equal(libro.gastosPorCategoria[0].categoria, 'Proveedores');
 assert.equal(libro.gastosPorCategoria[0].total, 900);
-assert.equal(libro.gastosPorCategoria[0].pctGastos, 75);
-assert.equal(libro.gastosPorCategoria[1].total, 300);
+assert.equal(libro.gastosPorCategoria[0].pctGastos, 56.25);
+assert.equal(libro.gastosPorCategoria[1].total, 400);
 assert.equal(libro.mejorDia.fecha, '2026-10-31');
 assert.equal(libro.diaMasGasto.fecha, '2026-11-02');
 assert.equal(libro.fueraDeSemana.ingresos, 1);
