@@ -781,8 +781,12 @@ export function unificarEgresosParaPanel({
     if (catRaw === 'VALES' && subRaw.includes('GASOLINA')) continue;
     if (catRaw === 'PRESTAMOS') continue;
     // CUBRE TURNO / TAXIS ya van al libro IE (Virtual o Abarrotes) por sync directo
-    if (esGastoCubreTurnoOTaxi(g) || refsGastoCorte.has(String(g.id))) continue;
-    const map = mapearCorteACatalogo(g.categoria, g.subcategoria);
+    if (refsGastoCorte.has(String(g.id))) continue;
+    const cubreOTaxi = esGastoCubreTurnoOTaxi(g);
+    // Virtual/Garage: cubre turno y taxis entran al libro IE al aprobar la recolección.
+    // Abarrotes: el resto de gastos se ve al cerrar el turno; estos también (hasta que exista su renglón en el libro).
+    if (cubreOTaxi && modGasto !== 'abarrotes') continue;
+    const map = (cubreOTaxi && mapearGastoCorteCubreTaxiACatalogo(g)) || mapearCorteACatalogo(g.categoria, g.subcategoria);
     const nombres = resolverNombresCatalogo(catalogo, map.categoriaId, map.subcategoriaId);
     const esNomCorte = esGastoNominaEmpleadoCorte(g);
     detalle.push({
