@@ -704,6 +704,16 @@ function IconMore() {
   );
 }
 
+function IconGasto() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 3v18M7 8h7.5a3.5 3.5 0 010 7H7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7 8h8.5a3 3 0 010 6H9" strokeLinecap="round" opacity="0" />
+      <path d="M6 12h12" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconEmpty() {
   return (
     <svg className="cv-empty-icon" viewBox="0 0 80 80" fill="none">
@@ -1023,15 +1033,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const tiendasOperativas = useMemo(() => listarSucursalesOperativas(), []);
   const sucursalActiva = normalizarCodigoTienda(sucursalProp) || '';
 
-  const [nav, setNav] = useState('trans'); // trans | estad | cuentas | mas
+  const [nav, setNav] = useState('trans'); // trans | gasto | estad | cuentas | mas
   const [transTab, setTransTab] = useState('diario');
   const [anio, setAnio] = useState(() => Number(hoyYmdNogales().slice(0, 4)));
   const [mes, setMes] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
   const [estadPreset, setEstadPreset] = useState('mes');
   const [estadTab, setEstadTab] = useState('negocio');
-  /** Pestaña Estad. → Gasto: concepto seleccionado y desglose por tienda. */
+  /** Pestaña Gasto: concepto seleccionado y desglose por tienda. */
   const [gastoConceptoId, setGastoConceptoId] = useState(null);
-  const [gastoTotalAbierto, setGastoTotalAbierto] = useState(false);
   const [gastoTiendaAbierta, setGastoTiendaAbierta] = useState(null);
   const [mesExpandido, setMesExpandido] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
   const hoyRef = useMemo(() => {
@@ -1104,7 +1113,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const rango = useMemo(() => {
     let base;
-    if (nav === 'estad') {
+    if (nav === 'estad' || nav === 'gasto') {
       if (estadPreset === 'hoy') {
         const h = hoyYmd();
         base = { desde: h, hasta: h };
@@ -1146,7 +1155,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       return etiquetaPeriodoDias(anio, mes, filtroDiasMes);
     }
     if (nav === 'trans' && transTab === 'mensual') return String(anio);
-    if (nav === 'estad' && estadPreset === 'ano') return String(anio);
+    if ((nav === 'estad' || nav === 'gasto') && estadPreset === 'ano') return String(anio);
     return `${MESES_CORTO_ES[mes]} ${anio}`;
   }, [nav, transTab, anio, mes, estadPreset, esFrancisco, filtroDiasMes]);
 
@@ -1525,7 +1534,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const shiftPeriod = (dir) => {
     setFiltroDiasMes(null);
-    if ((nav === 'trans' && transTab === 'mensual') || (nav === 'estad' && estadPreset === 'ano')) {
+    if (
+      (nav === 'trans' && transTab === 'mensual')
+      || ((nav === 'estad' || nav === 'gasto') && estadPreset === 'ano')
+    ) {
       setAnio((y) => y + dir);
       return;
     }
@@ -2560,6 +2572,139 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     </>
   );
 
+  const renderGasto = () => (
+    <>
+      <div className="cv-estad-top">
+        <PeriodNav label={labelPeriodo} onPrev={() => shiftPeriod(-1)} onNext={() => shiftPeriod(1)} />
+        <select
+          className="cv-chip"
+          value={estadPreset}
+          onChange={(e) => {
+            setFiltroDiasMes(null);
+            setEstadPreset(e.target.value);
+          }}
+        >
+          {ESTAD_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </select>
+      </div>
+      <div className="cv-filter-bar">
+        <select
+          value={filtroTienda}
+          onChange={(e) => {
+            setFiltroTienda(e.target.value);
+            if (e.target.value) setFiltroSocio('');
+          }}
+          title="Sucursal"
+        >
+          <option value="">Todas las sucursales</option>
+          {tiendas.filter((t) => !esSucursalClienteMaquinas(t)).map((t) => (
+            <option key={t} value={t}>{etiquetaTienda(t)}</option>
+          ))}
+        </select>
+        {!esFrancisco && (
+          <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
+            <option value="">Virtual + Garage</option>
+            <option value="virtual">Solo Virtual</option>
+            <option value="garage">Solo Garage</option>
+          </select>
+        )}
+      </div>
+      <div className="cv-gasto-panel">
+        <p className="muted cv-gasto-hint">
+          Conceptos del periodo. Al abrir uno ves el total y el desglose por tienda.
+        </p>
+        {cargando && <div className="cv-loading">Cargando gastos del periodo…</div>}
+        {!cargando && !conceptosGastoPeriodo.length && <EmptyState />}
+        {!cargando && conceptosGastoPeriodo.map((c) => {
+          const abierto = gastoConceptoId === c.id;
+          return (
+            <div key={c.id} className={`cv-gasto-row${abierto ? ' open' : ''}`}>
+              <button
+                type="button"
+                className={`cv-gasto-row-hd${abierto ? ' open' : ''}`}
+                onClick={() => {
+                  if (abierto) {
+                    setGastoConceptoId(null);
+                    setGastoTiendaAbierta(null);
+                    return;
+                  }
+                  setGastoConceptoId(c.id);
+                  setGastoTiendaAbierta(null);
+                }}
+                aria-expanded={abierto}
+              >
+                <span className="name">{c.label}</span>
+                <span className="amt">
+                  {fmtMoney(c.total)}
+                  <span className="chev" aria-hidden>{abierto ? '▾' : '›'}</span>
+                </span>
+              </button>
+              {abierto && (
+                <div className="cv-gasto-row-det">
+                  <div className="cv-gasto-total-line">
+                    <span>Total todas las sucursales</span>
+                    <strong className="amt">{fmtMoney(c.total)}</strong>
+                  </div>
+                  <div className="cv-gasto-tiendas">
+                    {!c.porTienda.length && (
+                      <p className="muted cv-gasto-vacio">Sin gastos de este concepto en el periodo.</p>
+                    )}
+                    {c.porTienda.map((t) => {
+                      const tiendaOpen = gastoTiendaAbierta === t.id;
+                      return (
+                        <div key={t.id} className="cv-gasto-tienda">
+                          <button
+                            type="button"
+                            className={`cv-gasto-tienda-hd${tiendaOpen ? ' open' : ''}`}
+                            onClick={() => setGastoTiendaAbierta((prev) => (prev === t.id ? null : t.id))}
+                            aria-expanded={tiendaOpen}
+                          >
+                            <span>
+                              {t.label}
+                              <span className="count"> · {t.items.length}</span>
+                            </span>
+                            <span className="amt">
+                              {fmtMoney(t.gastos)}
+                              <span className="chev" aria-hidden>{tiendaOpen ? '▾' : '›'}</span>
+                            </span>
+                          </button>
+                          {tiendaOpen && (
+                            <div className="cv-gasto-items">
+                              {t.items.map((g) => (
+                                <div key={g.id} className="cv-gasto-item">
+                                  <div className="cv-gasto-item-top">
+                                    <span className="concepto">{conceptoDeGasto(g)}</span>
+                                    <span className="amt-g">{fmtMoney(g.monto)}</span>
+                                  </div>
+                                  <div className="meta">
+                                    {g.fecha ? fmtFechaCorta(g.fecha) : '—'}
+                                    {' · '}
+                                    {corteDeGasto(g)}
+                                    {' · '}
+                                    {cajeroDeGasto(g)}
+                                  </div>
+                                  {motivoDeGasto(g) !== '—' && (
+                                    <div className="motivo">{motivoDeGasto(g)}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+
   const renderEstad = () => {
     const tot = provReporte?.totales || {};
     const listaProv = provReporte?.porProveedor || [];
@@ -2626,18 +2771,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       <div className="cv-estad-tabs">
         <button type="button" className={estadTab === 'ingresos' ? 'active' : ''} onClick={() => setEstadTab('ingresos')}>Ingresos</button>
         <button type="button" className={estadTab === 'gastos' ? 'active' : ''} onClick={() => setEstadTab('gastos')}>Gastos</button>
-        <button
-          type="button"
-          className={estadTab === 'gasto' ? 'active' : ''}
-          onClick={() => {
-            setEstadTab('gasto');
-            setGastoConceptoId(null);
-            setGastoTotalAbierto(false);
-            setGastoTiendaAbierta(null);
-          }}
-        >
-          Gasto
-        </button>
         <button type="button" className={estadTab === 'negocio' ? 'active' : ''} onClick={() => setEstadTab('negocio')}>
           Negocio
         </button>
@@ -2648,121 +2781,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         )}
       </div>
 
-      {estadTab === 'gasto' ? (
-        <div className="cv-gasto-panel">
-          {cargando && <div className="cv-loading">Cargando gastos del periodo…</div>}
-          {!cargando && (
-            <>
-              <p className="muted cv-gasto-hint">
-                Elige un concepto (Bono, CT, Taxis, Limpieza…). Se muestra el total de todas las sucursales
-                del periodo; al tocar ese total se desglosa por tienda.
-              </p>
-              {!conceptosGastoPeriodo.length && <EmptyState />}
-              {conceptosGastoPeriodo.map((c) => {
-                const abierto = gastoConceptoId === c.id;
-                return (
-                  <div key={c.id} className={`cv-gasto-row${abierto ? ' open' : ''}`}>
-                    <button
-                      type="button"
-                      className={`cv-gasto-row-hd${abierto ? ' open' : ''}`}
-                      onClick={() => {
-                        if (abierto) {
-                          setGastoConceptoId(null);
-                          setGastoTotalAbierto(false);
-                          setGastoTiendaAbierta(null);
-                          return;
-                        }
-                        setGastoConceptoId(c.id);
-                        setGastoTotalAbierto(false);
-                        setGastoTiendaAbierta(null);
-                      }}
-                      aria-expanded={abierto}
-                    >
-                      <span className="name">{c.label}</span>
-                      <span className="amt">
-                        {fmtMoney(c.total)}
-                        <span className="chev" aria-hidden>{abierto ? '▾' : '›'}</span>
-                      </span>
-                    </button>
-                    {abierto && (
-                      <div className="cv-gasto-row-det">
-                        <button
-                          type="button"
-                          className={`cv-gasto-total-btn${gastoTotalAbierto ? ' open' : ''}`}
-                          onClick={() => {
-                            setGastoTotalAbierto((v) => {
-                              if (v) setGastoTiendaAbierta(null);
-                              return !v;
-                            });
-                          }}
-                          aria-expanded={gastoTotalAbierto}
-                        >
-                          <span>Total todas las sucursales</span>
-                          <span className="amt">
-                            {fmtMoney(c.total)}
-                            <span className="chev" aria-hidden>{gastoTotalAbierto ? '▾' : '›'}</span>
-                          </span>
-                        </button>
-                        {gastoTotalAbierto && (
-                          <div className="cv-gasto-tiendas">
-                            {!c.porTienda.length && (
-                              <p className="muted cv-gasto-vacio">Sin gastos de este concepto en el periodo.</p>
-                            )}
-                            {c.porTienda.map((t) => {
-                              const tiendaOpen = gastoTiendaAbierta === t.id;
-                              return (
-                                <div key={t.id} className="cv-gasto-tienda">
-                                  <button
-                                    type="button"
-                                    className={`cv-gasto-tienda-hd${tiendaOpen ? ' open' : ''}`}
-                                    onClick={() => setGastoTiendaAbierta((prev) => (prev === t.id ? null : t.id))}
-                                    aria-expanded={tiendaOpen}
-                                  >
-                                    <span>
-                                      {t.label}
-                                      <span className="count"> · {t.items.length}</span>
-                                    </span>
-                                    <span className="amt">
-                                      {fmtMoney(t.gastos)}
-                                      <span className="chev" aria-hidden>{tiendaOpen ? '▾' : '›'}</span>
-                                    </span>
-                                  </button>
-                                  {tiendaOpen && (
-                                    <div className="cv-gasto-items">
-                                      {t.items.map((g) => (
-                                        <div key={g.id} className="cv-gasto-item">
-                                          <div className="cv-gasto-item-top">
-                                            <span className="concepto">{conceptoDeGasto(g)}</span>
-                                            <span className="amt-g">{fmtMoney(g.monto)}</span>
-                                          </div>
-                                          <div className="meta">
-                                            {g.fecha ? fmtFechaCorta(g.fecha) : '—'}
-                                            {' · '}
-                                            {corteDeGasto(g)}
-                                            {' · '}
-                                            {cajeroDeGasto(g)}
-                                          </div>
-                                          {motivoDeGasto(g) !== '—' && (
-                                            <div className="motivo">{motivoDeGasto(g)}</div>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </>
-          )}
-        </div>
-      ) : estadTab === 'negocio' && esFrancisco ? (
+      {estadTab === 'negocio' && esFrancisco ? (
         <PanoramaNegocioAbarrotes
           tot={tot}
           panorama={provReporte?.panorama}
@@ -3601,6 +3620,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
       <div className="cv-body">
         {nav === 'trans' && renderTrans()}
+        {nav === 'gasto' && renderGasto()}
         {nav === 'estad' && renderEstad()}
         {nav === 'cuentas' && renderCuentas()}
         {nav === 'mas' && renderMas()}
@@ -3618,10 +3638,22 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         </button>
       )}
 
-      <nav className="cv-nav">
+      <nav className="cv-nav cv-nav-5">
         <button type="button" className={nav === 'trans' ? 'active' : ''} onClick={() => setNav('trans')}>
           <IconBook active={nav === 'trans'} />
           Trans.
+        </button>
+        <button
+          type="button"
+          className={nav === 'gasto' ? 'active' : ''}
+          onClick={() => {
+            setNav('gasto');
+            setGastoConceptoId(null);
+            setGastoTiendaAbierta(null);
+          }}
+        >
+          <IconGasto />
+          Gasto
         </button>
         <button type="button" className={nav === 'estad' ? 'active' : ''} onClick={() => setNav('estad')}>
           <IconChart />

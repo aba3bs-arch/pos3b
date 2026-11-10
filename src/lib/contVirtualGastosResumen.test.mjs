@@ -79,25 +79,32 @@ test('listarConceptosGastoPeriodo total y desglose por tienda', () => {
     { id: 'taxis', nombre: 'Taxis', orden: 20, activo: true },
     { id: 'cubre-turno', nombre: 'Cubre turno', orden: 15, activo: true },
     { id: 'limpieza', nombre: 'Limpieza', orden: 30, activo: true },
+    { id: 'credito-autorizado', nombre: 'Crédito autorizado', orden: 25, activo: true },
   ];
   const detalle = [
     { id: '1', categoria_id: 'bono', categoria: 'Bono', tienda: '3B1', monto: 100 },
     { id: '2', categoria_id: 'bono', categoria: 'Bono', tienda: '3B2', monto: 50 },
     { id: '3', categoria_id: 'taxis', categoria: 'Taxis', tienda: '3B1', monto: 80 },
     { id: '4', categoria: 'Otros', comentario: 'limpieza local', tienda: 'MAIN', monto: 20 },
+    { id: '5', categoria_id: 'manual', categoria: 'Otros / manual', categoria_raw: 'CREDITO', tienda: '3B6', monto: 200 },
+    { id: '6', categoria_id: 'credito-autorizado', categoria: 'Crédito autorizado', tienda: '3B1', monto: 75 },
   ];
   const conceptos = listarConceptosGastoPeriodo({ catalogoEgreso: catalogo, detalleGastos: detalle });
   const bono = conceptos.find((c) => c.id === 'bono');
   const taxis = conceptos.find((c) => c.id === 'taxis');
   const ct = conceptos.find((c) => c.id === 'cubre-turno');
   const lim = conceptos.find((c) => c.id === 'limpieza');
-  assert.ok(bono && taxis && ct && lim);
+  const cred = conceptos.find((c) => c.id === 'credito-autorizado');
+  assert.ok(bono && taxis && ct && lim && cred);
   assert.equal(bono.label, 'Bono');
   assert.equal(ct.label, 'CT');
+  assert.equal(cred.label, 'Crédito autorizado');
   assert.equal(bono.total, 150);
   assert.deepEqual(bono.porTienda.map((t) => t.id), ['3B1', '3B2']);
   assert.equal(taxis.total, 80);
   assert.equal(lim.total, 20);
+  assert.equal(cred.total, 275);
+  assert.deepEqual(cred.porTienda.map((t) => t.id), ['3B6', '3B1']);
   assert.equal(ct.total, 0);
   // Con monto aparecen antes que los en cero.
   assert.ok(conceptos.findIndex((c) => c.id === 'bono') < conceptos.findIndex((c) => c.id === 'cubre-turno'));

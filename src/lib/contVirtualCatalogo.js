@@ -123,6 +123,14 @@ export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
     subcategorias: [{ id: 'limpieza-servicio', nombre: 'Servicio', orden: 10, activo: true, fijo: true }],
   },
   {
+    id: 'credito-autorizado',
+    nombre: 'Crédito autorizado',
+    orden: 39,
+    activo: true,
+    fijo: true,
+    subcategorias: [{ id: 'credito-autorizado-pago', nombre: 'Cobro / pago', orden: 10, activo: true, fijo: true }],
+  },
+  {
     id: 'prestamos',
     nombre: 'Préstamos',
     orden: 40,
@@ -300,6 +308,11 @@ export const CORTE_A_CONT_VIRTUAL = {
   BONO: { categoriaId: 'bono', subcategoriaId: 'bono-pago' },
   BONOS: { categoriaId: 'bono', subcategoriaId: 'bono-pago' },
   LIMPIEZA: { categoriaId: 'limpieza', subcategoriaId: 'limpieza-servicio' },
+  CREDITO: { categoriaId: 'credito-autorizado', subcategoriaId: 'credito-autorizado-pago' },
+  'CREDITO RUTA': { categoriaId: 'credito-autorizado', subcategoriaId: 'credito-autorizado-pago' },
+  'CRÉDITO': { categoriaId: 'credito-autorizado', subcategoriaId: 'credito-autorizado-pago' },
+  'CREDITO AUTORIZADO': { categoriaId: 'credito-autorizado', subcategoriaId: 'credito-autorizado-pago' },
+  'CRÉDITO AUTORIZADO': { categoriaId: 'credito-autorizado', subcategoriaId: 'credito-autorizado-pago' },
 };
 
 /** True si el gasto de corte es cubre turno o taxi (por categoría o subcategoría). */
@@ -648,6 +661,7 @@ export async function listarCatalogoContVirtual(supabase) {
     || !ids.has('taxis')
     || !ids.has('bono')
     || !ids.has('limpieza')
+    || !ids.has('credito-autorizado')
     || !ids.has('recargas')
     || !ids.has('anticipos')
     || !ids.has('faltante');
@@ -1351,11 +1365,27 @@ export function mapearCorteACatalogo(categoria, subcategoria) {
     return { categoriaId: 'vales', subcategoriaId: 'vales-consumo' };
   }
   if (cat === 'PRESTAMOS') return { categoriaId: 'prestamos', subcategoriaId: 'prestamos-desembolso' };
+  if (
+    cat === 'CREDITO'
+    || cat === 'CRÉDITO'
+    || cat === 'CREDITO RUTA'
+    || cat === 'CRÉDITO RUTA'
+    || (cat.includes('CREDITO') && cat.includes('AUTORIZ'))
+    || (cat.includes('CRÉDITO') && cat.includes('AUTORIZ'))
+  ) {
+    return { categoriaId: 'credito-autorizado', subcategoriaId: 'credito-autorizado-pago' };
+  }
   if (cat.includes('OPERATIV') || cat === 'GASTOS OPERATIVOS') {
     if (sub.includes('SUMINISTRO')) return { categoriaId: 'operativos', subcategoriaId: 'operativos-suministros' };
     if (sub.includes('SERVICIO')) return { categoriaId: 'operativos', subcategoriaId: 'operativos-servicios' };
     if (sub.includes('MANTEN')) return { categoriaId: 'operativos', subcategoriaId: 'operativos-mantenimiento' };
     return { categoriaId: 'operativos', subcategoriaId: 'operativos-otros' };
+  }
+  if (cat === 'BONO' || cat === 'BONOS') {
+    return { categoriaId: 'bono', subcategoriaId: 'bono-pago' };
+  }
+  if (cat === 'LIMPIEZA') {
+    return { categoriaId: 'limpieza', subcategoriaId: 'limpieza-servicio' };
   }
   return { categoriaId: 'manual', subcategoriaId: 'manual-otros' };
 }

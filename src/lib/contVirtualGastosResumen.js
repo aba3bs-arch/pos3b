@@ -74,20 +74,31 @@ export function agruparGastosPorTienda(lista = []) {
     .sort((a, b) => b.gastos - a.gastos || a.label.localeCompare(b.label, 'es'));
 }
 
-/** Etiquetas cortas para la pestaña Estad. → Gasto. */
+/** Etiquetas cortas para la pestaña Gasto. */
 export const ETIQUETAS_CONCEPTO_GASTO = {
   'cubre-turno': 'CT',
   bono: 'Bono',
   limpieza: 'Limpieza',
   taxis: 'Taxis',
+  'credito-autorizado': 'Crédito autorizado',
 };
 
-/** Aliases de texto para emparejar gastos históricos sin categoria_id. */
+/** Aliases de texto para emparejar gastos históricos sin categoria_id (o mal mapeados). */
 export const ALIASES_CONCEPTO_GASTO = {
   'cubre-turno': ['cubre turno', 'cubre-turno', 'cubreturno', 'ct'],
   bono: ['bono', 'bonos', 'bonificación', 'bonificacion'],
   limpieza: ['limpieza', 'limpiar', 'aseo'],
   taxis: ['taxi', 'taxis'],
+  'credito-autorizado': [
+    'credito autorizado',
+    'crédito autorizado',
+    'credito ruta',
+    'crédito ruta',
+    'credito cobrado',
+    'crédito cobrado',
+    'credito',
+    'crédito',
+  ],
 };
 
 export function etiquetaConceptoGasto(cat) {
@@ -100,9 +111,33 @@ export function etiquetaConceptoGasto(cat) {
 }
 
 function textoGastoParaMatch(g) {
-  return [g?.categoria_id, g?.categoria, g?.subcategoria_id, g?.subcategoria, g?.comentario, g?.descripcion]
+  return [
+    g?.categoria_id,
+    g?.categoria,
+    g?.categoria_raw,
+    g?.subcategoria_id,
+    g?.subcategoria,
+    g?.subcategoria_raw,
+    g?.comentario,
+    g?.descripcion,
+  ]
     .map((x) => String(x || '').toLowerCase())
     .join(' | ');
+}
+
+function coincideAliasGasto(g, aliases) {
+  if (!aliases?.length) return false;
+  const blob = textoGastoParaMatch(g);
+  const raw = String(g?.categoria_raw || g?.categoria || '').trim().toLowerCase();
+  return aliases.some((a) => {
+    const al = String(a || '').toLowerCase();
+    if (!al) return false;
+    if (raw === al) return true;
+    if (al.length <= 2) {
+      return new RegExp(`(?:^|[^a-z0-9áéíóúñ])${al}(?:[^a-z0-9áéíóúñ]|$)`, 'i').test(blob);
+    }
+    return blob.includes(al);
+  });
 }
 
 /** ¿El gasto pertenece al concepto (categoría) seleccionado? */
@@ -110,29 +145,25 @@ export function gastoCoincideConcepto(g, concepto) {
   if (!g || !concepto) return false;
   const id = String(concepto.id || '').toLowerCase();
   const catId = String(g.categoria_id || '').toLowerCase();
-  if (id && catId) return catId === id;
+  if (id && catId && catId === id) return true;
 
-  const nombre = String(concepto.nombre || '').trim().toLowerCase();
-  const catNom = String(g.categoria || '').trim().toLowerCase();
-  if (nombre && catNom && catNom === nombre) return true;
-
-  const etiqueta = String(concepto.label || '').trim().toLowerCase();
-  if (etiqueta && catNom && catNom === etiqueta) return true;
-
-  // Aliases solo si el gasto no trae categoria_id (histórico / texto libre).
   const aliases = [
     ...(ALIASES_CONCEPTO_GASTO[id] || []),
     ...(concepto.aliases || []),
   ].map((a) => String(a || '').toLowerCase()).filter(Boolean);
 
-  if (!aliases.length) return false;
-  const blob = textoGastoParaMatch(g);
-  return aliases.some((a) => {
-    if (a.length <= 2) {
-      return new RegExp(`(?:^|[^a-z0-9])${a}(?:[^a-z0-9]|$)`, 'i').test(blob);
-    }
-    return blob.includes(a);
-  });
+  // Si ya trae categoria_id de otra cuenta (no manual/otros), no mezclar por alias.
+  if (id && catId && catId !== id && catId !== 'manual' && catId !== 'otros') {
+    return false;
+  }
+
+  const nombre = String(concepto.nombre || '').trim().toLowerCase();
+  const etiqueta = String(concepto.label || '').trim().toLowerCase();
+  const catNom = String(g.categoria || g.categoria_raw || '').trim().toLowerCase();
+  if (nombre && catNom && catNom === nombre) return true;
+  if (etiqueta && catNom && catNom === etiqueta) return true;
+
+  return coincideAliasGasto(g, aliases);
 }
 
 /**
