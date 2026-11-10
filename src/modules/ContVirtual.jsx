@@ -47,6 +47,14 @@ import {
   esCategoriaEmpleado,
   plantillaDetallesEmpleado,
 } from '../lib/catalogoEmpleadoGastos.js';
+import {
+  corteDeGasto,
+  cajeroDeGasto,
+  conceptoDeGasto,
+  motivoDeGasto,
+  gastosDeMovimientosPorDia,
+  totalGastosLista,
+} from '../lib/contVirtualGastosResumen.js';
 import { empleadosParaCorte, etiquetaEmpleadoSelectGastos } from '../lib/empleadosVisibles.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual, actualizarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
 import {
@@ -722,8 +730,14 @@ function SummaryBar({
   ingresosPorTienda = [],
   labelGastos = 'Gastos',
   labelBalance = 'Balance',
+  gastosItems = null,
+  onVerGasto = null,
 }) {
   const [abierto, setAbierto] = useState(false);
+  const [gastosAbierto, setGastosAbierto] = useState(false);
+  const listaGastos = gastosItems || [];
+  const tieneGastosDetalle = listaGastos.length > 0;
+  const sumaGastos = totalGastosLista(listaGastos);
   const [tiendaAbierta, setTiendaAbierta] = useState(null);
   const [recAbierta, setRecAbierta] = useState(null);
   const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
@@ -738,6 +752,7 @@ function SummaryBar({
               type="button"
               className={`cv-summary-ingreso-btn${abierto ? ' open' : ''}`}
               onClick={() => {
+                setGastosAbierto(false);
                 setAbierto((v) => {
                   if (v) {
                     setTiendaAbierta(null);
@@ -758,15 +773,73 @@ function SummaryBar({
             </>
           )}
         </div>
-        <div>
-          <div className="lbl">{labelGastos}</div>
-          <div className="val gasto">{fmt(gastos)}</div>
+        <div className={tieneGastosDetalle ? 'cv-summary-ingreso-wrap' : undefined}>
+          {tieneGastosDetalle ? (
+            <button
+              type="button"
+              className={`cv-summary-ingreso-btn${gastosAbierto ? ' open' : ''}`}
+              onClick={() => {
+                setAbierto(false);
+                setTiendaAbierta(null);
+                setRecAbierta(null);
+                setGastosAbierto((v) => !v);
+              }}
+              aria-expanded={gastosAbierto}
+              title="Ver el detalle de los gastos"
+            >
+              <div className="lbl">{labelGastos} <span className="chev" aria-hidden>▾</span></div>
+              <div className="val gasto">{fmt(gastos)}</div>
+            </button>
+          ) : (
+            <>
+              <div className="lbl">{labelGastos}</div>
+              <div className="val gasto">{fmt(gastos)}</div>
+            </>
+          )}
         </div>
         <div>
           <div className="lbl">{labelBalance}</div>
           <div className="val balance">{fmt(balance)}</div>
         </div>
       </div>
+      {tieneGastosDetalle && gastosAbierto && (
+        <div className="cv-summary-desglose cv-summary-gastos">
+          <div className="cv-summary-desglose-hd">
+            {listaGastos.length} gasto{listaGastos.length === 1 ? '' : 's'} · {fmt(sumaGastos)}
+          </div>
+          {Math.abs(sumaGastos - (Number(gastos) || 0)) > 0.5 && (
+            <div className="cv-summary-gasto-nota">
+              El total de arriba ({fmt(gastos)}) incluye gastos que no traen detalle en esta lista.
+            </div>
+          )}
+          {listaGastos.map((g) => (
+            <div
+              key={`${g.id}`}
+              className={`cv-summary-gasto${onVerGasto ? ' click' : ''}`}
+              role={onVerGasto ? 'button' : undefined}
+              tabIndex={onVerGasto ? 0 : undefined}
+              onClick={onVerGasto ? () => onVerGasto(g) : undefined}
+              onKeyDown={onVerGasto ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onVerGasto(g);
+                }
+              } : undefined}
+            >
+              <div className="cv-summary-gasto-top">
+                <span className="concepto">{conceptoDeGasto(g)}</span>
+                <span className="amt-g">{fmt(g.monto)}</span>
+              </div>
+              <dl className="cv-summary-gasto-datos">
+                <dt>Corte</dt><dd>{corteDeGasto(g)} · {etiquetaTienda(g.tienda || 'MAIN')}</dd>
+                <dt>Fecha</dt><dd>{g.fecha ? fmtFechaCorta(g.fecha) : '—'}</dd>
+                <dt>Cajero</dt><dd>{cajeroDeGasto(g)}</dd>
+                <dt>Motivo</dt><dd>{motivoDeGasto(g)}</dd>
+              </dl>
+            </div>
+          ))}
+        </div>
+      )}
       {tieneDesglose && abierto && (
         <div className="cv-summary-desglose">
           <div className="cv-summary-desglose-hd">Por sucursal</div>
@@ -1298,6 +1371,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const ingresos = ingresosFiltrados?.ingresos ?? (datos?.ingresosTotal || 0);
   const gastos = ingresosFiltrados?.gastos ?? (datos?.egresosTotal || 0);
   const balance = ingresosFiltrados?.balance ?? (datos?.neto ?? ingresos - gastos);
+
+  const gastosDetalleResumen = useMemo(() => gastosDeMovimientosPorDia(porDia), [porDia]);
 
   const ingresosPorTiendaResumen = useMemo(() => {
     const itemsIngreso = [];
@@ -2408,6 +2483,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           gastos={gastos}
           balance={balance}
           ingresosPorTienda={ingresosPorTiendaResumen}
+          gastosItems={gastosDetalleResumen}
+          onVerGasto={setDesgloseMov}
         />
       )}
       {cargando && <div className="cv-loading">Cargando…</div>}
