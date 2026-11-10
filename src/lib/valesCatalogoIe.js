@@ -5,6 +5,7 @@
 import {
   CATEGORIAS_CONT_VIRTUAL_DEFAULT,
   VALE_A_CONT_VIRTUAL,
+  categoriaVisibleEnDestino,
   filtrarCatalogoPorFlujo,
   listarCatalogoContVirtual,
   resolverNombresCatalogo,
@@ -129,6 +130,8 @@ export function categoriasValeDesdeCatalogoIe(catalogo, opts = {}) {
     .filter((c) => c && c.activo !== false);
   if (soloParaFormulario) {
     egresos = egresos.filter((c) => !CATS_IE_EXCLUIDAS_VALE.has(String(c.id || '').toLowerCase()));
+    // Solo las cuentas que el admin envió a Vales (sin selección guardada: todas, como antes).
+    egresos = egresos.filter((c) => categoriaVisibleEnDestino(c, 'vales'));
   }
 
   const mapped = egresos.map((c) => {

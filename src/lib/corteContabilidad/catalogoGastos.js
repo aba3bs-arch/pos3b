@@ -1,6 +1,6 @@
 import {
   CATEGORIAS_CONT_VIRTUAL_DEFAULT,
-  categoriaEnCatalogoCortes,
+  categoriaVisibleEnDestino,
   subcategoriaEnCatalogoCortes,
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
@@ -138,7 +138,7 @@ function ordenarTiposEmpleadoCorte(tipos) {
 }
 
 /** Convierte catálogo IE (Virtual/Abarrotes, compartido) → formato de corte. */
-export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
+export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual', modulo = null) {
   const out = [];
   const vistos = new Set();
   for (const c of ieCats || []) {
@@ -171,8 +171,8 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
       });
       continue;
     }
-    // Solo cuentas que el admin marcó para el catálogo de cortes.
-    if (!categoriaEnCatalogoCortes(c)) continue;
+    // Solo cuentas que el admin envió a este corte (Abarrotes / Virtual / Garage).
+    if (!categoriaVisibleEnDestino(c, modulo || (fuente === 'ie_abarrotes' ? 'abarrotes' : 'virtual'))) continue;
     vistos.add(categoria);
     const subs = [];
     for (const s of c.subcategorias || []) {
@@ -204,10 +204,10 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
   return out;
 }
 
-function catalogoIeConFallback(ieData, fuente = 'ie_virtual') {
-  const desdeIe = catalogoIeAFormatoCorte(ieData, fuente);
+function catalogoIeConFallback(ieData, fuente = 'ie_virtual', modulo = null) {
+  const desdeIe = catalogoIeAFormatoCorte(ieData, fuente, modulo);
   if (desdeIe.length) return desdeIe;
-  return catalogoIeAFormatoCorte(CATEGORIAS_CONT_VIRTUAL_DEFAULT, fuente);
+  return catalogoIeAFormatoCorte(CATEGORIAS_CONT_VIRTUAL_DEFAULT, fuente, modulo);
 }
 
 async function listarDesdeNube(supabase, sucursalId, modulo) {
@@ -276,12 +276,12 @@ async function guardarCategoriaGastoProveedor(supabase, categoria, subcategorias
 export async function listarCatalogoGastos(supabase, sucursal, modulo) {
   const ieRes = await listarCatalogoContVirtual(supabase);
   const fuenteIe = modulo === 'abarrotes' ? 'ie_abarrotes' : 'ie_virtual';
-  let desdeIe = catalogoIeConFallback(ieRes.data || [], fuenteIe);
+  let desdeIe = catalogoIeConFallback(ieRes.data || [], fuenteIe, modulo);
   // Si Empleado no llegó al corte (catálogo roto / desactivado), reparar y reintentar.
   if (!desdeIe.some((c) => c.es_categoria_empleado || esCategoriaEmpleado(c))) {
     await repararCategoriaEmpleado(supabase);
     const ie2 = await listarCatalogoContVirtual(supabase);
-    desdeIe = catalogoIeConFallback(ie2.data || [], fuenteIe);
+    desdeIe = catalogoIeConFallback(ie2.data || [], fuenteIe, modulo);
   }
 
   if (modulo !== 'abarrotes') {
