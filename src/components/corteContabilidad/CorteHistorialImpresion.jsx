@@ -220,6 +220,7 @@ export default function CorteHistorialImpresion({
                   <th>Borrado</th>
                   <th>Borrado por</th>
                   <th>Fecha original</th>
+                  <th>Cajero</th>
                   <th>Folio</th>
                   <th>Ventas</th>
                   <th>Caja</th>
@@ -232,6 +233,7 @@ export default function CorteHistorialImpresion({
                     <td>{h.deleted_at ? new Date(h.deleted_at).toLocaleString() : '—'}</td>
                     <td title={h.deleted_by || ''}>{h.deleted_by || '—'}</td>
                     <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '—'}</td>
+                    <td>{h.usuario_nombre || h.detalle?.usuario_nombre || '—'}</td>
                     <td>{h.folio}</td>
                     <td>{fmtCorte(h.ventas)}</td>
                     <td>{fmtCorte(h.caja_actual)}</td>
