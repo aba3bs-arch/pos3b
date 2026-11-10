@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { puedeVerModulo, puedeGestionarUsuarios } from '../lib/roles.js';
-import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo, categoriaVisibleEnDestino } from '../lib/contVirtualCatalogo.js';
+import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo, categoriaVisibleEnDestino, subcategoriaVisibleEnDestino } from '../lib/contVirtualCatalogo.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import { etiquetaTienda, listarSucursalesParaUI, normalizarCodigoTienda } from '../constants/sucursales.js';
 import {
@@ -81,7 +81,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
     [catsEgreso, form.categoria_id],
   );
   const subs = useMemo(
-    () => (catSel?.subcategorias || []).filter((s) => s.activo !== false),
+    () => (catSel?.subcategorias || []).filter((s) => subcategoriaVisibleEnDestino(s, catSel, 'registro_gastos')),
     [catSel],
   );
 

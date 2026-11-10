@@ -6,6 +6,7 @@ import {
   CATEGORIAS_CONT_VIRTUAL_DEFAULT,
   VALE_A_CONT_VIRTUAL,
   categoriaVisibleEnDestino,
+  subcategoriaVisibleEnDestino,
   filtrarCatalogoPorFlujo,
   listarCatalogoContVirtual,
   resolverNombresCatalogo,
@@ -134,6 +135,7 @@ export function categoriasValeDesdeCatalogoIe(catalogo, opts = {}) {
   const mapped = egresos.map((c) => {
     let subs = (c.subcategorias || [])
       .filter((s) => s && s.activo !== false)
+      .filter((s) => !soloParaFormulario || subcategoriaVisibleEnDestino(s, c, 'vales'))
       .map((s) => ({
         id: s.id,
         label: s.nombre || s.label || s.id,

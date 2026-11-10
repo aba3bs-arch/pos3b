@@ -10,3 +10,12 @@ comment on column public.cont_virtual_categorias.destinos_catalogo is
   'Módulos a los que se envía la cuenta: abarrotes,virtual,garage,vales,registro_gastos. NULL = comportamiento previo.';
 
 notify pgrst, 'reload schema';
+
+-- Lo mismo por subcuenta: «Enviar» manda solo las subcuentas seleccionadas.
+alter table public.cont_virtual_subcategorias
+  add column if not exists destinos_catalogo text;
+
+comment on column public.cont_virtual_subcategorias.destinos_catalogo is
+  'Módulos a los que se envía la subcuenta (mismos valores). «-» = ninguno. NULL = hereda de la cuenta.';
+
+notify pgrst, 'reload schema';

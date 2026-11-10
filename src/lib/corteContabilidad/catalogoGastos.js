@@ -1,7 +1,7 @@
 import {
   CATEGORIAS_CONT_VIRTUAL_DEFAULT,
   categoriaVisibleEnDestino,
-  subcategoriaEnCatalogoCortes,
+  subcategoriaVisibleEnDestino,
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   editarCategoriaContVirtual,
@@ -139,6 +139,7 @@ function ordenarTiposEmpleadoCorte(tipos) {
 
 /** Convierte catálogo IE (Virtual/Abarrotes, compartido) → formato de corte. */
 export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual', modulo = null) {
+  const moduloDestino = modulo || (fuente === 'ie_abarrotes' ? 'abarrotes' : 'virtual');
   const out = [];
   const vistos = new Set();
   for (const c of ieCats || []) {
@@ -172,14 +173,14 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual', modulo = 
       continue;
     }
     // Solo cuentas que el admin envió a este corte (Abarrotes / Virtual / Garage).
-    if (!categoriaVisibleEnDestino(c, modulo || (fuente === 'ie_abarrotes' ? 'abarrotes' : 'virtual'))) continue;
+    if (!categoriaVisibleEnDestino(c, moduloDestino)) continue;
     vistos.add(categoria);
     const subs = [];
     for (const s of c.subcategorias || []) {
       if (s?.activo === false) continue;
       if (s.es_empleado_vivo) continue;
       // Subcuenta oculta solo en cortes (sigue en IE).
-      if (!subcategoriaEnCatalogoCortes(s)) continue;
+      if (!subcategoriaVisibleEnDestino(s, c, moduloDestino)) continue;
       const subNom = String(s.nombre || '').trim().toUpperCase();
       if (!subNom) continue;
       const dets = (s.detalles || []).filter((d) => d?.activo !== false);

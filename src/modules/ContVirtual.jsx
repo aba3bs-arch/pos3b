@@ -36,7 +36,8 @@ import {
   categoriaEnCatalogoCortes,
   DESTINOS_CATALOGO,
   destinosDeCategoria,
-  setDestinosCategoria,
+  enviarCategoriaConSubcuentas,
+  destinosDeSubcategoria,
   subcategoriaEnCatalogoCortes,
   setSubcategoriasEnCatalogoCortes,
   AVISO_FALTA_CONT_VIRTUAL,
@@ -1847,7 +1848,23 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (String(cat.flujo || '').toLowerCase() === 'ingreso') {
       return alert('Las cuentas de ingreso no se envían a otros módulos.');
     }
-    setEnvioCat((prev) => (prev?.id === cat.id ? null : { id: cat.id, sel: destinosDeCategoria(cat) }));
+    setEnvioCat((prev) => {
+      if (prev?.id === cat.id) return null;
+      const subsCat = (cat.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo);
+      const marcadas = subsCat.filter((x) => selSubsCortes[x.id]).map((x) => String(x.id));
+      const actuales = subsCat.filter((x) => destinosDeSubcategoria(x, cat).length > 0).map((x) => String(x.id));
+      // Si ya marcaste subcuentas con la casilla, solo esas se preseleccionan.
+      return { id: cat.id, sel: destinosDeCategoria(cat), subs: marcadas.length ? marcadas : actuales };
+    });
+  };
+
+  const alternarSubEnvio = (subId) => {
+    const id = String(subId);
+    setEnvioCat((prev) => {
+      if (!prev) return prev;
+      const subs = prev.subs.includes(id) ? prev.subs.filter((x) => x !== id) : [...prev.subs, id];
+      return { ...prev, subs };
+    });
   };
 
   const alternarDestinoEnvio = (destino) => {
@@ -1861,12 +1878,25 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const confirmarEnviarCategoria = async (cat) => {
     if (!esAdmin || !cat || !envioCat || envioCat.id !== cat.id) return;
     const etiquetas = DESTINOS_CATALOGO.filter((d) => envioCat.sel.includes(d.id)).map((d) => d.label);
+    const subsCat = (cat.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo);
+    const subsOk = envioCat.subs.filter((id) => subsCat.some((x) => String(x.id) === id));
+    if (etiquetas.length && subsCat.length && !subsOk.length) {
+      return alert('Marca al menos una subcuenta para enviar.');
+    }
+    const nombresSubs = subsCat.filter((x) => subsOk.includes(String(x.id))).map((x) => x.nombre);
     const msg = etiquetas.length
-      ? `¿Enviar «${cat.nombre}» solo a:\n\n• ${etiquetas.join('\n• ')}\n\nEn los demás módulos dejará de aparecer.`
+      ? `¿Enviar «${cat.nombre}» solo a:\n\n• ${etiquetas.join('\n• ')}\n\n`
+        + (subsCat.length
+          ? `Subcuentas que se envían (${nombresSubs.length} de ${subsCat.length}):\n• ${nombresSubs.join('\n• ')}\n\n`
+          : '')
+        + 'En los demás módulos y subcuentas dejará de aparecer.'
       : `¿Quitar «${cat.nombre}» de todos los módulos (cortes, Vales y Registro de gastos)?\n\nSigue existiendo en IE.`;
     if (!confirm(msg)) return;
     setGuardando(true);
-    const res = await setDestinosCategoria(supabase, cat.id, envioCat.sel);
+    const res = await enviarCategoriaConSubcuentas(supabase, cat.id, envioCat.sel, {
+      subsEnviar: subsOk,
+      subsTodas: subsCat.map((x) => String(x.id)),
+    });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     setEnvioCat(null);
@@ -3014,6 +3044,43 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                       </label>
                     ))}
                   </div>
+                  {(c.subcategorias || []).some((x) => x.activo !== false && !x.es_empleado_vivo) && (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', margin: '0.65rem 0 0.3rem' }}>
+                        Subcuentas que se envían:
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                        {(c.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo).map((x) => (
+                          <label key={x.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, cursor: 'pointer', fontSize: '0.88rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={envioCat.subs.includes(String(x.id))}
+                              onChange={() => alternarSubEnvio(x.id)}
+                            />
+                            {x.nombre}
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem' }}>
+                        <button
+                          type="button"
+                          className="cv-btn ghost cv-cat-btn"
+                          disabled={guardando}
+                          onClick={() => setEnvioCat((p) => (p ? { ...p, subs: (c.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo).map((x) => String(x.id)) } : p))}
+                        >
+                          Todas las subcuentas
+                        </button>
+                        <button
+                          type="button"
+                          className="cv-btn ghost cv-cat-btn"
+                          disabled={guardando}
+                          onClick={() => setEnvioCat((p) => (p ? { ...p, subs: [] } : p))}
+                        >
+                          Ninguna
+                        </button>
+                      </div>
+                    </>
+                  )}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.55rem' }}>
                     <button
                       type="button"
@@ -3045,7 +3112,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                     </button>
                   </div>
                   <p className="muted" style={{ fontSize: '0.72rem', margin: '0.4rem 0 0' }}>
-                    Solo se envía a lo marcado; en los demás módulos la cuenta deja de aparecer (sigue en IE).
+                    Solo se envía lo marcado: los módulos y las subcuentas elegidos. Lo demás deja de aparecer (sigue en IE).
                   </p>
                 </div>
               )}
