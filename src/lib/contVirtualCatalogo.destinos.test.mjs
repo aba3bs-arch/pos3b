@@ -50,4 +50,14 @@ assert.deepEqual(nombres('garage'), ['GASOLINA']);
 // Vales: solo las enviadas a Vales.
 const idsVales = categoriasValeDesdeCatalogoIe(catalogo.map((c) => ({ ...c, flujo: 'egreso' }))).map((c) => c.id);
 assert.deepEqual(idsVales, ['vales']);
+
+// Cuenta de sistema «manual» (p. ej. renombrada «Gastos Administrativo»): fuera de Vales por defecto, entra si se envía.
+const manual = { id: 'manual', nombre: 'Gastos Administrativo', activo: true, flujo: 'egreso', fijo: true, subcategorias: [{ id: 'manual-otros', nombre: 'Otros', activo: true }] };
+assert.deepEqual(destinosDeCategoria(manual), ['abarrotes', 'virtual', 'garage', 'registro_gastos']);
+assert.equal(categoriasValeDesdeCatalogoIe([manual]).some((c) => c.id === 'manual'), false);
+const enviada = { ...manual, destinos_catalogo: ['vales', 'abarrotes'] };
+const vales = categoriasValeDesdeCatalogoIe([enviada]);
+assert.equal(vales[0].id, 'manual');
+assert.equal(vales[0].label, 'Gastos Administrativo');
+assert.deepEqual(vales[0].subcategorias.map((s) => s.id), ['manual-otros']);
 console.log('contVirtualCatalogo.destinos.test.mjs OK');

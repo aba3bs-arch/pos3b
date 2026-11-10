@@ -208,16 +208,21 @@ export function serializarDestinosCatalogo(destinos) {
   return [...new Set((destinos || []).map((x) => String(x).trim().toLowerCase()).filter((x) => IDS_DESTINOS.includes(x)))].join(',');
 }
 
+/** Cuentas de sistema que por defecto no salen en Vales (el admin puede enviarlas con «Enviar»). */
+export const IDS_CATEGORIA_FUERA_DE_VALES = ['prestamos', 'ingresos', 'manual'];
+
 /**
  * Destinos efectivos de una categoría.
- * Sin selección guardada: cortes según el flag previo (en_catalogo_cortes) y Vales / Registro de gastos sí.
+ * Sin selección guardada: cortes según el flag previo (en_catalogo_cortes), Registro de gastos sí
+ * y Vales sí (salvo cuentas de sistema como Préstamos / Otros-manual).
  */
 export function destinosDeCategoria(c) {
   if (!c) return [];
   const guardados = parseDestinosCatalogo(c.destinos_catalogo);
   if (guardados) return guardados;
   const cortes = c.en_catalogo_cortes !== false ? ['abarrotes', 'virtual', 'garage'] : [];
-  return [...cortes, 'vales', 'registro_gastos'];
+  const vales = IDS_CATEGORIA_FUERA_DE_VALES.includes(String(c.id || '').toLowerCase()) ? [] : ['vales'];
+  return [...cortes, ...vales, 'registro_gastos'];
 }
 
 /** ¿La categoría debe aparecer en este módulo (abarrotes, virtual, garage, vales, registro_gastos)? */

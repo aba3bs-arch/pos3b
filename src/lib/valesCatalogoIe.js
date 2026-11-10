@@ -12,9 +12,6 @@ import {
 } from './contVirtualCatalogo.js';
 import { CATEGORIAS_VALE_FIJAS } from './valesCategorias.js';
 
-/** Ids de categoría IE que no aplican al emitir un vale. */
-const CATS_IE_EXCLUIDAS_VALE = new Set(['prestamos', 'ingresos', 'manual']);
-
 function textoBlob(categoria, subcategoria, detalle) {
   return [categoria, subcategoria, detalle].map((x) => String(x || '').toLowerCase()).join(' ');
 }
@@ -129,8 +126,8 @@ export function categoriasValeDesdeCatalogoIe(catalogo, opts = {}) {
   let egresos = filtrarCatalogoPorFlujo(catalogo || [], 'egreso')
     .filter((c) => c && c.activo !== false);
   if (soloParaFormulario) {
-    egresos = egresos.filter((c) => !CATS_IE_EXCLUIDAS_VALE.has(String(c.id || '').toLowerCase()));
-    // Solo las cuentas que el admin envió a Vales (sin selección guardada: todas, como antes).
+    // Solo las cuentas enviadas a Vales. Sin selección guardada: todas menos las de sistema
+    // (Préstamos / Otros-manual), que salen únicamente si el admin las envía con «Enviar».
     egresos = egresos.filter((c) => categoriaVisibleEnDestino(c, 'vales'));
   }
 
