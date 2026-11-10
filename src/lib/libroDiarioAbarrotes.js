@@ -99,6 +99,8 @@ export function construirLibroDiario({ desde, hasta, ingresos = [], gastos = [] 
   for (const it of ingresos || []) {
     const monto = round2(it.monto);
     if (!(monto > 0)) continue;
+    // El cobro de crédito es dinero que sale hacia el recolector: ya va como gasto (CREDITO), no es ingreso.
+    if (it.tipo_mov === 'cobro_credito') continue;
     const dia = porFecha.get(String(it.fecha || '').slice(0, 10));
     if (!dia) {
       fuera.ingresos += 1;
@@ -114,8 +116,6 @@ export function construirLibroDiario({ desde, hasta, ingresos = [], gastos = [] 
       empleado: it.empleado || '',
       concepto: it.tipo_mov === 'venta_cierre'
         ? `Venta del corte${it.folio ? ` ${it.folio}` : ''}${etiquetaTurno(it) ? ` · ${etiquetaTurno(it)}` : ''}`
-        : it.tipo_mov === 'cobro_credito'
-        ? `Cobro de crédito${it.folio ? ` · ${it.folio}` : ''}`
         : (it.comentario || 'Ingreso capturado'),
       monto,
     };

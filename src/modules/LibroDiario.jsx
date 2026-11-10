@@ -382,8 +382,8 @@ export default function LibroDiario({ supabase, sucursal }) {
           <details className="card" style={{ padding: '0.55rem 0.8rem', fontSize: '0.85rem' }}>
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>¿Cómo leer este libro?</summary>
             <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', lineHeight: 1.5 }}>
-              <li><b style={{ color: VERDE }}>Entró</b>: venta en efectivo de los cortes (venta total menos tarjeta), cobros de crédito de Venta en Ruta y otros ingresos capturados a mano.</li>
-              <li><b style={{ color: ROJO }}>Salió</b>: gastos de la tienda (proveedores, empleados, servicios, etc.) ya registrados en IE Abarrotes.</li>
+              <li><b style={{ color: VERDE }}>Entró</b>: venta en efectivo de los cortes (venta total menos tarjeta) y otros ingresos capturados a mano.</li>
+              <li><b style={{ color: ROJO }}>Salió</b>: gastos de la tienda (proveedores, empleados, servicios, etc.) ya registrados en IE Abarrotes. Los créditos cobrados cuentan aquí como egreso, no como ingreso.</li>
               <li><b>Resultado del día</b> = lo que entró − lo que salió. <b>Acumulado</b> = suma de los resultados desde el sábado.</li>
               <li>Los gastos de un turno aparecen cuando el corte se cierra. Si un día se ve sin gastos, revisa que el corte esté cerrado.</li>
               <li>No es utilidad: no incluye el costo de la mercancía ni la nómina de la semana si aún no se registra en IE.</li>
