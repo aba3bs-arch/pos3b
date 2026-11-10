@@ -1,3 +1,5 @@
+import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const CUENTAS = { abarrotes: 'Abarrotes', virtual: 'Virtual', garage: 'Garage' };
@@ -49,4 +51,25 @@ export function gastosDeMovimientosPorDia(porDia = []) {
 
 export function totalGastosLista(lista = []) {
   return round2((lista || []).reduce((a, g) => a + (Number(g?.monto) || 0), 0));
+}
+
+/** Agrupa gastos por tienda (mayor monto primero); dentro de cada tienda conserva el orden de la lista. */
+export function agruparGastosPorTienda(lista = []) {
+  const map = {};
+  for (const g of lista || []) {
+    const id = normalizarCodigoTienda(g?.tienda) || 'MAIN';
+    if (!map[id]) {
+      map[id] = {
+        id,
+        label: etiquetaTienda(id),
+        gastos: 0,
+        items: [],
+      };
+    }
+    map[id].gastos = round2(map[id].gastos + (Number(g?.monto) || 0));
+    map[id].items.push(g);
+  }
+  return Object.values(map)
+    .filter((t) => t.items.length > 0)
+    .sort((a, b) => b.gastos - a.gastos || a.label.localeCompare(b.label, 'es'));
 }
