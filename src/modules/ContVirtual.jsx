@@ -53,9 +53,15 @@ import {
   conceptoDeGasto,
   motivoDeGasto,
   gastosDeMovimientosPorDia,
+  ingresosDeMovimientosPorDia,
   totalGastosLista,
+  totalIngresosLista,
   agruparGastosPorTienda,
+  agruparIngresosPorTienda,
   agruparGastosPorCatalogo,
+  agruparIngresosPorCatalogo,
+  etiquetaCategoriaIngreso,
+  etiquetaSubcategoriaIngreso,
 } from '../lib/contVirtualGastosResumen.js';
 import { empleadosParaCorte, etiquetaEmpleadoSelectGastos } from '../lib/empleadosVisibles.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual, actualizarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
@@ -753,6 +759,219 @@ function FilaGastoResumen({ g, onVerGasto }) {
   );
 }
 
+function conceptoDeIngresoResumen(it) {
+  const cat = etiquetaCategoriaIngreso(it);
+  const sub = etiquetaSubcategoriaIngreso(it);
+  if (it?.categoria || it?.subcategoria || it?.subcategoria_nombre) {
+    return [it.categoria, it.subcategoria || it.subcategoria_nombre].filter(Boolean).join(' · ') || cat;
+  }
+  return [cat, sub !== 'Sin subcategoría' ? sub : null].filter(Boolean).join(' · ') || 'Ingreso';
+}
+
+function FilaIngresoResumen({ it, onVerIngreso }) {
+  const esRec = String(it?.tipo_mov || '').toLowerCase() === 'recoleccion';
+  return (
+    <div
+      className={`cv-summary-gasto cv-summary-ingreso-item${onVerIngreso ? ' click' : ''}`}
+      role={onVerIngreso ? 'button' : undefined}
+      tabIndex={onVerIngreso ? 0 : undefined}
+      onClick={onVerIngreso ? () => onVerIngreso(it) : undefined}
+      onKeyDown={onVerIngreso ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onVerIngreso(it);
+        }
+      } : undefined}
+    >
+      <div className="cv-summary-gasto-top">
+        <span className="concepto">{conceptoDeIngresoResumen(it)}</span>
+        <span className="amt-i">{fmt(it.monto)}</span>
+      </div>
+      <dl className="cv-summary-gasto-datos">
+        <dt>Fecha</dt><dd>{it.fecha ? fmtFechaCorta(it.fecha) : '—'}</dd>
+        <dt>Cuenta</dt><dd>{etiquetaCuentaIeUi(it.cuenta)}</dd>
+        {it.folio ? (<><dt>Folio</dt><dd>{it.folio}</dd></>) : null}
+        <dt>Concepto</dt><dd>{it.comentario || it.descripcion || '—'}</dd>
+        {esRec ? (
+          <>
+            <dt>Efectivo</dt><dd>{fmt(it.efectivo)}</dd>
+            <dt>Gastos emb.</dt><dd>{fmt(it.gastos_total)}</dd>
+          </>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
+/** Árbol sucursal → categoría → subcategoría → detalle → partidas. */
+function DesgloseCatalogoDrill({
+  grupos = [],
+  listaCount = 0,
+  sumaLista = 0,
+  totalArriba = null,
+  palabra = 'gasto',
+  rowClass = 'gasto',
+  totalKey = 'gastos',
+  notaExtra = null,
+  renderFila,
+}) {
+  const [tiendaAbierta, setTiendaAbierta] = useState(null);
+  const [catAbierta, setCatAbierta] = useState(null);
+  const [subAbierta, setSubAbierta] = useState(null);
+  const [detAbierta, setDetAbierta] = useState(null);
+  const plural = listaCount === 1 ? palabra : `${palabra}s`;
+  const totalDe = (nodo) => Number(nodo?.[totalKey] ?? nodo?.total ?? nodo?.gastos ?? nodo?.ingresos) || 0;
+
+  return (
+    <div className={`cv-summary-desglose${rowClass === 'gasto' ? ' cv-summary-gastos' : ' cv-summary-ingresos'}`}>
+      <div className="cv-summary-desglose-hd">
+        Por sucursal · {listaCount} {plural} · {fmt(sumaLista)}
+      </div>
+      {totalArriba != null && Math.abs(sumaLista - (Number(totalArriba) || 0)) > 0.5 && (
+        <div className="cv-summary-gasto-nota">
+          El total de arriba ({fmt(totalArriba)}) incluye movimientos que no traen detalle en esta lista.
+        </div>
+      )}
+      {notaExtra}
+      {grupos.map((t) => {
+        const expandida = tiendaAbierta === t.id;
+        return (
+          <div key={t.id} className="cv-summary-tienda">
+            <button
+              type="button"
+              className={`cv-summary-desglose-row btn ${rowClass}${expandida ? ' open' : ''}`}
+              onClick={() => {
+                setTiendaAbierta((prev) => (prev === t.id ? null : t.id));
+                setCatAbierta(null);
+                setSubAbierta(null);
+                setDetAbierta(null);
+              }}
+              aria-expanded={expandida}
+            >
+              <span>
+                {t.label}
+                <span className="cv-summary-tienda-count">
+                  {' '}· {t.items.length} {t.items.length === 1 ? palabra : `${palabra}s`}
+                </span>
+              </span>
+              <span className="amt">
+                {fmt(totalDe(t))}
+                <span className="chev" aria-hidden>▾</span>
+              </span>
+            </button>
+            {expandida && (
+              <div className="cv-summary-gastos-tienda">
+                {(t.catalogo || []).map((cat) => {
+                  const catKey = `${t.id}::${cat.id}`;
+                  const catOpen = catAbierta === catKey;
+                  return (
+                    <div key={catKey} className="cv-summary-cat">
+                      <button
+                        type="button"
+                        className={`cv-summary-desglose-row btn nested ${rowClass}${catOpen ? ' open' : ''}`}
+                        onClick={() => {
+                          setCatAbierta((prev) => (prev === catKey ? null : catKey));
+                          setSubAbierta(null);
+                          setDetAbierta(null);
+                        }}
+                        aria-expanded={catOpen}
+                      >
+                        <span>
+                          {cat.label}
+                          <span className="cv-summary-tienda-count">
+                            {' '}· {cat.items.length} {cat.items.length === 1 ? palabra : `${palabra}s`}
+                          </span>
+                        </span>
+                        <span className="amt">
+                          {fmt(totalDe(cat))}
+                          <span className="chev" aria-hidden>▾</span>
+                        </span>
+                      </button>
+                      {catOpen && (
+                        <div className="cv-summary-gastos-cat">
+                          {(cat.subcategorias || []).map((sub) => {
+                            const subKey = `${catKey}::${sub.id}`;
+                            const subOpen = subAbierta === subKey;
+                            return (
+                              <div key={subKey} className="cv-summary-sub">
+                                <button
+                                  type="button"
+                                  className={`cv-summary-desglose-row btn nested ${rowClass}${subOpen ? ' open' : ''}`}
+                                  onClick={() => {
+                                    setSubAbierta((prev) => (prev === subKey ? null : subKey));
+                                    setDetAbierta(null);
+                                  }}
+                                  aria-expanded={subOpen}
+                                >
+                                  <span>
+                                    {sub.label}
+                                    <span className="cv-summary-tienda-count">
+                                      {' '}· {sub.items.length} {sub.items.length === 1 ? palabra : `${palabra}s`}
+                                    </span>
+                                  </span>
+                                  <span className="amt">
+                                    {fmt(totalDe(sub))}
+                                    <span className="chev" aria-hidden>▾</span>
+                                  </span>
+                                </button>
+                                {subOpen && (
+                                  <div className="cv-summary-gastos-sub">
+                                    {sub.tieneDetalle ? (
+                                      <>
+                                        {(sub.detalles || []).map((det) => {
+                                          const detKey = `${subKey}::${det.id}`;
+                                          const detOpen = detAbierta === detKey;
+                                          return (
+                                            <div key={detKey} className="cv-summary-det">
+                                              <button
+                                                type="button"
+                                                className={`cv-summary-desglose-row btn nested ${rowClass}${detOpen ? ' open' : ''}`}
+                                                onClick={() => setDetAbierta((prev) => (prev === detKey ? null : detKey))}
+                                                aria-expanded={detOpen}
+                                              >
+                                                <span>
+                                                  {det.label}
+                                                  <span className="cv-summary-tienda-count">
+                                                    {' '}· {det.items.length} {det.items.length === 1 ? palabra : `${palabra}s`}
+                                                  </span>
+                                                </span>
+                                                <span className="amt">
+                                                  {fmt(totalDe(det))}
+                                                  <span className="chev" aria-hidden>▾</span>
+                                                </span>
+                                              </button>
+                                              {detOpen && (
+                                                <div className="cv-summary-gastos-det">
+                                                  {det.items.map((item) => renderFila(item))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                        {(sub.sinDetalle || []).map((item) => renderFila(item))}
+                                      </>
+                                    ) : (
+                                      (sub.items || []).map((item) => renderFila(item))
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SummaryBar({
   ingresos,
   gastos,
@@ -761,7 +980,9 @@ function SummaryBar({
   labelGastos = 'Gastos',
   labelBalance = 'Balance',
   gastosItems = null,
+  ingresosItems = null,
   onVerGasto = null,
+  onVerIngreso = null,
 }) {
   const [abierto, setAbierto] = useState(false);
   const [gastosAbierto, setGastosAbierto] = useState(false);
@@ -775,42 +996,48 @@ function SummaryBar({
     })),
     [gastosItems],
   );
-  const [tiendaAbierta, setTiendaAbierta] = useState(null);
-  const [tiendaGastoAbierta, setTiendaGastoAbierta] = useState(null);
-  const [catGastoAbierta, setCatGastoAbierta] = useState(null);
-  const [subGastoAbierta, setSubGastoAbierta] = useState(null);
-  const [detGastoAbierta, setDetGastoAbierta] = useState(null);
-  const [recAbierta, setRecAbierta] = useState(null);
-  const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
-  const tieneDesglose = desglose.length > 0;
 
-  const cerrarDrillGastos = useCallback(() => {
-    setTiendaGastoAbierta(null);
-    setCatGastoAbierta(null);
-    setSubGastoAbierta(null);
-    setDetGastoAbierta(null);
-  }, []);
+  const listaIngresos = useMemo(() => {
+    if (ingresosItems && ingresosItems.length) return ingresosItems;
+    // Fallback: aplanar recolecciones del desglose legado por tienda.
+    const out = [];
+    for (const t of ingresosPorTienda || []) {
+      for (const r of t.recolecciones || []) {
+        out.push({
+          ...r,
+          tipo: 'ingreso',
+          tipo_mov: r.tipo_mov || 'recoleccion',
+          tienda: t.id,
+          comentario: r.comentario || [r.folio, r.cuenta].filter(Boolean).join(' · '),
+        });
+      }
+    }
+    return out;
+  }, [ingresosItems, ingresosPorTienda]);
+  const tieneIngresosDetalle = listaIngresos.length > 0;
+  const sumaIngresos = totalIngresosLista(listaIngresos);
+  const ingresosPorTiendaDrill = useMemo(
+    () => agruparIngresosPorTienda(listaIngresos).map((t) => ({
+      ...t,
+      catalogo: agruparIngresosPorCatalogo(t.items),
+    })),
+    [listaIngresos],
+  );
 
   return (
     <div className="cv-summary">
       <div className="cv-summary-totals">
-        <div className={tieneDesglose ? 'cv-summary-ingreso-wrap' : undefined}>
-          {tieneDesglose ? (
+        <div className={tieneIngresosDetalle ? 'cv-summary-ingreso-wrap' : undefined}>
+          {tieneIngresosDetalle ? (
             <button
               type="button"
               className={`cv-summary-ingreso-btn${abierto ? ' open' : ''}`}
               onClick={() => {
                 setGastosAbierto(false);
-                cerrarDrillGastos();
-                setAbierto((v) => {
-                  if (v) {
-                    setTiendaAbierta(null);
-                    setRecAbierta(null);
-                  }
-                  return !v;
-                });
+                setAbierto((v) => !v);
               }}
               aria-expanded={abierto}
+              title="Ver ingresos por sucursal, categoría y subcategoría"
             >
               <div className="lbl">Ingresos <span className="chev" aria-hidden>▾</span></div>
               <div className="val ingreso">{fmt(ingresos)}</div>
@@ -829,12 +1056,7 @@ function SummaryBar({
               className={`cv-summary-ingreso-btn${gastosAbierto ? ' open' : ''}`}
               onClick={() => {
                 setAbierto(false);
-                setTiendaAbierta(null);
-                setRecAbierta(null);
-                setGastosAbierto((v) => {
-                  if (v) cerrarDrillGastos();
-                  return !v;
-                });
+                setGastosAbierto((v) => !v);
               }}
               aria-expanded={gastosAbierto}
               title="Ver gastos por sucursal, categoría y subcategoría"
@@ -854,240 +1076,33 @@ function SummaryBar({
           <div className="val balance">{fmt(balance)}</div>
         </div>
       </div>
-      {tieneGastosDetalle && gastosAbierto && (
-        <div className="cv-summary-desglose cv-summary-gastos">
-          <div className="cv-summary-desglose-hd">
-            Por sucursal · {listaGastos.length} gasto{listaGastos.length === 1 ? '' : 's'} · {fmt(sumaGastos)}
-          </div>
-          {Math.abs(sumaGastos - (Number(gastos) || 0)) > 0.5 && (
-            <div className="cv-summary-gasto-nota">
-              El total de arriba ({fmt(gastos)}) incluye gastos que no traen detalle en esta lista.
-            </div>
+      {tieneIngresosDetalle && abierto && (
+        <DesgloseCatalogoDrill
+          grupos={ingresosPorTiendaDrill}
+          listaCount={listaIngresos.length}
+          sumaLista={sumaIngresos}
+          totalArriba={ingresos}
+          palabra="ingreso"
+          rowClass="ingreso"
+          totalKey="ingresos"
+          renderFila={(it) => (
+            <FilaIngresoResumen key={`${it.id}`} it={it} onVerIngreso={onVerIngreso} />
           )}
-          {gastosPorTienda.map((t) => {
-            const expandida = tiendaGastoAbierta === t.id;
-            return (
-              <div key={t.id} className="cv-summary-tienda">
-                <button
-                  type="button"
-                  className={`cv-summary-desglose-row btn gasto${expandida ? ' open' : ''}`}
-                  onClick={() => {
-                    setTiendaGastoAbierta((prev) => (prev === t.id ? null : t.id));
-                    setCatGastoAbierta(null);
-                    setSubGastoAbierta(null);
-                    setDetGastoAbierta(null);
-                  }}
-                  aria-expanded={expandida}
-                >
-                  <span>
-                    {t.label}
-                    <span className="cv-summary-tienda-count">
-                      {' '}· {t.items.length} gasto{t.items.length === 1 ? '' : 's'}
-                    </span>
-                  </span>
-                  <span className="amt">
-                    {fmt(t.gastos)}
-                    <span className="chev" aria-hidden>▾</span>
-                  </span>
-                </button>
-                {expandida && (
-                  <div className="cv-summary-gastos-tienda">
-                    {(t.catalogo || []).map((cat) => {
-                      const catKey = `${t.id}::${cat.id}`;
-                      const catOpen = catGastoAbierta === catKey;
-                      return (
-                        <div key={catKey} className="cv-summary-cat">
-                          <button
-                            type="button"
-                            className={`cv-summary-desglose-row btn nested gasto${catOpen ? ' open' : ''}`}
-                            onClick={() => {
-                              setCatGastoAbierta((prev) => (prev === catKey ? null : catKey));
-                              setSubGastoAbierta(null);
-                              setDetGastoAbierta(null);
-                            }}
-                            aria-expanded={catOpen}
-                          >
-                            <span>
-                              {cat.label}
-                              <span className="cv-summary-tienda-count">
-                                {' '}· {cat.items.length} gasto{cat.items.length === 1 ? '' : 's'}
-                              </span>
-                            </span>
-                            <span className="amt">
-                              {fmt(cat.gastos)}
-                              <span className="chev" aria-hidden>▾</span>
-                            </span>
-                          </button>
-                          {catOpen && (
-                            <div className="cv-summary-gastos-cat">
-                              {(cat.subcategorias || []).map((sub) => {
-                                const subKey = `${catKey}::${sub.id}`;
-                                const subOpen = subGastoAbierta === subKey;
-                                return (
-                                  <div key={subKey} className="cv-summary-sub">
-                                    <button
-                                      type="button"
-                                      className={`cv-summary-desglose-row btn nested gasto${subOpen ? ' open' : ''}`}
-                                      onClick={() => {
-                                        setSubGastoAbierta((prev) => (prev === subKey ? null : subKey));
-                                        setDetGastoAbierta(null);
-                                      }}
-                                      aria-expanded={subOpen}
-                                    >
-                                      <span>
-                                        {sub.label}
-                                        <span className="cv-summary-tienda-count">
-                                          {' '}· {sub.items.length} gasto{sub.items.length === 1 ? '' : 's'}
-                                        </span>
-                                      </span>
-                                      <span className="amt">
-                                        {fmt(sub.gastos)}
-                                        <span className="chev" aria-hidden>▾</span>
-                                      </span>
-                                    </button>
-                                    {subOpen && (
-                                      <div className="cv-summary-gastos-sub">
-                                        {sub.tieneDetalle ? (
-                                          <>
-                                            {(sub.detalles || []).map((det) => {
-                                              const detKey = `${subKey}::${det.id}`;
-                                              const detOpen = detGastoAbierta === detKey;
-                                              return (
-                                                <div key={detKey} className="cv-summary-det">
-                                                  <button
-                                                    type="button"
-                                                    className={`cv-summary-desglose-row btn nested gasto${detOpen ? ' open' : ''}`}
-                                                    onClick={() => setDetGastoAbierta((prev) => (prev === detKey ? null : detKey))}
-                                                    aria-expanded={detOpen}
-                                                  >
-                                                    <span>
-                                                      {det.label}
-                                                      <span className="cv-summary-tienda-count">
-                                                        {' '}· {det.items.length} gasto{det.items.length === 1 ? '' : 's'}
-                                                      </span>
-                                                    </span>
-                                                    <span className="amt">
-                                                      {fmt(det.gastos)}
-                                                      <span className="chev" aria-hidden>▾</span>
-                                                    </span>
-                                                  </button>
-                                                  {detOpen && (
-                                                    <div className="cv-summary-gastos-det">
-                                                      {det.items.map((g) => (
-                                                        <FilaGastoResumen key={`${g.id}`} g={g} onVerGasto={onVerGasto} />
-                                                      ))}
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              );
-                                            })}
-                                            {(sub.sinDetalle || []).map((g) => (
-                                              <FilaGastoResumen key={`${g.id}`} g={g} onVerGasto={onVerGasto} />
-                                            ))}
-                                          </>
-                                        ) : (
-                                          (sub.items || []).map((g) => (
-                                            <FilaGastoResumen key={`${g.id}`} g={g} onVerGasto={onVerGasto} />
-                                          ))
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        />
       )}
-      {tieneDesglose && abierto && (
-        <div className="cv-summary-desglose">
-          <div className="cv-summary-desglose-hd">Por sucursal</div>
-          {desglose.map((t) => {
-            const recs = t.recolecciones || [];
-            const expandida = tiendaAbierta === t.id;
-            return (
-              <div key={t.id} className="cv-summary-tienda">
-                <button
-                  type="button"
-                  className={`cv-summary-desglose-row btn${expandida ? ' open' : ''}`}
-                  onClick={() => {
-                    setTiendaAbierta((prev) => (prev === t.id ? null : t.id));
-                    setRecAbierta(null);
-                  }}
-                  aria-expanded={expandida}
-                  disabled={!recs.length}
-                >
-                  <span>{t.label}</span>
-                  <span className="amt">
-                    {fmt(t.ingresos)}
-                    {recs.length > 0 && <span className="chev" aria-hidden>▾</span>}
-                  </span>
-                </button>
-                {expandida && recs.length > 0 && (
-                  <div className="cv-summary-recs">
-                    {recs.map((r) => {
-                      const recOpen = recAbierta === r.id;
-                      const gastosRec = r.gastos || [];
-                      const tieneGastos = gastosRec.length > 0 || (Number(r.gastos_total) || 0) > 0;
-                      return (
-                        <div key={r.id} className="cv-summary-rec-block">
-                          <button
-                            type="button"
-                            className={`cv-summary-rec-row btn${recOpen ? ' open' : ''}`}
-                            onClick={() => setRecAbierta((prev) => (prev === r.id ? null : r.id))}
-                            aria-expanded={recOpen}
-                            title={tieneGastos ? 'Ver gastos de esta recolección' : 'Sin gastos embebidos'}
-                          >
-                            <span className="fecha">
-                              {fmtFechaCorta(r.fecha)}
-                              {r.folio ? ` · ${r.folio}` : ''}
-                              {r.cuenta ? ` · ${r.cuenta}` : ''}
-                            </span>
-                            <span className="amt">
-                              {fmt(r.monto)}
-                              <span className="chev" aria-hidden>▾</span>
-                            </span>
-                          </button>
-                          {recOpen && (
-                            <div className="cv-summary-rec-gastos">
-                              <div className="cv-summary-rec-gastos-hd">
-                                Efectivo {fmt(r.efectivo)} · Gastos {fmt(r.gastos_total)}
-                              </div>
-                              {gastosRec.length === 0 ? (
-                                <div className="cv-summary-rec-gasto-row muted">
-                                  Sin detalle de gastos en esta recolección.
-                                </div>
-                              ) : (
-                                gastosRec.map((g) => (
-                                  <div key={g.id} className="cv-summary-rec-gasto-row">
-                                    <span>
-                                      {[g.categoria, g.subcategoria].filter(Boolean).join(' · ')}
-                                      {g.empleado ? ` · ${g.empleado}` : ''}
-                                      {g.comentario ? ` · ${g.comentario}` : ''}
-                                    </span>
-                                    <span className="amt-g">{fmt(g.monto)}</span>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      {tieneGastosDetalle && gastosAbierto && (
+        <DesgloseCatalogoDrill
+          grupos={gastosPorTienda}
+          listaCount={listaGastos.length}
+          sumaLista={sumaGastos}
+          totalArriba={gastos}
+          palabra="gasto"
+          rowClass="gasto"
+          totalKey="gastos"
+          renderFila={(g) => (
+            <FilaGastoResumen key={`${g.id}`} g={g} onVerGasto={onVerGasto} />
+          )}
+        />
       )}
     </div>
   );
@@ -1541,54 +1556,16 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const gastosDetalleResumen = useMemo(() => gastosDeMovimientosPorDia(porDia), [porDia]);
 
-  const ingresosPorTiendaResumen = useMemo(() => {
-    const itemsIngreso = [];
+  const ingresosDetalleResumen = useMemo(() => {
+    let items = [];
     if (ingresosFiltrados) {
-      for (const d of porDia) {
-        for (const it of d.items || []) {
-          if (it.tipo === 'ingreso') itemsIngreso.push(it);
-        }
-      }
+      items = ingresosDeMovimientosPorDia(porDia);
     } else {
-      for (const it of datos?.ingresosPorDia || []) itemsIngreso.push(it);
+      items = (datos?.ingresosPorDia || []).map((it) => ({ ...it, tipo: it.tipo || 'ingreso' }));
     }
-
-    const map = {};
-    for (const it of itemsIngreso) {
-      const id = normalizarCodigoTienda(it.tienda) || 'MAIN';
-      if (filtroTienda && id !== normalizarCodigoTienda(filtroTienda)) continue;
-      if (!map[id]) {
-        map[id] = {
-          id,
-          label: etiquetaTienda(id),
-          ingresos: 0,
-          recolecciones: [],
-        };
-      }
-      const monto = Number(it.monto) || 0;
-      map[id].ingresos += monto;
-      map[id].recolecciones.push({
-        id: it.id || `${id}-${it.fecha}-${map[id].recolecciones.length}`,
-        fecha: ymdNegocioDesdeIso(it.fecha) || String(it.fecha || '').slice(0, 10),
-        monto: Math.round(monto * 100) / 100,
-        folio: it.folio || '',
-        cuenta: it.cuenta || '',
-        efectivo: Number(it.efectivo) || 0,
-        gastos_total: Number(it.gastos_total) || 0,
-        gastos: Array.isArray(it.gastos) ? it.gastos : [],
-      });
-    }
-
-    return Object.values(map)
-      .map((t) => ({
-        ...t,
-        ingresos: Math.round(t.ingresos * 100) / 100,
-        recolecciones: t.recolecciones
-          .filter((r) => r.monto > 0 && r.fecha)
-          .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))),
-      }))
-      .filter((t) => t.ingresos > 0)
-      .sort((a, b) => b.ingresos - a.ingresos);
+    if (!filtroTienda) return items;
+    const suc = normalizarCodigoTienda(filtroTienda);
+    return items.filter((it) => (normalizarCodigoTienda(it.tienda) || 'MAIN') === suc);
   }, [filtroTienda, ingresosFiltrados, porDia, datos]);
 
   const mesesAnio = useMemo(() => {
@@ -2649,9 +2626,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           ingresos={ingresos}
           gastos={gastos}
           balance={balance}
-          ingresosPorTienda={ingresosPorTiendaResumen}
+          ingresosItems={ingresosDetalleResumen}
           gastosItems={gastosDetalleResumen}
           onVerGasto={setDesgloseMov}
+          onVerIngreso={setDesgloseMov}
         />
       )}
       {cargando && <div className="cv-loading">Cargando…</div>}
@@ -2894,7 +2872,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             ingresos={ab.ingresos}
             gastos={ab.egresos}
             balance={ab.neto}
-            ingresosPorTienda={ingresosPorTiendaResumen}
+            ingresosItems={ingresosDetalleResumen}
+            gastosItems={gastosDetalleResumen}
+            onVerGasto={setDesgloseMov}
+            onVerIngreso={setDesgloseMov}
             labelGastos="Egresos"
             labelBalance="Neto IE"
           />

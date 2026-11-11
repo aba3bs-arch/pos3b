@@ -287,6 +287,22 @@
   color: var(--cv-gasto);
 }
 
+.cv-summary-ingresos {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0.35rem 0 0.55rem;
+}
+
+.cv-summary-ingresos .cv-summary-desglose-row .amt {
+  color: var(--cv-ingreso);
+}
+
+.cv-summary-gasto-top .amt-i {
+  color: var(--cv-ingreso);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .cv-summary-tienda-count {
   font-weight: 400;
   opacity: 0.75;

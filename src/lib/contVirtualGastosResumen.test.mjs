@@ -6,12 +6,18 @@ import {
   conceptoDeGasto,
   motivoDeGasto,
   gastosDeMovimientosPorDia,
+  ingresosDeMovimientosPorDia,
   totalGastosLista,
   agruparGastosPorTienda,
+  agruparIngresosPorTienda,
   etiquetaCategoriaGasto,
   etiquetaSubcategoriaGasto,
   etiquetaDetalleGasto,
+  etiquetaCategoriaIngreso,
+  etiquetaSubcategoriaIngreso,
+  etiquetaDetalleIngreso,
   agruparGastosPorCatalogo,
+  agruparIngresosPorCatalogo,
 } from './contVirtualGastosResumen.js';
 
 test('corte, cajero, concepto y motivo del gasto', () => {
@@ -101,4 +107,42 @@ test('agrupa gastos por categoría → subcategoría → detalle', () => {
 
   assert.equal(emp.subcategorias[0].sinDetalle.length, 0);
   assert.deepEqual(agruparGastosPorCatalogo([]), []);
+});
+
+test('ingresos: etiquetas por catálogo o tipo_mov / cuenta', () => {
+  assert.equal(etiquetaCategoriaIngreso({ categoria: 'Clientes' }), 'Clientes');
+  assert.equal(etiquetaCategoriaIngreso({ tipo_mov: 'recoleccion' }), 'Recolección');
+  assert.equal(etiquetaCategoriaIngreso({ tipo_mov: 'venta_cierre' }), 'Ventas de cierre');
+  assert.equal(etiquetaSubcategoriaIngreso({ subcategoria: 'Socio A' }), 'Socio A');
+  assert.equal(etiquetaSubcategoriaIngreso({ tipo_mov: 'recoleccion', cuenta: 'garage' }), 'Garage');
+  assert.equal(etiquetaDetalleIngreso({ detalle: 'Ticket' }), 'Ticket');
+  assert.equal(etiquetaDetalleIngreso({ detalle: { gastos: [] } }), '');
+});
+
+test('agrupa ingresos por tienda y catálogo (recolección + manual)', () => {
+  const lista = [
+    { id: 'r1', tienda: '3B5', tipo_mov: 'recoleccion', cuenta: 'virtual', monto: 100 },
+    { id: 'r2', tienda: '3B5', tipo_mov: 'recoleccion', cuenta: 'garage', monto: 40 },
+    { id: 'm1', tienda: '3B5', categoria: 'Clientes', subcategoria: 'Socio X', detalle: 'Pago', monto: 25 },
+    { id: 'm2', tienda: 'MAIN', tipo_mov: 'manual', cuenta: 'virtual', monto: 10 },
+  ];
+  const porTienda = agruparIngresosPorTienda(lista);
+  assert.deepEqual(porTienda.map((t) => t.id), ['3B5', 'MAIN']);
+  assert.equal(porTienda[0].ingresos, 165);
+
+  const cats = agruparIngresosPorCatalogo(lista.filter((x) => x.tienda === '3B5'));
+  assert.deepEqual(cats.map((c) => c.label), ['Recolección', 'Clientes']);
+  assert.equal(cats[0].total, 140);
+  assert.deepEqual(cats[0].subcategorias.map((s) => [s.label, s.total]), [
+    ['Virtual', 100],
+    ['Garage', 40],
+  ]);
+  assert.equal(cats[1].subcategorias[0].tieneDetalle, true);
+  assert.deepEqual(cats[1].subcategorias[0].detalles.map((d) => d.label), ['Pago']);
+
+  const porDia = [
+    { fecha: '2026-11-10', items: [{ tipo: 'ingreso', id: 'i1', fecha: '2026-11-10', monto: 5 }, { tipo: 'gasto', id: 'g', monto: 1 }] },
+    { fecha: '2026-11-09', items: [{ tipo: 'ingreso', id: 'i0', fecha: '2026-11-09', monto: 2 }] },
+  ];
+  assert.deepEqual(ingresosDeMovimientosPorDia(porDia).map((x) => x.id), ['i1', 'i0']);
 });
