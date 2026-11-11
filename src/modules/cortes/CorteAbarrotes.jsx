@@ -9,6 +9,7 @@ import CandadoRecargasMp from '../../components/CandadoRecargasMp.jsx';
 import { calcularAbarrotes, round2 } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import { puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 import { procesarRifsVencidos } from '../../lib/rifs.js';
@@ -18,7 +19,6 @@ import {
   ACCION_REGISTRAR_VENTA,
   registrarVentaRecargaMpAjuste,
   totalRecargasPos,
-  ventaCorteTrasAjusteRecargasMp,
 } from '../../lib/corteCajaRecargasMp.js';
 import { turnoActual } from '../../lib/turnos.js';
 
@@ -38,6 +38,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     ...estado,
     caja_anterior: calc.cajaActual,
     venta: 0,
+    venta_pos_por_corte: {},
     tarjeta: 0,
     faltante: 0,
     recoleccion: 0,
@@ -101,7 +102,6 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     try {
       const f = estado.folio || folio;
       let recargasMp = candado?.recargas_mp || null;
-      let ventaCierre = round2(estado.venta);
       let gastosPreview = gastos;
 
       if (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009) {
@@ -116,17 +116,13 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           alert(resVenta?.error || 'No se pudo registrar la venta de recarga en el POS.');
           return;
         }
-        // La venta del corte abarrotes es captura manual: al aceptar opción 1
-        // hay que sumar la diferencia aquí para que el cierre no quede desfasado.
-        ventaCierre = ventaCorteTrasAjusteRecargasMp(ventaCierre, candado.montoVenta);
-        patchEstado({ venta: ventaCierre });
+        // La venta de abarrotes la llena el Corte de caja (efectivo neto).
+        // Aquí solo registramos en el POS; al guardar/corregir caja se refleja.
         if (recargasMp) {
           recargasMp = {
             ...recargasMp,
             venta_id: resVenta.id || null,
             venta_offline: !!resVenta.offline,
-            venta_corte_antes: round2(estado.venta),
-            venta_corte_despues: ventaCierre,
             pos_despues: round2((Number(recargasMp.pos) || 0) + Number(candado.montoVenta)),
           };
         }
@@ -167,7 +163,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         : prevComentarios;
 
       const calcCierre = calcularAbarrotes(
-        { ...estado, venta: ventaCierre, comentarios: comentariosCierre },
+        { ...estado, comentarios: comentariosCierre },
         gastosPreview,
       );
 
@@ -180,7 +176,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         `Recargas MP: terminal $${Number(candado?.recargas_mp?.terminal || 0).toFixed(2)}` +
         ` · POS $${Number(candado?.recargas_mp?.pos || 0).toFixed(2)}` +
         (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009
-          ? `\nVenta del corte +$${Number(candado.montoVenta).toFixed(2)} (ajuste recargas MP)`
+          ? `\nVenta recargas registrada en POS: $${Number(candado.montoVenta).toFixed(2)}`
+            + `\n(Se reflejará en Venta al guardar/corregir el Corte de caja)`
           : '') +
         (candado?.faltante > 0.009
           ? `\nFaltante recargas a cargo: $${Number(candado.faltante).toFixed(2)}`
@@ -189,9 +186,6 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       await cerrarCorte({
         recargas_mp: recargasMp,
         comentarios: comentariosCierre,
-        ...(candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009
-          ? { venta: ventaCierre }
-          : {}),
       });
     } finally {
       uiLock.end();
@@ -264,7 +258,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <div>
             <h3 style={{ margin: 0, color: COLOR }}>Corte Abarrotes</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Independiente del corte de caja POS · {turno}
+              Venta = efectivo neto del Corte de caja · {turno}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -313,10 +307,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <h4 style={{ margin: '0 0 0.75rem' }}>Movimientos</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {CAMPOS.map(({ key, label, danger }) => {
-              const editable = !(perm.soloLectura || (key === 'recoleccion' && !perm.recoleccion));
+              const editable = key === 'venta'
+                ? puedeEditarCorteCampo(perm, 'venta')
+                : !(perm.soloLectura || (key === 'recoleccion' && !perm.recoleccion));
               return (
               <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem' }}>
-                <span style={{ fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--muted)' }}>{label}</span>
+                <span style={{ fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--muted)' }}>
+                  {label}
+                  {key === 'venta' && !editable ? ' (desde Corte de caja)' : ''}
+                </span>
                 <input
                   className={`input${editable ? ' corte-campo-editable' : ''}`}
                   type="text"
@@ -324,6 +323,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                   autoComplete="off"
                   value={estado[key] ?? 0}
                   readOnly={!editable}
+                  title={key === 'venta' && !editable
+                    ? 'Se llena al guardar o corregir el Corte de caja (efectivo neto)'
+                    : undefined}
                   onFocus={editable ? (e) => e.target.select() : undefined}
                   onChange={(e) => patchEstado({ [key]: e.target.value })}
                   style={{ fontWeight: 700, textAlign: 'center' }}

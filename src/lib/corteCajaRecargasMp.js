@@ -270,7 +270,7 @@ export function notaVentaRegistradaRecargasMp(evalResult, usuarioNombre = '—')
   const monto = Number(evalResult.montoVenta) || 0;
   if (!(monto > 0)) return '';
   return (
-    `VENTA RECARGAS MP REGISTRADA EN POS + CORTE: $${monto.toFixed(2)} `
+    `VENTA RECARGAS MP REGISTRADA EN POS: $${monto.toFixed(2)} `
     + `(terminal $${Number(evalResult.terminal).toFixed(2)} − POS $${Number(evalResult.pos).toFixed(2)}) `
     + `· por ${usuarioNombre}`
   );

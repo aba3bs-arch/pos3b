@@ -200,6 +200,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         return;
       }
       const filtrado = { ...patch };
+      // «venta» abarrotes la escribe el Corte de caja / admin, no el cajero.
+      if ('venta' in filtrado && !puedeEditarCorteCampo(perm, 'venta')) {
+        delete filtrado.venta;
+        if (Object.keys(filtrado).length === 0) return;
+      }
       const keys = Object.keys(filtrado);
 
       const camposCajero = new Set([
@@ -211,7 +216,6 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         'pin1',
         'pin2',
         'dsch',
-        'venta',
         'tarjeta',
         'venta_manual',
         'subtotal_manual',

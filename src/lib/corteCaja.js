@@ -395,7 +395,19 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
     }
   }
   const local = guardarCorteLocal({ ...corte, id: cloudId || corte.id || `corte_${Date.now()}`, cloudId });
-  return { ok: true, id: cloudId, local };
+  let syncAbarrotes = null;
+  try {
+    const { sincronizarVentaAbarrotesDesdeCorteCaja } = await import('./corteCajaSyncAbarrotes.js');
+    syncAbarrotes = await sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
+      sucursal: corte.sucursal || corte.sucursal_id,
+      fecha: corte.fecha,
+      turnoId: corte.turno_id,
+      efectivoEsperado: corte.efectivoEsperado ?? corte.efectivo_esperado,
+    });
+  } catch (err) {
+    syncAbarrotes = { ok: false, error: err?.message || String(err) };
+  }
+  return { ok: true, id: cloudId, local, syncAbarrotes };
 }
 
 /**
@@ -446,7 +458,19 @@ export async function corregirCorte(supabase, corte, usuarioId = null, corteId =
     hora: new Date().toISOString(),
     corregido_at: new Date().toISOString(),
   });
-  return { ok: true, id, local, corregido: true };
+  let syncAbarrotes = null;
+  try {
+    const { sincronizarVentaAbarrotesDesdeCorteCaja } = await import('./corteCajaSyncAbarrotes.js');
+    syncAbarrotes = await sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
+      sucursal: corte.sucursal || corte.sucursal_id,
+      fecha: corte.fecha,
+      turnoId: corte.turno_id,
+      efectivoEsperado: corte.efectivoEsperado ?? corte.efectivo_esperado,
+    });
+  } catch (err) {
+    syncAbarrotes = { ok: false, error: err?.message || String(err) };
+  }
+  return { ok: true, id, local, corregido: true, syncAbarrotes };
 }
 
 export async function consultarCortes(supabase, opts = {}) {

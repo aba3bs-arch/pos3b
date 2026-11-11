@@ -97,7 +97,7 @@ test('candado: registrar venta en POS', () => {
   assert.equal(con.faltante, 0);
   assert.equal(con.montoVenta, 50);
   assert.equal(con.accion, ACCION_REGISTRAR_VENTA);
-  assert.match(notaVentaRegistradaRecargasMp(con, 'Luis'), /VENTA RECARGAS MP REGISTRADA EN POS \+ CORTE/);
+  assert.match(notaVentaRegistradaRecargasMp(con, 'Luis'), /VENTA RECARGAS MP REGISTRADA EN POS/);
   assert.equal(notaFaltanteRecargasMp(con, 'Luis'), '');
 });
 

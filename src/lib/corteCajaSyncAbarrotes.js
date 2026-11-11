@@ -1,0 +1,75 @@
+/**
+ * Al guardar/corregir Corte de caja, empuja el efectivo neto
+ * al campo «venta» del Corte Abarrotes abierto (misma sucursal).
+ */
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Clave estable por fecha+turno (corregir reemplaza, no duplica). */
+export function claveVentaPosCorteCaja({ fecha, turnoId } = {}) {
+  const f = String(fecha || '').slice(0, 10);
+  const t = String(turnoId || '').trim() || 'sin-turno';
+  return `${f}|${t}`;
+}
+
+/**
+ * Actualiza el mapa venta_pos_por_corte y recalcula estado.venta = suma.
+ * @param {object} estado
+ * @param {{ clave: string, efectivoEsperado: number }} aporte
+ */
+export function aplicarVentaPosEnEstadoAbarrotes(estado = {}, aporte = {}) {
+  const clave = String(aporte.clave || '').trim();
+  if (!clave) return { ...estado };
+  const map = { ...(estado.venta_pos_por_corte || {}) };
+  map[clave] = round2(aporte.efectivoEsperado);
+  const venta = round2(
+    Object.values(map).reduce((a, v) => a + (Number(v) || 0), 0),
+  );
+  return {
+    ...estado,
+    venta_pos_por_corte: map,
+    venta,
+  };
+}
+
+/**
+ * Carga el estado abierto de abarrotes, aplica el efectivo neto del corte de caja y guarda.
+ * No debe tumbar el guardado del corte de caja si falla.
+ */
+export async function sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
+  sucursal,
+  fecha,
+  turnoId,
+  efectivoEsperado,
+} = {}) {
+  if (!sucursal) {
+    return { ok: false, skipped: true, error: 'Sin sucursal' };
+  }
+  const clave = claveVentaPosCorteCaja({ fecha, turnoId });
+  try {
+    const { cargarEstadoCorte, guardarEstadoCorte } = await import('./corteContabilidad/store.js');
+    const cargado = await cargarEstadoCorte(supabase, sucursal, 'abarrotes');
+    if (cargado?.lecturaFallida) {
+      return { ok: false, error: cargado.error || 'No se pudo leer el corte de abarrotes' };
+    }
+    const next = aplicarVentaPosEnEstadoAbarrotes(cargado?.estado || {}, {
+      clave,
+      efectivoEsperado,
+    });
+    const guardado = await guardarEstadoCorte(supabase, sucursal, 'abarrotes', next);
+    if (!guardado?.ok) {
+      return { ok: false, error: guardado?.error || 'No se pudo guardar venta en abarrotes' };
+    }
+    return {
+      ok: true,
+      clave,
+      venta: next.venta,
+      soloLocal: !!guardado.soloLocal,
+      aviso: guardado.aviso,
+    };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}

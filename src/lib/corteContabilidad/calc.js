@@ -601,6 +601,8 @@ export const ESTADO_ABARROTES_DEFAULT = {
   fondo_fijo: 0,
   caja_anterior: 0,
   venta: 0,
+  /** Aportes de efectivo neto por corte de caja (fecha|turno → monto). */
+  venta_pos_por_corte: {},
   tarjeta: 0,
   faltante: 0,
   recoleccion: 0,
