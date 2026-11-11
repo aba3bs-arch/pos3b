@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   claveVentaPosCorteCaja,
   aplicarVentaPosEnEstadoAbarrotes,
+  aplicarAjusteRecargaMpEnVentaAbarrotes,
 } from './corteCajaSyncAbarrotes.js';
 
 test('clave estable por fecha y turno', () => {
@@ -43,4 +44,25 @@ test('segundo turno: suma al abierto de abarrotes', () => {
     { clave: '2026-11-11|ves', efectivoEsperado: 200 },
   );
   assert.equal(ves.venta, 668);
+});
+
+test('candado opción 1: suma ajuste a venta y al mapa del turno', () => {
+  const base = aplicarVentaPosEnEstadoAbarrotes(
+    {},
+    { clave: '2026-11-11|mat', efectivoEsperado: 388 },
+  );
+  const adj = aplicarAjusteRecargaMpEnVentaAbarrotes(base, 80, {
+    fecha: '2026-11-11',
+    turnoId: 'mat',
+  });
+  assert.equal(adj.venta, 468);
+  assert.equal(adj.venta_pos_por_corte['2026-11-11|mat'], 468);
+});
+
+test('candado opción 1: sin mapa, solo suma a venta', () => {
+  const adj = aplicarAjusteRecargaMpEnVentaAbarrotes({ venta: 388 }, 80, {
+    fecha: '2026-11-11',
+    turnoId: 'mat',
+  });
+  assert.equal(adj.venta, 468);
 });

@@ -20,6 +20,7 @@ import {
   registrarVentaRecargaMpAjuste,
   totalRecargasPos,
 } from '../../lib/corteCajaRecargasMp.js';
+import { aplicarAjusteRecargaMpEnVentaAbarrotes } from '../../lib/corteCajaSyncAbarrotes.js';
 import { turnoActual } from '../../lib/turnos.js';
 
 const COLOR = '#b5a642';
@@ -103,8 +104,10 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       const f = estado.folio || folio;
       let recargasMp = candado?.recargas_mp || null;
       let gastosPreview = gastos;
+      let estadoCierre = { ...estado };
+      const registroVentaMp = candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009;
 
-      if (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009) {
+      if (registroVentaMp) {
         const turnoSesion = estado.turno_sesion || turnoActual();
         const resVenta = await registrarVentaRecargaMpAjuste(supabase, {
           monto: candado.montoVenta,
@@ -116,13 +119,19 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           alert(resVenta?.error || 'No se pudo registrar la venta de recarga en el POS.');
           return;
         }
-        // La venta de abarrotes la llena el Corte de caja (efectivo neto).
-        // Aquí solo registramos en el POS; al guardar/corregir caja se refleja.
+        // También subir Venta del corte abarrotes (cierre + ticket) ya;
+        // no esperar al Corte de caja (el cajero no puede editar ese campo).
+        estadoCierre = aplicarAjusteRecargaMpEnVentaAbarrotes(estadoCierre, candado.montoVenta, {
+          fecha: fechaCorteSugerida(turnoSesion),
+          turnoId: turnoSesion?.id,
+        });
         if (recargasMp) {
           recargasMp = {
             ...recargasMp,
             venta_id: resVenta.id || null,
             venta_offline: !!resVenta.offline,
+            venta_corte_antes: round2(estado.venta),
+            venta_corte_despues: round2(estadoCierre.venta),
             pos_despues: round2((Number(recargasMp.pos) || 0) + Number(candado.montoVenta)),
           };
         }
@@ -161,11 +170,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       const comentariosCierre = candado?.notaExtra && !prevComentarios.includes(candado.notaExtra)
         ? (prevComentarios ? `${prevComentarios}\n${candado.notaExtra}` : candado.notaExtra)
         : prevComentarios;
+      estadoCierre = { ...estadoCierre, comentarios: comentariosCierre };
 
-      const calcCierre = calcularAbarrotes(
-        { ...estado, comentarios: comentariosCierre },
-        gastosPreview,
-      );
+      const calcCierre = calcularAbarrotes(estadoCierre, gastosPreview);
 
       const msg =
         `¿Cerrar corte abarrotes?\n\n` +
@@ -175,18 +182,37 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         `Caja actual: ${fmtCorte(calcCierre.cajaActual)}\n` +
         `Recargas MP: terminal $${Number(candado?.recargas_mp?.terminal || 0).toFixed(2)}` +
         ` · POS $${Number(candado?.recargas_mp?.pos || 0).toFixed(2)}` +
-        (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009
-          ? `\nVenta recargas registrada en POS: $${Number(candado.montoVenta).toFixed(2)}`
-            + `\n(Se reflejará en Venta al guardar/corregir el Corte de caja)`
+        (registroVentaMp
+          ? `\nVenta del corte +$${Number(candado.montoVenta).toFixed(2)} (recarga MP registrada en POS)`
           : '') +
         (candado?.faltante > 0.009
           ? `\nFaltante recargas a cargo: $${Number(candado.faltante).toFixed(2)}`
           : '');
       if (!confirm(msg)) return;
-      await cerrarCorte({
+      const res = await cerrarCorte({
         recargas_mp: recargasMp,
         comentarios: comentariosCierre,
+        ...(registroVentaMp
+          ? {
+            venta: estadoCierre.venta,
+            venta_pos_por_corte: estadoCierre.venta_pos_por_corte,
+          }
+          : {}),
       });
+      if (res?.ok) {
+        imprimirCorteContabilidad(
+          datosImpresionCorteActual({
+            modulo: 'abarrotes',
+            sucursal,
+            folio: res.folio || f,
+            turno: res.turno || turno,
+            user,
+            estado: res.estadoImpresion || estadoCierre,
+            gastos: res.gastosImpresion || gastosPreview,
+            calc: res.calcImpresion || calcCierre,
+          }),
+        );
+      }
     } finally {
       uiLock.end();
     }
@@ -258,7 +284,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <div>
             <h3 style={{ margin: 0, color: COLOR }}>Corte Abarrotes</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Venta = efectivo neto del Corte de caja · {turno}
+              Venta = efectivo neto del Corte de caja (+ ajuste candado MP) · {turno}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

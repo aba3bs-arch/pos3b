@@ -35,6 +35,34 @@ export function aplicarVentaPosEnEstadoAbarrotes(estado = {}, aporte = {}) {
 }
 
 /**
+ * Suma el ajuste del candado (opción registrar venta) a la venta de abarrotes
+ * para el cierre/ticket, sin esperar a guardar el Corte de caja.
+ */
+export function aplicarAjusteRecargaMpEnVentaAbarrotes(estado = {}, montoAjuste, {
+  fecha,
+  turnoId,
+} = {}) {
+  const monto = round2(montoAjuste);
+  if (!(monto > 0.009)) {
+    return { ...estado, venta: round2(estado.venta) };
+  }
+  const map = { ...(estado.venta_pos_por_corte || {}) };
+  if (Object.keys(map).length > 0) {
+    const clave = claveVentaPosCorteCaja({ fecha, turnoId });
+    map[clave] = round2((Number(map[clave]) || 0) + monto);
+    return {
+      ...estado,
+      venta_pos_por_corte: map,
+      venta: round2(Object.values(map).reduce((a, v) => a + (Number(v) || 0), 0)),
+    };
+  }
+  return {
+    ...estado,
+    venta: round2((Number(estado.venta) || 0) + monto),
+  };
+}
+
+/**
  * Carga el estado abierto de abarrotes, aplica el efectivo neto del corte de caja y guarda.
  * No debe tumbar el guardado del corte de caja si falla.
  */

@@ -444,6 +444,13 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     ) {
       estadoCierre.venta = detalleExtra.venta;
     }
+    if (
+      modulo === 'abarrotes'
+      && detalleExtra.venta_pos_por_corte
+      && typeof detalleExtra.venta_pos_por_corte === 'object'
+    ) {
+      estadoCierre.venta_pos_por_corte = detalleExtra.venta_pos_por_corte;
+    }
     const calcCierre = calcFn(estadoCierre, gastosAhora);
     const gastosTotalFresh = round2(
       calcCierre.gastosTotal
