@@ -21,6 +21,7 @@ export function permisosCorteContabilidad(rol, userId = null) {
       fondo: true,
       caja_anterior: true,
       folio: true,
+      venta: true,
       soloLectura: false,
     };
   } else if (r === 'Gerente' || ROLES_OPERACION.has(r)) {
@@ -34,6 +35,8 @@ export function permisosCorteContabilidad(rol, userId = null) {
       fondo: false,
       caja_anterior: false,
       folio: false,
+      // Venta abarrotes: la llena el Corte de caja (efectivo neto), no el cajero.
+      venta: false,
       soloLectura: false,
     };
   } else if (r === 'Auditor') {
@@ -47,6 +50,7 @@ export function permisosCorteContabilidad(rol, userId = null) {
       fondo: false,
       caja_anterior: false,
       folio: false,
+      venta: false,
       soloLectura: true,
     };
   } else {
@@ -60,6 +64,7 @@ export function permisosCorteContabilidad(rol, userId = null) {
       fondo: false,
       caja_anterior: false,
       folio: false,
+      venta: false,
       soloLectura: true,
     };
   }
@@ -104,6 +109,7 @@ export function etiquetaTipoCierre(detalle) {
 export function puedeEditarCorteCampo(perm, campo) {
   if (!perm || perm.soloLectura) return false;
   if (perm.editarTodo) return true;
+  if (campo === 'venta') return perm.venta === true;
   if (perm[campo] === true) return true;
   if (perm.guardar && ['moneda_final', 'faltante', 'comentarios'].includes(campo)) return true;
   if (perm.gastos && campo === 'gastos') return true;

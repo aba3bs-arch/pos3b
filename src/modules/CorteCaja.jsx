@@ -312,7 +312,14 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       return;
     }
     setHistorial(r.local);
-    setMsg(r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.');
+    const syncOk = r.syncAbarrotes?.ok;
+    const syncVenta = Number(r.syncAbarrotes?.venta);
+    const baseMsg = r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.';
+    setMsg(
+      syncOk
+        ? `${baseMsg} Venta Abarrotes actualizada: $${(Number.isFinite(syncVenta) ? syncVenta : contado).toFixed(2)}.`
+        : `${baseMsg}${r.syncAbarrotes?.error ? ` (Aviso: no se pudo actualizar venta en Abarrotes: ${r.syncAbarrotes.error})` : ''}`,
+    );
     setCorteExistente({ existe: true, corte: { ...corte, id: r.id, efectivo_contado: contado }, origen: r.id ? 'nube' : 'local' });
     setNotas('');
     if (leerConfigImpresion().autoCorte) {
@@ -371,7 +378,13 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
         usuario: user?.nombre || corteExistente.corte?.usuario,
       },
     });
-    setMsg('Corte corregido y guardado.');
+    const syncOk = r.syncAbarrotes?.ok;
+    const syncVenta = Number(r.syncAbarrotes?.venta);
+    setMsg(
+      syncOk
+        ? `Corte corregido y guardado. Venta Abarrotes actualizada: $${(Number.isFinite(syncVenta) ? syncVenta : contado).toFixed(2)}.`
+        : `Corte corregido y guardado.${r.syncAbarrotes?.error ? ` (Aviso: no se pudo actualizar venta en Abarrotes: ${r.syncAbarrotes.error})` : ''}`,
+    );
   };
 
   const ejecutarCancelacion = async () => {

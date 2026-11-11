@@ -1,5 +1,6 @@
 import { consultarVentas } from './ventasQuery.js';
 import { equivalentesCodigoTienda } from '../constants/sucursales.js';
+import { textoEsRecarga } from './corteCajaRecargasMp.js';
 
 function filtrarSucursalNube(q, sucursal) {
   if (!sucursal) return q;
@@ -157,6 +158,8 @@ export function fechaCorteSugerida(turno = null, now = new Date()) {
 export function clasificarPago(metodoPago) {
   const m = String(metodoPago || '').toLowerCase();
   if (m.startsWith('efectivo')) return 'efectivo';
+  // Recargas MP / TAE se cobran en efectivo (terminal); no van a electrónico/otros.
+  if (textoEsRecarga(m)) return 'efectivo';
   if (m.includes('tarjeta')) return 'tarjeta';
   if (m.includes('transfer')) return 'transferencia';
   if (m.includes('qr')) return 'qr';
@@ -392,7 +395,19 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
     }
   }
   const local = guardarCorteLocal({ ...corte, id: cloudId || corte.id || `corte_${Date.now()}`, cloudId });
-  return { ok: true, id: cloudId, local };
+  let syncAbarrotes = null;
+  try {
+    const { sincronizarVentaAbarrotesDesdeCorteCaja } = await import('./corteCajaSyncAbarrotes.js');
+    syncAbarrotes = await sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
+      sucursal: corte.sucursal || corte.sucursal_id,
+      fecha: corte.fecha,
+      turnoId: corte.turno_id,
+      efectivoEsperado: corte.efectivoEsperado ?? corte.efectivo_esperado,
+    });
+  } catch (err) {
+    syncAbarrotes = { ok: false, error: err?.message || String(err) };
+  }
+  return { ok: true, id: cloudId, local, syncAbarrotes };
 }
 
 /**
@@ -443,7 +458,19 @@ export async function corregirCorte(supabase, corte, usuarioId = null, corteId =
     hora: new Date().toISOString(),
     corregido_at: new Date().toISOString(),
   });
-  return { ok: true, id, local, corregido: true };
+  let syncAbarrotes = null;
+  try {
+    const { sincronizarVentaAbarrotesDesdeCorteCaja } = await import('./corteCajaSyncAbarrotes.js');
+    syncAbarrotes = await sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
+      sucursal: corte.sucursal || corte.sucursal_id,
+      fecha: corte.fecha,
+      turnoId: corte.turno_id,
+      efectivoEsperado: corte.efectivoEsperado ?? corte.efectivo_esperado,
+    });
+  } catch (err) {
+    syncAbarrotes = { ok: false, error: err?.message || String(err) };
+  }
+  return { ok: true, id, local, corregido: true, syncAbarrotes };
 }
 
 export async function consultarCortes(supabase, opts = {}) {

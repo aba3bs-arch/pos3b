@@ -200,6 +200,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         return;
       }
       const filtrado = { ...patch };
+      // «venta» abarrotes la escribe el Corte de caja / admin, no el cajero.
+      if ('venta' in filtrado && !puedeEditarCorteCampo(perm, 'venta')) {
+        delete filtrado.venta;
+        if (Object.keys(filtrado).length === 0) return;
+      }
       const keys = Object.keys(filtrado);
 
       const camposCajero = new Set([
@@ -211,7 +216,6 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         'pin1',
         'pin2',
         'dsch',
-        'venta',
         'tarjeta',
         'venta_manual',
         'subtotal_manual',
@@ -423,10 +427,35 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const turnoCierre = estado.turno_sesion || snapshotTurno() || turnoActual();
     const turnoTexto = nombreTurnoLegible(turnoCierre);
     const folioCierre = modulo === 'abarrotes' ? estado.folio || folio : folio;
-    const gastosCierre = [...(gastos || [])];
+    // Releer gastos: el candado de recargas MP puede haber agregado un FALTANTE justo antes.
+    const gasFresh = await listarGastosTurno(supabase, sucursal, modulo);
+    const gastosAhora = Array.isArray(gasFresh.data) ? gasFresh.data : (gastos || []);
+    const gastosCierre = [...gastosAhora];
     const gastosIds = gastosCierre.map((g) => g.id).filter(Boolean);
-    const calcCierre = { ...calc };
+    // Ajustes del candado (venta POS / comentarios) deben entrar al cálculo del cierre.
     const estadoCierre = { ...estado };
+    if (detalleExtra.comentarios != null) {
+      estadoCierre.comentarios = detalleExtra.comentarios;
+    }
+    if (
+      modulo === 'abarrotes'
+      && detalleExtra.venta != null
+      && detalleExtra.venta !== ''
+    ) {
+      estadoCierre.venta = detalleExtra.venta;
+    }
+    if (
+      modulo === 'abarrotes'
+      && detalleExtra.venta_pos_por_corte
+      && typeof detalleExtra.venta_pos_por_corte === 'object'
+    ) {
+      estadoCierre.venta_pos_por_corte = detalleExtra.venta_pos_por_corte;
+    }
+    const calcCierre = calcFn(estadoCierre, gastosAhora);
+    const gastosTotalFresh = round2(
+      calcCierre.gastosTotal
+        ?? gastosCierre.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    );
 
     const payload = {
       sucursal_id: sucursal || 'MAIN',
@@ -435,17 +464,17 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       turno: turnoTexto,
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
-      caja_actual: calc.cajaActual ?? 0,
-      ventas: calc.venta ?? 0,
+      caja_actual: calcCierre.cajaActual ?? 0,
+      ventas: calcCierre.venta ?? 0,
       detalle: {
-        ...estado,
-        gastos,
+        ...estadoCierre,
+        gastos: gastosAhora,
         gastos_ids: gastosIds,
-        gastos_total: calc.gastosTotal,
-        subtotal: calc.subtotal,
-        venta_neta: calc.ventaNeta,
-        total_lectura: calc.totalLectura,
-        comentarios: estado.comentarios || '',
+        gastos_total: gastosTotalFresh,
+        subtotal: calcCierre.subtotal,
+        venta_neta: calcCierre.ventaNeta,
+        total_lectura: calcCierre.totalLectura,
+        comentarios: estadoCierre.comentarios || '',
         ...detalleExtra,
         tipo_cierre: 'cierre',
         turno_sesion: turnoCierre,
@@ -458,10 +487,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     // Garage: gastos y faltantes persisten turno a turno hasta recolección con máquinas en cero.
     let limpia = { ok: true };
     if (modulo !== 'garage') {
-      const idsGastos = (gastos || []).map((g) => g.id).filter(Boolean);
-      limpia = await limpiarGastosTurno(supabase, sucursal, modulo, idsGastos);
+      limpia = await limpiarGastosTurno(supabase, sucursal, modulo, gastosIds);
     }
-    const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
+    const nuevoEstado = prepararTrasCierre(estadoCierre, calcCierre, detalleExtra);
     // Nueva sesión abierta: turno actual (cuando arranca el siguiente corte).
     if (modulo === 'virtual') {
       nuevoEstado.turno_sesion = snapshotTurno() || turnoActual();

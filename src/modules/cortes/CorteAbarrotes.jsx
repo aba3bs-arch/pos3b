@@ -1,16 +1,26 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
-import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
+import CandadoRecargasMp from '../../components/CandadoRecargasMp.jsx';
+import { calcularAbarrotes, round2 } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import { puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 import { procesarRifsVencidos } from '../../lib/rifs.js';
+import { fechaCorteSugerida } from '../../lib/corteCaja.js';
+import { cargarDiaCaja } from '../../lib/movimientosCaja.js';
+import {
+  registrarVentaRecargaMpAjuste,
+  totalRecargasPos,
+} from '../../lib/corteCajaRecargasMp.js';
+import { aplicarAjusteRecargaMpEnVentaAbarrotes } from '../../lib/corteCajaSyncAbarrotes.js';
+import { turnoActual } from '../../lib/turnos.js';
 
 const COLOR = '#b5a642';
 
@@ -28,6 +38,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     ...estado,
     caja_anterior: calc.cajaActual,
     venta: 0,
+    venta_pos_por_corte: {},
     tarjeta: 0,
     faltante: 0,
     recoleccion: 0,
@@ -60,19 +71,152 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   }, [supabase, sucursal, user?.nombre, recargar]);
 
   const uiLock = useRef(createSubmitLock()).current;
+  const [candadoRecargas, setCandadoRecargas] = useState(false);
+  const [recargasPosTotal, setRecargasPosTotal] = useState(0);
+  const [cargandoCandado, setCargandoCandado] = useState(false);
 
-  const confirmarCierre = async () => {
+  const abrirCandadoCierre = async () => {
+    const f = estado.folio || folio;
+    if (!f?.trim()) return alert('Capture el folio de abarrotes.');
+    setCargandoCandado(true);
+    try {
+      const turnoSesion = estado.turno_sesion || turnoActual();
+      const fecha = fechaCorteSugerida(turnoSesion);
+      const dia = await cargarDiaCaja(supabase, {
+        sucursal,
+        fecha,
+        turno: turnoSesion,
+      });
+      setRecargasPosTotal(totalRecargasPos(dia?.ventas || [], dia?.cancelaciones || []));
+    } catch {
+      setRecargasPosTotal(0);
+    } finally {
+      setCargandoCandado(false);
+    }
+    setCandadoRecargas(true);
+  };
+
+  const confirmarCierreTrasCandado = async (candado) => {
+    setCandadoRecargas(false);
     if (!uiLock.tryBegin()) return;
     try {
       const f = estado.folio || folio;
-      if (!f?.trim()) return alert('Capture el folio de abarrotes.');
+      let recargasMp = candado?.recargas_mp || null;
+      let gastosPreview = gastos;
+      let estadoCierre = { ...estado };
+      const montoVentaMp = Number(candado?.montoVenta) > 0.009 ? Number(candado.montoVenta) : 0;
+      const conFaltante = Number(candado?.faltante) > 0.009;
+      // Opción 1 (solo venta) u opción 2 (faltante): ambas registran la recarga en POS
+      // y suben Venta; la 2 además carga gasto FALTANTE al cajero/CT.
+      const registrarRecargaMp = montoVentaMp > 0.009;
+
+      if (registrarRecargaMp) {
+        const turnoSesion = estado.turno_sesion || turnoActual();
+        const resVenta = await registrarVentaRecargaMpAjuste(supabase, {
+          monto: montoVentaMp,
+          sucursal,
+          user,
+          turno: turnoSesion,
+        });
+        if (!resVenta?.ok) {
+          alert(resVenta?.error || 'No se pudo registrar la venta de recarga en el POS.');
+          return;
+        }
+        estadoCierre = aplicarAjusteRecargaMpEnVentaAbarrotes(estadoCierre, montoVentaMp, {
+          fecha: fechaCorteSugerida(turnoSesion),
+          turnoId: turnoSesion?.id,
+        });
+        if (recargasMp) {
+          recargasMp = {
+            ...recargasMp,
+            venta_id: resVenta.id || null,
+            venta_offline: !!resVenta.offline,
+            venta_corte_antes: round2(estado.venta),
+            venta_corte_despues: round2(estadoCierre.venta),
+            pos_despues: round2((Number(recargasMp.pos) || 0) + montoVentaMp),
+          };
+        }
+      }
+
+      if (conFaltante) {
+        if (!user?.id) {
+          alert('No se pudo identificar al cajero/CT para cargar el faltante. Inicia sesión de nuevo.');
+          return;
+        }
+        const resGasto = await agregarGasto({
+          categoria: 'EMPLEADO',
+          subcategoria: 'FALTANTE',
+          monto: candado.faltante,
+          comentario:
+            `Recargas MP · terminal $${Number(candado.recargas_mp?.terminal).toFixed(2)}`
+            + ` − POS $${Number(candado.recargas_mp?.pos).toFixed(2)}`
+            + ` · cierre abarrotes folio ${f}`
+            + (registrarRecargaMp ? ' · venta/recarga también registrada en POS' : ''),
+          usuario_id: user.id,
+          usuario_nombre: user.nombre || null,
+        });
+        if (resGasto && resGasto.ok === false && !resGasto.cancelado) {
+          return;
+        }
+        if (resGasto?.ok !== false) {
+          gastosPreview = [
+            ...(gastos || []),
+            {
+              categoria: 'EMPLEADO',
+              subcategoria: 'FALTANTE',
+              monto: candado.faltante,
+            },
+          ];
+        }
+      }
+
+      const prevComentarios = String(estado.comentarios || '').trim();
+      const comentariosCierre = candado?.notaExtra && !prevComentarios.includes(candado.notaExtra)
+        ? (prevComentarios ? `${prevComentarios}\n${candado.notaExtra}` : candado.notaExtra)
+        : prevComentarios;
+      estadoCierre = { ...estadoCierre, comentarios: comentariosCierre };
+
+      const calcCierre = calcularAbarrotes(estadoCierre, gastosPreview);
+
       const msg =
         `¿Cerrar corte abarrotes?\n\n` +
         `Folio: ${f}\n` +
-        `Venta: ${fmtCorte(calc.venta)}\n` +
-        `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
-        `Caja actual: ${fmtCorte(calc.cajaActual)}`;
-      if (confirm(msg)) await cerrarCorte();
+        `Venta: ${fmtCorte(calcCierre.venta)}\n` +
+        `Subtotal: ${fmtCorte(calcCierre.subtotal)}\n` +
+        `Caja actual: ${fmtCorte(calcCierre.cajaActual)}\n` +
+        `Recargas MP: terminal $${Number(candado?.recargas_mp?.terminal || 0).toFixed(2)}` +
+        ` · POS $${Number(candado?.recargas_mp?.pos || 0).toFixed(2)}` +
+        (registrarRecargaMp
+          ? `\nVenta/recarga MP +$${montoVentaMp.toFixed(2)} (registrada en POS)`
+          : '') +
+        (conFaltante
+          ? `\nFaltante recargas a cargo del cajero/CT: $${Number(candado.faltante).toFixed(2)}`
+          : '');
+      if (!confirm(msg)) return;
+      const res = await cerrarCorte({
+        recargas_mp: recargasMp,
+        comentarios: comentariosCierre,
+        ...(registrarRecargaMp
+          ? {
+            venta: estadoCierre.venta,
+            venta_pos_por_corte: estadoCierre.venta_pos_por_corte,
+          }
+          : {}),
+      });
+      if (res?.ok) {
+        imprimirCorteContabilidad(
+          datosImpresionCorteActual({
+            modulo: 'abarrotes',
+            sucursal,
+            folio: res.folio || f,
+            turno: res.turno || turno,
+            user,
+            estado: res.estadoImpresion || estadoCierre,
+            gastos: res.gastosImpresion || gastosPreview,
+            calc: res.calcImpresion || calcCierre,
+          }),
+        );
+      }
     } finally {
       uiLock.end();
     }
@@ -144,7 +288,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <div>
             <h3 style={{ margin: 0, color: COLOR }}>Corte Abarrotes</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Independiente del corte de caja POS · {turno}
+              Venta = efectivo neto del Corte de caja (+ ajuste candado MP) · {turno}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -158,8 +302,14 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
               placeholder="Folio"
             />
             {perm.guardar && (
-              <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
-                Cerrar corte
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={abrirCandadoCierre}
+                disabled={cargando || cargandoCandado}
+                title="Antes de cerrar se pide el total de recargas de la terminal Mercado Pago"
+              >
+                {cargandoCandado ? 'Preparando…' : 'Cerrar corte'}
               </button>
             )}
             {perm.recoleccion && (
@@ -187,10 +337,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <h4 style={{ margin: '0 0 0.75rem' }}>Movimientos</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {CAMPOS.map(({ key, label, danger }) => {
-              const editable = !(perm.soloLectura || (key === 'recoleccion' && !perm.recoleccion));
+              const editable = key === 'venta'
+                ? puedeEditarCorteCampo(perm, 'venta')
+                : !(perm.soloLectura || (key === 'recoleccion' && !perm.recoleccion));
               return (
               <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem' }}>
-                <span style={{ fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--muted)' }}>{label}</span>
+                <span style={{ fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--muted)' }}>
+                  {label}
+                  {key === 'venta' && !editable ? ' (desde Corte de caja)' : ''}
+                </span>
                 <input
                   className={`input${editable ? ' corte-campo-editable' : ''}`}
                   type="text"
@@ -198,6 +353,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                   autoComplete="off"
                   value={estado[key] ?? 0}
                   readOnly={!editable}
+                  title={key === 'venta' && !editable
+                    ? 'Se llena al guardar o corregir el Corte de caja (efectivo neto)'
+                    : undefined}
                   onFocus={editable ? (e) => e.target.select() : undefined}
                   onChange={(e) => patchEstado({ [key]: e.target.value })}
                   style={{ fontWeight: 700, textAlign: 'center' }}
@@ -299,6 +457,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         columnasExtra={[
           { key: 'cajero', label: 'Cajero', render: (h) => h.usuario_nombre || h.detalle?.usuario_nombre || h.detalle?.cajero || '—' },
         ]}
+      />
+
+      <CandadoRecargasMp
+        abierto={candadoRecargas}
+        posTotal={recargasPosTotal}
+        usuarioNombre={user?.nombre || '—'}
+        usuarioId={user?.id || null}
+        onCancelar={() => setCandadoRecargas(false)}
+        onConfirmar={confirmarCierreTrasCandado}
       />
     </div>
     </CorteConTeclado>
