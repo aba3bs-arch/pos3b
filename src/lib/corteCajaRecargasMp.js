@@ -270,10 +270,18 @@ export function notaVentaRegistradaRecargasMp(evalResult, usuarioNombre = '—')
   const monto = Number(evalResult.montoVenta) || 0;
   if (!(monto > 0)) return '';
   return (
-    `VENTA RECARGAS MP REGISTRADA EN POS: $${monto.toFixed(2)} `
+    `VENTA RECARGAS MP REGISTRADA EN POS + CORTE: $${monto.toFixed(2)} `
     + `(terminal $${Number(evalResult.terminal).toFixed(2)} − POS $${Number(evalResult.pos).toFixed(2)}) `
     + `· por ${usuarioNombre}`
   );
+}
+
+/**
+ * Suma el ajuste de recargas MP a la venta capturada del corte abarrotes.
+ * (La venta del corte es manual; no se toma sola de la tabla ventas del POS.)
+ */
+export function ventaCorteTrasAjusteRecargasMp(ventaActual, montoAjuste) {
+  return round2((Number(ventaActual) || 0) + (Number(montoAjuste) || 0));
 }
 
 /**

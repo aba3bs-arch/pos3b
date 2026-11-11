@@ -7,9 +7,11 @@ import {
   evaluarCandadoRecargasMp,
   notaFaltanteRecargasMp,
   notaVentaRegistradaRecargasMp,
+  ventaCorteTrasAjusteRecargasMp,
   ACCION_FALTANTE,
   ACCION_REGISTRAR_VENTA,
 } from './corteCajaRecargasMp.js';
+import { calcularAbarrotes } from './corteContabilidad/calc.js';
 
 test('detecta textos de recarga', () => {
   assert.equal(textoEsRecarga('Recarga Telcel'), true);
@@ -95,8 +97,33 @@ test('candado: registrar venta en POS', () => {
   assert.equal(con.faltante, 0);
   assert.equal(con.montoVenta, 50);
   assert.equal(con.accion, ACCION_REGISTRAR_VENTA);
-  assert.match(notaVentaRegistradaRecargasMp(con, 'Luis'), /VENTA RECARGAS MP REGISTRADA/);
+  assert.match(notaVentaRegistradaRecargasMp(con, 'Luis'), /VENTA RECARGAS MP REGISTRADA EN POS \+ CORTE/);
   assert.equal(notaFaltanteRecargasMp(con, 'Luis'), '');
+});
+
+test('opción 1: suma diferencia a la venta del corte abarrotes', () => {
+  assert.equal(ventaCorteTrasAjusteRecargasMp(1000, 80), 1080);
+  assert.equal(ventaCorteTrasAjusteRecargasMp('', 50.555), 50.56);
+  const ventaAntes = 2500;
+  const ajuste = 80;
+  const ventaDespues = ventaCorteTrasAjusteRecargasMp(ventaAntes, ajuste);
+  const calcAntes = calcularAbarrotes({
+    venta: ventaAntes,
+    tarjeta: 0,
+    faltante: 0,
+    recoleccion: 0,
+    caja_anterior: 500,
+  }, []);
+  const calcDespues = calcularAbarrotes({
+    venta: ventaDespues,
+    tarjeta: 0,
+    faltante: 0,
+    recoleccion: 0,
+    caja_anterior: 500,
+  }, []);
+  assert.equal(calcDespues.venta, 2580);
+  assert.equal(calcDespues.subtotal, calcAntes.subtotal + 80);
+  assert.equal(calcDespues.cajaActual, calcAntes.cajaActual + 80);
 });
 
 test('candado: POS > terminal exige revisión', () => {

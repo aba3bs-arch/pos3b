@@ -6,7 +6,7 @@ import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursal
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import CandadoRecargasMp from '../../components/CandadoRecargasMp.jsx';
-import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
+import { calcularAbarrotes, round2 } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
@@ -18,6 +18,7 @@ import {
   ACCION_REGISTRAR_VENTA,
   registrarVentaRecargaMpAjuste,
   totalRecargasPos,
+  ventaCorteTrasAjusteRecargasMp,
 } from '../../lib/corteCajaRecargasMp.js';
 import { turnoActual } from '../../lib/turnos.js';
 
@@ -100,6 +101,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     try {
       const f = estado.folio || folio;
       let recargasMp = candado?.recargas_mp || null;
+      let ventaCierre = round2(estado.venta);
+      let gastosPreview = gastos;
 
       if (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009) {
         const turnoSesion = estado.turno_sesion || turnoActual();
@@ -113,12 +116,18 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           alert(resVenta?.error || 'No se pudo registrar la venta de recarga en el POS.');
           return;
         }
+        // La venta del corte abarrotes es captura manual: al aceptar opción 1
+        // hay que sumar la diferencia aquí para que el cierre no quede desfasado.
+        ventaCierre = ventaCorteTrasAjusteRecargasMp(ventaCierre, candado.montoVenta);
+        patchEstado({ venta: ventaCierre });
         if (recargasMp) {
           recargasMp = {
             ...recargasMp,
             venta_id: resVenta.id || null,
             venta_offline: !!resVenta.offline,
-            pos_despues: Math.round(((Number(recargasMp.pos) || 0) + Number(candado.montoVenta)) * 100) / 100,
+            venta_corte_antes: round2(estado.venta),
+            venta_corte_despues: ventaCierre,
+            pos_despues: round2((Number(recargasMp.pos) || 0) + Number(candado.montoVenta)),
           };
         }
       } else if (candado?.faltante > 0.009) {
@@ -140,6 +149,16 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         if (resGasto && resGasto.ok === false && !resGasto.cancelado) {
           return;
         }
+        if (resGasto?.ok !== false) {
+          gastosPreview = [
+            ...(gastos || []),
+            {
+              categoria: 'EMPLEADO',
+              subcategoria: 'FALTANTE',
+              monto: candado.faltante,
+            },
+          ];
+        }
       }
 
       const prevComentarios = String(estado.comentarios || '').trim();
@@ -147,16 +166,21 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         ? (prevComentarios ? `${prevComentarios}\n${candado.notaExtra}` : candado.notaExtra)
         : prevComentarios;
 
+      const calcCierre = calcularAbarrotes(
+        { ...estado, venta: ventaCierre, comentarios: comentariosCierre },
+        gastosPreview,
+      );
+
       const msg =
         `¿Cerrar corte abarrotes?\n\n` +
         `Folio: ${f}\n` +
-        `Venta: ${fmtCorte(calc.venta)}\n` +
-        `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
-        `Caja actual: ${fmtCorte(calc.cajaActual)}\n` +
+        `Venta: ${fmtCorte(calcCierre.venta)}\n` +
+        `Subtotal: ${fmtCorte(calcCierre.subtotal)}\n` +
+        `Caja actual: ${fmtCorte(calcCierre.cajaActual)}\n` +
         `Recargas MP: terminal $${Number(candado?.recargas_mp?.terminal || 0).toFixed(2)}` +
         ` · POS $${Number(candado?.recargas_mp?.pos || 0).toFixed(2)}` +
         (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009
-          ? `\nVenta recargas registrada en POS: $${Number(candado.montoVenta).toFixed(2)}`
+          ? `\nVenta del corte +$${Number(candado.montoVenta).toFixed(2)} (ajuste recargas MP)`
           : '') +
         (candado?.faltante > 0.009
           ? `\nFaltante recargas a cargo: $${Number(candado.faltante).toFixed(2)}`
@@ -165,6 +189,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       await cerrarCorte({
         recargas_mp: recargasMp,
         comentarios: comentariosCierre,
+        ...(candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009
+          ? { venta: ventaCierre }
+          : {}),
       });
     } finally {
       uiLock.end();

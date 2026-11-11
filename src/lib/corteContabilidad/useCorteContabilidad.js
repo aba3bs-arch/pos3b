@@ -428,14 +428,23 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const gastosAhora = Array.isArray(gasFresh.data) ? gasFresh.data : (gastos || []);
     const gastosCierre = [...gastosAhora];
     const gastosIds = gastosCierre.map((g) => g.id).filter(Boolean);
-    const gastosTotalFresh = round2(
-      gastosCierre.reduce((a, g) => a + (Number(g.monto) || 0), 0),
-    );
-    const calcCierre = {
-      ...calc,
-      gastosTotal: gastosTotalFresh,
-    };
+    // Ajustes del candado (venta POS / comentarios) deben entrar al cálculo del cierre.
     const estadoCierre = { ...estado };
+    if (detalleExtra.comentarios != null) {
+      estadoCierre.comentarios = detalleExtra.comentarios;
+    }
+    if (
+      modulo === 'abarrotes'
+      && detalleExtra.venta != null
+      && detalleExtra.venta !== ''
+    ) {
+      estadoCierre.venta = detalleExtra.venta;
+    }
+    const calcCierre = calcFn(estadoCierre, gastosAhora);
+    const gastosTotalFresh = round2(
+      calcCierre.gastosTotal
+        ?? gastosCierre.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    );
 
     const payload = {
       sucursal_id: sucursal || 'MAIN',
@@ -444,17 +453,17 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       turno: turnoTexto,
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
-      caja_actual: calc.cajaActual ?? 0,
-      ventas: calc.venta ?? 0,
+      caja_actual: calcCierre.cajaActual ?? 0,
+      ventas: calcCierre.venta ?? 0,
       detalle: {
-        ...estado,
+        ...estadoCierre,
         gastos: gastosAhora,
         gastos_ids: gastosIds,
         gastos_total: gastosTotalFresh,
-        subtotal: calc.subtotal,
-        venta_neta: calc.ventaNeta,
-        total_lectura: calc.totalLectura,
-        comentarios: estado.comentarios || '',
+        subtotal: calcCierre.subtotal,
+        venta_neta: calcCierre.ventaNeta,
+        total_lectura: calcCierre.totalLectura,
+        comentarios: estadoCierre.comentarios || '',
         ...detalleExtra,
         tipo_cierre: 'cierre',
         turno_sesion: turnoCierre,
@@ -469,7 +478,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (modulo !== 'garage') {
       limpia = await limpiarGastosTurno(supabase, sucursal, modulo, gastosIds);
     }
-    const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
+    const nuevoEstado = prepararTrasCierre(estadoCierre, calcCierre, detalleExtra);
     // Nueva sesión abierta: turno actual (cuando arranca el siguiente corte).
     if (modulo === 'virtual') {
       nuevoEstado.turno_sesion = snapshotTurno() || turnoActual();
