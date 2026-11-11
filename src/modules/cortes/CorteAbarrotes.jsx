@@ -16,7 +16,6 @@ import { procesarRifsVencidos } from '../../lib/rifs.js';
 import { fechaCorteSugerida } from '../../lib/corteCaja.js';
 import { cargarDiaCaja } from '../../lib/movimientosCaja.js';
 import {
-  ACCION_REGISTRAR_VENTA,
   registrarVentaRecargaMpAjuste,
   totalRecargasPos,
 } from '../../lib/corteCajaRecargasMp.js';
@@ -105,12 +104,16 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       let recargasMp = candado?.recargas_mp || null;
       let gastosPreview = gastos;
       let estadoCierre = { ...estado };
-      const registroVentaMp = candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009;
+      const montoVentaMp = Number(candado?.montoVenta) > 0.009 ? Number(candado.montoVenta) : 0;
+      const conFaltante = Number(candado?.faltante) > 0.009;
+      // Opción 1 (solo venta) u opción 2 (faltante): ambas registran la recarga en POS
+      // y suben Venta; la 2 además carga gasto FALTANTE al cajero/CT.
+      const registrarRecargaMp = montoVentaMp > 0.009;
 
-      if (registroVentaMp) {
+      if (registrarRecargaMp) {
         const turnoSesion = estado.turno_sesion || turnoActual();
         const resVenta = await registrarVentaRecargaMpAjuste(supabase, {
-          monto: candado.montoVenta,
+          monto: montoVentaMp,
           sucursal,
           user,
           turno: turnoSesion,
@@ -119,9 +122,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           alert(resVenta?.error || 'No se pudo registrar la venta de recarga en el POS.');
           return;
         }
-        // También subir Venta del corte abarrotes (cierre + ticket) ya;
-        // no esperar al Corte de caja (el cajero no puede editar ese campo).
-        estadoCierre = aplicarAjusteRecargaMpEnVentaAbarrotes(estadoCierre, candado.montoVenta, {
+        estadoCierre = aplicarAjusteRecargaMpEnVentaAbarrotes(estadoCierre, montoVentaMp, {
           fecha: fechaCorteSugerida(turnoSesion),
           turnoId: turnoSesion?.id,
         });
@@ -132,10 +133,12 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             venta_offline: !!resVenta.offline,
             venta_corte_antes: round2(estado.venta),
             venta_corte_despues: round2(estadoCierre.venta),
-            pos_despues: round2((Number(recargasMp.pos) || 0) + Number(candado.montoVenta)),
+            pos_despues: round2((Number(recargasMp.pos) || 0) + montoVentaMp),
           };
         }
-      } else if (candado?.faltante > 0.009) {
+      }
+
+      if (conFaltante) {
         if (!user?.id) {
           alert('No se pudo identificar al cajero/CT para cargar el faltante. Inicia sesión de nuevo.');
           return;
@@ -147,7 +150,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           comentario:
             `Recargas MP · terminal $${Number(candado.recargas_mp?.terminal).toFixed(2)}`
             + ` − POS $${Number(candado.recargas_mp?.pos).toFixed(2)}`
-            + ` · cierre abarrotes folio ${f}`,
+            + ` · cierre abarrotes folio ${f}`
+            + (registrarRecargaMp ? ' · venta/recarga también registrada en POS' : ''),
           usuario_id: user.id,
           usuario_nombre: user.nombre || null,
         });
@@ -182,17 +186,17 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         `Caja actual: ${fmtCorte(calcCierre.cajaActual)}\n` +
         `Recargas MP: terminal $${Number(candado?.recargas_mp?.terminal || 0).toFixed(2)}` +
         ` · POS $${Number(candado?.recargas_mp?.pos || 0).toFixed(2)}` +
-        (registroVentaMp
-          ? `\nVenta del corte +$${Number(candado.montoVenta).toFixed(2)} (recarga MP registrada en POS)`
+        (registrarRecargaMp
+          ? `\nVenta/recarga MP +$${montoVentaMp.toFixed(2)} (registrada en POS)`
           : '') +
-        (candado?.faltante > 0.009
-          ? `\nFaltante recargas a cargo: $${Number(candado.faltante).toFixed(2)}`
+        (conFaltante
+          ? `\nFaltante recargas a cargo del cajero/CT: $${Number(candado.faltante).toFixed(2)}`
           : '');
       if (!confirm(msg)) return;
       const res = await cerrarCorte({
         recargas_mp: recargasMp,
         comentarios: comentariosCierre,
-        ...(registroVentaMp
+        ...(registrarRecargaMp
           ? {
             venta: estadoCierre.venta,
             venta_pos_por_corte: estadoCierre.venta_pos_por_corte,

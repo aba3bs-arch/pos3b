@@ -186,8 +186,9 @@ export default function CandadoRecargasMp({
                 />
                 <span>
                   <strong>Aceptar faltante</strong> de {fmt(preview.diferencia)} a cargo de{' '}
-                  <strong>{usuarioNombre}</strong> (cajero/CT). Se registra en el corte y aplica
-                  a nómina / pago de CT.
+                  <strong>{usuarioNombre}</strong> (cajero/CT): también registra la recarga en el
+                  POS y suma esa venta en Abarrotes, y carga el gasto FALTANTE (así no queda
+                  sobrante). Aplica a nómina / pago de CT.
                 </span>
               </label>
             </div>

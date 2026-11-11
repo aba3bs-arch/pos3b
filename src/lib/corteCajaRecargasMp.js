@@ -221,13 +221,15 @@ export function evaluarCandadoRecargasMp({
     };
   }
 
+  // Faltante: también registra la recarga en POS/venta (si no, la venta baja
+  // por el gasto y queda un sobrante artificial de la misma diferencia).
   return {
     ok: true,
     terminal,
     pos: posN,
     diferencia,
     faltante: terminalMayor ? diferencia : 0,
-    montoVenta: 0,
+    montoVenta: terminalMayor ? diferencia : 0,
     accion: terminalMayor ? ACCION_FALTANTE : null,
     requiereAceptarFaltante: terminalMayor,
     requiereAceptarRevision,
@@ -243,10 +245,10 @@ export function payloadRecargasMpCorroboracion(evalResult, { usuarioNombre = nul
     pos: evalResult.pos,
     diferencia: evalResult.diferencia,
     faltante,
-    monto_venta_registrada: accion === ACCION_REGISTRAR_VENTA ? (evalResult.montoVenta || 0) : 0,
+    monto_venta_registrada: (evalResult.montoVenta || 0) > 0.009 ? (evalResult.montoVenta || 0) : 0,
     accion,
     aceptado_faltante: faltante > 0,
-    venta_registrada: accion === ACCION_REGISTRAR_VENTA,
+    venta_registrada: (evalResult.montoVenta || 0) > 0.009,
     aceptado_revision: (evalResult.diferencia || 0) < -0.009,
     usuario_nombre: usuarioNombre,
     usuario_id: usuarioId,
@@ -259,16 +261,20 @@ export function notaFaltanteRecargasMp(evalResult, usuarioNombre = '—') {
   if (!(evalResult?.faltante > 0)) return '';
   return (
     `FALTANTE RECARGAS MP: $${Number(evalResult.faltante).toFixed(2)} `
+    + `+ venta/recarga registrada en POS `
     + `(terminal $${Number(evalResult.terminal).toFixed(2)} − POS $${Number(evalResult.pos).toFixed(2)}) `
     + `· a cargo de ${usuarioNombre}`
   );
 }
 
-/** Nota cuando se registró la venta faltante en el POS. */
+/** Nota cuando se registró la venta faltante en el POS (opción 1 o junto al faltante). */
 export function notaVentaRegistradaRecargasMp(evalResult, usuarioNombre = '—') {
-  if (evalResult?.accion !== ACCION_REGISTRAR_VENTA) return '';
-  const monto = Number(evalResult.montoVenta) || 0;
+  const monto = Number(evalResult?.montoVenta) || 0;
   if (!(monto > 0)) return '';
+  if (evalResult?.accion === ACCION_FALTANTE) {
+    // La nota de faltante ya menciona la venta registrada.
+    return '';
+  }
   return (
     `VENTA RECARGAS MP REGISTRADA EN POS: $${monto.toFixed(2)} `
     + `(terminal $${Number(evalResult.terminal).toFixed(2)} − POS $${Number(evalResult.pos).toFixed(2)}) `

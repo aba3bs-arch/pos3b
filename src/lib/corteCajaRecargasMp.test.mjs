@@ -64,7 +64,7 @@ test('candado: terminal > POS exige elegir resolución', () => {
   assert.match(sin.error, /registrar la venta|faltante/i);
 });
 
-test('candado: aceptar faltante', () => {
+test('candado: aceptar faltante también marca venta/recarga a registrar', () => {
   const con = evaluarCandadoRecargasMp({
     terminalRaw: '180',
     pos: 100,
@@ -72,11 +72,14 @@ test('candado: aceptar faltante', () => {
   });
   assert.equal(con.ok, true);
   assert.equal(con.faltante, 80);
+  assert.equal(con.montoVenta, 80);
   assert.equal(con.accion, ACCION_FALTANTE);
   assert.match(notaFaltanteRecargasMp(con, 'Ana'), /FALTANTE RECARGAS MP: \$80\.00/);
+  assert.match(notaFaltanteRecargasMp(con, 'Ana'), /venta\/recarga registrada/);
+  assert.equal(notaVentaRegistradaRecargasMp(con, 'Ana'), '');
 });
 
-test('candado: registrar venta en POS (compat checkbox aceptoFaltante)', () => {
+test('candado: faltante (compat checkbox aceptoFaltante) incluye montoVenta', () => {
   const legacy = evaluarCandadoRecargasMp({
     terminalRaw: '150',
     pos: 100,
@@ -84,6 +87,7 @@ test('candado: registrar venta en POS (compat checkbox aceptoFaltante)', () => {
   });
   assert.equal(legacy.ok, true);
   assert.equal(legacy.faltante, 50);
+  assert.equal(legacy.montoVenta, 50);
   assert.equal(legacy.accion, ACCION_FALTANTE);
 });
 
