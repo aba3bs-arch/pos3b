@@ -31,9 +31,6 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import { imprimirCorte } from '../lib/impresion.js';
 import { leerConfigImpresion } from '../lib/posConfig.js';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
-import CandadoRecargasMp from '../components/CandadoRecargasMp.jsx';
-import { totalRecargasPos } from '../lib/corteCajaRecargasMp.js';
-import { agregarGastoTurno } from '../lib/corteContabilidad/store.js';
 
 function fmtHora(iso) {
   if (!iso) return '—';
@@ -108,11 +105,9 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [corteExistente, setCorteExistente] = useState(null);
   const [modoCorregir, setModoCorregir] = useState(false);
   const [bloqueoCorte, setBloqueoCorte] = useState('');
-  const [candadoRecargas, setCandadoRecargas] = useState(null); // { modo: 'guardar'|'corregir' }
 
   const resumen = useMemo(() => resumirMovimientosCaja(ventas, cancelaciones), [ventas, cancelaciones]);
   const movimientos = useMemo(() => listaMovimientosCaja(ventas, cancelaciones), [ventas, cancelaciones]);
-  const recargasPosTotal = useMemo(() => totalRecargasPos(ventas, cancelaciones), [ventas, cancelaciones]);
 
   const diferencia = useMemo(() => {
     const contado = parseFloat(efectivoContado);
@@ -280,104 +275,77 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     setMsg('Modo corrección: ajusta efectivo/corroboración/notas y guarda la corrección.');
   };
 
-  const armarPayloadCorte = (contado, { corroboracionExtra = null, notasExtra = '' } = {}) => {
-    const corr = {
-      ...(corroboracion || {}),
-      ...(corroboracionExtra || {}),
-    };
-    const notasBase = notas.trim();
-    const notasFinal = [notasBase, notasExtra].filter(Boolean).join('\n');
-    return {
-      fecha,
-      sucursal,
-      usuario: user?.nombre || '—',
-      turno_id: turnoActivo?.id,
-      turno_nombre: nombreTurnoLegible(turnoActivo) || null,
-      hora: new Date().toISOString(),
-      tickets: resumen.ticketsBruto,
-      cancelaciones: resumen.cancelaciones,
-      totalVentas: resumen.total,
-      totalBruto: resumen.totalBruto,
-      totalCancelaciones: resumen.totalCancelaciones,
-      efectivoEsperado: resumen.efectivoEsperado,
-      efectivoContado: contado,
-      diferencia: contado - resumen.efectivoEsperado,
-      electronico: resumen.electronico,
-      grupos: resumen.grupos,
-      detalleMetodos: resumen.detalleMetodos,
-      corroboracion: corr,
-      notas: notasFinal,
-    };
-  };
+  const armarPayloadCorte = (contado) => ({
+    fecha,
+    sucursal,
+    usuario: user?.nombre || '—',
+    turno_id: turnoActivo?.id,
+    turno_nombre: nombreTurnoLegible(turnoActivo) || null,
+    hora: new Date().toISOString(),
+    tickets: resumen.ticketsBruto,
+    cancelaciones: resumen.cancelaciones,
+    totalVentas: resumen.total,
+    totalBruto: resumen.totalBruto,
+    totalCancelaciones: resumen.totalCancelaciones,
+    efectivoEsperado: resumen.efectivoEsperado,
+    efectivoContado: contado,
+    diferencia: contado - resumen.efectivoEsperado,
+    electronico: resumen.electronico,
+    grupos: resumen.grupos,
+    detalleMetodos: resumen.detalleMetodos,
+    corroboracion,
+    notas: notas.trim(),
+  });
 
-  const registrarFaltanteRecargasNomina = async (faltante, recargasMp) => {
-    if (!(faltante > 0.009) || !supabase) return { ok: true, omitido: true };
-    try {
-      const res = await agregarGastoTurno(supabase, sucursal, 'abarrotes', {
-        categoria: 'EMPLEADO',
-        subcategoria: 'FALTANTE',
-        monto: faltante,
-        comentario:
-          `Recargas MP · terminal $${Number(recargasMp.terminal).toFixed(2)}`
-          + ` − POS $${Number(recargasMp.pos).toFixed(2)}`
-          + ` · corte caja ${fecha} ${nombreTurnoLegible(turnoActivo) || ''}`.trim(),
-        usuario_id: user?.id || null,
-        usuario_nombre: user?.nombre || null,
-      }, { omitirValidacionFuga: true, omitirChequeoDuplicado: true });
-      return res;
-    } catch (e) {
-      return { ok: false, error: e?.message || 'No se pudo registrar faltante en corte abarrotes.' };
-    }
-  };
-
-  const ejecutarGuardarCorte = async (candado) => {
+  const guardarCorteHandler = async () => {
+    if (bloqueoCorte) return alert(bloqueoCorte);
+    if (corteExistente?.existe) return alert('Ya se registró el corte de este turno. Usa «Corregir corte» para actualizarlo.');
     const contado = parseFloat(efectivoContado);
-    const corte = armarPayloadCorte(contado, {
-      corroboracionExtra: { recargas_mp: candado.recargas_mp },
-      notasExtra: candado.notaExtra || '',
-    });
+    if (Number.isNaN(contado)) {
+      alert('Indica cuánto efectivo contaste en caja.');
+      return;
+    }
+    const corte = armarPayloadCorte(contado);
     const r = await guardarCorte(supabase, corte, user?.id);
     if (!r.ok) {
       alert(r.error);
       return;
     }
-    let avisoFaltante = '';
-    if (candado.faltante > 0.009) {
-      const fg = await registrarFaltanteRecargasNomina(candado.faltante, candado.recargas_mp);
-      if (fg?.ok) {
-        avisoFaltante = `\nFaltante recargas $${candado.faltante.toFixed(2)} cargado a ${user?.nombre || 'cajero'} (nómina / pago CT).`;
-      } else {
-        avisoFaltante =
-          `\n⚠️ Faltante recargas $${candado.faltante.toFixed(2)} quedó en el corte;`
-          + ` no se pudo cargar automático a nómina (${fg?.error || 'error'}). Regístralo en Corte Abarrotes → Faltante.`;
-      }
-    }
     setHistorial(r.local);
-    setMsg(
-      (r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.')
-      + avisoFaltante,
-    );
+    setMsg(r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.');
     setCorteExistente({ existe: true, corte: { ...corte, id: r.id, efectivo_contado: contado }, origen: r.id ? 'nube' : 'local' });
-    setNotas(corte.notas || '');
-    setCandadoRecargas(null);
+    setNotas('');
     if (leerConfigImpresion().autoCorte) {
       await imprimirCorteDesdeResumen(contado);
     }
   };
 
-  const ejecutarCorregirCorte = async (candado) => {
+  const corregirCorteHandler = async () => {
+    if (!corteExistente?.existe) return;
+    if (!puedeCorregirCorte) {
+      return alert('No tienes permiso para corregir este corte. Pide a un gerente o administrador.');
+    }
     const contado = parseFloat(efectivoContado);
+    if (Number.isNaN(contado)) {
+      alert('Indica cuánto efectivo contaste en caja.');
+      return;
+    }
     const prevNotas = String(corteExistente.corte?.notas || '').trim();
     const stamp = new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
     const lineaCorr = `Corregido por ${user?.nombre || '—'} · ${stamp}`;
     const baseNotas = (notas.trim() || prevNotas).replace(/\n?Corregido por .+$/gm, '').trim();
-    const conCandado = [baseNotas, candado.notaExtra].filter(Boolean).join('\n');
-    const notasConStamp = `${conCandado}${conCandado ? '\n' : ''}${lineaCorr}`;
+    const notasConStamp = `${baseNotas}${baseNotas ? '\n' : ''}${lineaCorr}`;
+
+    if (
+      !confirm(
+        `¿Corregir el corte de ${nombreTurnoLegible(turnoActivo)} (${fecha})?\n\nEfectivo contado: $${contado.toFixed(2)}\nDiferencia: $${(contado - resumen.efectivoEsperado).toFixed(2)}`,
+      )
+    ) {
+      return;
+    }
 
     const corte = {
-      ...armarPayloadCorte(contado, {
-        corroboracionExtra: { recargas_mp: candado.recargas_mp },
-      }),
+      ...armarPayloadCorte(contado),
       id: corteExistente.corte?.id,
       notas: notasConStamp,
     };
@@ -386,19 +354,9 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       alert(r.error);
       return;
     }
-    if (candado.faltante > 0.009) {
-      const fg = await registrarFaltanteRecargasNomina(candado.faltante, candado.recargas_mp);
-      if (!fg?.ok) {
-        alert(
-          `Corte corregido, pero el faltante de recargas no se cargó a nómina: ${fg?.error || 'error'}.`
-          + ' Regístralo en Corte Abarrotes → Faltante.',
-        );
-      }
-    }
     setHistorial(r.local || leerCortesLocales());
     setModoCorregir(false);
     setNotas(corte.notas);
-    setCandadoRecargas(null);
     setCorteExistente({
       existe: true,
       origen: r.id && String(r.id).includes('-') ? 'nube' : corteExistente.origen,
@@ -409,50 +367,11 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
         efectivo_contado: contado,
         diferencia: contado - resumen.efectivoEsperado,
         notas: corte.notas,
-        corroboracion: corte.corroboracion,
+        corroboracion,
         usuario: user?.nombre || corteExistente.corte?.usuario,
       },
     });
     setMsg('Corte corregido y guardado.');
-  };
-
-  const guardarCorteHandler = () => {
-    if (bloqueoCorte) return alert(bloqueoCorte);
-    if (corteExistente?.existe) return alert('Ya se registró el corte de este turno. Usa «Corregir corte» para actualizarlo.');
-    const contado = parseFloat(efectivoContado);
-    if (Number.isNaN(contado)) {
-      alert('Indica cuánto efectivo contaste en caja.');
-      return;
-    }
-    setCandadoRecargas({ modo: 'guardar' });
-  };
-
-  const corregirCorteHandler = () => {
-    if (!corteExistente?.existe) return;
-    if (!puedeCorregirCorte) {
-      return alert('No tienes permiso para corregir este corte. Pide a un gerente o administrador.');
-    }
-    const contado = parseFloat(efectivoContado);
-    if (Number.isNaN(contado)) {
-      alert('Indica cuánto efectivo contaste en caja.');
-      return;
-    }
-    if (
-      !confirm(
-        `¿Corregir el corte de ${nombreTurnoLegible(turnoActivo)} (${fecha})?\n\nEfectivo contado: $${contado.toFixed(2)}\nDiferencia: $${(contado - resumen.efectivoEsperado).toFixed(2)}`,
-      )
-    ) {
-      return;
-    }
-    setCandadoRecargas({ modo: 'corregir' });
-  };
-
-  const onCandadoRecargasConfirmado = async (candado) => {
-    if (candadoRecargas?.modo === 'corregir') {
-      await ejecutarCorregirCorte(candado);
-    } else {
-      await ejecutarGuardarCorte(candado);
-    }
   };
 
   const ejecutarCancelacion = async () => {
@@ -891,8 +810,6 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Corroboración otros rubros</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
               Compare lo registrado en el sistema con lo que reporta terminal, banco o app (tarjeta, transferencia, QR).
-              Al guardar el corte se pedirá el total de <strong>recargas Mercado Pago</strong> de la terminal
-              (POS detectó <strong>${recargasPosTotal.toFixed(2)}</strong> en recargas de este turno).
             </p>
             <div className="table-wrap">
               <table className="data">
@@ -1107,15 +1024,6 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
           </div>
         </div>
       )}
-
-      <CandadoRecargasMp
-        abierto={Boolean(candadoRecargas)}
-        posTotal={recargasPosTotal}
-        usuarioNombre={user?.nombre || '—'}
-        usuarioId={user?.id || null}
-        onCancelar={() => setCandadoRecargas(null)}
-        onConfirmar={onCandadoRecargasConfirmado}
-      />
 
       {(historialFiltrado.length > 0 || corteExistente?.existe) && pestana === 'corte' && (
         <div className="card">
