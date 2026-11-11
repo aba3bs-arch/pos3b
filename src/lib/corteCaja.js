@@ -1,5 +1,6 @@
 import { consultarVentas } from './ventasQuery.js';
 import { equivalentesCodigoTienda } from '../constants/sucursales.js';
+import { textoEsRecarga } from './corteCajaRecargasMp.js';
 
 function filtrarSucursalNube(q, sucursal) {
   if (!sucursal) return q;
@@ -157,6 +158,8 @@ export function fechaCorteSugerida(turno = null, now = new Date()) {
 export function clasificarPago(metodoPago) {
   const m = String(metodoPago || '').toLowerCase();
   if (m.startsWith('efectivo')) return 'efectivo';
+  // Recargas MP / TAE se cobran en efectivo (terminal); no van a electrónico/otros.
+  if (textoEsRecarga(m)) return 'efectivo';
   if (m.includes('tarjeta')) return 'tarjeta';
   if (m.includes('transfer')) return 'transferencia';
   if (m.includes('qr')) return 'qr';
