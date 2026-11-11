@@ -423,9 +423,18 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const turnoCierre = estado.turno_sesion || snapshotTurno() || turnoActual();
     const turnoTexto = nombreTurnoLegible(turnoCierre);
     const folioCierre = modulo === 'abarrotes' ? estado.folio || folio : folio;
-    const gastosCierre = [...(gastos || [])];
+    // Releer gastos: el candado de recargas MP puede haber agregado un FALTANTE justo antes.
+    const gasFresh = await listarGastosTurno(supabase, sucursal, modulo);
+    const gastosAhora = Array.isArray(gasFresh.data) ? gasFresh.data : (gastos || []);
+    const gastosCierre = [...gastosAhora];
     const gastosIds = gastosCierre.map((g) => g.id).filter(Boolean);
-    const calcCierre = { ...calc };
+    const gastosTotalFresh = round2(
+      gastosCierre.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    );
+    const calcCierre = {
+      ...calc,
+      gastosTotal: gastosTotalFresh,
+    };
     const estadoCierre = { ...estado };
 
     const payload = {
@@ -439,9 +448,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       ventas: calc.venta ?? 0,
       detalle: {
         ...estado,
-        gastos,
+        gastos: gastosAhora,
         gastos_ids: gastosIds,
-        gastos_total: calc.gastosTotal,
+        gastos_total: gastosTotalFresh,
         subtotal: calc.subtotal,
         venta_neta: calc.ventaNeta,
         total_lectura: calc.totalLectura,
@@ -458,8 +467,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     // Garage: gastos y faltantes persisten turno a turno hasta recolección con máquinas en cero.
     let limpia = { ok: true };
     if (modulo !== 'garage') {
-      const idsGastos = (gastos || []).map((g) => g.id).filter(Boolean);
-      limpia = await limpiarGastosTurno(supabase, sucursal, modulo, idsGastos);
+      limpia = await limpiarGastosTurno(supabase, sucursal, modulo, gastosIds);
     }
     const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
     // Nueva sesión abierta: turno actual (cuando arranca el siguiente corte).

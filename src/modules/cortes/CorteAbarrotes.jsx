@@ -1,16 +1,21 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
+import CandadoRecargasMp from '../../components/CandadoRecargasMp.jsx';
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 import { procesarRifsVencidos } from '../../lib/rifs.js';
+import { fechaCorteSugerida } from '../../lib/corteCaja.js';
+import { cargarDiaCaja } from '../../lib/movimientosCaja.js';
+import { totalRecargasPos } from '../../lib/corteCajaRecargasMp.js';
+import { turnoActual } from '../../lib/turnos.js';
 
 const COLOR = '#b5a642';
 
@@ -60,19 +65,78 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   }, [supabase, sucursal, user?.nombre, recargar]);
 
   const uiLock = useRef(createSubmitLock()).current;
+  const [candadoRecargas, setCandadoRecargas] = useState(false);
+  const [recargasPosTotal, setRecargasPosTotal] = useState(0);
+  const [cargandoCandado, setCargandoCandado] = useState(false);
 
-  const confirmarCierre = async () => {
+  const abrirCandadoCierre = async () => {
+    const f = estado.folio || folio;
+    if (!f?.trim()) return alert('Capture el folio de abarrotes.');
+    setCargandoCandado(true);
+    try {
+      const turnoSesion = estado.turno_sesion || turnoActual();
+      const fecha = fechaCorteSugerida(turnoSesion);
+      const dia = await cargarDiaCaja(supabase, {
+        sucursal,
+        fecha,
+        turno: turnoSesion,
+      });
+      setRecargasPosTotal(totalRecargasPos(dia?.ventas || [], dia?.cancelaciones || []));
+    } catch {
+      setRecargasPosTotal(0);
+    } finally {
+      setCargandoCandado(false);
+    }
+    setCandadoRecargas(true);
+  };
+
+  const confirmarCierreTrasCandado = async (candado) => {
+    setCandadoRecargas(false);
     if (!uiLock.tryBegin()) return;
     try {
       const f = estado.folio || folio;
-      if (!f?.trim()) return alert('Capture el folio de abarrotes.');
+      if (candado?.faltante > 0.009) {
+        if (!user?.id) {
+          alert('No se pudo identificar al cajero/CT para cargar el faltante. Inicia sesión de nuevo.');
+          return;
+        }
+        const resGasto = await agregarGasto({
+          categoria: 'EMPLEADO',
+          subcategoria: 'FALTANTE',
+          monto: candado.faltante,
+          comentario:
+            `Recargas MP · terminal $${Number(candado.recargas_mp?.terminal).toFixed(2)}`
+            + ` − POS $${Number(candado.recargas_mp?.pos).toFixed(2)}`
+            + ` · cierre abarrotes folio ${f}`,
+          usuario_id: user.id,
+          usuario_nombre: user.nombre || null,
+        });
+        if (resGasto && resGasto.ok === false && !resGasto.cancelado) {
+          return;
+        }
+      }
+
+      const prevComentarios = String(estado.comentarios || '').trim();
+      const comentariosCierre = candado?.notaExtra && !prevComentarios.includes(candado.notaExtra)
+        ? (prevComentarios ? `${prevComentarios}\n${candado.notaExtra}` : candado.notaExtra)
+        : prevComentarios;
+
       const msg =
         `¿Cerrar corte abarrotes?\n\n` +
         `Folio: ${f}\n` +
         `Venta: ${fmtCorte(calc.venta)}\n` +
         `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
-        `Caja actual: ${fmtCorte(calc.cajaActual)}`;
-      if (confirm(msg)) await cerrarCorte();
+        `Caja actual: ${fmtCorte(calc.cajaActual)}\n` +
+        `Recargas MP: terminal $${Number(candado?.recargas_mp?.terminal || 0).toFixed(2)}` +
+        ` · POS $${Number(candado?.recargas_mp?.pos || 0).toFixed(2)}` +
+        (candado?.faltante > 0.009
+          ? `\nFaltante recargas a cargo: $${Number(candado.faltante).toFixed(2)}`
+          : '');
+      if (!confirm(msg)) return;
+      await cerrarCorte({
+        recargas_mp: candado?.recargas_mp || null,
+        comentarios: comentariosCierre,
+      });
     } finally {
       uiLock.end();
     }
@@ -158,8 +222,14 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
               placeholder="Folio"
             />
             {perm.guardar && (
-              <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
-                Cerrar corte
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={abrirCandadoCierre}
+                disabled={cargando || cargandoCandado}
+                title="Antes de cerrar se pide el total de recargas de la terminal Mercado Pago"
+              >
+                {cargandoCandado ? 'Preparando…' : 'Cerrar corte'}
               </button>
             )}
             {perm.recoleccion && (
@@ -299,6 +369,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         columnasExtra={[
           { key: 'cajero', label: 'Cajero', render: (h) => h.usuario_nombre || h.detalle?.usuario_nombre || h.detalle?.cajero || '—' },
         ]}
+      />
+
+      <CandadoRecargasMp
+        abierto={candadoRecargas}
+        posTotal={recargasPosTotal}
+        usuarioNombre={user?.nombre || '—'}
+        usuarioId={user?.id || null}
+        onCancelar={() => setCandadoRecargas(false)}
+        onConfirmar={confirmarCierreTrasCandado}
       />
     </div>
     </CorteConTeclado>
