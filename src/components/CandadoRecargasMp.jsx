@@ -1,10 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PortalFlotante from './PortalFlotante.jsx';
 import {
+  ACCION_FALTANTE,
+  ACCION_REGISTRAR_VENTA,
   evaluarCandadoRecargasMp,
   payloadRecargasMpCorroboracion,
   notaFaltanteRecargasMp,
+  notaVentaRegistradaRecargasMp,
 } from '../lib/corteCajaRecargasMp.js';
+import './CandadoRecargasMp.css';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -23,19 +27,38 @@ export default function CandadoRecargasMp({
   onConfirmar,
 }) {
   const [terminal, setTerminal] = useState('');
-  const [aceptoFaltante, setAceptoFaltante] = useState(false);
+  const [accionResolucion, setAccionResolucion] = useState('');
   const [aceptoRevision, setAceptoRevision] = useState(false);
   const [errorLocal, setErrorLocal] = useState('');
+  const notaRef = useRef(null);
 
   const preview = useMemo(
     () => evaluarCandadoRecargasMp({
       terminalRaw: terminal,
       pos: posTotal,
-      aceptoFaltante,
+      accionResolucion,
       aceptoRevision,
     }),
-    [terminal, posTotal, aceptoFaltante, aceptoRevision],
+    [terminal, posTotal, accionResolucion, aceptoRevision],
   );
+
+  useEffect(() => {
+    if (!abierto) return;
+    setTerminal('');
+    setAccionResolucion('');
+    setAceptoRevision(false);
+    setErrorLocal('');
+  }, [abierto]);
+
+  useEffect(() => {
+    if (preview.requiereAceptarFaltante && notaRef.current) {
+      try {
+        notaRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [preview.requiereAceptarFaltante, preview.diferencia]);
 
   if (!abierto) return null;
 
@@ -43,7 +66,7 @@ export default function CandadoRecargasMp({
     const ev = evaluarCandadoRecargasMp({
       terminalRaw: terminal,
       pos: posTotal,
-      aceptoFaltante,
+      accionResolucion,
       aceptoRevision,
     });
     if (!ev.ok) {
@@ -54,12 +77,17 @@ export default function CandadoRecargasMp({
       usuarioNombre,
       usuarioId,
     });
-    const notaExtra = notaFaltanteRecargasMp(ev, usuarioNombre);
+    const notaExtra = [
+      notaFaltanteRecargasMp(ev, usuarioNombre),
+      notaVentaRegistradaRecargasMp(ev, usuarioNombre),
+    ].filter(Boolean).join('\n');
     onConfirmar?.({
       eval: ev,
       recargas_mp,
       notaExtra,
       faltante: ev.faltante || 0,
+      montoVenta: ev.montoVenta || 0,
+      accion: ev.accion || null,
     });
   };
 
@@ -73,61 +101,36 @@ export default function CandadoRecargasMp({
   return (
     <PortalFlotante>
       <div
-        className="cv-modal-backdrop cv-modal-backdrop-float cv-portal"
+        className="cv-modal-backdrop cv-modal-backdrop-float cv-portal candado-mp-backdrop"
         onClick={onCancelar}
         role="presentation"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.55)',
-          zIndex: 10050,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1rem',
-        }}
       >
         <div
-          className="card"
+          className="card candado-mp-card"
           role="dialog"
           aria-label="Candado recargas Mercado Pago"
           onClick={(e) => e.stopPropagation()}
-          style={{
-            width: 'min(440px, 100%)',
-            maxHeight: '90vh',
-            overflow: 'auto',
-            borderTop: '4px solid var(--brand-gold, #c9a227)',
-          }}
         >
-          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-            Candado · Recargas Mercado Pago
-          </h3>
-          <p className="muted" style={{ margin: '0 0 0.85rem', fontSize: '0.85rem' }}>
+          <h3 className="candado-mp-title">Candado · Recargas Mercado Pago</h3>
+          <p className="muted candado-mp-intro">
             Mira el <strong>total de recargas del turno en la terminal</strong> e introdúcelo.
             Se compara con lo registrado en el POS. Sin esto no se cierra el corte.
           </p>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '0.65rem',
-              marginBottom: '0.75rem',
-            }}
-          >
-            <div style={{ padding: '0.65rem', borderRadius: 8, background: 'var(--surface)' }}>
-              <div className="muted" style={{ fontSize: '0.72rem' }}>POS (registrado)</div>
-              <div style={{ fontWeight: 800, fontSize: '1.15rem' }}>{fmt(posTotal)}</div>
+          <div className="candado-mp-kpis">
+            <div className="candado-mp-kpi">
+              <div className="muted candado-mp-kpi-lbl">POS (registrado)</div>
+              <div className="candado-mp-kpi-val">{fmt(posTotal)}</div>
             </div>
-            <div style={{ padding: '0.65rem', borderRadius: 8, background: 'var(--surface)' }}>
-              <div className="muted" style={{ fontSize: '0.72rem' }}>Diferencia (terminal − POS)</div>
-              <div style={{ fontWeight: 800, fontSize: '1.15rem', color: difColor }}>
+            <div className="candado-mp-kpi">
+              <div className="muted candado-mp-kpi-lbl">Diferencia (terminal − POS)</div>
+              <div className="candado-mp-kpi-val" style={{ color: difColor }}>
                 {preview.diferencia == null ? '—' : fmt(preview.diferencia)}
               </div>
             </div>
           </div>
 
-          <label className="muted" style={{ display: 'block', fontSize: '0.85rem' }}>
+          <label className="muted candado-mp-field">
             Total recargas en terminal MP (MXN)
             <input
               type="number"
@@ -135,12 +138,11 @@ export default function CandadoRecargasMp({
               min="0"
               className="input"
               autoFocus
-              style={{ marginTop: '0.35rem', fontSize: '1.2rem', fontWeight: 700 }}
               value={terminal}
               onChange={(e) => {
                 setTerminal(e.target.value);
                 setErrorLocal('');
-                setAceptoFaltante(false);
+                setAccionResolucion('');
                 setAceptoRevision(false);
               }}
               placeholder="0.00"
@@ -148,48 +150,51 @@ export default function CandadoRecargasMp({
           </label>
 
           {preview.requiereAceptarFaltante && (
-            <label
-              style={{
-                display: 'flex',
-                gap: '0.5rem',
-                alignItems: 'flex-start',
-                marginTop: '0.85rem',
-                padding: '0.65rem',
-                borderRadius: 8,
-                background: 'rgba(180,40,40,0.12)',
-                fontSize: '0.85rem',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={aceptoFaltante}
-                onChange={(e) => {
-                  setAceptoFaltante(e.target.checked);
-                  setErrorLocal('');
-                }}
-                style={{ marginTop: 3 }}
-              />
-              <span>
-                Acepto faltante de <strong>{fmt(preview.faltante)}</strong> a cargo de{' '}
-                <strong>{usuarioNombre}</strong> (cajero/CT en turno). Se registrará en el corte
-                y aplicará a nómina / pago de CT.
-              </span>
-            </label>
+            <div ref={notaRef} className="candado-mp-nota" role="group" aria-label="Resolver diferencia">
+              <div className="candado-mp-nota-hd">
+                La terminal reporta <strong>{fmt(preview.diferencia)}</strong> más que el POS
+              </div>
+              <p className="candado-mp-nota-txt">
+                Elige cómo resolver la diferencia antes de cerrar el corte:
+              </p>
+
+              <label className={`candado-mp-opcion${accionResolucion === ACCION_REGISTRAR_VENTA ? ' sel' : ''}`}>
+                <input
+                  type="radio"
+                  name="candado-mp-resolucion"
+                  checked={accionResolucion === ACCION_REGISTRAR_VENTA}
+                  onChange={() => {
+                    setAccionResolucion(ACCION_REGISTRAR_VENTA);
+                    setErrorLocal('');
+                  }}
+                />
+                <span>
+                  <strong>Registrar venta en el POS</strong> por {fmt(preview.diferencia)}.
+                  Cuadra la terminal con el sistema sin faltante al cajero/CT.
+                </span>
+              </label>
+
+              <label className={`candado-mp-opcion${accionResolucion === ACCION_FALTANTE ? ' sel' : ''}`}>
+                <input
+                  type="radio"
+                  name="candado-mp-resolucion"
+                  checked={accionResolucion === ACCION_FALTANTE}
+                  onChange={() => {
+                    setAccionResolucion(ACCION_FALTANTE);
+                    setErrorLocal('');
+                  }}
+                />
+                <span>
+                  <strong>Aceptar faltante</strong> de {fmt(preview.diferencia)} a cargo de{' '}
+                  <strong>{usuarioNombre}</strong> (cajero/CT). Se registra en el corte y aplica
+                  a nómina / pago de CT.
+                </span>
+              </label>
+            </div>
           )}
 
           {preview.requiereAceptarRevision && (
-            <label
-              style={{
-                display: 'flex',
-                gap: '0.5rem',
-                alignItems: 'flex-start',
-                marginTop: '0.85rem',
-                padding: '0.65rem',
-                borderRadius: 8,
-                background: 'rgba(180,140,40,0.14)',
-                fontSize: '0.85rem',
-              }}
-            >
+            <label className="candado-mp-revision">
               <input
                 type="checkbox"
                 checked={aceptoRevision}
@@ -197,7 +202,6 @@ export default function CandadoRecargasMp({
                   setAceptoRevision(e.target.checked);
                   setErrorLocal('');
                 }}
-                style={{ marginTop: 3 }}
               />
               <span>
                 Ya revisé: el POS tiene más recargas que la terminal. Confirmo que el monto de la
@@ -207,12 +211,12 @@ export default function CandadoRecargasMp({
           )}
 
           {(errorLocal || (preview.error && terminal !== '')) && (
-            <p style={{ margin: '0.75rem 0 0', color: 'var(--brand-red)', fontSize: '0.85rem' }}>
+            <p className="candado-mp-error">
               {errorLocal || preview.error}
             </p>
           )}
 
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <div className="candado-mp-acciones">
             <button type="button" className="btn btn-ghost" onClick={onCancelar}>
               Cancelar
             </button>

@@ -14,7 +14,11 @@ import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresA
 import { procesarRifsVencidos } from '../../lib/rifs.js';
 import { fechaCorteSugerida } from '../../lib/corteCaja.js';
 import { cargarDiaCaja } from '../../lib/movimientosCaja.js';
-import { totalRecargasPos } from '../../lib/corteCajaRecargasMp.js';
+import {
+  ACCION_REGISTRAR_VENTA,
+  registrarVentaRecargaMpAjuste,
+  totalRecargasPos,
+} from '../../lib/corteCajaRecargasMp.js';
 import { turnoActual } from '../../lib/turnos.js';
 
 const COLOR = '#b5a642';
@@ -95,7 +99,29 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     if (!uiLock.tryBegin()) return;
     try {
       const f = estado.folio || folio;
-      if (candado?.faltante > 0.009) {
+      let recargasMp = candado?.recargas_mp || null;
+
+      if (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009) {
+        const turnoSesion = estado.turno_sesion || turnoActual();
+        const resVenta = await registrarVentaRecargaMpAjuste(supabase, {
+          monto: candado.montoVenta,
+          sucursal,
+          user,
+          turno: turnoSesion,
+        });
+        if (!resVenta?.ok) {
+          alert(resVenta?.error || 'No se pudo registrar la venta de recarga en el POS.');
+          return;
+        }
+        if (recargasMp) {
+          recargasMp = {
+            ...recargasMp,
+            venta_id: resVenta.id || null,
+            venta_offline: !!resVenta.offline,
+            pos_despues: Math.round(((Number(recargasMp.pos) || 0) + Number(candado.montoVenta)) * 100) / 100,
+          };
+        }
+      } else if (candado?.faltante > 0.009) {
         if (!user?.id) {
           alert('No se pudo identificar al cajero/CT para cargar el faltante. Inicia sesión de nuevo.');
           return;
@@ -129,12 +155,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         `Caja actual: ${fmtCorte(calc.cajaActual)}\n` +
         `Recargas MP: terminal $${Number(candado?.recargas_mp?.terminal || 0).toFixed(2)}` +
         ` · POS $${Number(candado?.recargas_mp?.pos || 0).toFixed(2)}` +
+        (candado?.accion === ACCION_REGISTRAR_VENTA && candado?.montoVenta > 0.009
+          ? `\nVenta recargas registrada en POS: $${Number(candado.montoVenta).toFixed(2)}`
+          : '') +
         (candado?.faltante > 0.009
           ? `\nFaltante recargas a cargo: $${Number(candado.faltante).toFixed(2)}`
           : '');
       if (!confirm(msg)) return;
       await cerrarCorte({
-        recargas_mp: candado?.recargas_mp || null,
+        recargas_mp: recargasMp,
         comentarios: comentariosCierre,
       });
     } finally {

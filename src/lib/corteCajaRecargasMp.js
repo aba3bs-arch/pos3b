@@ -1,9 +1,57 @@
 /**
  * Candado de cierre: conciliar recargas Mercado Pago (terminal) vs POS.
- * Si terminal > POS, la diferencia se trata como faltante del cajero/CT.
+ * Si terminal > POS: aceptar faltante del cajero/CT **o** registrar la venta faltante en el POS.
  */
 
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
+
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+function esErrorDeRedLocal(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes('failed to fetch')
+    || msg.includes('networkerror')
+    || msg.includes('network request failed')
+    || msg.includes('fetch failed')
+    || msg.includes('err_internet_disconnected')
+    || msg.includes('err_connection')
+    || msg.includes('timeout')
+    || msg.includes('timed out')
+  );
+}
+
+function etiquetaTurnoLocal(turno) {
+  if (!turno) return null;
+  if (turno.nombre) return String(turno.nombre);
+  if (turno.id) return String(turno.id);
+  return null;
+}
+
+function encolarVentaAjusteLocal(payload) {
+  try {
+    const key = 'pos3b_ventas_offline_cola';
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    const cola = raw ? JSON.parse(raw) : [];
+    const lista = Array.isArray(cola) ? cola : [];
+    const id = `off-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const row = {
+      id,
+      estado: 'pendiente',
+      created_at: new Date().toISOString(),
+      ...payload,
+      sucursal_id: normalizarCodigoTienda(payload.sucursal_id) || payload.sucursal_id,
+    };
+    lista.unshift(row);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, JSON.stringify(lista.slice(0, 200)));
+    }
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'No se pudo guardar la venta offline.' };
+  }
+}
 
 /** Normaliza texto para detectar «recarga», «tiempo aire», etc. */
 export function normalizarTextoRecarga(s) {
@@ -71,20 +119,22 @@ export function totalRecargasPos(ventas = [], cancelaciones = []) {
   return total < 0 ? 0 : total;
 }
 
+export const ACCION_FALTANTE = 'faltante';
+export const ACCION_REGISTRAR_VENTA = 'registrar_venta';
+
 /**
  * Evalúa el candado.
- * @returns {{
- *   ok: boolean,
- *   terminal: number|null,
- *   pos: number,
- *   diferencia: number|null,
- *   faltante: number,
- *   requiereAceptarFaltante: boolean,
- *   requiereAceptarRevision: boolean,
- *   error?: string,
- * }}
+ * @param {object} opts
+ * @param {'faltante'|'registrar_venta'|''} [opts.accionResolucion]
+ *   Cuando terminal > POS: faltante a cargo del cajero, o registrar venta en POS.
  */
-export function evaluarCandadoRecargasMp({ terminalRaw, pos = 0, aceptoFaltante = false, aceptoRevision = false } = {}) {
+export function evaluarCandadoRecargasMp({
+  terminalRaw,
+  pos = 0,
+  aceptoFaltante = false,
+  aceptoRevision = false,
+  accionResolucion = '',
+} = {}) {
   const posN = round2(pos);
   if (terminalRaw === '' || terminalRaw == null) {
     return {
@@ -93,6 +143,8 @@ export function evaluarCandadoRecargasMp({ terminalRaw, pos = 0, aceptoFaltante 
       pos: posN,
       diferencia: null,
       faltante: 0,
+      montoVenta: 0,
+      accion: null,
       requiereAceptarFaltante: false,
       requiereAceptarRevision: false,
       error: 'Indica el total de recargas que muestra la terminal Mercado Pago (puede ser 0).',
@@ -106,6 +158,8 @@ export function evaluarCandadoRecargasMp({ terminalRaw, pos = 0, aceptoFaltante 
       pos: posN,
       diferencia: null,
       faltante: 0,
+      montoVenta: 0,
+      accion: null,
       requiereAceptarFaltante: false,
       requiereAceptarRevision: false,
       error: 'El monto de la terminal no es válido.',
@@ -113,20 +167,28 @@ export function evaluarCandadoRecargasMp({ terminalRaw, pos = 0, aceptoFaltante 
   }
 
   const diferencia = round2(terminal - posN);
-  const faltante = diferencia > 0.009 ? diferencia : 0;
-  const requiereAceptarFaltante = faltante > 0;
+  const terminalMayor = diferencia > 0.009;
   const requiereAceptarRevision = diferencia < -0.009;
+  const accion = String(accionResolucion || '').trim();
 
-  if (requiereAceptarFaltante && !aceptoFaltante) {
+  // Compat: checkbox antiguo «aceptoFaltante» = elegir faltante.
+  const eligioFaltante = accion === ACCION_FALTANTE || (!accion && aceptoFaltante);
+  const eligioRegistrar = accion === ACCION_REGISTRAR_VENTA;
+
+  if (terminalMayor && !eligioFaltante && !eligioRegistrar) {
     return {
       ok: false,
       terminal,
       pos: posN,
       diferencia,
-      faltante,
+      faltante: diferencia,
+      montoVenta: diferencia,
+      accion: null,
       requiereAceptarFaltante: true,
       requiereAceptarRevision: false,
-      error: `La terminal reporta $${faltante.toFixed(2)} más que el POS. Debes aceptar el faltante a cargo del cajero/CT.`,
+      error:
+        `La terminal reporta $${diferencia.toFixed(2)} más que el POS. `
+        + 'Elige registrar la venta en el POS o aceptar el faltante a cargo del cajero/CT.',
     };
   }
 
@@ -137,9 +199,25 @@ export function evaluarCandadoRecargasMp({ terminalRaw, pos = 0, aceptoFaltante 
       pos: posN,
       diferencia,
       faltante: 0,
+      montoVenta: 0,
+      accion: null,
       requiereAceptarFaltante: false,
       requiereAceptarRevision: true,
       error: `El POS tiene $${Math.abs(diferencia).toFixed(2)} más en recargas que la terminal. Revisa e indica que ya verificaste.`,
+    };
+  }
+
+  if (terminalMayor && eligioRegistrar) {
+    return {
+      ok: true,
+      terminal,
+      pos: posN,
+      diferencia,
+      faltante: 0,
+      montoVenta: diferencia,
+      accion: ACCION_REGISTRAR_VENTA,
+      requiereAceptarFaltante: true,
+      requiereAceptarRevision: false,
     };
   }
 
@@ -148,20 +226,27 @@ export function evaluarCandadoRecargasMp({ terminalRaw, pos = 0, aceptoFaltante 
     terminal,
     pos: posN,
     diferencia,
-    faltante,
-    requiereAceptarFaltante,
+    faltante: terminalMayor ? diferencia : 0,
+    montoVenta: 0,
+    accion: terminalMayor ? ACCION_FALTANTE : null,
+    requiereAceptarFaltante: terminalMayor,
     requiereAceptarRevision,
   };
 }
 
 /** Payload para guardar dentro de corroboracion.recargas_mp */
 export function payloadRecargasMpCorroboracion(evalResult, { usuarioNombre = null, usuarioId = null } = {}) {
+  const accion = evalResult.accion || null;
+  const faltante = evalResult.faltante || 0;
   return {
     terminal: evalResult.terminal,
     pos: evalResult.pos,
     diferencia: evalResult.diferencia,
-    faltante: evalResult.faltante || 0,
-    aceptado_faltante: (evalResult.faltante || 0) > 0,
+    faltante,
+    monto_venta_registrada: accion === ACCION_REGISTRAR_VENTA ? (evalResult.montoVenta || 0) : 0,
+    accion,
+    aceptado_faltante: faltante > 0,
+    venta_registrada: accion === ACCION_REGISTRAR_VENTA,
     aceptado_revision: (evalResult.diferencia || 0) < -0.009,
     usuario_nombre: usuarioNombre,
     usuario_id: usuarioId,
@@ -177,4 +262,89 @@ export function notaFaltanteRecargasMp(evalResult, usuarioNombre = '—') {
     + `(terminal $${Number(evalResult.terminal).toFixed(2)} − POS $${Number(evalResult.pos).toFixed(2)}) `
     + `· a cargo de ${usuarioNombre}`
   );
+}
+
+/** Nota cuando se registró la venta faltante en el POS. */
+export function notaVentaRegistradaRecargasMp(evalResult, usuarioNombre = '—') {
+  if (evalResult?.accion !== ACCION_REGISTRAR_VENTA) return '';
+  const monto = Number(evalResult.montoVenta) || 0;
+  if (!(monto > 0)) return '';
+  return (
+    `VENTA RECARGAS MP REGISTRADA EN POS: $${monto.toFixed(2)} `
+    + `(terminal $${Number(evalResult.terminal).toFixed(2)} − POS $${Number(evalResult.pos).toFixed(2)}) `
+    + `· por ${usuarioNombre}`
+  );
+}
+
+/**
+ * Inserta (o encola offline) la venta de recarga faltante para cuadrar terminal vs POS.
+ * No descuenta inventario: es un ajuste de recarga TAE / Mercado Pago.
+ */
+export async function registrarVentaRecargaMpAjuste(supabase, {
+  monto,
+  sucursal,
+  user,
+  turno = null,
+} = {}) {
+  const total = round2(monto);
+  if (!(total > 0.009)) return { ok: false, error: 'Monto de venta inválido.' };
+  const tienda = normalizarCodigoTienda(sucursal) || sucursal;
+  if (!tienda) return { ok: false, error: 'Sin sucursal.' };
+
+  const articulos = [{
+    id: 'recarga-mp-ajuste-candado',
+    nombre: 'Recarga Mercado Pago (ajuste candado)',
+    precio: total,
+    qty: 1,
+  }];
+
+  const ventaPayload = {
+    vendedor: user?.nombre || 'Cajero',
+    usuario_id: user?.id || null,
+    sucursal_id: tienda,
+    total,
+    metodo_pago: 'Recarga Mercado Pago',
+    articulos,
+    turno_id: turno?.id || null,
+    turno_nombre: etiquetaTurnoLocal(turno),
+    created_at: new Date().toISOString(),
+  };
+
+  if (!supabase) {
+    const r = encolarVentaAjusteLocal(ventaPayload);
+    return r.ok
+      ? { ok: true, offline: true, id: r.id, venta: ventaPayload }
+      : { ok: false, error: r.error || 'No se pudo guardar offline.' };
+  }
+
+  try {
+    const { data, error } = await supabase.from('ventas').insert([{
+      vendedor: ventaPayload.vendedor,
+      usuario_id: ventaPayload.usuario_id,
+      sucursal_id: ventaPayload.sucursal_id,
+      total: ventaPayload.total,
+      metodo_pago: ventaPayload.metodo_pago,
+      articulos: ventaPayload.articulos,
+      turno_id: ventaPayload.turno_id,
+      turno_nombre: ventaPayload.turno_nombre,
+    }]).select('id').maybeSingle();
+    if (error) {
+      if (esErrorDeRedLocal(error)) {
+        const r = encolarVentaAjusteLocal(ventaPayload);
+        return r.ok
+          ? { ok: true, offline: true, id: r.id, venta: ventaPayload }
+          : { ok: false, error: r.error || error.message };
+      }
+      return { ok: false, error: error.message || String(error) };
+    }
+    return { ok: true, id: data?.id || null, venta: ventaPayload };
+  } catch (e) {
+    if (esErrorDeRedLocal(e)) {
+      const r = encolarVentaAjusteLocal(ventaPayload);
+      return r.ok
+        ? { ok: true, offline: true, id: r.id, venta: ventaPayload }
+        : { ok: false, error: r.error || e?.message };
+    }
+    return { ok: false, error: e?.message || String(e) };
+  }
 }

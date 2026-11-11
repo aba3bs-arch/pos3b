@@ -6,6 +6,9 @@ import {
   totalRecargasPos,
   evaluarCandadoRecargasMp,
   notaFaltanteRecargasMp,
+  notaVentaRegistradaRecargasMp,
+  ACCION_FALTANTE,
+  ACCION_REGISTRAR_VENTA,
 } from './corteCajaRecargasMp.js';
 
 test('detecta textos de recarga', () => {
@@ -50,16 +53,50 @@ test('candado: cuadra → ok', () => {
   assert.equal(r.faltante, 0);
 });
 
-test('candado: terminal > POS exige aceptar faltante', () => {
-  const sin = evaluarCandadoRecargasMp({ terminalRaw: '180', pos: 100, aceptoFaltante: false });
+test('candado: terminal > POS exige elegir resolución', () => {
+  const sin = evaluarCandadoRecargasMp({ terminalRaw: '180', pos: 100 });
   assert.equal(sin.ok, false);
   assert.equal(sin.faltante, 80);
+  assert.equal(sin.montoVenta, 80);
   assert.equal(sin.requiereAceptarFaltante, true);
+  assert.match(sin.error, /registrar la venta|faltante/i);
+});
 
-  const con = evaluarCandadoRecargasMp({ terminalRaw: '180', pos: 100, aceptoFaltante: true });
+test('candado: aceptar faltante', () => {
+  const con = evaluarCandadoRecargasMp({
+    terminalRaw: '180',
+    pos: 100,
+    accionResolucion: ACCION_FALTANTE,
+  });
   assert.equal(con.ok, true);
   assert.equal(con.faltante, 80);
+  assert.equal(con.accion, ACCION_FALTANTE);
   assert.match(notaFaltanteRecargasMp(con, 'Ana'), /FALTANTE RECARGAS MP: \$80\.00/);
+});
+
+test('candado: registrar venta en POS (compat checkbox aceptoFaltante)', () => {
+  const legacy = evaluarCandadoRecargasMp({
+    terminalRaw: '150',
+    pos: 100,
+    aceptoFaltante: true,
+  });
+  assert.equal(legacy.ok, true);
+  assert.equal(legacy.faltante, 50);
+  assert.equal(legacy.accion, ACCION_FALTANTE);
+});
+
+test('candado: registrar venta en POS', () => {
+  const con = evaluarCandadoRecargasMp({
+    terminalRaw: '150',
+    pos: 100,
+    accionResolucion: ACCION_REGISTRAR_VENTA,
+  });
+  assert.equal(con.ok, true);
+  assert.equal(con.faltante, 0);
+  assert.equal(con.montoVenta, 50);
+  assert.equal(con.accion, ACCION_REGISTRAR_VENTA);
+  assert.match(notaVentaRegistradaRecargasMp(con, 'Luis'), /VENTA RECARGAS MP REGISTRADA/);
+  assert.equal(notaFaltanteRecargasMp(con, 'Luis'), '');
 });
 
 test('candado: POS > terminal exige revisión', () => {
