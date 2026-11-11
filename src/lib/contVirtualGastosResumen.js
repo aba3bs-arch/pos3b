@@ -28,6 +28,107 @@ export function conceptoDeGasto(g) {
   return partes.length ? partes.join(' · ') : 'Gasto';
 }
 
+/** Categoría limpia para agrupar el desglose. */
+export function etiquetaCategoriaGasto(g) {
+  return String(g?.categoria || '').trim() || 'Sin categoría';
+}
+
+/**
+ * Subcategoría limpia (sin el detalle embebido con « › » que a veces trae el libro IE).
+ */
+export function etiquetaSubcategoriaGasto(g) {
+  const fromNombre = String(g?.subcategoria_nombre || '').trim();
+  if (fromNombre) return fromNombre;
+  const sub = String(g?.subcategoria || '').trim();
+  if (!sub) return 'Sin subcategoría';
+  const det = String(g?.detalle || '').trim();
+  if (det && sub.includes(' › ')) {
+    const parts = sub.split(' › ');
+    if (parts.length > 1 && parts[parts.length - 1] === det) {
+      const limpia = parts.slice(0, -1).join(' › ').trim();
+      return limpia || 'Sin subcategoría';
+    }
+  }
+  return sub;
+}
+
+/** Detalle (3er nivel) si existe. */
+export function etiquetaDetalleGasto(g) {
+  return String(g?.detalle || '').trim();
+}
+
+function claveGrupo(label) {
+  return String(label || '').trim().toLowerCase() || '_';
+}
+
+function pushMonto(grupo, g) {
+  grupo.gastos = round2(grupo.gastos + (Number(g?.monto) || 0));
+  grupo.items.push(g);
+}
+
+/**
+ * Dentro de una sucursal: categoría → subcategoría → (detalle si hay) → partidas.
+ * Orden: mayor monto primero.
+ */
+export function agruparGastosPorCatalogo(lista = []) {
+  const cats = {};
+  for (const g of lista || []) {
+    const catLabel = etiquetaCategoriaGasto(g);
+    const catId = claveGrupo(catLabel);
+    if (!cats[catId]) {
+      cats[catId] = { id: catId, label: catLabel, gastos: 0, items: [], subs: {} };
+    }
+    const cat = cats[catId];
+    pushMonto(cat, g);
+
+    const subLabel = etiquetaSubcategoriaGasto(g);
+    const subId = claveGrupo(subLabel);
+    if (!cat.subs[subId]) {
+      cat.subs[subId] = { id: subId, label: subLabel, gastos: 0, items: [], dets: {} };
+    }
+    const sub = cat.subs[subId];
+    pushMonto(sub, g);
+
+    const detLabel = etiquetaDetalleGasto(g);
+    if (detLabel) {
+      const detId = claveGrupo(detLabel);
+      if (!sub.dets[detId]) {
+        sub.dets[detId] = { id: detId, label: detLabel, gastos: 0, items: [] };
+      }
+      pushMonto(sub.dets[detId], g);
+    }
+  }
+
+  const sortGrupos = (a, b) => b.gastos - a.gastos || a.label.localeCompare(b.label, 'es');
+
+  return Object.values(cats)
+    .map((cat) => {
+      const subcategorias = Object.values(cat.subs)
+        .map((sub) => {
+          const detalles = Object.values(sub.dets).sort(sortGrupos);
+          const sinDetalle = (sub.items || []).filter((g) => !etiquetaDetalleGasto(g));
+          return {
+            id: sub.id,
+            label: sub.label,
+            gastos: sub.gastos,
+            items: sub.items,
+            detalles,
+            sinDetalle,
+            tieneDetalle: detalles.length > 0,
+          };
+        })
+        .sort(sortGrupos);
+      return {
+        id: cat.id,
+        label: cat.label,
+        gastos: cat.gastos,
+        items: cat.items,
+        subcategorias,
+      };
+    })
+    .sort(sortGrupos);
+}
+
 /** Motivo o comentario capturado (evita repetir el nombre del cajero cuando solo vino eso). */
 export function motivoDeGasto(g) {
   const txt = String(g?.comentario || g?.descripcion || '').trim();

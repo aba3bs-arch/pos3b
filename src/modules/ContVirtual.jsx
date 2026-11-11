@@ -55,6 +55,7 @@ import {
   gastosDeMovimientosPorDia,
   totalGastosLista,
   agruparGastosPorTienda,
+  agruparGastosPorCatalogo,
 } from '../lib/contVirtualGastosResumen.js';
 import { empleadosParaCorte, etiquetaEmpleadoSelectGastos } from '../lib/empleadosVisibles.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual, actualizarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
@@ -724,6 +725,34 @@ function EmptyState() {
   );
 }
 
+function FilaGastoResumen({ g, onVerGasto }) {
+  return (
+    <div
+      className={`cv-summary-gasto${onVerGasto ? ' click' : ''}`}
+      role={onVerGasto ? 'button' : undefined}
+      tabIndex={onVerGasto ? 0 : undefined}
+      onClick={onVerGasto ? () => onVerGasto(g) : undefined}
+      onKeyDown={onVerGasto ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onVerGasto(g);
+        }
+      } : undefined}
+    >
+      <div className="cv-summary-gasto-top">
+        <span className="concepto">{conceptoDeGasto(g)}</span>
+        <span className="amt-g">{fmt(g.monto)}</span>
+      </div>
+      <dl className="cv-summary-gasto-datos">
+        <dt>Corte</dt><dd>{corteDeGasto(g)}</dd>
+        <dt>Fecha</dt><dd>{g.fecha ? fmtFechaCorta(g.fecha) : '—'}</dd>
+        <dt>Cajero</dt><dd>{cajeroDeGasto(g)}</dd>
+        <dt>Motivo</dt><dd>{motivoDeGasto(g)}</dd>
+      </dl>
+    </div>
+  );
+}
+
 function SummaryBar({
   ingresos,
   gastos,
@@ -740,14 +769,27 @@ function SummaryBar({
   const tieneGastosDetalle = listaGastos.length > 0;
   const sumaGastos = totalGastosLista(listaGastos);
   const gastosPorTienda = useMemo(
-    () => agruparGastosPorTienda(gastosItems || []),
+    () => agruparGastosPorTienda(gastosItems || []).map((t) => ({
+      ...t,
+      catalogo: agruparGastosPorCatalogo(t.items),
+    })),
     [gastosItems],
   );
   const [tiendaAbierta, setTiendaAbierta] = useState(null);
   const [tiendaGastoAbierta, setTiendaGastoAbierta] = useState(null);
+  const [catGastoAbierta, setCatGastoAbierta] = useState(null);
+  const [subGastoAbierta, setSubGastoAbierta] = useState(null);
+  const [detGastoAbierta, setDetGastoAbierta] = useState(null);
   const [recAbierta, setRecAbierta] = useState(null);
   const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
   const tieneDesglose = desglose.length > 0;
+
+  const cerrarDrillGastos = useCallback(() => {
+    setTiendaGastoAbierta(null);
+    setCatGastoAbierta(null);
+    setSubGastoAbierta(null);
+    setDetGastoAbierta(null);
+  }, []);
 
   return (
     <div className="cv-summary">
@@ -759,7 +801,7 @@ function SummaryBar({
               className={`cv-summary-ingreso-btn${abierto ? ' open' : ''}`}
               onClick={() => {
                 setGastosAbierto(false);
-                setTiendaGastoAbierta(null);
+                cerrarDrillGastos();
                 setAbierto((v) => {
                   if (v) {
                     setTiendaAbierta(null);
@@ -790,12 +832,12 @@ function SummaryBar({
                 setTiendaAbierta(null);
                 setRecAbierta(null);
                 setGastosAbierto((v) => {
-                  if (v) setTiendaGastoAbierta(null);
+                  if (v) cerrarDrillGastos();
                   return !v;
                 });
               }}
               aria-expanded={gastosAbierto}
-              title="Ver el detalle de los gastos por tienda"
+              title="Ver gastos por sucursal, categoría y subcategoría"
             >
               <div className="lbl">{labelGastos} <span className="chev" aria-hidden>▾</span></div>
               <div className="val gasto">{fmt(gastos)}</div>
@@ -829,7 +871,12 @@ function SummaryBar({
                 <button
                   type="button"
                   className={`cv-summary-desglose-row btn gasto${expandida ? ' open' : ''}`}
-                  onClick={() => setTiendaGastoAbierta((prev) => (prev === t.id ? null : t.id))}
+                  onClick={() => {
+                    setTiendaGastoAbierta((prev) => (prev === t.id ? null : t.id));
+                    setCatGastoAbierta(null);
+                    setSubGastoAbierta(null);
+                    setDetGastoAbierta(null);
+                  }}
                   aria-expanded={expandida}
                 >
                   <span>
@@ -845,32 +892,114 @@ function SummaryBar({
                 </button>
                 {expandida && (
                   <div className="cv-summary-gastos-tienda">
-                    {t.items.map((g) => (
-                      <div
-                        key={`${g.id}`}
-                        className={`cv-summary-gasto${onVerGasto ? ' click' : ''}`}
-                        role={onVerGasto ? 'button' : undefined}
-                        tabIndex={onVerGasto ? 0 : undefined}
-                        onClick={onVerGasto ? () => onVerGasto(g) : undefined}
-                        onKeyDown={onVerGasto ? (e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            onVerGasto(g);
-                          }
-                        } : undefined}
-                      >
-                        <div className="cv-summary-gasto-top">
-                          <span className="concepto">{conceptoDeGasto(g)}</span>
-                          <span className="amt-g">{fmt(g.monto)}</span>
+                    {(t.catalogo || []).map((cat) => {
+                      const catKey = `${t.id}::${cat.id}`;
+                      const catOpen = catGastoAbierta === catKey;
+                      return (
+                        <div key={catKey} className="cv-summary-cat">
+                          <button
+                            type="button"
+                            className={`cv-summary-desglose-row btn nested gasto${catOpen ? ' open' : ''}`}
+                            onClick={() => {
+                              setCatGastoAbierta((prev) => (prev === catKey ? null : catKey));
+                              setSubGastoAbierta(null);
+                              setDetGastoAbierta(null);
+                            }}
+                            aria-expanded={catOpen}
+                          >
+                            <span>
+                              {cat.label}
+                              <span className="cv-summary-tienda-count">
+                                {' '}· {cat.items.length} gasto{cat.items.length === 1 ? '' : 's'}
+                              </span>
+                            </span>
+                            <span className="amt">
+                              {fmt(cat.gastos)}
+                              <span className="chev" aria-hidden>▾</span>
+                            </span>
+                          </button>
+                          {catOpen && (
+                            <div className="cv-summary-gastos-cat">
+                              {(cat.subcategorias || []).map((sub) => {
+                                const subKey = `${catKey}::${sub.id}`;
+                                const subOpen = subGastoAbierta === subKey;
+                                return (
+                                  <div key={subKey} className="cv-summary-sub">
+                                    <button
+                                      type="button"
+                                      className={`cv-summary-desglose-row btn nested gasto${subOpen ? ' open' : ''}`}
+                                      onClick={() => {
+                                        setSubGastoAbierta((prev) => (prev === subKey ? null : subKey));
+                                        setDetGastoAbierta(null);
+                                      }}
+                                      aria-expanded={subOpen}
+                                    >
+                                      <span>
+                                        {sub.label}
+                                        <span className="cv-summary-tienda-count">
+                                          {' '}· {sub.items.length} gasto{sub.items.length === 1 ? '' : 's'}
+                                        </span>
+                                      </span>
+                                      <span className="amt">
+                                        {fmt(sub.gastos)}
+                                        <span className="chev" aria-hidden>▾</span>
+                                      </span>
+                                    </button>
+                                    {subOpen && (
+                                      <div className="cv-summary-gastos-sub">
+                                        {sub.tieneDetalle ? (
+                                          <>
+                                            {(sub.detalles || []).map((det) => {
+                                              const detKey = `${subKey}::${det.id}`;
+                                              const detOpen = detGastoAbierta === detKey;
+                                              return (
+                                                <div key={detKey} className="cv-summary-det">
+                                                  <button
+                                                    type="button"
+                                                    className={`cv-summary-desglose-row btn nested gasto${detOpen ? ' open' : ''}`}
+                                                    onClick={() => setDetGastoAbierta((prev) => (prev === detKey ? null : detKey))}
+                                                    aria-expanded={detOpen}
+                                                  >
+                                                    <span>
+                                                      {det.label}
+                                                      <span className="cv-summary-tienda-count">
+                                                        {' '}· {det.items.length} gasto{det.items.length === 1 ? '' : 's'}
+                                                      </span>
+                                                    </span>
+                                                    <span className="amt">
+                                                      {fmt(det.gastos)}
+                                                      <span className="chev" aria-hidden>▾</span>
+                                                    </span>
+                                                  </button>
+                                                  {detOpen && (
+                                                    <div className="cv-summary-gastos-det">
+                                                      {det.items.map((g) => (
+                                                        <FilaGastoResumen key={`${g.id}`} g={g} onVerGasto={onVerGasto} />
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                            {(sub.sinDetalle || []).map((g) => (
+                                              <FilaGastoResumen key={`${g.id}`} g={g} onVerGasto={onVerGasto} />
+                                            ))}
+                                          </>
+                                        ) : (
+                                          (sub.items || []).map((g) => (
+                                            <FilaGastoResumen key={`${g.id}`} g={g} onVerGasto={onVerGasto} />
+                                          ))
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                        <dl className="cv-summary-gasto-datos">
-                          <dt>Corte</dt><dd>{corteDeGasto(g)}</dd>
-                          <dt>Fecha</dt><dd>{g.fecha ? fmtFechaCorta(g.fecha) : '—'}</dd>
-                          <dt>Cajero</dt><dd>{cajeroDeGasto(g)}</dd>
-                          <dt>Motivo</dt><dd>{motivoDeGasto(g)}</dd>
-                        </dl>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

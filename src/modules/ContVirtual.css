@@ -298,6 +298,24 @@
   animation: cv-desglose-in 0.12s ease;
 }
 
+.cv-summary-gastos-cat,
+.cv-summary-gastos-sub,
+.cv-summary-gastos-det {
+  padding: 0 0 0.2rem 0.85rem;
+  animation: cv-desglose-in 0.12s ease;
+}
+
+.cv-summary-desglose-row.btn.nested {
+  padding-left: 0.35rem;
+  font-size: 0.84rem;
+}
+
+.cv-summary-cat .cv-summary-desglose-row.nested,
+.cv-summary-sub .cv-summary-desglose-row.nested,
+.cv-summary-det .cv-summary-desglose-row.nested {
+  border-top-color: rgba(51, 51, 60, 0.4);
+}
+
 .cv-summary-gasto {
   border-top: 1px solid rgba(51, 51, 60, 0.5);
   padding: 0.5rem 0.15rem;
