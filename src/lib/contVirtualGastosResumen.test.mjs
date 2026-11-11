@@ -8,6 +8,10 @@ import {
   gastosDeMovimientosPorDia,
   totalGastosLista,
   agruparGastosPorTienda,
+  etiquetaCategoriaGasto,
+  etiquetaSubcategoriaGasto,
+  etiquetaDetalleGasto,
+  agruparGastosPorCatalogo,
 } from './contVirtualGastosResumen.js';
 
 test('corte, cajero, concepto y motivo del gasto', () => {
@@ -49,4 +53,52 @@ test('agrupa gastos por tienda con total y mayor monto primero', () => {
   assert.equal(grupos[1].gastos, 60);
   assert.deepEqual(grupos[1].items.map((x) => x.id), ['2', '4']);
   assert.deepEqual(agruparGastosPorTienda([]), []);
+});
+
+test('etiquetas de categoría / subcategoría / detalle limpian el › embebido', () => {
+  const g = {
+    categoria: 'Empleado',
+    subcategoria: 'Ana › Consumo',
+    subcategoria_nombre: 'Ana',
+    detalle: 'Consumo',
+  };
+  assert.equal(etiquetaCategoriaGasto(g), 'Empleado');
+  assert.equal(etiquetaSubcategoriaGasto(g), 'Ana');
+  assert.equal(etiquetaDetalleGasto(g), 'Consumo');
+  assert.equal(etiquetaSubcategoriaGasto({ subcategoria: 'Rollos' }), 'Rollos');
+  assert.equal(etiquetaSubcategoriaGasto({
+    subcategoria: 'Ana › Consumo',
+    detalle: 'Consumo',
+  }), 'Ana');
+  assert.equal(etiquetaCategoriaGasto({}), 'Sin categoría');
+  assert.equal(etiquetaSubcategoriaGasto({}), 'Sin subcategoría');
+  assert.equal(etiquetaDetalleGasto({}), '');
+});
+
+test('agrupa gastos por categoría → subcategoría → detalle', () => {
+  const lista = [
+    { id: '1', categoria: 'Empleado', subcategoria_nombre: 'Ana', detalle: 'Consumo', monto: 100 },
+    { id: '2', categoria: 'Empleado', subcategoria_nombre: 'Ana', detalle: 'Consumo', monto: 50 },
+    { id: '3', categoria: 'Empleado', subcategoria_nombre: 'Luis', detalle: '', monto: 80 },
+    { id: '4', categoria: 'Papelería', subcategoria: 'Rollos', monto: 200 },
+    { id: '5', categoria: 'Empleado', subcategoria: 'Ana › Taxi', detalle: 'Taxi', monto: 30 },
+  ];
+  const cats = agruparGastosPorCatalogo(lista);
+  assert.deepEqual(cats.map((c) => c.label), ['Empleado', 'Papelería']);
+  assert.equal(cats[0].gastos, 260);
+  assert.equal(cats[1].gastos, 200);
+
+  const emp = cats[0];
+  assert.deepEqual(emp.subcategorias.map((s) => s.label), ['Ana', 'Luis']);
+  assert.equal(emp.subcategorias[0].gastos, 180);
+  assert.equal(emp.subcategorias[0].tieneDetalle, true);
+  assert.deepEqual(emp.subcategorias[0].detalles.map((d) => [d.label, d.gastos]), [
+    ['Consumo', 150],
+    ['Taxi', 30],
+  ]);
+  assert.equal(emp.subcategorias[1].tieneDetalle, false);
+  assert.deepEqual(emp.subcategorias[1].items.map((x) => x.id), ['3']);
+
+  assert.equal(emp.subcategorias[0].sinDetalle.length, 0);
+  assert.deepEqual(agruparGastosPorCatalogo([]), []);
 });
