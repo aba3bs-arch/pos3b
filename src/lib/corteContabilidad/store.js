@@ -589,49 +589,59 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
 
   // Categoría EMPLEADO en cortes: personal de tienda + Misael/Luis Enrique (consumo PIN).
   // Otros indirectos / MAIN siguen bloqueados.
+  // Excepción: FALTANTE a cargo del propio operador del corte (candado recargas MP / CT).
   {
-    const catalogo = opts.empleadosCatalogo || [];
-    const paraNombres = opts.usuariosParaValidarIndirectos || catalogo;
-    const empHit = catalogo.find((e) => String(e.id) === String(gasto.usuario_id || ''))
-      || (gasto.usuario_nombre
-        ? catalogo.find((e) => String(e.nombre || '').toLowerCase() === String(gasto.usuario_nombre).toLowerCase())
-        : null);
-    const permitidoExcepcion = empleadoPermitidoEnGastoCorte(
-      empHit || { nombre: gasto.usuario_nombre, rol: 'Indirecto', tipo_empleado: 'indirecto' },
-      { modulo },
-    );
-    const esIndirectoBloqueado =
-      !permitidoExcepcion
-      && (
-        (empHit && esEmpleadoIndirectoOMain(empHit))
-        || String(gasto.usuario_id || '').startsWith('indirect:')
-        || String(gasto.usuario_id || '').startsWith('consumo-pin:')
-        || textoMencionaPersonalIndirecto(gasto.usuario_nombre, paraNombres)
+    const subUpper = String(gasto.subcategoria || '').toUpperCase();
+    const faltanteAOperador =
+      catUpper === 'EMPLEADO'
+      && subUpper.includes('FALTANTE')
+      && opts.user?.id
+      && String(gasto.usuario_id || '') === String(opts.user.id);
+
+    if (!faltanteAOperador) {
+      const catalogo = opts.empleadosCatalogo || [];
+      const paraNombres = opts.usuariosParaValidarIndirectos || catalogo;
+      const empHit = catalogo.find((e) => String(e.id) === String(gasto.usuario_id || ''))
+        || (gasto.usuario_nombre
+          ? catalogo.find((e) => String(e.nombre || '').toLowerCase() === String(gasto.usuario_nombre).toLowerCase())
+          : null);
+      const permitidoExcepcion = empleadoPermitidoEnGastoCorte(
+        empHit || { nombre: gasto.usuario_nombre, rol: 'Indirecto', tipo_empleado: 'indirecto' },
+        { modulo },
       );
-    if (esIndirectoBloqueado) {
-      return {
-        ok: false,
-        error:
-          'En cortes solo se permiten empleados de tienda (directos), o Misael / Luis Enrique en consumo con su PIN.',
-      };
-    }
-    if (textoMencionaPersonalIndirecto(gasto.comentario, paraNombres)) {
-      // Permitir el nombre del propio beneficiario del gasto (Misael/Luis Enrique).
-      const comentarioOk = permitidoExcepcion
-        && esEmpleadoConsumoPinCorte(gasto.usuario_nombre || empHit)
-        && !textoMencionaPersonalIndirecto(
-          String(gasto.comentario || '').replace(
-            new RegExp(String(gasto.usuario_nombre || empHit?.nombre || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'),
-            '',
-          ),
-          paraNombres,
+      const esIndirectoBloqueado =
+        !permitidoExcepcion
+        && (
+          (empHit && esEmpleadoIndirectoOMain(empHit))
+          || String(gasto.usuario_id || '').startsWith('indirect:')
+          || String(gasto.usuario_id || '').startsWith('consumo-pin:')
+          || textoMencionaPersonalIndirecto(gasto.usuario_nombre, paraNombres)
         );
-      if (!comentarioOk) {
+      if (esIndirectoBloqueado) {
         return {
           ok: false,
           error:
-            'No se permiten nombres de personal indirecto / MAIN en el comentario del gasto de corte.',
+            'En cortes solo se permiten empleados de tienda (directos), o Misael / Luis Enrique en consumo con su PIN.',
         };
+      }
+      if (textoMencionaPersonalIndirecto(gasto.comentario, paraNombres)) {
+        // Permitir el nombre del propio beneficiario del gasto (Misael/Luis Enrique).
+        const comentarioOk = permitidoExcepcion
+          && esEmpleadoConsumoPinCorte(gasto.usuario_nombre || empHit)
+          && !textoMencionaPersonalIndirecto(
+            String(gasto.comentario || '').replace(
+              new RegExp(String(gasto.usuario_nombre || empHit?.nombre || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'),
+              '',
+            ),
+            paraNombres,
+          );
+        if (!comentarioOk) {
+          return {
+            ok: false,
+            error:
+              'No se permiten nombres de personal indirecto / MAIN en el comentario del gasto de corte.',
+          };
+        }
       }
     }
   }
