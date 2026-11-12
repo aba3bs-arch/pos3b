@@ -23,6 +23,7 @@ import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
 import {
   obtenerVentasNetasEnPeriodo,
   restarVentasDeLineasConteo,
+  textoResumenAjusteVentasConteo,
 } from '../lib/consolidarVentasInventario.js';
 
 const FILTROS_VACIOS = {
@@ -64,6 +65,7 @@ function estadoInicialLibre(sucursal, borradorInicial) {
     conteos: base?.conteos && typeof base.conteos === 'object' ? { ...base.conteos } : {},
     borradorId: base?.id || idAutoBorrador('libre', sucursal),
     recuperado: Boolean(!borradorInicial && base && borradorTieneDatos(base)),
+    conteoIniciadoAt: base?.conteoIniciadoAt || new Date().toISOString(),
   };
 }
 
@@ -102,7 +104,9 @@ export default function AjusteLibre({
   const [avisoBusqueda, setAvisoBusqueda] = useState('');
   const [borradorId, setBorradorId] = useState(init.borradorId);
   const [avisoRecuperado, setAvisoRecuperado] = useState(init.recuperado);
-  const [conteoIniciadoAt] = useState(() => new Date().toISOString());
+  const [conteoIniciadoAt] = useState(init.conteoIniciadoAt);
+  const [ajustandoVentas, setAjustandoVentas] = useState(false);
+  const [ventasAjusteInfo, setVentasAjusteInfo] = useState(null);
   const scanRef = useRef(null);
   const cantidadRef = useRef(null);
 
@@ -121,6 +125,7 @@ export default function AjusteLibre({
         titulo: 'Ajuste libre',
         ordenIds,
         conteos,
+        conteoIniciadoAt,
         sucursal,
         usuario: user?.nombre,
         auto: true,
@@ -130,7 +135,7 @@ export default function AjusteLibre({
       const saved = guardarAjusteEnEspera(draft);
       if (saved?.id && saved.id !== borradorId) setBorradorId(saved.id);
     },
-    { enabled: !folioAplicado, deps: [ordenIds, conteos, sucursal, user?.nombre] },
+    { enabled: !folioAplicado, deps: [ordenIds, conteos, sucursal, user?.nombre, conteoIniciadoAt] },
   );
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
@@ -309,6 +314,52 @@ export default function AjusteLibre({
     });
   };
 
+  const ajustarConteoConVentas = async () => {
+    if (!supabase) return alert('Sin conexión a Supabase.');
+    const contadas = lineas.filter((l) => l.contadaNum != null);
+    if (!contadas.length) return alert('Indica la cantidad contada en al menos un producto.');
+    setAjustandoVentas(true);
+    try {
+      const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
+        sucursal,
+        desdeIso: conteoIniciadoAt,
+        hastaIso: new Date().toISOString(),
+        productoIds: contadas.map((l) => l.productoId),
+      });
+      if (!ventas.ok) {
+        return alert(ventas.error || 'No se pudieron consultar las ventas del periodo.');
+      }
+      if (!(ventas.piezas > 0)) {
+        setVentasAjusteInfo({ piezas: 0, productos: 0, at: new Date().toISOString() });
+        return alert('No hubo ventas de estos productos desde que inició el ajuste. Puedes aplicar tal cual.');
+      }
+      const adj = restarVentasDeLineasConteo(contadas, ventas.porProducto);
+      if (!(adj.piezasRestadas > 0)) {
+        return alert('Las ventas del periodo no afectan las cantidades contadas.');
+      }
+      if (!confirm(textoResumenAjusteVentasConteo(adj, {
+        desdeIso: conteoIniciadoAt,
+        piezasPeriodo: ventas.piezas,
+      }))) return;
+      setConteos((prev) => {
+        const next = { ...prev };
+        for (const l of adj.lineas) {
+          if (l.contadaNum == null || !l.ventasDuranteConteo) continue;
+          next[l.productoId] = String(l.contadaNum);
+        }
+        return next;
+      });
+      setVentasAjusteInfo({
+        piezas: adj.piezasRestadas,
+        productos: adj.productosAfectados,
+        at: new Date().toISOString(),
+      });
+      alert(`Conteo actualizado: −${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).`);
+    } finally {
+      setAjustandoVentas(false);
+    }
+  };
+
   const aplicarAjuste = async () => {
     if (!lineas.length) return alert('Agrega productos a la lista de ajuste.');
     const pendientes = lineas.filter((l) => l.contadaNum == null);
@@ -328,25 +379,30 @@ export default function AjusteLibre({
     if (!confirm(msg)) return;
     setAplicando(true);
     let lineasAplicar = pendientes.length ? contadas : lineas;
+    let notaVentas = ventasAjusteInfo?.piezas
+      ? `\nVentas ya restadas del conteo (botón): ${ventasAjusteInfo.piezas} pza(s) en ${ventasAjusteInfo.productos} producto(s).`
+      : '';
 
-    const ids = lineasAplicar.map((l) => l.productoId).filter(Boolean);
-    const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
-      sucursal,
-      desdeIso: conteoIniciadoAt,
-      hastaIso: new Date().toISOString(),
-      productoIds: ids,
-    });
-    let notaVentas = '';
-    if (ventas.ok && ventas.piezas > 0) {
-      const restar = confirm(
-        `Durante este ajuste se vendieron ${ventas.piezas} pieza(s) de productos de la lista.\n\n` +
-          `¿Restarlas del conteo antes de aplicar?\n\n` +
-          `Recomendado: SÍ si seguiste vendiendo (contado − ventas).`,
-      );
-      if (restar) {
-        const adj = restarVentasDeLineasConteo(lineasAplicar, ventas.porProducto);
-        lineasAplicar = adj.lineas;
-        notaVentas = `\nVentas restadas: ${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).`;
+    if (!ventasAjusteInfo) {
+      const ids = lineasAplicar.map((l) => l.productoId).filter(Boolean);
+      const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
+        sucursal,
+        desdeIso: conteoIniciadoAt,
+        hastaIso: new Date().toISOString(),
+        productoIds: ids,
+      });
+      if (ventas.ok && ventas.piezas > 0) {
+        const restar = confirm(
+          `Durante este ajuste se vendieron ${ventas.piezas} pieza(s) de productos de la lista.\n\n`
+          + '¿Restarlas del conteo antes de aplicar?\n\n'
+          + 'Recomendado: SÍ si seguiste vendiendo (contado − ventas).\n'
+          + '(También: botón «Ajustar conteo con ventas».)',
+        );
+        if (restar) {
+          const adj = restarVentasDeLineasConteo(lineasAplicar, ventas.porProducto);
+          lineasAplicar = adj.lineas;
+          notaVentas = `\nVentas restadas: ${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).`;
+        }
       }
     }
 
@@ -366,6 +422,7 @@ export default function AjusteLibre({
     eliminarAjusteEnEspera(borradorId || idAutoBorrador('libre', sucursal));
     eliminarAjusteEnEspera(idAutoBorrador('libre', sucursal));
     setAvisoRecuperado(false);
+    setVentasAjusteInfo(null);
     cargarDatos();
     alert(`${r.mensaje}${notaVentas}\n\nFolio: ${r.folio}`);
   };
@@ -761,6 +818,23 @@ export default function AjusteLibre({
               {resumen.totalSkus}
             </span>
           </div>
+          {ventasAjusteInfo && (
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', color: 'var(--brand-green)', fontWeight: 600, textAlign: 'center' }}>
+              {ventasAjusteInfo.piezas > 0
+                ? `Conteo alineado con ventas: −${ventasAjusteInfo.piezas} pza(s) en ${ventasAjusteInfo.productos} producto(s).`
+                : 'Sin ventas en el periodo del ajuste.'}
+            </p>
+          )}
+          <button
+            type="button"
+            className="btn btn-gold"
+            style={{ width: '100%', marginBottom: '0.45rem' }}
+            disabled={ajustandoVentas || aplicando || lineas.every((l) => l.contadaNum == null)}
+            onClick={() => void ajustarConteoConVentas()}
+            title="Resta del conteo las piezas vendidas desde el inicio del ajuste"
+          >
+            {ajustandoVentas ? 'Consultando ventas…' : 'Ajustar conteo con ventas'}
+          </button>
           <button
             type="button"
             className="btn btn-primary"
@@ -771,8 +845,9 @@ export default function AjusteLibre({
             {aplicando ? 'Aplicando…' : 'APLICAR AJUSTE'}
           </button>
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', textAlign: 'center' }}>
-            Libre: sumas piezas → al aplicar, existencia = total contado ({etiquetaUbicacionConteo(sucursal)}).
-            Ingreso: suma lo contado al stock actual.
+            Si vendiste mientras contabas: «Ajustar conteo con ventas» (contado − ventas desde{' '}
+            {new Date(conteoIniciadoAt).toLocaleString('es-MX')}) y luego aplica.
+            Existencia final = total contado ({etiquetaUbicacionConteo(sucursal)}).
           </p>
         </footer>
       )}
