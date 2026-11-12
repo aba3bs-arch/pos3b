@@ -402,7 +402,7 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
       sucursal: corte.sucursal || corte.sucursal_id,
       fecha: corte.fecha,
       turnoId: corte.turno_id,
-      efectivoEsperado: corte.efectivoEsperado ?? corte.efectivo_esperado,
+      totalVentas: corte.totalVentas ?? corte.total_ventas,
     });
   } catch (err) {
     syncAbarrotes = { ok: false, error: err?.message || String(err) };
@@ -465,7 +465,7 @@ export async function corregirCorte(supabase, corte, usuarioId = null, corteId =
       sucursal: corte.sucursal || corte.sucursal_id,
       fecha: corte.fecha,
       turnoId: corte.turno_id,
-      efectivoEsperado: corte.efectivoEsperado ?? corte.efectivo_esperado,
+      totalVentas: corte.totalVentas ?? corte.total_ventas,
     });
   } catch (err) {
     syncAbarrotes = { ok: false, error: err?.message || String(err) };

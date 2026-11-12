@@ -1,5 +1,5 @@
 /**
- * Al guardar/corregir Corte de caja, empuja el efectivo neto
+ * Al guardar/corregir Corte de caja, empuja el Total sistema (neto registrado)
  * al campo «venta» del Corte Abarrotes abierto (misma sucursal).
  */
 
@@ -17,13 +17,14 @@ export function claveVentaPosCorteCaja({ fecha, turnoId } = {}) {
 /**
  * Actualiza el mapa venta_pos_por_corte y recalcula estado.venta = suma.
  * @param {object} estado
- * @param {{ clave: string, efectivoEsperado: number }} aporte
+ * @param {{ clave: string, totalVentas: number }} aporte
  */
 export function aplicarVentaPosEnEstadoAbarrotes(estado = {}, aporte = {}) {
   const clave = String(aporte.clave || '').trim();
   if (!clave) return { ...estado };
   const map = { ...(estado.venta_pos_por_corte || {}) };
-  map[clave] = round2(aporte.efectivoEsperado);
+  const monto = aporte.totalVentas ?? aporte.efectivoEsperado;
+  map[clave] = round2(monto);
   const venta = round2(
     Object.values(map).reduce((a, v) => a + (Number(v) || 0), 0),
   );
@@ -63,13 +64,15 @@ export function aplicarAjusteRecargaMpEnVentaAbarrotes(estado = {}, montoAjuste,
 }
 
 /**
- * Carga el estado abierto de abarrotes, aplica el efectivo neto del corte de caja y guarda.
+ * Carga el estado abierto de abarrotes, aplica el Total sistema del corte de caja y guarda.
  * No debe tumbar el guardado del corte de caja si falla.
  */
 export async function sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
   sucursal,
   fecha,
   turnoId,
+  totalVentas,
+  /** @deprecated usar totalVentas (Total sistema) */
   efectivoEsperado,
 } = {}) {
   if (!sucursal) {
@@ -84,7 +87,7 @@ export async function sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
     }
     const next = aplicarVentaPosEnEstadoAbarrotes(cargado?.estado || {}, {
       clave,
-      efectivoEsperado,
+      totalVentas: totalVentas ?? efectivoEsperado,
     });
     const guardado = await guardarEstadoCorte(supabase, sucursal, 'abarrotes', next);
     if (!guardado?.ok) {

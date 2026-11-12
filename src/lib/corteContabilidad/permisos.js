@@ -35,7 +35,7 @@ export function permisosCorteContabilidad(rol, userId = null) {
       fondo: false,
       caja_anterior: false,
       folio: false,
-      // Venta abarrotes: la llena el Corte de caja (efectivo neto), no el cajero.
+      // Venta abarrotes: la llena el Corte de caja (Total sistema), no el cajero.
       venta: false,
       soloLectura: false,
     };
