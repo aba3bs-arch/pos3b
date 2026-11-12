@@ -67,7 +67,6 @@ import {
 } from '../lib/contabilidadConstants.js';
 import { sincronizarHoraLimiteValeDesdeNube } from '../lib/horaLimiteValeSync.js';
 import {
-  AVISO_FALTA_VALES_CATEGORIAS,
   EVENTO_VALES_CATEGORIAS,
   sincronizarCategoriasValeDesdeNube,
   etiquetaSubcategoriaVale,
@@ -325,11 +324,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const categoriasValeDisponibles = useMemo(
     () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: esMain, soloParaFormulario: true }),
     [catalogoIe, esMain, categoriasTick],
-  );
-  /** Admin Catálogo IE: árbol completo de egresos (igual que Cont Virtual), sin ocultar prestamos/manual. */
-  const categoriasCatalogoIeAdmin = useMemo(
-    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: false, soloParaFormulario: true }),
-    [catalogoIe, categoriasTick],
   );
   const subcategoriasValeForm = useMemo(() => {
     const cat = categoriasValeDisponibles.find((c) => c.id === valeForm.categoria);
@@ -806,14 +800,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       primerCobro: '',
     });
     recargarTodo();
-  };
-
-  const refrescarCatalogoIe = async () => {
-    const r = await cargarCatalogoIeParaVales(supabase);
-    setCatalogoIe(r.data || []);
-    if (r.aviso) setAvisoCatalogoIe(r.aviso);
-    setCategoriasTick((n) => n + 1);
-    return r;
   };
 
   const guardarPrestamoGastos = async () => {
@@ -1532,7 +1518,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         Así nadie les carga gastos sin autorizar.
         <br />
         <strong>Categorías, subcategorías y detalles</strong> — Mismo catálogo que <strong>IE VIRTUAL</strong> (Contabilidad).
-        {' '}Admin: pestaña «Catálogo IE». Gasolina solo desde tienda (no desde MAIN).
+        {' '}Las categorías se administran y envían desde IE VIRTUAL (Cuentas y subcuentas). Gasolina solo desde tienda (no desde MAIN).
         <br />
         <strong>Desde MAIN</strong> — Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN.
         <br />
@@ -1554,7 +1540,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         {(esRepartidor
           ? ['pagare', 'prestamos']
-          : ['vales', 'rif', 'pagare', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes']
+          : ['vales', 'rif', 'pagare', 'prestamos', 'prestamos_emp', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes']
         ).filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
@@ -1562,7 +1548,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             {p === 'pagare' && `Pagaré (${nPagaresActivos})`}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
-            {p === 'tipos' && 'Categorías (IE)'}
             {p === 'gasolina' && 'Gasolina / asistencia'}
             {p === 'pendientes' && `Pendientes (${valesPendientes.length + prestamosPendientesAdmin.length + prestamosMovPendientes.length + (esSocio ? prestamosPendientesSocio.length : 0)})`}
           </button>
@@ -2171,70 +2156,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         </div>
       )}
 
-      {pestana === 'tipos' && esAdmin && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Categorías enviadas a Vales</h3>
-          <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Las categorías, subcategorías y detalles se administran en un solo lugar:{' '}
-            <strong>Contabilidad → IE VIRTUAL → Cuentas y subcuentas</strong> (crear, modificar, eliminar, ocultar y{' '}
-            <strong>Enviar</strong> a Vales). Aquí solo se consulta lo que llega a Vales.
-            Al emitir un vale no se ofrecen Préstamos / Manual / Ingresos (no aplican).
-            {avisoCatalogoIe ? (
-              <>
-                <br />
-                <span style={{ color: 'var(--danger)' }}>{avisoCatalogoIe}</span>
-              </>
-            ) : null}
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
-            <button type="button" className="btn btn-ghost" onClick={() => refrescarCatalogoIe()}>
-              Recargar catálogo IE
-            </button>
-          </div>
-          <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {categoriasCatalogoIeAdmin.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  padding: '0.65rem 0.75rem',
-                  background: 'var(--surface)',
-                }}
-              >
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.45rem' }}>
-                  <strong style={{ color: 'var(--brand-blue)' }}>{c.label}</strong>
-                  <span className="muted" style={{ fontSize: '0.78rem' }}>
-                    {c.descuentaNomina ? 'Nómina' : 'Sin nómina'}
-                  </span>
-                </div>
-                {(c.subcategorias || []).length === 0 && (
-                  <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>Sin subcategorías enviadas</p>
-                )}
-                {(c.subcategorias || []).map((s) => (
-                  <div key={s.id} style={{ fontSize: '0.85rem', padding: '0.15rem 0' }}>
-                    <strong>{s.label}</strong>
-                    {(s.detalles || []).length > 0 && (
-                      <span className="muted"> · {(s.detalles || []).map((d) => d.label).join(' · ')}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-          {categoriasCatalogoIeAdmin.length === 0 && (
-            <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.75rem' }}>
-              {avisoCatalogoIe || AVISO_FALTA_VALES_CATEGORIAS}
-              {' '}En IE VIRTUAL → Cuentas y subcuentas usa <strong>Enviar</strong> para mandar categorías a Vales.
-            </p>
-          )}
-        </div>
-      )}
-
       {pestana === 'vales' && (
         <>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo vale</h3>
+            {avisoCatalogoIe ? (
+              <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--danger)' }}>{avisoCatalogoIe}</p>
+            ) : null}
             {esMain && (
               <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
                 Generando desde <strong>MAIN</strong>: elige sucursal y corte destino.
