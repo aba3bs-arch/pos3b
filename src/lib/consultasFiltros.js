@@ -6,11 +6,30 @@ export function normalizarBusqueda(s) {
     .trim();
 }
 
+/**
+ * Variantes simples singular/plural en español para que «recargas»
+ * también encuentre «Recarga 50» (y viceversa vía includes del singular).
+ */
+export function variantesTokenBusqueda(palabra) {
+  const p = String(palabra || '');
+  if (!p) return [];
+  const out = new Set([p]);
+  if (p.length > 4 && p.endsWith('es')) {
+    out.add(p.slice(0, -2));
+    out.add(p.slice(0, -1));
+  } else if (p.length > 3 && p.endsWith('s')) {
+    out.add(p.slice(0, -1));
+  }
+  return [...out];
+}
+
 export function coincideBusqueda(textos, q) {
   const nq = normalizarBusqueda(q);
   if (!nq) return true;
   const blob = normalizarBusqueda(Array.isArray(textos) ? textos.join(' ') : textos);
-  return nq.split(/\s+/).every((palabra) => blob.includes(palabra));
+  return nq.split(/\s+/).every((palabra) => (
+    variantesTokenBusqueda(palabra).some((v) => blob.includes(v))
+  ));
 }
 
 export function ymdLocal(d = new Date()) {
