@@ -2,7 +2,8 @@ import { clasificarPago, rangoConsultaCorte, resumirVentas, fechaCorteSugerida, 
 import { consultarVentas } from './ventasQuery.js';
 import { filtrarVentasPorTurno, leerTurnos, nombreTurnoLegible, turnoActual } from './turnos.js';
 import { devolverStockPorCancelacion, guardarMovimientoLocal } from './inventarioMovimientos.js';
-import { normalizarCodigoTienda } from '../constants/sucursales.js';
+import { equivalentesCodigoTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { leerColaVentasOffline } from './ventasOffline.js';
 
 const LS_CANCELACIONES = 'pos3b_cancelaciones';
 
@@ -168,7 +169,10 @@ export async function cargarCancelacionesDelDia(supabase, { sucursal, fecha, tur
     .gte('created_at', ini.toISOString())
     .lte('created_at', fin.toISOString())
     .order('created_at', { ascending: true });
-  if (suc) q = q.eq('sucursal_id', suc);
+  if (suc) {
+    const vars = equivalentesCodigoTienda(suc);
+    q = vars.length > 1 ? q.in('sucursal_id', vars) : q.eq('sucursal_id', suc);
+  }
 
   const { data, error } = await q;
   if (error) {
@@ -226,6 +230,29 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
   error = r.error;
   sinFecha = r.sinFecha;
   if (r.aviso) aviso = r.aviso;
+
+  // Ventas offline pendientes: el candado / corte deben verlas aunque aún no suban.
+  try {
+    const offline = leerColaVentasOffline(suc).filter((v) => {
+      const t = v?.created_at ? new Date(v.created_at) : null;
+      if (!t || Number.isNaN(t.getTime())) return false;
+      return t >= ini && t <= fin;
+    });
+    if (offline.length) {
+      const ids = new Set(ventasRaw.map((v) => String(v.id)));
+      for (const v of offline) {
+        if (ids.has(String(v.id))) continue;
+        ventasRaw.push({
+          ...v,
+          articulos: Array.isArray(v.articulos) ? v.articulos : [],
+          origen: v.origen || 'offline',
+        });
+        ids.add(String(v.id));
+      }
+    }
+  } catch {
+    /* ignore cola local */
+  }
 
   // Turno nocturno: la ventana ini–fin YA es el turno completo (cruza medianoche).
   // No re-filtrar por hora/turno_id: evita ocultar ventas reales (p. ej. mal etiquetadas

@@ -72,6 +72,58 @@ export function textoEsRecarga(s) {
   return false;
 }
 
+/** Departamento típico de TAE / celular (TELEFONÍA, TELEFONIA, etc.). */
+export function textoEsDepartamentoRecarga(s) {
+  const t = normalizarTextoRecarga(s).replace(/_/g, ' ');
+  if (!t) return false;
+  if (t.includes('telefon')) return true;
+  if (t.includes('tiempo aire') || t.includes('tiempoaire')) return true;
+  if (/\btae\b/.test(t)) return true;
+  return false;
+}
+
+function articulosDeFila(row) {
+  let arts = row?.articulos;
+  if (typeof arts === 'string') {
+    try {
+      arts = JSON.parse(arts);
+    } catch {
+      arts = [];
+    }
+  }
+  return Array.isArray(arts) ? arts : [];
+}
+
+function lineaEsRecarga(a, productoPorId = null) {
+  if (!a) return false;
+  if (
+    textoEsRecarga(a?.nombre)
+    || textoEsRecarga(a?.descripcion)
+    || textoEsRecarga(a?.id)
+    || textoEsRecarga(a?.codigo)
+  ) {
+    return true;
+  }
+  if (
+    textoEsDepartamentoRecarga(a?.cat)
+    || textoEsDepartamentoRecarga(a?.departamento)
+  ) {
+    return true;
+  }
+  const pid = String(a?.id ?? a?.codigo ?? a?.producto_id ?? '').trim();
+  if (pid && productoPorId) {
+    const p = productoPorId.get?.(pid) || productoPorId[pid];
+    if (p && (
+      textoEsRecarga(p.nombre)
+      || textoEsDepartamentoRecarga(p.cat)
+      || textoEsDepartamentoRecarga(p.departamento)
+    )) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function montoLineaArticulo(a) {
   const qty = Number(a?.qty ?? a?.cantidad ?? 1) || 1;
   const precio = Number(a?.precio) || 0;
@@ -81,13 +133,13 @@ function montoLineaArticulo(a) {
 }
 
 /** Monto de recargas dentro de una venta (método o artículos). */
-export function montoRecargasDeVenta(venta) {
+export function montoRecargasDeVenta(venta, { productoPorId = null } = {}) {
   if (!venta) return 0;
   if (textoEsRecarga(venta.metodo_pago)) return round2(venta.total);
   let sum = 0;
   let hay = false;
-  for (const a of venta.articulos || []) {
-    if (textoEsRecarga(a?.nombre) || textoEsRecarga(a?.id) || textoEsRecarga(a?.codigo)) {
+  for (const a of articulosDeFila(venta)) {
+    if (lineaEsRecarga(a, productoPorId)) {
       hay = true;
       sum = round2(sum + montoLineaArticulo(a));
     }
@@ -96,13 +148,13 @@ export function montoRecargasDeVenta(venta) {
 }
 
 /** Monto de recargas canceladas (resta). */
-export function montoRecargasDeCancelacion(canc) {
+export function montoRecargasDeCancelacion(canc, { productoPorId = null } = {}) {
   if (!canc) return 0;
   if (textoEsRecarga(canc.metodo_pago)) return round2(canc.total ?? canc.monto);
   let sum = 0;
   let hay = false;
-  for (const a of canc.articulos || []) {
-    if (textoEsRecarga(a?.nombre) || textoEsRecarga(a?.id) || textoEsRecarga(a?.codigo)) {
+  for (const a of articulosDeFila(canc)) {
+    if (lineaEsRecarga(a, productoPorId)) {
       hay = true;
       const qty = Number(a?.qty ?? a?.cantidad ?? 1) || 1;
       sum = round2(sum + qty * (Number(a?.precio) || 0));
@@ -112,10 +164,10 @@ export function montoRecargasDeCancelacion(canc) {
 }
 
 /** Total neto de recargas registradas en el POS del turno. */
-export function totalRecargasPos(ventas = [], cancelaciones = []) {
+export function totalRecargasPos(ventas = [], cancelaciones = [], opts = {}) {
   let total = 0;
-  for (const v of ventas || []) total = round2(total + montoRecargasDeVenta(v));
-  for (const c of cancelaciones || []) total = round2(total - montoRecargasDeCancelacion(c));
+  for (const v of ventas || []) total = round2(total + montoRecargasDeVenta(v, opts));
+  for (const c of cancelaciones || []) total = round2(total - montoRecargasDeCancelacion(c, opts));
   return total < 0 ? 0 : total;
 }
 

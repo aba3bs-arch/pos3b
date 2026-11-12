@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   textoEsRecarga,
+  textoEsDepartamentoRecarga,
   montoRecargasDeVenta,
   totalRecargasPos,
   evaluarCandadoRecargasMp,
@@ -18,6 +19,9 @@ test('detecta textos de recarga', () => {
   assert.equal(textoEsRecarga('Tiempo aire Movistar'), true);
   assert.equal(textoEsRecarga('TAE 100'), true);
   assert.equal(textoEsRecarga('Coca Cola'), false);
+  assert.equal(textoEsDepartamentoRecarga('TELEFONÍA'), true);
+  assert.equal(textoEsDepartamentoRecarga('TELEFONIA'), true);
+  assert.equal(textoEsDepartamentoRecarga('ABARROTES'), false);
 });
 
 test('monto de venta por método o artículos', () => {
@@ -31,6 +35,25 @@ test('monto de venta por método o artículos', () => {
     ],
   }), 100);
   assert.equal(montoRecargasDeVenta({ metodo_pago: 'Efectivo', articulos: [{ nombre: 'Agua', precio: 10 }] }), 0);
+});
+
+test('monto: departamento TELEFONÍA / catálogo sin «recarga» en el nombre', () => {
+  assert.equal(montoRecargasDeVenta({
+    metodo_pago: 'Efectivo MXN',
+    total: 105,
+    articulos: [{ id: '801', nombre: 'Telcel 105', cat: 'TELEFONÍA', qty: 1, precio: 105 }],
+  }), 105);
+  assert.equal(montoRecargasDeVenta({
+    metodo_pago: 'Efectivo MXN',
+    total: 50,
+    articulos: [{ id: '802', nombre: 'Unefon 50', qty: 1, precio: 50 }],
+  }, {
+    productoPorId: new Map([['802', { id: '802', nombre: 'Unefon 50', cat: 'TELEFONIA' }]]),
+  }), 50);
+  assert.equal(montoRecargasDeVenta({
+    metodo_pago: 'Efectivo MXN',
+    articulos: '[{"nombre":"Recarga 50","precio":50,"qty":1}]',
+  }), 50);
 });
 
 test('total neto ventas − cancelaciones', () => {
