@@ -43,6 +43,8 @@ export function guardarAjusteEnEspera(draft) {
     ordenIds: Array.isArray(draft.ordenIds) ? draft.ordenIds : [],
     lineasMasivas: Array.isArray(draft.lineasMasivas) ? draft.lineasMasivas : [],
     indiceActual: Number(draft.indiceActual) || 0,
+    /** Inicio del conteo: ventas posteriores se pueden restar al aplicar. */
+    conteoIniciadoAt: draft.conteoIniciadoAt || null,
     sucursal: draft.sucursal || null,
     usuario: draft.usuario || null,
     auto: Boolean(draft.auto),

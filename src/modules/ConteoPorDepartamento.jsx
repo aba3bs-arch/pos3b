@@ -23,6 +23,7 @@ import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
 import {
   obtenerVentasNetasEnPeriodo,
   restarVentasDeLineasConteo,
+  textoResumenAjusteVentasConteo,
 } from '../lib/consolidarVentasInventario.js';
 
 function estadoInicialDesdeBorrador(borradorInicial, departamentoInicial, sucursal) {
@@ -38,6 +39,7 @@ function estadoInicialDesdeBorrador(borradorInicial, departamentoInicial, sucurs
     indiceActual: Number(base?.indiceActual) || 0,
     borradorId: base?.id || idAutoBorrador('departamento', sucursal),
     recuperado: Boolean(!borradorInicial && base && borradorTieneDatos(base)),
+    conteoIniciadoAt: base?.conteoIniciadoAt || new Date().toISOString(),
   };
 }
 
@@ -69,7 +71,9 @@ export default function ConteoPorDepartamento({
   const [ultimoAjuste, setUltimoAjuste] = useState(null);
   const [borradorId, setBorradorId] = useState(init.borradorId);
   const [avisoRecuperado, setAvisoRecuperado] = useState(init.recuperado);
-  const [conteoIniciadoAt] = useState(() => new Date().toISOString());
+  const [conteoIniciadoAt, setConteoIniciadoAt] = useState(init.conteoIniciadoAt);
+  const [ajustandoVentas, setAjustandoVentas] = useState(false);
+  const [ventasAjusteInfo, setVentasAjusteInfo] = useState(null);
   const contadaInputRef = useRef(null);
   const scanInputRef = useRef(null);
 
@@ -105,6 +109,7 @@ export default function ConteoPorDepartamento({
         departamento,
         conteos,
         indiceActual,
+        conteoIniciadoAt,
         sucursal,
         usuario: user?.nombre,
         auto: true,
@@ -116,7 +121,7 @@ export default function ConteoPorDepartamento({
     },
     {
       enabled: Boolean(conteoActivo && !folioAplicado),
-      deps: [conteos, indiceActual, departamento, sucursal, user?.nombre],
+      deps: [conteos, indiceActual, departamento, sucursal, user?.nombre, conteoIniciadoAt],
     },
   );
 
@@ -132,6 +137,8 @@ export default function ConteoPorDepartamento({
     setCodigoEscaneo('');
     setBorradorId(autoId);
     setAvisoRecuperado(false);
+    setConteoIniciadoAt(new Date().toISOString());
+    setVentasAjusteInfo(null);
   };
 
   const cambiarDepartamento = (dept) => {
@@ -231,6 +238,66 @@ export default function ConteoPorDepartamento({
     } else alert(r.error);
   };
 
+  const lineasParaAplicar = () => lineas.map((l) => {
+    if (l.contadaNum != null) return l;
+    return construirLineaConteo(
+      productosDept.find((p) => String(p.id) === String(l.productoId)),
+      String(l.existencia),
+      sucursal,
+    );
+  });
+
+  /** Botón previo a aplicar: resta ventas del periodo al conteo capturado. */
+  const ajustarConteoConVentas = async () => {
+    if (!supabase) return alert('Sin conexión a Supabase.');
+    setAjustandoVentas(true);
+    try {
+      const base = lineasParaAplicar().filter((l) => l.contadaNum != null);
+      if (!base.length) return alert('Aún no hay productos contados.');
+      const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
+        sucursal,
+        desdeIso: conteoIniciadoAt,
+        hastaIso: new Date().toISOString(),
+        productoIds: base.map((l) => l.productoId),
+      });
+      if (!ventas.ok) {
+        return alert(ventas.error || 'No se pudieron consultar las ventas del periodo.');
+      }
+      if (!(ventas.piezas > 0)) {
+        setVentasAjusteInfo({ piezas: 0, productos: 0, at: new Date().toISOString() });
+        return alert('No hubo ventas de estos productos desde que inició el conteo. Puedes aplicar el inventario tal cual.');
+      }
+      const adj = restarVentasDeLineasConteo(base, ventas.porProducto);
+      if (!(adj.piezasRestadas > 0)) {
+        return alert('Las ventas del periodo no afectan las cantidades contadas.');
+      }
+      if (!confirm(textoResumenAjusteVentasConteo(adj, {
+        desdeIso: conteoIniciadoAt,
+        piezasPeriodo: ventas.piezas,
+      }))) return;
+
+      setConteos((prev) => {
+        const next = { ...prev };
+        for (const l of adj.lineas) {
+          if (l.contadaNum == null || !l.ventasDuranteConteo) continue;
+          next[l.productoId] = String(l.contadaNum);
+        }
+        return next;
+      });
+      setVentasAjusteInfo({
+        piezas: adj.piezasRestadas,
+        productos: adj.productosAfectados,
+        at: new Date().toISOString(),
+      });
+      alert(
+        `Conteo actualizado: −${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).\n\n`
+        + 'Revisa el resumen y luego pulsa «Aplicar ajuste de inventario».',
+      );
+    } finally {
+      setAjustandoVentas(false);
+    }
+  };
+
   const aplicarAjuste = async () => {
     if (!resumen.listoParaAplicar) {
       return alert(`Aún faltan ${resumen.skusPendientes} producto(s) por contar. Usa "Siguiente artículo" en cada uno.`);
@@ -241,43 +308,40 @@ export default function ConteoPorDepartamento({
     if (!confirm(msg)) return;
 
     setAplicando(true);
-    let lineasFinales = lineas.map((l) => {
-      if (l.contadaNum != null) return l;
-      return construirLineaConteo(
-        productosDept.find((p) => String(p.id) === String(l.productoId)),
-        String(l.existencia),
-        sucursal,
-      );
-    });
+    let lineasFinales = lineasParaAplicar();
+    let notaVentas = ventasAjusteInfo?.piezas
+      ? `\nVentas ya restadas del conteo (botón): ${ventasAjusteInfo.piezas} pza(s) en ${ventasAjusteInfo.productos} producto(s).`
+      : '';
 
-    // Si se vendió durante el conteo, ofrecer restar esas ventas al total contado.
-    const ids = lineasFinales.map((l) => l.productoId).filter(Boolean);
-    const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
-      sucursal,
-      desdeIso: conteoIniciadoAt,
-      hastaIso: new Date().toISOString(),
-      productoIds: ids,
-    });
-    let notaVentas = '';
-    if (ventas.ok && ventas.piezas > 0) {
-      const restar = confirm(
-        `Durante este conteo se vendieron ${ventas.piezas} pieza(s) de productos contados.\n\n` +
-          `¿Restarlas del conteo antes de aplicar?\n\n` +
-          `Recomendado: SÍ, si seguiste atendiendo clientes.\n` +
-          `Así el inventario queda: contado − ventas del periodo.`,
-      );
-      if (restar) {
-        const adj = restarVentasDeLineasConteo(lineasFinales, ventas.porProducto);
-        lineasFinales = adj.lineas;
-        notaVentas = `\nVentas restadas del conteo: ${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).`;
-      }
-    } else if (!ventas.ok && ventas.error) {
-      const seguir = confirm(
-        `No se pudieron consultar ventas del periodo (${ventas.error}).\n\n¿Aplicar el conteo sin restar ventas?`,
-      );
-      if (!seguir) {
-        setAplicando(false);
-        return;
+    // Si aún no usaron el botón, ofrecer el mismo ajuste al aplicar.
+    if (!ventasAjusteInfo) {
+      const ids = lineasFinales.map((l) => l.productoId).filter(Boolean);
+      const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
+        sucursal,
+        desdeIso: conteoIniciadoAt,
+        hastaIso: new Date().toISOString(),
+        productoIds: ids,
+      });
+      if (ventas.ok && ventas.piezas > 0) {
+        const restar = confirm(
+          `Durante este conteo se vendieron ${ventas.piezas} pieza(s) de productos contados.\n\n`
+          + '¿Restarlas del conteo antes de aplicar?\n\n'
+          + 'Recomendado: SÍ, si seguiste atendiendo clientes.\n'
+          + '(También puedes hacerlo antes con el botón «Ajustar conteo con ventas».)',
+        );
+        if (restar) {
+          const adj = restarVentasDeLineasConteo(lineasFinales, ventas.porProducto);
+          lineasFinales = adj.lineas;
+          notaVentas = `\nVentas restadas del conteo: ${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).`;
+        }
+      } else if (!ventas.ok && ventas.error) {
+        const seguir = confirm(
+          `No se pudieron consultar ventas del periodo (${ventas.error}).\n\n¿Aplicar el conteo sin restar ventas?`,
+        );
+        if (!seguir) {
+          setAplicando(false);
+          return;
+        }
       }
     }
 
@@ -301,6 +365,7 @@ export default function ConteoPorDepartamento({
       setBorradorId(null);
     }
     setAvisoRecuperado(false);
+    setVentasAjusteInfo(null);
     cargarDatos();
     alert(`${r.mensaje}${notaVentas}\n\nFolio de ajuste: ${r.folio}`);
   };
@@ -314,6 +379,7 @@ export default function ConteoPorDepartamento({
       departamento,
       conteos,
       indiceActual,
+      conteoIniciadoAt,
       sucursal,
       usuario: user?.nombre,
       auto: false,
@@ -656,7 +722,29 @@ export default function ConteoPorDepartamento({
             </p>
           )}
 
+          <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.82rem' }}>
+            Si vendiste mientras contabas, el teórico bajó y el conteo físico puede verse como «sobrante».
+            Usa <strong>Ajustar conteo con ventas</strong> antes de aplicar (contado − ventas desde{' '}
+            {new Date(conteoIniciadoAt).toLocaleString('es-MX')}).
+          </p>
+          {ventasAjusteInfo && (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-green)', fontWeight: 600 }}>
+              {ventasAjusteInfo.piezas > 0
+                ? `Conteo ya alineado con ventas: −${ventasAjusteInfo.piezas} pza(s) en ${ventasAjusteInfo.productos} producto(s).`
+                : 'Sin ventas en el periodo del conteo.'}
+            </p>
+          )}
+
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-gold"
+              onClick={() => void ajustarConteoConVentas()}
+              disabled={ajustandoVentas || aplicando || resumen.skusPendientes === resumen.totalSkus}
+              title="Resta del conteo las piezas vendidas desde que inició este conteo"
+            >
+              {ajustandoVentas ? 'Consultando ventas…' : 'Ajustar conteo con ventas'}
+            </button>
             <button type="button" className="btn btn-success" onClick={aplicarAjuste} disabled={aplicando || !resumen.listoParaAplicar}>
               {aplicando ? 'Aplicando…' : 'Aplicar ajuste de inventario'}
             </button>

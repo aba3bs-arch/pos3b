@@ -351,6 +351,7 @@ export function restarVentasDeLineasConteo(lineas, ventasPorProducto) {
   const map = ventasPorProducto instanceof Map ? ventasPorProducto : new Map();
   let piezasRestadas = 0;
   let productosAfectados = 0;
+  const detalle = [];
   const out = (lineas || []).map((l) => {
     const contada = l.contadaNum != null
       ? Math.max(0, Math.floor(Number(l.contadaNum)))
@@ -363,6 +364,13 @@ export function restarVentasDeLineasConteo(lineas, ventasPorProducto) {
     const neto = Math.max(0, contada - vendido);
     piezasRestadas += Math.min(vendido, contada);
     productosAfectados += 1;
+    detalle.push({
+      productoId: l.productoId || l.codigo,
+      nombre: l.nombre || l.producto_nombre || l.productoId,
+      contadaAntes: contada,
+      vendido,
+      contadaDespues: neto,
+    });
     return {
       ...l,
       contada: String(neto),
@@ -372,7 +380,25 @@ export function restarVentasDeLineasConteo(lineas, ventasPorProducto) {
       contadaAntesVentas: contada,
     };
   });
-  return { lineas: out, piezasRestadas, productosAfectados };
+  return { lineas: out, piezasRestadas, productosAfectados, detalle };
+}
+
+/**
+ * Preview legible para el botón «Ajustar con ventas del conteo».
+ */
+export function textoResumenAjusteVentasConteo(adj, { desdeIso, piezasPeriodo } = {}) {
+  const desde = desdeIso ? new Date(desdeIso).toLocaleString('es-MX') : 'inicio del conteo';
+  const piezas = Number(piezasPeriodo ?? adj?.piezasRestadas) || 0;
+  const prods = Number(adj?.productosAfectados) || 0;
+  const top = (adj?.detalle || []).slice(0, 8).map((d) => (
+    `• ${d.nombre}: contado ${d.contadaAntes} − venta ${d.vendido} → ${d.contadaDespues}`
+  ));
+  return (
+    `Desde ${desde} se vendieron ${piezas} pieza(s) en ${prods} producto(s) del conteo.\n\n`
+    + `Se restarán del total CONTADO (no del teórico) para no generar sobrante falso:\n`
+    + `${top.join('\n')}${prods > 8 ? `\n…y ${prods - 8} más` : ''}\n\n`
+    + `¿Aplicar este ajuste al conteo? Luego podrás «Aplicar inventario» con las cifras ya alineadas.`
+  );
 }
 
 export function sucursalesParaConsolidacion(sucursalActiva) {
