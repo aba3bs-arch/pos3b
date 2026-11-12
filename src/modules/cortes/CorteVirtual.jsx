@@ -558,7 +558,6 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
             onEliminar={quitarGasto}
             onEditar={editarGasto}
             habilitado={puedeEditarCorteCampo(perm, 'gastos')}
-            puedeCatalogo={perm.editarTodo}
             puedeEditarGastos={perm.gastos || perm.editarTodo}
             notaNomina="Gastos sin aprobación. CUBRE TURNO → IE Virtual (nómina). Consumo/recargas/anticipos/faltante descuentan al empleado. Vales y préstamos requieren admin."
           />

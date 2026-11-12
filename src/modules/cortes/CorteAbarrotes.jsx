@@ -419,7 +419,6 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             onEliminar={quitarGasto}
             onEditar={editarGasto}
             habilitado={perm.gastos}
-            puedeCatalogo={perm.editarTodo}
             puedeEditarGastos={perm.editarTodo}
             notaNomina="Gastos sin aprobación. Categorías IE Abarrotes + PROVEEDORES. CUBRE TURNO → IE Abarrotes (nómina). Consumo/recargas/anticipos/faltante descuentan al empleado."
           />
