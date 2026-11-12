@@ -80,21 +80,6 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
     void cargar();
   }, [cargar]);
 
-  const historialVentas = useMemo(
-    () =>
-      (movimientos || [])
-        .filter((m) => m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta')
-        .map((m) => ({
-          id: m.id,
-          created_at: m.created_at,
-          cantidad: m.cantidad,
-          subtotal: Number(m.subtotal) || 0,
-          usuario: m.usuario,
-          motivo: m.motivo,
-        })),
-    [movimientos],
-  );
-
   const timelineSinFiltro = useMemo(() => {
     if (!producto?.id) return [];
     return timelineProducto(producto.id, [], movimientos, 'todos');
@@ -105,6 +90,22 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
     return timelineProducto(producto.id, [], movimientos, filtroEvento);
   }, [producto?.id, movimientos, filtroEvento]);
 
+  /** Misma base que «Salidas · venta» para que Vendido y Salidas no mientan distinto. */
+  const historialVentas = useMemo(
+    () =>
+      timelineSinFiltro
+        .filter((e) => e.modo === 'venta' || e.origen === 'ventas' || e.tipo === 'venta')
+        .map((e) => ({
+          id: e.id,
+          created_at: e.created_at,
+          cantidad: e.cantidad,
+          subtotal: Number(e.subtotal) || 0,
+          usuario: e.usuario,
+          motivo: e.motivo,
+        })),
+    [timelineSinFiltro],
+  );
+
   const stockPisoActual = useMemo(() => {
     if (!producto) return null;
     if (sucursal) return stockEnUbicacionReal(producto, sucursal, 'piso', sucursal);
@@ -112,14 +113,14 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
   }, [producto, sucursal]);
 
   const totales = useMemo(() => {
-    const vendido = historialVentas.reduce((a, v) => a + Number(v.cantidad || 0), 0);
     const ingresos = historialVentas.reduce((a, v) => a + Number(v.subtotal || 0), 0);
     const cuadre = resumenCuadreHistorialProducto(timelineSinFiltro, stockPisoActual);
     return {
-      vendido,
+      vendido: cuadre.salidasVenta,
       ingresos,
       entradas: cuadre.entradas,
       salidas: cuadre.salidas,
+      salidasOtras: cuadre.salidasOtras,
       cuadre,
     };
   }, [historialVentas, timelineSinFiltro, stockPisoActual]);
@@ -185,7 +186,7 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Vendido</div>
           <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{totales.vendido} uds.</div>
-          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>piezas (sin duplicar ticket + retiro)</div>
+          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>salidas por venta (ticket+retiro unidos)</div>
         </div>
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Ingresos</div>
@@ -198,6 +199,11 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Salidas</div>
           <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{totales.salidas}</div>
+          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>
+            {totales.salidasOtras > 0
+              ? `venta ${totales.vendido} + otras ${totales.salidasOtras}`
+              : 'solo ventas'}
+          </div>
         </div>
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Stock inicial</div>
@@ -223,15 +229,12 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
           </div>
         </div>
       </div>
-      {totales.cuadre.aviso && (
-        <p className="muted" style={{ margin: 0, fontSize: '0.82rem', color: 'var(--brand-gold-dark)' }}>
-          {totales.cuadre.aviso}
-          {totales.cuadre.stockInicial != null
-            ? ` Cuadre: ${totales.cuadre.stockInicial} + ${totales.entradas} − ${totales.salidas} = ${totales.cuadre.esperadoPorCantidad}.`
-            : ''}
+      {(totales.cuadre.avisos || []).map((txt) => (
+        <p key={txt} className="muted" style={{ margin: 0, fontSize: '0.82rem', color: 'var(--brand-gold-dark)' }}>
+          {txt}
         </p>
-      )}
-      {!totales.cuadre.aviso && totales.cuadre.stockInicial != null && (
+      ))}
+      {totales.cuadre.stockInicial != null && (
         <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
           Cuadre del periodo: inicial {totales.cuadre.stockInicial} + entradas {totales.entradas} − salidas {totales.salidas}
           {' = '}{totales.cuadre.esperadoPorCantidad}

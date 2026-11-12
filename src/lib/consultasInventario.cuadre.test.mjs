@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   dedupeMovimientos,
+  fusionarParesComplementariosVenta,
   resumenCuadreHistorialProducto,
   ticketIdDeMovimientoVenta,
 } from './consultasInventario.js';
@@ -98,4 +99,46 @@ test('ticket id une retiro y venta aunque el bucket de 2 min no coincida', () =>
   assert.equal(merged.length, 1);
   assert.equal(merged[0].subtotal, 8);
   assert.equal(merged[0].stock_antes, 10);
+});
+
+test('Marlboro: salidas = vendido + 1 retiro manual', () => {
+  const eventos = [
+    { id: 'v1', tipo: 'retiro', modo: 'venta', cantidad: 201, created_at: '2026-11-05T10:00:00Z' },
+    { id: 'r1', tipo: 'retiro', modo: 'masivo', cantidad: 1, created_at: '2026-11-06T10:00:00Z' },
+  ];
+  const c = resumenCuadreHistorialProducto(eventos, 22);
+  assert.equal(c.salidasVenta, 201);
+  assert.equal(c.salidasOtras, 1);
+  assert.equal(c.salidas, 202);
+  assert.match(String(c.avisos.join(' ')), /otras 1/i);
+});
+
+test('complementarios mismo día: retiro sin $ + ticket con $ (horas aparte)', () => {
+  const retiro = {
+    id: 'mov-x',
+    tipo: 'retiro',
+    modo: 'venta',
+    producto_id: '41',
+    cantidad: 1,
+    stock_antes: 50,
+    stock_despues: 49,
+    sucursal: 'FUSION',
+    created_at: '2026-11-11T12:00:00.000Z',
+    origen: 'nube',
+  };
+  const ticket = {
+    id: 'venta_xyz_41',
+    tipo: 'retiro',
+    modo: 'venta',
+    producto_id: '41',
+    cantidad: 1,
+    subtotal: 8,
+    sucursal: 'FUSION',
+    created_at: '2026-11-11T20:00:00.000Z',
+    origen: 'ventas',
+  };
+  const fused = fusionarParesComplementariosVenta([retiro, ticket]);
+  assert.equal(fused.length, 1);
+  assert.equal(fused[0].subtotal, 8);
+  assert.equal(fused[0].stock_antes, 50);
 });

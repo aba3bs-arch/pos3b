@@ -614,7 +614,66 @@ export function dedupeMovimientos(list) {
     if (ventaKeyTicket) mark(ventaKeyTicket, idx);
     if (ventaKey) mark(ventaKey, idx);
   }
-  return out;
+  return fusionarParesComplementariosVenta(out);
+}
+
+function movimientoTieneStock(m) {
+  return m?.stock_antes != null || m?.stock_despues != null;
+}
+
+function movimientoTieneMonto(m) {
+  return Number(m?.subtotal) > 0 || Number(m?.precio) > 0;
+}
+
+/**
+ * Segunda pasada: une retiro (con stock, sin $) + ticket derivado (con $, sin stock)
+ * del mismo día / producto / cantidad aunque el reloj no caiga en el bucket de 2 min
+ * (p. ej. venta online + movimiento sincronizado horas después).
+ */
+export function fusionarParesComplementariosVenta(list = []) {
+  const out = (list || []).map((m) => ({ ...m }));
+  const used = new Set();
+  const remove = new Set();
+  const groups = new Map();
+
+  for (let i = 0; i < out.length; i += 1) {
+    const m = out[i];
+    if (!esSalidaVenta(m)) continue;
+    const suc = normalizarCodigoTienda(m.sucursal || m.sucursal_id || '') || '';
+    const pid = String(m.producto_id || '');
+    const qty = Number(m.cantidad) || 0;
+    const ymd = String(m.created_at || '').slice(0, 10);
+    const key = `${pid}|${suc}|${qty}|${ymd}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(i);
+  }
+
+  for (const idxs of groups.values()) {
+    const conStockSinMonto = idxs.filter((i) => movimientoTieneStock(out[i]) && !movimientoTieneMonto(out[i]));
+    const conMontoSinStock = idxs.filter((i) => movimientoTieneMonto(out[i]) && !movimientoTieneStock(out[i]));
+    for (const iStock of conStockSinMonto) {
+      if (used.has(iStock)) continue;
+      const tStock = new Date(out[iStock].created_at || 0).getTime();
+      let best = null;
+      let bestDt = Infinity;
+      for (const iMonto of conMontoSinStock) {
+        if (used.has(iMonto)) continue;
+        const dt = Math.abs(tStock - new Date(out[iMonto].created_at || 0).getTime());
+        if (dt <= 24 * 60 * 60 * 1000 && dt < bestDt) {
+          bestDt = dt;
+          best = iMonto;
+        }
+      }
+      if (best == null) continue;
+      out[iStock] = fusionarMovimientoVenta(out[iStock], out[best]);
+      used.add(iStock);
+      used.add(best);
+      remove.add(best);
+    }
+  }
+
+  if (!remove.size) return out;
+  return out.filter((_, i) => !remove.has(i));
 }
 
 /**
@@ -622,12 +681,18 @@ export function dedupeMovimientos(list) {
  * Entradas/Salidas son sumas de mercancía; el PZA actual solo cuadra con
  * stock_inicial + Σ(stock_despues − stock_antes).
  */
+function esSalidaPorVentaEvento(e) {
+  return e?.modo === 'venta' || e?.tipo === 'venta' || e?.origen === 'ventas';
+}
+
 export function resumenCuadreHistorialProducto(eventos = [], stockActual = null) {
   const lista = [...(eventos || [])].sort(
     (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0),
   );
   let entradas = 0;
   let salidas = 0;
+  let salidasVenta = 0;
+  let salidasOtras = 0;
   let deltaStock = 0;
   let conDelta = 0;
   let saldadoTeorico = 0;
@@ -643,7 +708,11 @@ export function resumenCuadreHistorialProducto(eventos = [], stockActual = null)
       || e.modo === 'venta'
       || (e.tipo === 'traspaso' && Number(e.stock_despues) < Number(e.stock_antes));
     if (esEntrada) entradas += cant;
-    if (esSalida) salidas += cant;
+    if (esSalida) {
+      salidas += cant;
+      if (esSalidaPorVentaEvento(e)) salidasVenta += cant;
+      else salidasOtras += cant;
+    }
 
     if (e.stock_antes != null && e.stock_despues != null
       && Number.isFinite(Number(e.stock_antes)) && Number.isFinite(Number(e.stock_despues))) {
@@ -675,9 +744,28 @@ export function resumenCuadreHistorialProducto(eventos = [], stockActual = null)
     ? null
     : Math.round((actual - esperado) * 1000) / 1000;
 
+  const avisos = [];
+  if (stockInicial != null && stockInicial < 0) {
+    avisos.push(
+      `El periodo arrancó con teórico ${stockInicial} (venta sin existencia). Entradas − Salidas asume inicio en 0 y por eso “falta” ${Math.abs(stockInicial)}.`,
+    );
+  }
+  if (saldadoTeorico > 0.009) {
+    avisos.push(
+      `Al ingresar se saldó teórico negativo (+${saldadoTeorico} al stock además de la mercancía contada).`,
+    );
+  }
+  if (salidasOtras > 0.009) {
+    avisos.push(
+      `Salidas (${Math.round(salidas * 1000) / 1000}) = ventas ${Math.round(salidasVenta * 1000) / 1000} + otras ${Math.round(salidasOtras * 1000) / 1000} (retiro/ajuste/traspaso). Por eso puede diferir de «Vendido».`,
+    );
+  }
+
   return {
     entradas: Math.round(entradas * 1000) / 1000,
     salidas: Math.round(salidas * 1000) / 1000,
+    salidasVenta: Math.round(salidasVenta * 1000) / 1000,
+    salidasOtras: Math.round(salidasOtras * 1000) / 1000,
     stockInicial,
     stockFinalMov,
     deltaStock: Math.round(deltaStock * 1000) / 1000,
@@ -687,11 +775,8 @@ export function resumenCuadreHistorialProducto(eventos = [], stockActual = null)
     esperado,
     stockActual: actual,
     descuadre,
-    aviso: stockInicial != null && stockInicial < 0
-      ? `El periodo arrancó con teórico ${stockInicial} (venta sin existencia). Entradas − Salidas asume inicio en 0 y por eso “falta” ${Math.abs(stockInicial)}.`
-      : (saldadoTeorico > 0.009
-        ? `Al ingresar se saldó teórico negativo (+${saldadoTeorico} al stock además de la mercancía contada).`
-        : null),
+    aviso: avisos[0] || null,
+    avisos,
   };
 }
 
@@ -1035,6 +1120,9 @@ function eventoDesdeMovimiento(m, productoId) {
     sucursal: m.sucursal,
     motivo: m.motivo,
     modo: m.modo,
+    origen: m.origen || null,
+    subtotal: m.subtotal,
+    precio: m.precio,
     producto_nombre: esDestino ? m.producto_destino_nombre : m.producto_nombre,
     producto_destino_nombre: m.producto_destino_nombre,
     detalle:
