@@ -8,7 +8,8 @@ import {
   categoriaEnCatalogoCortes,
   subcategoriaVisibleEnDestino,
   destinosDeSubcategoria,
-  enviarCategoriaConSubcuentas,
+  enviarCategoriaPorModulo,
+  destinosPropiosDeSubcategoria,
 } from './contVirtualCatalogo.js';
 import { catalogoIeAFormatoCorte } from './corteContabilidad/catalogoGastos.js';
 import { categoriasValeDesdeCatalogoIe } from './valesCatalogoIe.js';
@@ -93,7 +94,7 @@ assert.deepEqual(
   ['APERTURA', 'CAMBIO MONEDA'],
 );
 
-// enviarCategoriaConSubcuentas con almacén local (sin Supabase).
+// enviarCategoriaPorModulo con almacén local (sin Supabase).
 {
   const mem = {};
   globalThis.localStorage = {
@@ -108,13 +109,45 @@ assert.deepEqual(
   const cat = ini.data.find((c) => c.id === 'operativos');
   assert.ok(cat && cat.subcategorias.length >= 3);
   const ids = cat.subcategorias.map((x) => x.id);
-  const res = await enviarCategoriaConSubcuentas(null, 'operativos', ['vales'], { subsEnviar: [ids[0]], subsTodas: ids });
-  assert.equal(res.ok, true);
-  const despues = (await listarCatalogoContVirtual(null)).data.find((c) => c.id === 'operativos');
-  const visibles = despues.subcategorias.filter((x) => subcategoriaVisibleEnDestino(x, despues, 'vales')).map((x) => x.id);
-  assert.deepEqual(visibles, [ids[0]]);
-  assert.equal(categoriaVisibleEnDestino(despues, 'virtual'), false);
-  const quitar = await enviarCategoriaConSubcuentas(null, 'operativos', [], { subsEnviar: [], subsTodas: ids });
+  // Abarrotes: subs 0 y 1. Después Virtual: subs 1 y 2. Cada módulo conserva lo suyo.
+  const r1 = await enviarCategoriaPorModulo(null, 'operativos', {
+    subsPorModulo: { abarrotes: [ids[0], ids[1]] },
+    subsTodas: ids,
+  });
+  assert.equal(r1.ok, true);
+  let actual = (await listarCatalogoContVirtual(null)).data.find((c) => c.id === 'operativos');
+  const inicial = {
+    abarrotes: [ids[0], ids[1]],
+    virtual: [ids[1], ids[2]],
+  };
+  const r2 = await enviarCategoriaPorModulo(null, 'operativos', { subsPorModulo: inicial, subsTodas: ids });
+  assert.equal(r2.ok, true);
+  actual = (await listarCatalogoContVirtual(null)).data.find((c) => c.id === 'operativos');
+  const visibles = (m) => actual.subcategorias.filter((x) => subcategoriaVisibleEnDestino(x, actual, m)).map((x) => x.id);
+  assert.deepEqual(visibles('abarrotes'), [ids[0], ids[1]]);
+  assert.deepEqual(visibles('virtual'), [ids[1], ids[2]]);
+  assert.deepEqual(visibles('vales'), []);
+  assert.equal(categoriaVisibleEnDestino(actual, 'abarrotes'), true);
+  assert.equal(categoriaVisibleEnDestino(actual, 'garage'), false);
+  assert.deepEqual(destinosPropiosDeSubcategoria(actual.subcategorias.find((x) => x.id === ids[1]), actual), ['abarrotes', 'virtual']);
+
+  // Cambiar solo Virtual no mueve Abarrotes.
+  await enviarCategoriaPorModulo(null, 'operativos', { subsPorModulo: { abarrotes: inicial.abarrotes, virtual: [ids[0]] }, subsTodas: ids });
+  actual = (await listarCatalogoContVirtual(null)).data.find((c) => c.id === 'operativos');
+  assert.deepEqual(visibles('abarrotes'), [ids[0], ids[1]]);
+  assert.deepEqual(visibles('virtual'), [ids[0]]);
+
+  // Ocultar la cuenta de todos los módulos y volver a mostrarla recupera las subcuentas de cada módulo.
+  await enviarCategoriaPorModulo(null, 'operativos', { subsPorModulo: {}, subsTodas: [] });
+  actual = (await listarCatalogoContVirtual(null)).data.find((c) => c.id === 'operativos');
+  assert.equal(categoriaVisibleEnDestino(actual, 'abarrotes'), false);
+  assert.deepEqual(
+    actual.subcategorias.filter((x) => destinosPropiosDeSubcategoria(x, actual).includes('abarrotes')).map((x) => x.id),
+    [ids[0], ids[1]],
+  );
+
+  // Quitar de todos los módulos.
+  const quitar = await enviarCategoriaPorModulo(null, 'operativos', { subsPorModulo: {}, subsTodas: ids });
   assert.equal(quitar.ok, true);
   const fin = (await listarCatalogoContVirtual(null)).data.find((c) => c.id === 'operativos');
   assert.equal(categoriaVisibleEnDestino(fin, 'vales'), false);

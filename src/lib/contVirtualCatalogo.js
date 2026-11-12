@@ -262,6 +262,16 @@ export function subcategoriaVisibleEnDestino(s, cat, destino) {
   return cat ? categoriaVisibleEnDestino(cat, d) : true;
 }
 
+/**
+ * Módulos de la subcuenta según su propia selección (aunque la cuenta esté oculta en este momento).
+ * Sin selección propia hereda los de la cuenta.
+ */
+export function destinosPropiosDeSubcategoria(s, cat) {
+  const propios = parseDestinosCatalogo(s?.destinos_catalogo);
+  if (!propios) return destinosDeCategoria(cat);
+  return propios.filter((m) => !(IDS_CORTES.includes(m) && s.en_catalogo_cortes === false));
+}
+
 /** Módulos a los que llega la subcuenta (para mostrar la selección actual). */
 export function destinosDeSubcategoria(s, cat) {
   return DESTINOS_CATALOGO.filter((d) => subcategoriaVisibleEnDestino(s, cat, d.id)).map((d) => d.id);
@@ -980,45 +990,54 @@ export async function setDestinosCategoria(supabase, id, destinos) {
 }
 
 /**
- * Admin: envía una cuenta a los módulos elegidos y SOLO las subcuentas seleccionadas.
- * Las subcuentas no seleccionadas quedan sin enviar a ningún módulo (siguen en IE).
+ * Admin: guarda el envío de una cuenta POR MÓDULO. La cuenta es la misma para todos los módulos;
+ * cada módulo tiene su propio juego de subcuentas y no se pisan entre sí.
+ * @param {Record<string, string[]>} subsPorModulo módulo → ids de subcuenta enviadas ('*' = cuenta sin subcuentas)
+ * @param {string[]} subsTodas ids de todas las subcuentas activas de la cuenta
  */
-export async function enviarCategoriaConSubcuentas(supabase, id, destinos, { subsEnviar = [], subsTodas = [] } = {}) {
-  const base = await setDestinosCategoria(supabase, id, destinos);
+export async function enviarCategoriaPorModulo(supabase, id, { subsPorModulo = {}, subsTodas = [] } = {}) {
+  const idsMod = DESTINOS_CATALOGO.map((d) => d.id);
+  const sets = Object.fromEntries(idsMod.map((m) => [m, new Set((subsPorModulo[m] || []).map(String))]));
+  const destinosCat = idsMod.filter((m) => sets[m].size > 0);
+  const base = await setDestinosCategoria(supabase, id, destinosCat);
   if (!base.ok) return base;
-  const lista = parseDestinosCatalogo(destinos) || [];
-  const texto = serializarDestinosCatalogo(lista);
-  const enviar = [...new Set((subsEnviar || []).map(String))];
-  const resto = [...new Set((subsTodas || []).map(String))].filter((x) => !enviar.includes(x));
-  if (!enviar.length && !resto.length) return base;
-  const ninguno = lista.length === 0;
+
+  const todas = [...new Set((subsTodas || []).map(String))];
+  if (!todas.length) return base;
+
+  const plan = new Map();
+  for (const sid of todas) {
+    const mods = idsMod.filter((m) => sets[m].has(sid));
+    const patch = {
+      destinos_catalogo: serializarDestinosCatalogo(mods),
+      en_catalogo_cortes: mods.some((m) => IDS_CORTES.includes(m)),
+    };
+    const clave = `${patch.destinos_catalogo}|${patch.en_catalogo_cortes}`;
+    if (!plan.has(clave)) plan.set(clave, { patch, mods, ids: [] });
+    plan.get(clave).ids.push(sid);
+  }
+
   const aplicarLocal = () => {
-    const todas = leerLocal();
-    for (const c of todas) {
+    const lista = leerLocal();
+    for (const c of lista) {
       for (const s of c.subcategorias || []) {
-        const sid = String(s.id);
-        if (enviar.includes(sid)) {
-          s.destinos_catalogo = ninguno ? [] : lista;
-          s.en_catalogo_cortes = true;
-        } else if (resto.includes(sid)) {
-          s.destinos_catalogo = [];
-          s.en_catalogo_cortes = false;
+        for (const g of plan.values()) {
+          if (g.ids.includes(String(s.id))) {
+            s.destinos_catalogo = g.mods;
+            s.en_catalogo_cortes = g.patch.en_catalogo_cortes;
+          }
         }
       }
     }
-    guardarLocal(todas);
+    guardarLocal(lista);
   };
   if (!supabase) {
     aplicarLocal();
     return base;
   }
+
   let aviso = base.aviso || null;
-  const grupos = [
-    { ids: ninguno ? [] : enviar, patch: { destinos_catalogo: texto, en_catalogo_cortes: true } },
-    { ids: ninguno ? [...enviar, ...resto] : resto, patch: { destinos_catalogo: DESTINOS_NINGUNO, en_catalogo_cortes: false } },
-  ];
-  for (const g of grupos) {
-    if (!g.ids.length) continue;
+  for (const g of plan.values()) {
     const { error } = await supabase.from('cont_virtual_subcategorias').update(g.patch).in('id', g.ids);
     if (!error) continue;
     const msg = String(error.message || '').toLowerCase();

@@ -36,8 +36,8 @@ import {
   categoriaEnCatalogoCortes,
   DESTINOS_CATALOGO,
   destinosDeCategoria,
-  enviarCategoriaConSubcuentas,
-  destinosDeSubcategoria,
+  enviarCategoriaPorModulo,
+  destinosPropiosDeSubcategoria,
   subcategoriaEnCatalogoCortes,
   setSubcategoriasEnCatalogoCortes,
   AVISO_FALTA_CONT_VIRTUAL,
@@ -2069,51 +2069,53 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     }
     setEnvioCat((prev) => {
       if (prev?.id === cat.id) return null;
-      const subsCat = (cat.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo);
-      const marcadas = subsCat.filter((x) => selSubsCortes[x.id]).map((x) => String(x.id));
-      const actuales = subsCat.filter((x) => destinosDeSubcategoria(x, cat).length > 0).map((x) => String(x.id));
-      // Si ya marcaste subcuentas con la casilla, solo esas se preseleccionan.
-      return { id: cat.id, sel: destinosDeCategoria(cat), subs: marcadas.length ? marcadas : actuales };
+      const subsCat = subsEnviablesDeCategoria(cat);
+      const subsPorModulo = {};
+      for (const d of DESTINOS_CATALOGO) {
+        subsPorModulo[d.id] = subsCat.length
+          ? subsCat.filter((x) => destinosPropiosDeSubcategoria(x, cat).includes(d.id)).map((x) => String(x.id))
+          : (destinosDeCategoria(cat).includes(d.id) ? ['*'] : []);
+      }
+      return { id: cat.id, modulo: DESTINOS_CATALOGO[0].id, subsPorModulo };
     });
+  };
+
+  const subsEnviablesDeCategoria = (cat) => (cat?.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo);
+
+  const elegirModuloEnvio = (modulo) => {
+    setEnvioCat((prev) => (prev ? { ...prev, modulo } : prev));
   };
 
   const alternarSubEnvio = (subId) => {
     const id = String(subId);
     setEnvioCat((prev) => {
       if (!prev) return prev;
-      const subs = prev.subs.includes(id) ? prev.subs.filter((x) => x !== id) : [...prev.subs, id];
-      return { ...prev, subs };
+      const actual = prev.subsPorModulo[prev.modulo] || [];
+      const nuevo = actual.includes(id) ? actual.filter((x) => x !== id) : [...actual, id];
+      return { ...prev, subsPorModulo: { ...prev.subsPorModulo, [prev.modulo]: nuevo } };
     });
   };
 
-  const alternarDestinoEnvio = (destino) => {
-    setEnvioCat((prev) => {
-      if (!prev) return prev;
-      const sel = prev.sel.includes(destino) ? prev.sel.filter((x) => x !== destino) : [...prev.sel, destino];
-      return { ...prev, sel };
-    });
+  const fijarSubsModuloEnvio = (ids) => {
+    setEnvioCat((prev) => (prev ? { ...prev, subsPorModulo: { ...prev.subsPorModulo, [prev.modulo]: ids } } : prev));
   };
 
   const confirmarEnviarCategoria = async (cat) => {
     if (!esAdmin || !cat || !envioCat || envioCat.id !== cat.id) return;
-    const etiquetas = DESTINOS_CATALOGO.filter((d) => envioCat.sel.includes(d.id)).map((d) => d.label);
-    const subsCat = (cat.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo);
-    const subsOk = envioCat.subs.filter((id) => subsCat.some((x) => String(x.id) === id));
-    if (etiquetas.length && subsCat.length && !subsOk.length) {
-      return alert('Marca al menos una subcuenta para enviar.');
-    }
-    const nombresSubs = subsCat.filter((x) => subsOk.includes(String(x.id))).map((x) => x.nombre);
-    const msg = etiquetas.length
-      ? `¿Enviar «${cat.nombre}» solo a:\n\n• ${etiquetas.join('\n• ')}\n\n`
-        + (subsCat.length
-          ? `Subcuentas que se envían (${nombresSubs.length} de ${subsCat.length}):\n• ${nombresSubs.join('\n• ')}\n\n`
-          : '')
-        + 'En los demás módulos y subcuentas dejará de aparecer.'
+    const subsCat = subsEnviablesDeCategoria(cat);
+    const resumen = DESTINOS_CATALOGO.map((d) => {
+      const ids = (envioCat.subsPorModulo[d.id] || []).filter((x) => x === '*' || subsCat.some((y) => String(y.id) === x));
+      if (!ids.length) return null;
+      const nombres = subsCat.filter((x) => ids.includes(String(x.id))).map((x) => x.nombre);
+      return `• ${d.label}${subsCat.length ? `: ${nombres.join(', ')}` : ''}`;
+    }).filter(Boolean);
+    const msg = resumen.length
+      ? `¿Guardar el envío de «${cat.nombre}»?\n\n${resumen.join('\n')}\n\nCada módulo conserva sus propias subcuentas.`
       : `¿Quitar «${cat.nombre}» de todos los módulos (cortes, Vales y Registro de gastos)?\n\nSigue existiendo en IE.`;
     if (!confirm(msg)) return;
     setGuardando(true);
-    const res = await enviarCategoriaConSubcuentas(supabase, cat.id, envioCat.sel, {
-      subsEnviar: subsOk,
+    const res = await enviarCategoriaPorModulo(supabase, cat.id, {
+      subsPorModulo: envioCat.subsPorModulo,
       subsTodas: subsCat.map((x) => String(x.id)),
     });
     setGuardando(false);
@@ -2127,7 +2129,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (!esAdmin || !cat) return;
     if (!confirm(`¿Ocultar «${cat.nombre}» de todos los módulos (cortes, Vales y Registro de gastos)?\n\nSigue existiendo en IE; para volver a mostrarla usa Enviar.`)) return;
     setGuardando(true);
-    const res = await enviarCategoriaConSubcuentas(supabase, cat.id, [], {});
+    const res = await enviarCategoriaPorModulo(supabase, cat.id, {
+      subsPorModulo: {},
+      subsTodas: [],
+    });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     setEnvioCat(null);
@@ -3162,7 +3167,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
             En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas Main se dan de alta aquí (+ Main). No renombres ni elimines Empleado.
             {' '}El administrador usa <strong>Enviar</strong> para elegir a qué módulos va cada egreso
-            (Corte Abarrotes, Virtual, Garage, Vales, Registro de gastos), y con las casillas de subcuenta + <strong>Ocultar</strong> sacar solo algunas opciones del corte (siguen en IE).
+            (Corte Abarrotes, Virtual, Garage, Vales, Registro de gastos) y qué subcuentas lleva cada uno, y con las casillas de subcuenta + <strong>Ocultar</strong> sacar solo algunas opciones del corte (siguen en IE).
           </p>
           {esAdmin && catalogoFlujo === 'egreso' && (
             <div
@@ -3290,31 +3295,38 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   }}
                 >
                   <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.35rem' }}>
-                    Enviar «{c.nombre}» a:
+                    Enviar «{c.nombre}» · elige el módulo y marca sus subcuentas
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                    {DESTINOS_CATALOGO.map((d) => (
-                      <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, cursor: 'pointer', fontSize: '0.88rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={envioCat.sel.includes(d.id)}
-                          onChange={() => alternarDestinoEnvio(d.id)}
-                        />
-                        {d.label}
-                      </label>
-                    ))}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                    {DESTINOS_CATALOGO.map((d) => {
+                      const n = (envioCat.subsPorModulo[d.id] || []).length;
+                      const activo = envioCat.modulo === d.id;
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          className="cv-btn ghost cv-cat-btn"
+                          onClick={() => elegirModuloEnvio(d.id)}
+                          style={activo
+                            ? { borderColor: '#6c3483', background: '#6c3483', color: '#fff', fontWeight: 700 }
+                            : (n > 0 ? { borderColor: '#6c3483', color: '#6c3483' } : undefined)}
+                        >
+                          {d.label}{n > 0 ? ` (${n})` : ''}
+                        </button>
+                      );
+                    })}
                   </div>
-                  {(c.subcategorias || []).some((x) => x.activo !== false && !x.es_empleado_vivo) && (
+                  {subsEnviablesDeCategoria(c).length > 0 ? (
                     <>
                       <div style={{ fontWeight: 700, fontSize: '0.85rem', margin: '0.65rem 0 0.3rem' }}>
-                        Subcuentas que se envían:
+                        Subcuentas que van a {DESTINOS_CATALOGO.find((d) => d.id === envioCat.modulo)?.label}:
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                        {(c.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo).map((x) => (
+                        {subsEnviablesDeCategoria(c).map((x) => (
                           <label key={x.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, cursor: 'pointer', fontSize: '0.88rem' }}>
                             <input
                               type="checkbox"
-                              checked={envioCat.subs.includes(String(x.id))}
+                              checked={(envioCat.subsPorModulo[envioCat.modulo] || []).includes(String(x.id))}
                               onChange={() => alternarSubEnvio(x.id)}
                             />
                             {x.nombre}
@@ -3326,20 +3338,29 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                           type="button"
                           className="cv-btn ghost cv-cat-btn"
                           disabled={guardando}
-                          onClick={() => setEnvioCat((p) => (p ? { ...p, subs: (c.subcategorias || []).filter((x) => x.activo !== false && !x.es_empleado_vivo).map((x) => String(x.id)) } : p))}
+                          onClick={() => fijarSubsModuloEnvio(subsEnviablesDeCategoria(c).map((x) => String(x.id)))}
                         >
-                          Todas las subcuentas
+                          Todas
                         </button>
                         <button
                           type="button"
                           className="cv-btn ghost cv-cat-btn"
                           disabled={guardando}
-                          onClick={() => setEnvioCat((p) => (p ? { ...p, subs: [] } : p))}
+                          onClick={() => fijarSubsModuloEnvio([])}
                         >
-                          Ninguna
+                          Ninguna (quitar de este módulo)
                         </button>
                       </div>
                     </>
+                  ) : (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.65rem 0 0', cursor: 'pointer', fontSize: '0.88rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={(envioCat.subsPorModulo[envioCat.modulo] || []).includes('*')}
+                        onChange={() => fijarSubsModuloEnvio((envioCat.subsPorModulo[envioCat.modulo] || []).includes('*') ? [] : ['*'])}
+                      />
+                      Enviar la cuenta a este módulo
+                    </label>
                   )}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.55rem' }}>
                     <button
@@ -3349,30 +3370,15 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                       onClick={() => confirmarEnviarCategoria(c)}
                       style={{ background: '#6c3483', color: '#fff', borderColor: '#6c3483', fontWeight: 700 }}
                     >
-                      Enviar
-                    </button>
-                    <button
-                      type="button"
-                      className="cv-btn ghost cv-cat-btn"
-                      disabled={guardando}
-                      onClick={() => setEnvioCat((p) => (p ? { ...p, sel: DESTINOS_CATALOGO.map((d) => d.id) } : p))}
-                    >
-                      Todos
-                    </button>
-                    <button
-                      type="button"
-                      className="cv-btn ghost cv-cat-btn"
-                      disabled={guardando}
-                      onClick={() => setEnvioCat((p) => (p ? { ...p, sel: [] } : p))}
-                    >
-                      Ninguno
+                      Guardar envío
                     </button>
                     <button type="button" className="cv-btn ghost cv-cat-btn" disabled={guardando} onClick={() => setEnvioCat(null)}>
                       Cancelar
                     </button>
                   </div>
                   <p className="muted" style={{ fontSize: '0.72rem', margin: '0.4rem 0 0' }}>
-                    Solo se envía lo marcado: los módulos y las subcuentas elegidos. Lo demás deja de aparecer (sigue en IE).
+                    La cuenta es la misma en todos los módulos; cada módulo guarda sus propias subcuentas y no se mueven al enviar a otro.
+                    Cambia de módulo con los botones de arriba y pulsa Guardar envío al terminar.
                   </p>
                 </div>
               )}
