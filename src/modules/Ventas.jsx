@@ -390,6 +390,7 @@ export default function Ventas({
           articulos: ventaPayload.articulos,
           turno_id: ventaPayload.turno_id,
           turno_nombre: ventaPayload.turno_nombre,
+          created_at: ventaPayload.created_at,
         },
       ]);
       errorInsert = error;

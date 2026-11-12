@@ -76,20 +76,25 @@ export function agruparVentaPorArticulo(ventas = [], opts = {}) {
     ticketsConArts += 1;
     const vistosEnTicket = new Set();
     for (const a of arts) {
-      const id = String(a.id ?? a.codigo ?? a.producto_id ?? '').trim();
+      const idRaw = String(a.id ?? a.codigo ?? a.producto_id ?? '').trim();
+      const nombreSnap = String(a.nombre || a.descripcion || '').trim();
+      // Sin código: aún debe aparecer en Consultas (Corte sí lo muestra por nombre).
+      const id = idRaw || (nombreSnap
+        ? `sin-codigo:${nombreSnap.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()}`
+        : '');
       if (!id) continue;
       const piezas = Number(a.qty ?? a.cantidad ?? 1) || 1;
       const precio = Number(a.precio) || 0;
       const importe = Number(a.importe ?? a.subtotal);
       const lineImp = Number.isFinite(importe) && importe !== 0 ? importe : precio * piezas;
-      const cat = productoPorId.get(id);
-      const nombre = a.nombre || a.descripcion || cat?.nombre || id;
+      const cat = idRaw ? productoPorId.get(idRaw) : null;
+      const nombre = nombreSnap || cat?.nombre || idRaw || id;
       const departamento = String(a.cat || a.departamento || cat?.cat || 'GENERAL')
         .trim()
         .toUpperCase() || 'GENERAL';
       if (!map.has(id)) {
         map.set(id, {
-          id,
+          id: idRaw || id,
           nombre,
           departamento,
           piezas: 0,
@@ -105,7 +110,11 @@ export function agruparVentaPorArticulo(ventas = [], opts = {}) {
         row.tickets += 1;
         vistosEnTicket.add(id);
       }
-      if (cat?.nombre && (!row.nombre || row.nombre === id)) row.nombre = cat.nombre;
+      // Preferir nombre del catálogo cuando existe (unifica «Recarga» / «Recargas»).
+      if (cat?.nombre) row.nombre = cat.nombre;
+      else if (nombreSnap && (!row.nombre || row.nombre === id || row.nombre === idRaw)) {
+        row.nombre = nombreSnap;
+      }
       if (cat?.cat) row.departamento = String(cat.cat).trim().toUpperCase() || row.departamento;
     }
   }

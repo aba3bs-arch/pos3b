@@ -186,18 +186,19 @@ export async function sincronizarColaVentasOffline(supabase, { sucursal = null }
 
   for (const venta of pendientes) {
     try {
-      const { error } = await supabase.from('ventas').insert([
-        {
-          vendedor: venta.vendedor,
-          usuario_id: venta.usuario_id || null,
-          sucursal_id: venta.sucursal_id,
-          total: venta.total,
-          metodo_pago: venta.metodo_pago,
-          articulos: venta.articulos,
-          turno_id: venta.turno_id || null,
-          turno_nombre: venta.turno_nombre || null,
-        },
-      ]);
+      const row = {
+        vendedor: venta.vendedor,
+        usuario_id: venta.usuario_id || null,
+        sucursal_id: venta.sucursal_id,
+        total: venta.total,
+        metodo_pago: venta.metodo_pago,
+        articulos: venta.articulos,
+        turno_id: venta.turno_id || null,
+        turno_nombre: venta.turno_nombre || null,
+      };
+      // Conservar hora real de la venta; si no, corte/consultas la meten en el día del sync.
+      if (venta.created_at) row.created_at = venta.created_at;
+      const { error } = await supabase.from('ventas').insert([row]);
       if (error) throw error;
 
       const tienda = venta.sucursal_id;

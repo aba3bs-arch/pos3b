@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { consultarVentas } from '../lib/ventasQuery.js';
+import { consultarVentasPaginadas } from '../lib/ventasQuery.js';
 import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
 import { desgloseCorte, marcarCierresAbarrotesDuplicados, totalesCortes } from '../lib/consultasCortes.js';
 import { ajustarRango, coincideBusqueda, ymdHaceDias, ymdLocal } from '../lib/consultasFiltros.js';
@@ -179,12 +179,13 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     if (!supabase) return [];
     const ini = new Date(`${String(desde).slice(0, 10)}T00:00:00`);
     const fin = new Date(`${String(hasta).slice(0, 10)}T23:59:59.999`);
-    const { data, error, aviso: av } = await consultarVentas(supabase, {
+    // Paginado: un limit fijo (2000) cortaba ventas en rangos largos / varias tiendas.
+    const { data, error, aviso: av } = await consultarVentasPaginadas(supabase, {
       columns: 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at,turno_id,turno_nombre',
       desde: ini,
       hasta: fin,
       sucursal: filtroSucursal || null,
-      limit: 2000,
+      orderAsc: false,
     });
     if (error) throw new Error(error);
     if (av) setAviso(av);

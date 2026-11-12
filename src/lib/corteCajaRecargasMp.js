@@ -341,6 +341,7 @@ export async function registrarVentaRecargaMpAjuste(supabase, {
       articulos: ventaPayload.articulos,
       turno_id: ventaPayload.turno_id,
       turno_nombre: ventaPayload.turno_nombre,
+      created_at: ventaPayload.created_at,
     }]).select('id').maybeSingle();
     if (error) {
       if (esErrorDeRedLocal(error)) {
