@@ -20,6 +20,7 @@ import {
   totalRecargasPos,
 } from '../../lib/corteCajaRecargasMp.js';
 import { aplicarAjusteRecargaMpEnVentaAbarrotes } from '../../lib/corteCajaSyncAbarrotes.js';
+import { resolverContextosCandadoRecargasMp } from '../../lib/candadoRecargasMpTurno.js';
 import { turnoActual } from '../../lib/turnos.js';
 
 const COLOR = '#b5a642';
@@ -80,15 +81,38 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     if (!f?.trim()) return alert('Capture el folio de abarrotes.');
     setCargandoCandado(true);
     try {
-      const turnoSesion = estado.turno_sesion || turnoActual();
-      const fecha = fechaCorteSugerida(turnoSesion);
-      const dia = await cargarDiaCaja(supabase, {
+      const { contextos } = resolverContextosCandadoRecargasMp({
+        estado,
+        gastos,
+        user,
         sucursal,
-        fecha,
-        turno: turnoSesion,
       });
-      setRecargasPosTotal(totalRecargasPos(dia?.ventas || [], dia?.cancelaciones || []));
-    } catch {
+      const lista = contextos.length
+        ? contextos
+        : [{
+          fecha: fechaCorteSugerida(turnoActual()),
+          turno: turnoActual(),
+          origen: 'fallback',
+        }];
+      let total = 0;
+      const vistos = new Set();
+      for (const ctx of lista) {
+        const clave = `${ctx.fecha}|${ctx.turno?.id || ctx.turno?.nombre || ''}`;
+        if (vistos.has(clave)) continue;
+        vistos.add(clave);
+        const dia = await cargarDiaCaja(supabase, {
+          sucursal,
+          fecha: ctx.fecha,
+          turno: ctx.turno,
+        });
+        if (dia?.error) {
+          console.warn('[candado-mp]', dia.error);
+        }
+        total = round2(total + totalRecargasPos(dia?.ventas || [], dia?.cancelaciones || []));
+      }
+      setRecargasPosTotal(total);
+    } catch (e) {
+      console.warn('[candado-mp]', e);
       setRecargasPosTotal(0);
     } finally {
       setCargandoCandado(false);
@@ -111,7 +135,14 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       const registrarRecargaMp = montoVentaMp > 0.009;
 
       if (registrarRecargaMp) {
-        const turnoSesion = estado.turno_sesion || turnoActual();
+        const { contextos } = resolverContextosCandadoRecargasMp({
+          estado,
+          gastos,
+          user,
+          sucursal,
+        });
+        const turnoSesion = contextos[0]?.turno || estado.turno_sesion || turnoActual();
+        const fechaSesion = contextos[0]?.fecha || fechaCorteSugerida(turnoSesion);
         const resVenta = await registrarVentaRecargaMpAjuste(supabase, {
           monto: montoVentaMp,
           sucursal,
@@ -123,7 +154,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           return;
         }
         estadoCierre = aplicarAjusteRecargaMpEnVentaAbarrotes(estadoCierre, montoVentaMp, {
-          fecha: fechaCorteSugerida(turnoSesion),
+          fecha: fechaSesion,
           turnoId: turnoSesion?.id,
         });
         if (recargasMp) {

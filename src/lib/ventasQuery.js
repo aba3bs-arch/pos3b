@@ -1,4 +1,4 @@
-import { normalizarCodigoTienda } from '../constants/sucursales.js';
+import { equivalentesCodigoTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 
 export const VENTAS_SELECT_BASE = 'id,total,metodo_pago,vendedor,sucursal_id,articulos';
 export const VENTAS_SELECT_FULL = `${VENTAS_SELECT_BASE},created_at`;
@@ -10,6 +10,13 @@ export function errorFaltaCreatedAt(error) {
 
 export const AVISO_SIN_CREATED_AT =
   'Falta la columna created_at en la tabla ventas. En Supabase → SQL Editor ejecuta: alter table public.ventas add column if not exists created_at timestamptz default now();';
+
+function aplicarFiltroSucursalVentas(q, sucursal) {
+  if (!sucursal) return q;
+  const suc = normalizarCodigoTienda(sucursal) || sucursal;
+  const vars = equivalentesCodigoTienda(suc);
+  return vars.length > 1 ? q.in('sucursal_id', vars) : q.eq('sucursal_id', suc);
+}
 
 /**
  * Consulta ventas con filtro por fecha cuando existe created_at.
@@ -27,11 +34,9 @@ export async function consultarVentas(supabase, opts = {}) {
     orderAsc = false,
   } = opts;
 
-  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
-
   const build = (cols) => {
     let q = supabase.from('ventas').select(cols);
-    if (suc) q = q.eq('sucursal_id', suc);
+    q = aplicarFiltroSucursalVentas(q, sucursal);
     const usaFecha = cols.includes('created_at');
     if (usaFecha && desde) q = q.gte('created_at', desde.toISOString());
     if (usaFecha && hasta) q = q.lte('created_at', hasta.toISOString());
@@ -92,15 +97,13 @@ export async function consultarVentasPaginadas(supabase, opts = {}) {
     orderAsc = true,
   } = opts;
 
-  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
-
   const fetchConColumnas = async (cols) => {
     const all = [];
     let from = 0;
     const usaFecha = cols.includes('created_at');
     for (;;) {
       let q = supabase.from('ventas').select(cols);
-      if (suc) q = q.eq('sucursal_id', suc);
+      q = aplicarFiltroSucursalVentas(q, sucursal);
       if (usaFecha && desde) q = q.gte('created_at', desde.toISOString());
       if (usaFecha && hasta) q = q.lte('created_at', hasta.toISOString());
       if (usaFecha) q = q.order('created_at', { ascending: orderAsc }).order('id', { ascending: true });

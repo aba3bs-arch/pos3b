@@ -286,16 +286,21 @@ export default function Ventas({
     }
     if (esEfectivo && !pagoCon) return alert('Selecciona la denominación o Monto exacto.');
     if (esEfectivo && cambioMXN < 0) return alert('Monto insuficiente');
-    const articulos = carrito.map((c) => ({
-      id: c.id,
-      nombre: c.nombre,
-      precio: c.precio,
-      qty: c.qty || 1,
-    }));
     for (const c of carrito) {
       const p = inventario.find((x) => x.id === c.id);
       if (!p) return alert(`Producto no disponible en catálogo: ${c.nombre || c.id}`);
     }
+    // Incluir cat/departamento: el candado de recargas MP lo usa si el nombre no dice «Recarga».
+    const articulos = carrito.map((c) => {
+      const p = inventario.find((x) => x.id === c.id);
+      return {
+        id: c.id,
+        nombre: c.nombre,
+        precio: c.precio,
+        qty: c.qty || 1,
+        cat: p?.cat || c.cat || null,
+      };
+    });
     setFinalizando(true);
 
     const tiendaVenta = normalizarCodigoTienda(sucursal) || sucursal;
