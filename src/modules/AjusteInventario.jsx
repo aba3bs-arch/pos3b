@@ -11,7 +11,13 @@ import {
 import { imprimirMovimientoInventario } from '../lib/impresion.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
-import { esAlmacenCentral, etiquetaAlmacenCentral, etiquetaCedisEmpresa, stockVisible } from '../lib/inventarioMultitienda.js';
+import {
+  esAlmacenCentral,
+  etiquetaAlmacenCentral,
+  etiquetaCedisEmpresa,
+  stockEnUbicacionReal,
+  stockVisible,
+} from '../lib/inventarioMultitienda.js';
 import { puedeVerStockNegativo } from '../lib/roles.js';
 import Icon from '../components/Icon.jsx';
 import PortalFlotante from '../components/PortalFlotante.jsx';
@@ -446,25 +452,35 @@ export default function AjusteInventario({
     }
 
     const totalPiezas = validas.reduce((s, l) => s + l.cantidad, 0);
+    const conTeoricoNeg = [];
     const resumen = validas
       .map((l) => {
         const p =
           (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
           (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
-        const stockReal = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
+        const stockReal = enCentral
+          ? stockEnUbicacionReal(p, sucursalOp, 'cedis', sucursalOp)
+          : stockEnUbicacionReal(p, sucursalOp, 'piso', sucursalOp);
         const stock = stockVisible(stockReal, verNegativos);
         // Entrada con teórico negativo: no absorber faltante (−1 + 100 → 100).
         const despuesReal =
           tipoMov === 'entrada' && stockReal < 0 ? l.cantidad : stockReal + signo * l.cantidad;
         const despues = stockVisible(despuesReal, verNegativos);
+        if (tipoMov === 'entrada' && stockReal < 0) {
+          conTeoricoNeg.push(`${p?.nombre || l.productoId}: teórico ${stockReal} → queda ${l.cantidad} (se salda el faltante)`);
+        }
         return `• ${p?.nombre || l.productoId}: ${signoTxt}${l.cantidad} (${stock} → ${despues})`;
       })
       .join('\n');
 
+    const notaSaldado = conTeoricoNeg.length
+      ? `\n\n⚠ Teórico negativo (venta sin existencia):\n${conTeoricoNeg.join('\n')}\nLa mercancía que entra parte de 0; no “recuperas” el −N sumando encima.`
+      : '';
+
     if (
       !confirm(
         tipoMov === 'entrada'
-          ? `¿SUMAR estas piezas al stock actual?\n\n${resumen}\n\nTotal: +${totalPiezas} pieza(s) en ${validas.length} producto(s).\n(Ejemplo: si había 0 y sumas 12, debe quedar 12.)`
+          ? `¿SUMAR estas piezas al stock actual?\n\n${resumen}${notaSaldado}\n\nTotal: +${totalPiezas} pieza(s) en ${validas.length} producto(s).\n(Ejemplo: si había 0 y sumas 12, debe quedar 12.)`
           : `¿RESTAR estas piezas del stock actual?\n\n${resumen}\n\nTotal: −${totalPiezas} pieza(s) en ${validas.length} producto(s).\n(Ejemplo: si había 12 y restas 3, debe quedar 9.)`,
       )
     ) {
@@ -879,7 +895,9 @@ export default function AjusteInventario({
                       (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
                       (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
                     const qty = parseCantidadInventario(l.cantidad) || 0;
-                    const stockReal = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
+                    const stockReal = enCentral
+                      ? stockEnUbicacionReal(p, sucursalOp, 'cedis', sucursalOp)
+                      : stockEnUbicacionReal(p, sucursalOp, 'piso', sucursalOp);
                     const stock = stockVisible(stockReal, verNegativos);
                     let quedariaReal = null;
                     if (qty > 0) {

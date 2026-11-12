@@ -5,10 +5,11 @@ import {
   etiquetaTipoMovimiento,
   cargarReporteMovimientosInventario,
   rangoDesdePreset,
+  resumenCuadreHistorialProducto,
   timelineProducto,
 } from '../lib/consultasInventario.js';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
-import { esAlmacenCentral, stockVisible } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, stockEnUbicacionReal, stockVisible } from '../lib/inventarioMultitienda.js';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -29,6 +30,17 @@ function badgeTipo(tipo, modo) {
       {etiquetaTipoMovimiento(tipo, modo)}
     </span>
   );
+}
+
+/** Salida de inventario que no viene de una venta de mostrador. */
+function esSalidaNoVenta(e) {
+  const esSalida = e?.tipo === 'retiro'
+    || e?.tipo === 'venta'
+    || e?.modo === 'venta'
+    || (e?.tipo === 'traspaso' && Number(e.stock_despues) < Number(e.stock_antes));
+  if (!esSalida) return false;
+  const esVenta = e?.modo === 'venta' || e?.tipo === 'venta' || e?.origen === 'ventas';
+  return !esVenta;
 }
 
 export default function HistorialProducto({ supabase, producto, sucursal, onVolver, embebido = false, verNegativos = true }) {
@@ -79,21 +91,6 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
     void cargar();
   }, [cargar]);
 
-  const historialVentas = useMemo(
-    () =>
-      (movimientos || [])
-        .filter((m) => m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta')
-        .map((m) => ({
-          id: m.id,
-          created_at: m.created_at,
-          cantidad: m.cantidad,
-          subtotal: Number(m.subtotal) || 0,
-          usuario: m.usuario,
-          motivo: m.motivo,
-        })),
-    [movimientos],
-  );
-
   const timelineSinFiltro = useMemo(() => {
     if (!producto?.id) return [];
     return timelineProducto(producto.id, [], movimientos, 'todos');
@@ -104,17 +101,45 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
     return timelineProducto(producto.id, [], movimientos, filtroEvento);
   }, [producto?.id, movimientos, filtroEvento]);
 
+  /** Misma base que «Salidas · venta» para que Vendido y Salidas no mientan distinto. */
+  const historialVentas = useMemo(
+    () =>
+      timelineSinFiltro
+        .filter((e) => e.modo === 'venta' || e.origen === 'ventas' || e.tipo === 'venta')
+        .map((e) => ({
+          id: e.id,
+          created_at: e.created_at,
+          cantidad: e.cantidad,
+          subtotal: Number(e.subtotal) || 0,
+          usuario: e.usuario,
+          motivo: e.motivo,
+        })),
+    [timelineSinFiltro],
+  );
+
+  const salidasNoVenta = useMemo(
+    () => timelineSinFiltro.filter(esSalidaNoVenta),
+    [timelineSinFiltro],
+  );
+
+  const stockPisoActual = useMemo(() => {
+    if (!producto) return null;
+    if (sucursal) return stockEnUbicacionReal(producto, sucursal, 'piso', sucursal);
+    return Number(producto.stock);
+  }, [producto, sucursal]);
+
   const totales = useMemo(() => {
-    const vendido = historialVentas.reduce((a, v) => a + Number(v.cantidad || 0), 0);
     const ingresos = historialVentas.reduce((a, v) => a + Number(v.subtotal || 0), 0);
-    const entradas = timelineSinFiltro
-      .filter((e) => e.tipo === 'entrada' || (e.tipo === 'traspaso' && e.stock_despues > e.stock_antes))
-      .reduce((a, e) => a + Number(e.cantidad || 0), 0);
-    const salidas = timelineSinFiltro
-      .filter((e) => e.tipo === 'retiro' || e.tipo === 'venta' || (e.tipo === 'traspaso' && e.stock_despues < e.stock_antes))
-      .reduce((a, e) => a + Number(e.cantidad || 0), 0);
-    return { vendido, ingresos, entradas, salidas };
-  }, [historialVentas, timelineSinFiltro]);
+    const cuadre = resumenCuadreHistorialProducto(timelineSinFiltro, stockPisoActual);
+    return {
+      vendido: cuadre.salidasVenta,
+      ingresos,
+      entradas: cuadre.entradas,
+      salidas: cuadre.salidas,
+      salidasOtras: cuadre.salidasOtras,
+      cuadre,
+    };
+  }, [historialVentas, timelineSinFiltro, stockPisoActual]);
 
   if (!producto) return null;
 
@@ -177,7 +202,7 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Vendido</div>
           <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{totales.vendido} uds.</div>
-          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>piezas (sin duplicar ticket + retiro)</div>
+          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>salidas por venta (ticket+retiro unidos)</div>
         </div>
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Ingresos</div>
@@ -190,8 +215,116 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>Salidas</div>
           <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{totales.salidas}</div>
+          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>
+            {totales.salidasOtras > 0
+              ? `venta ${totales.vendido} + otras ${totales.salidasOtras}`
+              : 'solo ventas'}
+          </div>
+          {salidasNoVenta.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginTop: '0.35rem', padding: '0.2rem 0.45rem', fontSize: '0.72rem' }}
+              onClick={() => {
+                setFiltroEvento('salidas');
+                const el = document.getElementById('historial-salidas-no-venta');
+                el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            >
+              Ver retiro(s) no venta ↓
+            </button>
+          )}
+        </div>
+        <div className="card" style={{ padding: '0.75rem' }}>
+          <div className="muted" style={{ fontSize: '0.72rem' }}>Stock inicial</div>
+          <div style={{
+            fontWeight: 800,
+            fontSize: '1.2rem',
+            color: totales.cuadre.stockInicial != null && totales.cuadre.stockInicial < 0 ? 'var(--brand-red)' : undefined,
+          }}>
+            {totales.cuadre.stockInicial == null ? '—' : totales.cuadre.stockInicial}
+          </div>
+          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>antes del 1.er movimiento</div>
+        </div>
+        <div className="card" style={{ padding: '0.75rem' }}>
+          <div className="muted" style={{ fontSize: '0.72rem' }}>Esperado ahora</div>
+          <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>
+            {totales.cuadre.esperado == null ? '—' : totales.cuadre.esperado}
+          </div>
+          <div className="muted" style={{ fontSize: '0.65rem', marginTop: 2 }}>
+            PZA actual {totales.cuadre.stockActual == null ? '—' : totales.cuadre.stockActual}
+            {totales.cuadre.descuadre != null && Math.abs(totales.cuadre.descuadre) >= 0.001
+              ? ` · Δ ${totales.cuadre.descuadre > 0 ? '+' : ''}${totales.cuadre.descuadre}`
+              : ''}
+          </div>
         </div>
       </div>
+      {(totales.cuadre.avisos || []).map((txt) => (
+        <p key={txt} className="muted" style={{ margin: 0, fontSize: '0.82rem', color: 'var(--brand-gold-dark)' }}>
+          {txt}
+        </p>
+      ))}
+      {totales.cuadre.stockInicial != null && (
+        <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
+          Cuadre del periodo: inicial {totales.cuadre.stockInicial} + entradas {totales.entradas} − salidas {totales.salidas}
+          {' = '}{totales.cuadre.esperadoPorCantidad}
+          {totales.cuadre.stockActual != null ? ` · PZA ${totales.cuadre.stockActual}` : ''}.
+          {' '}No compares solo Entradas − Salidas: eso asume inicio en 0.
+        </p>
+      )}
+
+      {salidasNoVenta.length > 0 && (
+        <div
+          id="historial-salidas-no-venta"
+          className="card"
+          style={{ borderTop: '3px solid var(--brand-red)', background: 'rgba(211,47,47,0.04)' }}
+        >
+          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-red)' }}>
+            Salidas que no son venta ({salidasNoVenta.length})
+          </h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
+            Explican la diferencia Vendido vs Salidas: retiro manual, ajuste/conteo o traspaso de salida.
+          </p>
+          <div className="table-wrap" style={{ maxHeight: '220px' }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th>Cant.</th>
+                  <th>Stock</th>
+                  <th>Motivo / detalle</th>
+                  <th>Usuario</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salidasNoVenta.map((e) => (
+                  <tr key={`noventa-${e.id}`} style={{ background: 'rgba(211,47,47,0.07)' }}>
+                    <td style={{ fontSize: '0.82rem' }}>{fmtFecha(e.created_at)}</td>
+                    <td>{badgeTipo(e.tipo, e.modo)}</td>
+                    <td style={{ fontWeight: 800 }}>{e.cantidad}</td>
+                    <td style={{ fontSize: '0.8rem' }}>
+                      {e.stock_antes != null ? `${e.stock_antes} → ${e.stock_despues}` : '—'}
+                    </td>
+                    <td style={{ fontSize: '0.85rem' }}>
+                      {e.detalle || e.producto_nombre || '—'}
+                      {e.motivo && (
+                        <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>{e.motivo}</span>
+                      )}
+                      {e.sucursal && (
+                        <span className="muted" style={{ display: 'block', fontSize: '0.72rem' }}>
+                          Sucursal {e.sucursal}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '0.8rem', fontWeight: 700 }}>{e.usuario || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Ventas ({historialVentas.length})</h3>
@@ -266,13 +399,28 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
                   </td>
                 </tr>
               ) : (
-                timeline.map((e) => (
+                timeline.map((e) => {
+                  const noVenta = esSalidaNoVenta(e);
+                  const neg = Number(e.stock_despues) < 0 || Number(e.stock_antes) < 0;
+                  return (
                   <tr
                     key={e.id}
-                    style={Number(e.stock_despues) < 0 || Number(e.stock_antes) < 0 ? { background: 'rgba(211,47,47,0.06)' } : undefined}
+                    style={{
+                      background: noVenta
+                        ? 'rgba(211,47,47,0.1)'
+                        : (neg ? 'rgba(211,47,47,0.06)' : undefined),
+                      outline: noVenta ? '1px solid rgba(211,47,47,0.35)' : undefined,
+                    }}
                   >
                     <td style={{ fontSize: '0.82rem' }}>{fmtFecha(e.created_at)}</td>
-                    <td>{badgeTipo(e.tipo, e.modo)}</td>
+                    <td>
+                      {badgeTipo(e.tipo, e.modo)}
+                      {noVenta && (
+                        <span className="badge" style={{ marginLeft: 4, background: 'rgba(211,47,47,0.15)', color: 'var(--brand-red)', fontSize: '0.65rem' }}>
+                          no venta
+                        </span>
+                      )}
+                    </td>
                     <td>{e.cantidad}</td>
                     <td style={{ fontSize: '0.8rem' }}>{e.stock_antes != null ? `${e.stock_antes} → ${e.stock_despues}` : '—'}</td>
                     <td style={{ fontSize: '0.85rem' }}>
@@ -283,7 +431,8 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
                       {e.usuario || '—'}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
