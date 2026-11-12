@@ -288,7 +288,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <div>
             <h3 style={{ margin: 0, color: COLOR }}>Corte Abarrotes</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Venta = efectivo neto del Corte de caja (+ ajuste candado MP) · {turno}
+              Venta = Total sistema del Corte de caja (+ ajuste candado MP) · {turno}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -354,7 +354,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                   value={estado[key] ?? 0}
                   readOnly={!editable}
                   title={key === 'venta' && !editable
-                    ? 'Se llena al guardar o corregir el Corte de caja (efectivo neto)'
+                    ? 'Se llena al guardar o corregir el Corte de caja (Total sistema)'
                     : undefined}
                   onFocus={editable ? (e) => e.target.select() : undefined}
                   onChange={(e) => patchEstado({ [key]: e.target.value })}
