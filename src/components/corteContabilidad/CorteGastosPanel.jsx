@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  agregarSubcategoriaGasto,
-  eliminarCategoriaGasto,
-  guardarCategoriaGasto,
   listarCatalogoGastos,
-  renombrarCategoriaGasto,
   gastoRequiereEmpleado,
   gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
@@ -38,7 +34,6 @@ function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
-const btnSm = { fontSize: '0.75rem', padding: '0.25rem 0.5rem' };
 
 function contarReales(lista) {
   return (lista || []).filter((e) => {
@@ -84,7 +79,6 @@ export default function CorteGastosPanel({
   onEliminar,
   onEditar,
   habilitado,
-  puedeCatalogo,
   puedeEditarGastos,
   notaNomina,
 }) {
@@ -99,7 +93,6 @@ export default function CorteGastosPanel({
   const [pinConsumoBenef, setPinConsumoBenef] = useState('');
   const [pinsFueraTurno, setPinsFueraTurno] = useState({});
   const [ahoraCargo, setAhoraCargo] = useState(() => new Date());
-  const [mostrarCat, setMostrarCat] = useState(false);
   const [usuariosRaw, setUsuariosRaw] = useState([]);
   const [avisoEmp, setAvisoEmp] = useState('');
 
@@ -383,158 +376,26 @@ export default function CorteGastosPanel({
     if (!requiereEmpleado) setUsuarioId('');
   };
 
-  const nuevaCategoria = async () => {
-    const nombre = prompt('Nombre de la categoría:');
-    if (!nombre?.trim()) return;
-    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nombre], { user, sucursal });
-    if (!authTxt.ok) return alert(authTxt.error);
-    const res = await guardarCategoriaGasto(supabase, sucursal, modulo, nombre, []);
-    if (!res.ok) return alert(res.error);
-    cargarCat();
-  };
-
-  const nuevaSubcategoria = async (categoria) => {
-    const nombre = prompt(`Subcategoría para ${categoria}:`);
-    if (!nombre?.trim()) return;
-    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nombre], { user, sucursal });
-    if (!authTxt.ok) return alert(authTxt.error);
-    const res = await agregarSubcategoriaGasto(supabase, sucursal, modulo, categoria, nombre);
-    if (!res.ok) return alert(res.error);
-    cargarCat();
-  };
-
-  const editarCategoria = async (categoria) => {
-    const row = catalogo.find((c) => c.categoria === categoria);
-    if (!row) return;
-    const esEmp = Boolean(row.es_categoria_empleado || esCategoriaEmpleado(row));
-    let nombre = row.categoria;
-    if (!esEmp) {
-      const nuevo = prompt('Nuevo nombre de categoría:', row.categoria);
-      if (!nuevo?.trim()) return;
-      nombre = nuevo;
-    }
-    const subsTxt = prompt(
-      esEmp
-        ? 'Tipos de EMPLEADO (Consumo, Anticipo…). Separados por coma. No renombres la categoría ni pongas nombres de personas aquí.'
-        : 'Subcategorías (separadas por coma):',
-      (row.subcategorias || []).join(', '),
-    );
-    if (subsTxt == null) return;
-    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nombre, subsTxt], { user, sucursal });
-    if (!authTxt.ok) return alert(authTxt.error);
-    const subs = subsTxt
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const res = await renombrarCategoriaGasto(supabase, sucursal, modulo, categoria, nombre, subs);
-    if (!res.ok) return alert(res.error);
-    if (cat === categoria && !esEmp) setCat(nombre.trim().toUpperCase());
-    cargarCat();
-  };
-
-  const borrarCat = async (categoria) => {
-    const row = catalogo.find((c) => c.categoria === categoria);
-    if (row?.es_categoria_empleado || esCategoriaEmpleado(row || { categoria })) {
-      return alert('EMPLEADO no se elimina. Es la categoría de nómina (empleados de tienda).');
-    }
-    if (!confirm(`¿Eliminar categoría ${categoria}?`)) return;
-    const res = await eliminarCategoriaGasto(supabase, sucursal, modulo, categoria);
-    if (!res.ok) return alert(res.error);
-    if (cat === categoria) {
-      setCat('');
-      setSub('');
-    }
-    cargarCat();
-  };
-
   return (
     <div className="card" style={{ margin: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
         <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>Gastos del turno</h4>
-        {puedeCatalogo && (
-          <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => setMostrarCat((o) => !o)}>
-            {mostrarCat ? 'Ocultar catálogo' : 'Catálogo'}
-          </button>
-        )}
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
           (modulo === 'abarrotes'
-            ? 'Categorías de IE Abarrotes (+ PROVEEDORES). Smoking exige folio CMP-/ING-/trp de la recepción para no duplicar gastos fantasma. CUBRE TURNO va a IE Abarrotes (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado.'
-            : 'Categorías de IE Virtual. Gastos del corte no requieren aprobación. CUBRE TURNO va a IE (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado. Vales y préstamos sí requieren admin.')}
+            ? 'Categorías enviadas desde IE (Cuentas y subcuentas). Smoking exige folio CMP-/ING-/trp de la recepción para no duplicar gastos fantasma. CUBRE TURNO va a IE Abarrotes (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado.'
+            : 'Categorías enviadas desde IE Virtual (Cuentas y subcuentas). Gastos del corte no requieren aprobación. CUBRE TURNO va a IE (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado. Vales y préstamos sí requieren admin.')}
         {modulo === 'abarrotes'
           ? ' No registres el mismo gasto dos veces en Abarrotes: el sistema avisa si ya existe (proveedores / compras).'
           : ''}
       </p>
 
-      {mostrarCat && puedeCatalogo && (
-        <div style={{ marginBottom: '0.75rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
-          <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
-            {modulo === 'abarrotes' ? (
-              <>
-                Catálogo de <strong>IE Abarrotes</strong> (compartido con IE Virtual) más <strong>PROVEEDORES</strong> solo en este corte.
-                Proveedores no se mueven a IE.
-              </>
-            ) : (
-              <>
-                Catálogo compartido desde <strong>IE Virtual</strong>. También se edita en Contabilidad → IE Virtual → Catálogo.
-              </>
-            )}
-          </p>
-          <button type="button" className="btn btn-ghost" style={{ ...btnSm, marginBottom: '0.5rem' }} onClick={nuevaCategoria}>
-            + Categoría
-          </button>
-          {catalogo.map((c) => {
-            const esEmp = esCategoriaEmpleado(c) || c.es_categoria_empleado;
-            return (
-            <div
-              key={c.ieId || c.categoria}
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                gap: '0.35rem',
-                marginBottom: '0.4rem',
-                padding: '0.35rem 0',
-                borderBottom: '1px solid var(--border)',
-              }}
-            >
-              <strong style={{ fontSize: '0.85rem', minWidth: 90 }}>
-                {c.categoria}
-                {c.fuente === 'proveedores' ? (
-                  <span className="muted" style={{ fontWeight: 500, fontSize: '0.72rem' }}>
-                    {' '}
-                    · prov.
-                  </span>
-                ) : null}
-              </strong>
-              <span className="muted" style={{ fontSize: '0.8rem', flex: 1 }}>
-                {(c.subcategorias || []).length ? c.subcategorias.join(' · ') : 'Sin subcategorías'}
-                {esEmp ? ' · captura: Empleado → Concepto' : ''}
-              </span>
-              <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => nuevaSubcategoria(c.categoria)}>
-                {esEmp ? '+ Tipo' : '+ Sub'}
-              </button>
-              <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => editarCategoria(c.categoria)}>
-                {esEmp ? 'Editar tipos' : 'Editar'}
-              </button>
-              {!esEmp && (
-                <button type="button" className="btn btn-ghost" style={{ ...btnSm, color: 'var(--danger)' }} onClick={() => borrarCat(c.categoria)}>
-                  Eliminar
-                </button>
-              )}
-            </div>
-            );
-          })}
-          {!catalogo.length && <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>Sin categorías. Usa + Categoría.</p>}
-        </div>
-      )}
-
       {habilitado ? (
         <>
           {!catalogo.length && (
             <p className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.5rem', color: 'var(--brand-gold)' }}>
-              Sin categorías de gasto. Pide al administrador que configure el catálogo o usa el botón Catálogo si tienes permiso.
+              Sin categorías de gasto. Pide al administrador que las envíe a este corte desde IE Virtual → Cuentas y subcuentas → Enviar.
             </p>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>

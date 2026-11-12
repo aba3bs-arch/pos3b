@@ -383,7 +383,6 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
           onEliminar={quitarGasto}
           onEditar={editarGasto}
           habilitado={perm.gastos}
-          puedeCatalogo={perm.editarTodo}
           puedeEditarGastos={perm.editarTodo}
           notaNomina="Gastos y faltantes se acumulan entre turnos hasta la recolección con máquinas en cero (entonces van a IE). CUBRE TURNO → nómina. Vales y préstamos requieren admin."
         />

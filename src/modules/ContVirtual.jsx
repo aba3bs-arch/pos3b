@@ -2123,6 +2123,18 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (res.aviso) alert(res.aviso);
   };
 
+  const ocultarCategoriaDeModulos = async (cat) => {
+    if (!esAdmin || !cat) return;
+    if (!confirm(`¿Ocultar «${cat.nombre}» de todos los módulos (cortes, Vales y Registro de gastos)?\n\nSigue existiendo en IE; para volver a mostrarla usa Enviar.`)) return;
+    setGuardando(true);
+    const res = await enviarCategoriaConSubcuentas(supabase, cat.id, [], {});
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    setEnvioCat(null);
+    await cargarCatalogo();
+    if (res.aviso) alert(res.aviso);
+  };
+
   const toggleSelSubCortes = (subId) => {
     const id = String(subId || '');
     if (!id) return;
@@ -3146,7 +3158,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <button type="button" className={catalogoFlujo === 'ingreso' ? 'active' : ''} onClick={() => setFlujoCatalogo('ingreso')}>Ingresos</button>
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
-            Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
+            <strong>Centro único de categorías</strong> (Cuenta → Subcuenta → Detalle) para Corte Abarrotes, Virtual, Garage, Vales y Registro de gastos: aquí se crean, modifican, eliminan, ocultan y envían. Los demás módulos ya no tienen catálogo propio.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
             En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas Main se dan de alta aquí (+ Main). No renombres ni elimines Empleado.
             {' '}El administrador usa <strong>Enviar</strong> para elegir a qué módulos va cada egreso
@@ -3235,6 +3247,29 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                     <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Subcuenta</button>
                     {!esCategoriaEmpleado(c) && (
                       <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>
+                    )}
+                    {catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && (
+                      destinosDeCategoria(c).length > 0 ? (
+                        <button
+                          type="button"
+                          className="cv-btn ghost cv-cat-btn"
+                          disabled={guardando}
+                          title="Quitarla de todos los módulos (sigue en IE)"
+                          onClick={() => ocultarCategoriaDeModulos(c)}
+                        >
+                          Ocultar
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="cv-btn ghost cv-cat-btn"
+                          disabled={guardando}
+                          title="Está oculta en los módulos: elige a dónde enviarla"
+                          onClick={() => abrirEnviarCategoria(c)}
+                        >
+                          Mostrar…
+                        </button>
+                      )
                     )}
                     {!esCategoriaEmpleado(c) && (
                       <button type="button" className="cv-row-del" onClick={() => borrarCategoria(c)}>

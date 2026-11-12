@@ -84,13 +84,6 @@ import {
   resolverBeneficiarioConsumoPin,
   valeConsumoRequierePinBeneficiario,
 } from '../lib/pinBeneficiarioConsumo.js';
-import {
-  crearCategoriaContVirtual,
-  crearSubcategoriaContVirtual,
-  crearDetalleContVirtual,
-  eliminarDetalleContVirtual,
-  sembrarCatalogoDefault,
-} from '../lib/contVirtualCatalogo.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
 import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale, imprimirPagare } from '../lib/impresionContabilidad.js';
 import {
@@ -274,9 +267,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     primer_cobro: '',
   });
   const [categoriasTick, setCategoriasTick] = useState(0);
-  const [nuevoTipoVale, setNuevoTipoVale] = useState({ label: '', descuentaNomina: false });
-  const [nuevaSubPorCat, setNuevaSubPorCat] = useState({});
-  const [nuevoDetPorSub, setNuevoDetPorSub] = useState({});
   const [valesPendAll, setValesPendAll] = useState([]);
   const [prestamosPendAll, setPrestamosPendAll] = useState([]);
   const [horaLimiteVale, setHoraLimiteVale] = useState(() => etiquetaHoraLimiteVale());
@@ -338,7 +328,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   );
   /** Admin Catálogo IE: árbol completo de egresos (igual que Cont Virtual), sin ocultar prestamos/manual. */
   const categoriasCatalogoIeAdmin = useMemo(
-    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: false, soloParaFormulario: false }),
+    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: false, soloParaFormulario: true }),
     [catalogoIe, categoriasTick],
   );
   const subcategoriasValeForm = useMemo(() => {
@@ -824,65 +814,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (r.aviso) setAvisoCatalogoIe(r.aviso);
     setCategoriasTick((n) => n + 1);
     return r;
-  };
-
-  const crearTipoVale = async () => {
-    if (!esAdmin) return alert('Solo el administrador puede crear categorías.');
-    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nuevoTipoVale.label], { user, sucursal });
-    if (!authTxt.ok) return alert(authTxt.error);
-    const res = await crearCategoriaContVirtual(supabase, {
-      nombre: nuevoTipoVale.label,
-      flujo: 'egreso',
-      enCatalogoCortes: true,
-    });
-    if (!res.ok) return alert(res.error);
-    setNuevoTipoVale({ label: '', descuentaNomina: false });
-    await refrescarCatalogoIe();
-    alert('Categoría creada en el catálogo IE (Vales + IE Virtual).');
-  };
-
-  const agregarSubTipoVale = async (categoriaId) => {
-    if (!esAdmin) return alert('Solo el administrador puede crear subcategorías.');
-    const label = String(nuevaSubPorCat[categoriaId] || '').trim();
-    if (!label) return alert('Escribe el nombre de la subcategoría.');
-    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [label], { user, sucursal });
-    if (!authTxt.ok) return alert(authTxt.error);
-    const res = await crearSubcategoriaContVirtual(supabase, { categoriaId, nombre: label });
-    if (!res.ok) return alert(res.error);
-    setNuevaSubPorCat((prev) => ({ ...prev, [categoriaId]: '' }));
-    await refrescarCatalogoIe();
-  };
-
-  const claveDet = (categoriaId, subId) => `${categoriaId}::${subId}`;
-
-  const agregarDetTipoVale = async (_categoriaId, subId) => {
-    if (!esAdmin) return alert('Solo el administrador puede crear detalles.');
-    const key = claveDet(_categoriaId, subId);
-    const label = String(nuevoDetPorSub[key] || '').trim();
-    if (!label) return alert('Escribe el nombre del detalle (3er nivel).');
-    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [label], { user, sucursal });
-    if (!authTxt.ok) return alert(authTxt.error);
-    const res = await crearDetalleContVirtual(supabase, { subcategoriaId: subId, nombre: label });
-    if (!res.ok) return alert(res.error);
-    setNuevoDetPorSub((prev) => ({ ...prev, [key]: '' }));
-    await refrescarCatalogoIe();
-  };
-
-  const quitarDetTipoVale = async (_categoriaId, _subId, detalleId) => {
-    if (!esAdmin) return;
-    if (!confirm('¿Eliminar este detalle del catálogo IE?')) return;
-    const res = await eliminarDetalleContVirtual(supabase, detalleId);
-    if (!res.ok) return alert(res.error);
-    await refrescarCatalogoIe();
-  };
-
-  const restaurarCategoriasIeSistema = async () => {
-    if (!esAdmin) return;
-    if (!confirm('¿Restaurar categorías fijas del sistema en IE (Vales, Empleado, Consumo, etc.)? Reactiva las que estén ocultas.')) return;
-    const res = await sembrarCatalogoDefault(supabase);
-    if (!res.ok) return alert(res.error || 'No se pudo restaurar.');
-    await refrescarCatalogoIe();
-    alert('Categorías del sistema IE restauradas / reactivadas.');
   };
 
   const guardarPrestamoGastos = async () => {
@@ -1631,7 +1562,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             {p === 'pagare' && `Pagaré (${nPagaresActivos})`}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
-            {p === 'tipos' && 'Catálogo IE'}
+            {p === 'tipos' && 'Categorías (IE)'}
             {p === 'gasolina' && 'Gasolina / asistencia'}
             {p === 'pendientes' && `Pendientes (${valesPendientes.length + prestamosPendientesAdmin.length + prestamosMovPendientes.length + (esSocio ? prestamosPendientesSocio.length : 0)})`}
           </button>
@@ -2242,10 +2173,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       {pestana === 'tipos' && esAdmin && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo compartido con IE VIRTUAL</h3>
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Categorías enviadas a Vales</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Mismo árbol <strong>categoría → subcategoría → detalle</strong> que Contabilidad → IE VIRTUAL.
-            Aquí se listan <strong>todas</strong> las categorías de egreso activas (nada se borra del libro IE).
+            Las categorías, subcategorías y detalles se administran en un solo lugar:{' '}
+            <strong>Contabilidad → IE VIRTUAL → Cuentas y subcuentas</strong> (crear, modificar, eliminar, ocultar y{' '}
+            <strong>Enviar</strong> a Vales). Aquí solo se consulta lo que llega a Vales.
             Al emitir un vale no se ofrecen Préstamos / Manual / Ingresos (no aplican).
             {avisoCatalogoIe ? (
               <>
@@ -2257,20 +2189,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
             <button type="button" className="btn btn-ghost" onClick={() => refrescarCatalogoIe()}>
               Recargar catálogo IE
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={restaurarCategoriasIeSistema}>
-              Restaurar categorías del sistema
-            </button>
-          </div>
-          <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
-            <input
-              className="input"
-              placeholder="Nueva categoría IE (egreso)"
-              value={nuevoTipoVale.label}
-              onChange={(e) => setNuevoTipoVale({ ...nuevoTipoVale, label: e.target.value })}
-            />
-            <button type="button" className="btn btn-primary" onClick={crearTipoVale} disabled={!nuevoTipoVale.label.trim()}>
-              Crear categoría IE
             </button>
           </div>
           <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -2287,110 +2205,27 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.45rem' }}>
                   <strong style={{ color: 'var(--brand-blue)' }}>{c.label}</strong>
                   <span className="muted" style={{ fontSize: '0.78rem' }}>
-                    {c.descuentaNomina ? 'Nómina' : 'Sin nómina'} · {c.fijo ? 'Sistema' : 'Admin'} · id:{c.id}
+                    {c.descuentaNomina ? 'Nómina' : 'Sin nómina'}
                   </span>
                 </div>
-
                 {(c.subcategorias || []).length === 0 && (
-                  <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.45rem' }}>Sin subcategorías</p>
+                  <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>Sin subcategorías enviadas</p>
                 )}
-
-                {(c.subcategorias || []).map((s) => {
-                  const detKey = claveDet(c.id, s.id);
-                  return (
-                    <div
-                      key={s.id}
-                      style={{
-                        marginBottom: '0.55rem',
-                        padding: '0.45rem 0.55rem',
-                        borderRadius: 6,
-                        border: '1px dashed var(--border)',
-                        background: 'rgba(0,0,0,0.02)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
-                        <strong style={{ fontSize: '0.88rem' }}>{s.label}</strong>
-                        <span className="muted" style={{ fontSize: '0.72rem' }}>subcategoría · {s.id}</span>
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.35rem', paddingLeft: '0.25rem' }}>
-                        {(s.detalles || []).length === 0 && (
-                          <span className="muted" style={{ fontSize: '0.75rem' }}>Sin detalles (3er nivel)</span>
-                        )}
-                        {(s.detalles || []).map((d) => (
-                          <span
-                            key={d.id}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.2rem',
-                              fontSize: '0.76rem',
-                              padding: '0.12rem 0.4rem',
-                              border: '1px solid var(--border)',
-                              borderRadius: 6,
-                            }}
-                          >
-                            {d.label}
-                            <button
-                              type="button"
-                              className="btn btn-ghost"
-                              style={{ padding: '0 0.15rem', color: 'var(--danger)', fontSize: '0.72rem' }}
-                              onClick={() => quitarDetTipoVale(c.id, s.id, d.id)}
-                              title="Quitar detalle"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
-                        <input
-                          className="input"
-                          style={{ flex: 1, minWidth: 120, fontSize: '0.85rem' }}
-                          placeholder={`Detalle de ${s.label}`}
-                          value={nuevoDetPorSub[detKey] || ''}
-                          onChange={(e) => setNuevoDetPorSub((prev) => ({ ...prev, [detKey]: e.target.value }))}
-                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), agregarDetTipoVale(c.id, s.id))}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ fontSize: '0.78rem', padding: '0.25rem 0.45rem' }}
-                          onClick={() => agregarDetTipoVale(c.id, s.id)}
-                          disabled={!String(nuevoDetPorSub[detKey] || '').trim()}
-                        >
-                          + Detalle
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-                  <input
-                    className="input"
-                    style={{ flex: 1, minWidth: 140 }}
-                    placeholder={`Subcategoría de ${c.label}`}
-                    value={nuevaSubPorCat[c.id] || ''}
-                    onChange={(e) => setNuevaSubPorCat((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), agregarSubTipoVale(c.id))}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => agregarSubTipoVale(c.id)}
-                    disabled={!String(nuevaSubPorCat[c.id] || '').trim()}
-                  >
-                    + Subcategoría
-                  </button>
-                </div>
+                {(c.subcategorias || []).map((s) => (
+                  <div key={s.id} style={{ fontSize: '0.85rem', padding: '0.15rem 0' }}>
+                    <strong>{s.label}</strong>
+                    {(s.detalles || []).length > 0 && (
+                      <span className="muted"> · {(s.detalles || []).map((d) => d.label).join(' · ')}</span>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
           {categoriasCatalogoIeAdmin.length === 0 && (
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.75rem' }}>
               {avisoCatalogoIe || AVISO_FALTA_VALES_CATEGORIAS}
-              {' '}Ejecuta <code>supabase/fix_contabilidad_completo.sql</code> (incluye Cont Virtual / IE),
-              o pulsa <strong>Restaurar categorías del sistema</strong>.
+              {' '}En IE VIRTUAL → Cuentas y subcuentas usa <strong>Enviar</strong> para mandar categorías a Vales.
             </p>
           )}
         </div>
