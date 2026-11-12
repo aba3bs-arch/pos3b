@@ -379,8 +379,9 @@ export default function Ventas({
     }
 
     let errorInsert = null;
+    let ventaIdNube = null;
     try {
-      const { error } = await supabase.from('ventas').insert([
+      const { data, error } = await supabase.from('ventas').insert([
         {
           vendedor: ventaPayload.vendedor,
           usuario_id: ventaPayload.usuario_id,
@@ -392,8 +393,9 @@ export default function Ventas({
           turno_nombre: ventaPayload.turno_nombre,
           created_at: ventaPayload.created_at,
         },
-      ]);
+      ]).select('id').maybeSingle();
       errorInsert = error;
+      ventaIdNube = data?.id || null;
     } catch (e) {
       errorInsert = e;
     }
@@ -431,10 +433,13 @@ export default function Ventas({
         stock_antes: r.antes,
         stock_despues: r.despues,
         ubicacion: 'piso',
-        motivo: `Venta · ${metodoVenta}`,
+        motivo: ventaIdNube
+          ? `Venta · ${metodoVenta} · ticket ${String(ventaIdNube).slice(0, 8)}`
+          : `Venta · ${metodoVenta}`,
         usuario: user.nombre,
         sucursal: tiendaVenta,
         created_at: vendidoEn,
+        meta: ventaIdNube ? { venta_id: ventaIdNube } : undefined,
       }, supabase);
     }
     if (erroresStock.length) {

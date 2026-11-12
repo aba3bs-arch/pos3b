@@ -198,8 +198,9 @@ export async function sincronizarColaVentasOffline(supabase, { sucursal = null }
       };
       // Conservar hora real de la venta; si no, corte/consultas la meten en el día del sync.
       if (venta.created_at) row.created_at = venta.created_at;
-      const { error } = await supabase.from('ventas').insert([row]);
+      const { data: insertada, error } = await supabase.from('ventas').insert([row]).select('id').maybeSingle();
       if (error) throw error;
+      const ventaIdNube = insertada?.id || venta.id || null;
 
       const tienda = venta.sucursal_id;
       for (const c of venta.articulos || []) {
@@ -220,10 +221,13 @@ export async function sincronizarColaVentasOffline(supabase, { sucursal = null }
               stock_antes: r.antes,
               stock_despues: r.despues,
               ubicacion: 'piso',
-              motivo: `Venta offline sync · ${venta.metodo_pago}`,
+              motivo: ventaIdNube
+                ? `Venta offline sync · ${venta.metodo_pago} · ticket ${String(ventaIdNube).slice(0, 8)}`
+                : `Venta offline sync · ${venta.metodo_pago}`,
               usuario: venta.vendedor,
               sucursal: tienda,
               created_at: venta.created_at,
+              meta: ventaIdNube ? { venta_id: ventaIdNube } : undefined,
             },
             supabase,
           );

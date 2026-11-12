@@ -322,6 +322,8 @@ function movimientosDesdeVentas(ventas) {
         sucursal: suc,
         created_at: v.created_at,
         origen: 'ventas',
+        venta_id: v.id,
+        meta: { venta_id: v.id },
       });
     }
   }
@@ -505,6 +507,29 @@ function claveParVenta(m, suc, pid, bucket) {
   return `venta|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`;
 }
 
+/** Id de ticket embebido en meta o en el texto del motivo. */
+export function ticketIdDeMovimientoVenta(m) {
+  const metaId = m?.meta?.venta_id || m?.venta_id;
+  if (metaId) return String(metaId);
+  const motivo = String(m?.motivo || '');
+  const mTicket = motivo.match(/ticket\s+([a-z0-9-]+)/i);
+  if (mTicket?.[1]) return mTicket[1];
+  const id = String(m?.id || '');
+  if (id.startsWith('venta_')) {
+    const rest = id.slice('venta_'.length);
+    const pid = String(m?.producto_id || '');
+    if (pid && rest.endsWith(`_${pid}`)) return rest.slice(0, -(pid.length + 1));
+    return rest;
+  }
+  return '';
+}
+
+function claveParVentaPorTicket(m, suc, pid) {
+  const tid = ticketIdDeMovimientoVenta(m);
+  if (!tid) return null;
+  return `venta-ticket|${pid}|${suc}|${tid}`;
+}
+
 function idxParVenta(seen, ventaKey) {
   if (!ventaKey) return null;
   return seen.has(ventaKey) ? seen.get(ventaKey) : null;
@@ -530,6 +555,7 @@ export function dedupeMovimientos(list) {
     const folioKey = folio
       ? `folio|${folio}|${suc}|${pid}|${m.tipo || ''}|${Number(m.cantidad) || 0}`
       : null;
+    const ventaKeyTicket = esSalidaVenta(m) ? claveParVentaPorTicket(m, suc, pid) : null;
     const ventaKey = esSalidaVenta(m) ? claveParVenta(m, suc, pid, bucket) : null;
     // Identidad estable primero (nube / origen local / folio de lote) para no perder ni duplicar.
     const key =
@@ -541,12 +567,24 @@ export function dedupeMovimientos(list) {
         ? `trp|${folio}|${pid}|${m.sucursal_origen || ''}|${m.sucursal_destino || ''}|${Number(m.cantidad) || 0}|${bucket}`
         : `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`);
 
+    const idxVentaTicket = idxParVenta(seen, ventaKeyTicket);
+    if (idxVentaTicket != null) {
+      out[idxVentaTicket] = fusionarMovimientoVenta(out[idxVentaTicket], m);
+      mark(key, idxVentaTicket);
+      if (origenLocal) mark(`local|${origenLocal}`, idxVentaTicket);
+      if (folioKey) mark(folioKey, idxVentaTicket);
+      if (ventaKeyTicket) mark(ventaKeyTicket, idxVentaTicket);
+      if (ventaKey) mark(ventaKey, idxVentaTicket);
+      continue;
+    }
+
     const idxVenta = idxParVenta(seen, ventaKey);
     if (idxVenta != null) {
       out[idxVenta] = fusionarMovimientoVenta(out[idxVenta], m);
       mark(key, idxVenta);
       if (origenLocal) mark(`local|${origenLocal}`, idxVenta);
       if (folioKey) mark(folioKey, idxVenta);
+      if (ventaKeyTicket) mark(ventaKeyTicket, idxVenta);
       if (ventaKey) mark(ventaKey, idxVenta);
       continue;
     }
@@ -564,6 +602,7 @@ export function dedupeMovimientos(list) {
           subtotal: m.subtotal != null ? m.subtotal : prev.subtotal,
         };
       }
+      if (ventaKeyTicket) mark(ventaKeyTicket, idx);
       if (ventaKey) mark(ventaKey, idx);
       continue;
     }
@@ -572,9 +611,88 @@ export function dedupeMovimientos(list) {
     mark(key, idx);
     if (origenLocal) mark(`local|${origenLocal}`, idx);
     if (folioKey) mark(folioKey, idx);
+    if (ventaKeyTicket) mark(ventaKeyTicket, idx);
     if (ventaKey) mark(ventaKey, idx);
   }
   return out;
+}
+
+/**
+ * Cuadre del historial de un producto en un periodo.
+ * Entradas/Salidas son sumas de mercancía; el PZA actual solo cuadra con
+ * stock_inicial + Σ(stock_despues − stock_antes).
+ */
+export function resumenCuadreHistorialProducto(eventos = [], stockActual = null) {
+  const lista = [...(eventos || [])].sort(
+    (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0),
+  );
+  let entradas = 0;
+  let salidas = 0;
+  let deltaStock = 0;
+  let conDelta = 0;
+  let saldadoTeorico = 0;
+  let stockInicial = null;
+  let stockFinalMov = null;
+
+  for (const e of lista) {
+    const cant = Number(e.cantidad) || 0;
+    const esEntrada = e.tipo === 'entrada'
+      || (e.tipo === 'traspaso' && Number(e.stock_despues) > Number(e.stock_antes));
+    const esSalida = e.tipo === 'retiro'
+      || e.tipo === 'venta'
+      || e.modo === 'venta'
+      || (e.tipo === 'traspaso' && Number(e.stock_despues) < Number(e.stock_antes));
+    if (esEntrada) entradas += cant;
+    if (esSalida) salidas += cant;
+
+    if (e.stock_antes != null && e.stock_despues != null
+      && Number.isFinite(Number(e.stock_antes)) && Number.isFinite(Number(e.stock_despues))) {
+      const antes = Number(e.stock_antes);
+      const despues = Number(e.stock_despues);
+      if (stockInicial == null) stockInicial = antes;
+      stockFinalMov = despues;
+      const d = despues - antes;
+      deltaStock += d;
+      conDelta += 1;
+      if (esEntrada && d > cant + 0.009) {
+        saldadoTeorico += d - cant;
+      }
+    }
+  }
+
+  const actual = stockActual == null || !Number.isFinite(Number(stockActual))
+    ? null
+    : Math.floor(Number(stockActual));
+  const esperadoPorCantidad = stockInicial == null
+    ? null
+    : Math.round((stockInicial + entradas - salidas) * 1000) / 1000;
+  const esperadoPorDelta = stockInicial == null || conDelta === 0
+    ? null
+    : Math.round((stockInicial + deltaStock) * 1000) / 1000;
+
+  const esperado = esperadoPorDelta != null ? esperadoPorDelta : esperadoPorCantidad;
+  const descuadre = actual == null || esperado == null
+    ? null
+    : Math.round((actual - esperado) * 1000) / 1000;
+
+  return {
+    entradas: Math.round(entradas * 1000) / 1000,
+    salidas: Math.round(salidas * 1000) / 1000,
+    stockInicial,
+    stockFinalMov,
+    deltaStock: Math.round(deltaStock * 1000) / 1000,
+    saldadoTeorico: Math.round(saldadoTeorico * 1000) / 1000,
+    esperadoPorCantidad,
+    esperadoPorDelta,
+    esperado,
+    stockActual: actual,
+    descuadre,
+    aviso: stockInicial != null && stockInicial < 0
+      ? `El periodo arrancó con teórico ${stockInicial} (venta sin existencia). Entradas − Salidas asume inicio en 0 y por eso “falta” ${Math.abs(stockInicial)}.`
+      : (saldadoTeorico > 0.009
+        ? `Al ingresar se saldó teórico negativo (+${saldadoTeorico} al stock además de la mercancía contada).`
+        : null),
+  };
 }
 
 /**
