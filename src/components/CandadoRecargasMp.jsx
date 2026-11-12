@@ -21,6 +21,8 @@ function fmt(n) {
 export default function CandadoRecargasMp({
   abierto,
   posTotal = 0,
+  /** Etiqueta del periodo consultado, p. ej. «11/11/2026 – 12/11/2026». */
+  posRango = '',
   usuarioNombre = '—',
   usuarioId = null,
   onCancelar,
@@ -114,12 +116,15 @@ export default function CandadoRecargasMp({
           <h3 className="candado-mp-title">Candado · Recargas Mercado Pago</h3>
           <p className="muted candado-mp-intro">
             Mira el <strong>total de recargas del turno en la terminal</strong> e introdúcelo.
-            Se compara con lo registrado en el POS. Sin esto no se cierra el corte.
+            Se compara con lo registrado en el POS (días del corte, no solo el turno en curso).
+            Sin esto no se cierra el corte.
           </p>
 
           <div className="candado-mp-kpis">
             <div className="candado-mp-kpi">
-              <div className="muted candado-mp-kpi-lbl">POS (registrado)</div>
+              <div className="muted candado-mp-kpi-lbl">
+                POS (registrado){posRango ? ` · ${posRango}` : ''}
+              </div>
               <div className="candado-mp-kpi-val">{fmt(posTotal)}</div>
             </div>
             <div className="candado-mp-kpi">

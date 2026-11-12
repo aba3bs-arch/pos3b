@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   contextosDesdeVentaPosMap,
+  etiquetaRangoFechasCandado,
+  fechasParaCandadoRecargasMp,
   resolverContextosCandadoRecargasMp,
 } from './candadoRecargasMpTurno.js';
 
@@ -47,4 +49,31 @@ test('resolver: sin turno_sesion usa venta_pos_por_corte', () => {
     r.contextos.map((c) => c.turno.id).sort(),
     ['diurno', 'nocturno'],
   );
+});
+
+test('fechas candado: en la mañana incluye ayer+hoy (caso Consultas 105)', () => {
+  // 12/11/2026 08:18 Nogales = 15:18 UTC
+  const now = new Date('2026-11-12T15:18:06.000Z');
+  const fechas = fechasParaCandadoRecargasMp({
+    estado: {},
+    gastos: [],
+    now,
+  });
+  assert.deepEqual(fechas, ['2026-11-11', '2026-11-12']);
+  assert.equal(etiquetaRangoFechasCandado(fechas), '11/11/2026 – 12/11/2026');
+});
+
+test('fechas candado: venta_pos de varios días rellena el rango', () => {
+  const now = new Date('2026-11-12T20:00:00.000Z'); // ~13:00 Nogales
+  const fechas = fechasParaCandadoRecargasMp({
+    estado: {
+      venta_pos_por_corte: {
+        '2026-11-11|diurno': 1000,
+        '2026-11-12|diurno': 500,
+      },
+    },
+    now,
+  });
+  assert.ok(fechas.includes('2026-11-11'));
+  assert.ok(fechas.includes('2026-11-12'));
 });

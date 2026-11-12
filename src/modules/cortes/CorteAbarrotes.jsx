@@ -14,13 +14,14 @@ import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagare
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 import { procesarRifsVencidos } from '../../lib/rifs.js';
 import { fechaCorteSugerida } from '../../lib/corteCaja.js';
-import { cargarDiaCaja } from '../../lib/movimientosCaja.js';
 import {
   registrarVentaRecargaMpAjuste,
-  totalRecargasPos,
 } from '../../lib/corteCajaRecargasMp.js';
 import { aplicarAjusteRecargaMpEnVentaAbarrotes } from '../../lib/corteCajaSyncAbarrotes.js';
-import { resolverContextosCandadoRecargasMp } from '../../lib/candadoRecargasMpTurno.js';
+import {
+  cargarTotalRecargasPosCandado,
+  resolverContextosCandadoRecargasMp,
+} from '../../lib/candadoRecargasMpTurno.js';
 import { turnoActual } from '../../lib/turnos.js';
 
 const COLOR = '#b5a642';
@@ -74,6 +75,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   const uiLock = useRef(createSubmitLock()).current;
   const [candadoRecargas, setCandadoRecargas] = useState(false);
   const [recargasPosTotal, setRecargasPosTotal] = useState(0);
+  const [recargasPosRango, setRecargasPosRango] = useState('');
   const [cargandoCandado, setCargandoCandado] = useState(false);
 
   const abrirCandadoCierre = async () => {
@@ -81,39 +83,21 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     if (!f?.trim()) return alert('Capture el folio de abarrotes.');
     setCargandoCandado(true);
     try {
-      const { contextos } = resolverContextosCandadoRecargasMp({
+      // Periodo del corte (días completos): evita ver solo $30 de un turno
+      // cuando Consultas ya tiene $105 de ayer+hoy (Recarga 50+30+25).
+      const r = await cargarTotalRecargasPosCandado(supabase, {
+        sucursal,
         estado,
         gastos,
         user,
-        sucursal,
       });
-      const lista = contextos.length
-        ? contextos
-        : [{
-          fecha: fechaCorteSugerida(turnoActual()),
-          turno: turnoActual(),
-          origen: 'fallback',
-        }];
-      let total = 0;
-      const vistos = new Set();
-      for (const ctx of lista) {
-        const clave = `${ctx.fecha}|${ctx.turno?.id || ctx.turno?.nombre || ''}`;
-        if (vistos.has(clave)) continue;
-        vistos.add(clave);
-        const dia = await cargarDiaCaja(supabase, {
-          sucursal,
-          fecha: ctx.fecha,
-          turno: ctx.turno,
-        });
-        if (dia?.error) {
-          console.warn('[candado-mp]', dia.error);
-        }
-        total = round2(total + totalRecargasPos(dia?.ventas || [], dia?.cancelaciones || []));
-      }
-      setRecargasPosTotal(total);
+      if (r?.error) console.warn('[candado-mp]', r.error);
+      setRecargasPosTotal(round2(r?.total || 0));
+      setRecargasPosRango(r?.etiquetaRango || '');
     } catch (e) {
       console.warn('[candado-mp]', e);
       setRecargasPosTotal(0);
+      setRecargasPosRango('');
     } finally {
       setCargandoCandado(false);
     }
@@ -493,6 +477,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       <CandadoRecargasMp
         abierto={candadoRecargas}
         posTotal={recargasPosTotal}
+        posRango={recargasPosRango}
         usuarioNombre={user?.nombre || '—'}
         usuarioId={user?.id || null}
         onCancelar={() => setCandadoRecargas(false)}
