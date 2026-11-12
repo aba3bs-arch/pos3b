@@ -706,6 +706,128 @@ function fmtMoneyPlain(n) {
   return `${sign}$${Math.abs(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function idsGastosDeCierre(c) {
+  const det = c?.detalle && typeof c.detalle === 'object' ? c.detalle : {};
+  const ids = new Set();
+  for (const id of Array.isArray(det.gastos_ids) ? det.gastos_ids : []) {
+    if (id != null && id !== '') ids.add(String(id));
+  }
+  for (const g of Array.isArray(det.gastos) ? det.gastos : []) {
+    if (g?.id != null && g.id !== '') ids.add(String(g.id));
+  }
+  return ids;
+}
+
+/**
+ * Datos del libro diario que deben cuadrar con el ticket del corte:
+ * - cortes: cada cierre de turno con su caja chica (anterior → actual) y TODOS sus gastos tal como los guardó el corte.
+ * - enCurso: gastos del turno abierto (aún sin corte); no cuentan hasta que se cierre.
+ * - otros: egresos de IE que no pasan por la caja del corte (vales, evidencias, préstamos, capturas manuales).
+ */
+export function armarLibroCajaAbarrotes({
+  cierres = [],
+  todosCierres = [],
+  gastosTabla = [],
+  gastosAprobados = [],
+  detalleUnificado = [],
+  desde = null,
+} = {}) {
+  const porId = new Map((gastosTabla || []).map((g) => [String(g.id), g]));
+  const idsCerrados = new Set();
+  for (const c of todosCierres || []) {
+    for (const id of idsGastosDeCierre(c)) idsCerrados.add(id);
+  }
+
+  const cortes = [];
+  for (const c of cierres || []) {
+    const det = c?.detalle && typeof c.detalle === 'object' ? c.detalle : {};
+    const item = itemIngresoVentaCierreAbarrotes(c, { desde });
+    const tienda = item.tienda;
+    const ventaTotal = round2(
+      Number(c?.ventas) || Number(det.venta) || Number(det.venta_neta) || Number(det.venta_efectivo) || Number(det.subtotal) || 0,
+    );
+    const tarjeta = round2(Number(det.tarjeta) || 0);
+    const gastosTotal = round2(Number(det.gastos_total) || 0);
+
+    let origen = Array.isArray(det.gastos) ? det.gastos : [];
+    if (!origen.length) {
+      origen = [...idsGastosDeCierre(c)].map((id) => porId.get(id)).filter(Boolean);
+    }
+    const gastos = origen
+      .map((g, i) => ({
+        id: `cg-${c.id}-${g.id ?? i}`,
+        fecha: item.fecha,
+        created_at: g.created_at || null,
+        categoria: g.categoria || 'Sin categoría',
+        subcategoria: g.subcategoria || '',
+        comentario: g.comentario || '',
+        empleado: g.usuario_nombre || g.solicitado_por || '',
+        monto: round2(g.monto),
+        tienda,
+        folio_corte: c.folio || '',
+      }))
+      .filter((g) => g.monto > 0);
+    const suma = round2(gastos.reduce((a, g) => a + g.monto, 0));
+    if (gastosTotal - suma > 0.5) {
+      gastos.push({
+        id: `cg-${c.id}-resto`,
+        fecha: item.fecha,
+        created_at: c.created_at || null,
+        categoria: 'Gastos del corte',
+        subcategoria: 'sin detalle',
+        comentario: 'El corte guardó este monto sin el detalle de cada gasto.',
+        empleado: '',
+        monto: round2(gastosTotal - suma),
+        tienda,
+        folio_corte: c.folio || '',
+      });
+    }
+
+    cortes.push({
+      id: c.id,
+      folio: c.folio || '',
+      fecha: item.fecha,
+      created_at: c.created_at || null,
+      turno: item.turno || '',
+      cajero: c.usuario_nombre || '',
+      tienda,
+      ventaTotal,
+      tarjeta,
+      ventaEfectivo: round2(ventaTotal - tarjeta),
+      gastosTotal: round2(gastos.reduce((a, g) => a + g.monto, 0)),
+      cajaAnterior: round2(Number(det.caja_anterior) || 0),
+      cajaActual: round2(Number(c.caja_actual) || 0),
+      gastos,
+    });
+  }
+
+  const enCurso = [];
+  for (const g of gastosAprobados || []) {
+    if (g.cerrado === true) continue;
+    if (idsCerrados.has(String(g.id))) continue;
+    const monto = round2(g.monto);
+    if (!(monto > 0)) continue;
+    enCurso.push({
+      id: `ec-${g.id}`,
+      fecha: ymdNegocio(g.created_at) || desde,
+      created_at: g.created_at || null,
+      categoria: g.categoria || 'Sin categoría',
+      subcategoria: g.subcategoria || '',
+      comentario: g.comentario || '',
+      empleado: g.usuario_nombre || g.solicitado_por || '',
+      monto,
+      tienda: normalizarCodigoTienda(g.sucursal_id) || 'MAIN',
+    });
+  }
+
+  const otros = (detalleUnificado || []).filter((d) => {
+    if (String(d.id || '').startsWith('corte-')) return false;
+    return d.ref_tabla !== 'cortes_contabilidad_gastos';
+  });
+
+  return { cortes, enCurso, otros };
+}
+
 /**
  * Panel IE ABARROTES (Francisco): ingresos/egresos solo de Abarrotes.
  * Ingresos = ventas de cierres de corte (aunque no se recolecte) + capturas manuales.
@@ -936,6 +1058,15 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     idsGastosLiberados,
   });
 
+  const libroCajas = armarLibroCajaAbarrotes({
+    cierres,
+    todosCierres,
+    gastosTabla: [...(gastosRes.data || []), ...legacyFrancisco],
+    gastosAprobados: gastos,
+    detalleUnificado: unificado.detalle,
+    desde,
+  });
+
   // Forzar cuenta abarrotes en detalle unificado (mapearCorte usa virtual por defecto)
   for (const d of unificado.detalle) {
     d.cuenta = 'abarrotes';
@@ -976,6 +1107,9 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
     detalleGastos: unificado.detalle.slice(0, Math.max(1, Number(limiteDetalle) || 500)),
     ingresosPorDia,
+    cortesLibro: libroCajas.cortes,
+    gastosEnCurso: libroCajas.enCurso,
+    egresosOtrosIe: libroCajas.otros,
     porCuenta,
     pastelCategorias: unificado.pastelCategorias,
     pastelSubcategorias: unificado.pastelSubcategorias,

@@ -8,6 +8,7 @@ import {
   dinero,
   etiquetaSemana,
   htmlLibroDiarioImprimible,
+  resumenLibroPorTienda,
   semanaDeFecha,
 } from '../lib/libroDiarioAbarrotes.js';
 
@@ -124,7 +125,7 @@ function TarjetaDia({ dia, abierto, onToggle }) {
           <div style={{ fontWeight: 700, color: ROJO, fontSize: '0.82rem', margin: '0.7rem 0 0.1rem' }}>
             SALIDAS · lo que se gastó
           </div>
-          {dia.gastos.length === 0 && <div className="muted" style={{ fontSize: '0.82rem' }}>No hubo gastos este día.</div>}
+          {dia.gastos.length === 0 && <div className="muted" style={{ fontSize: '0.82rem' }}>No hubo gastos en los cortes de este día.</div>}
           {dia.gastos.map((g) => (
             <LineaMovimiento
               key={g.id}
@@ -135,6 +136,66 @@ function TarjetaDia({ dia, abierto, onToggle }) {
               color={ROJO}
             />
           ))}
+
+          {dia.cortes.length > 0 && (
+            <div style={{ margin: '0.7rem 0 0.1rem' }}>
+              <div style={{ fontWeight: 700, color: '#334155', fontSize: '0.82rem' }}>
+                CAJA CHICA · cómo cierra cada corte (igual que el ticket)
+              </div>
+              {dia.cortes.map((c) => (
+                <div key={c.id} style={{ fontSize: '0.8rem', padding: '0.25rem 0', borderBottom: '1px dashed rgba(100,116,139,0.25)' }}>
+                  <b>{c.folio}</b>{c.turno ? ` · ${c.turno}` : ''}{c.cajero ? ` · ${c.cajero}` : ''}
+                  <div className="muted">
+                    Caja anterior {dinero(c.cajaAnterior)} + venta en efectivo {dinero(c.ventaEfectivo)} − gastos {dinero(c.gastos)}
+                    {' = '}<b style={{ color: colorResultado(c.cajaActual) }}>{dinero(c.cajaActual)}</b>
+                    {c.cuadra ? '' : <span style={{ color: ROJO }}> · (calculado {dinero(c.cajaCalculada)}, revisa este corte)</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {dia.enCurso.length > 0 && (
+            <div style={{ margin: '0.7rem 0 0.1rem', padding: '0.45rem 0.6rem', borderRadius: 6, background: '#fffbeb', border: '1px solid #fcd34d' }}>
+              <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.82rem' }}>
+                TURNO EN CURSO · gastos aún sin corte ({dinero(dia.totalEnCurso)})
+              </div>
+              <div className="muted" style={{ fontSize: '0.74rem', marginBottom: '0.2rem' }}>
+                No cuentan en el resultado hasta que se cierre el corte; entonces pasan a SALIDAS.
+              </div>
+              {dia.enCurso.map((g) => (
+                <LineaMovimiento
+                  key={g.id}
+                  signo="·"
+                  texto={`${g.categoria}${g.subcategoria ? ` › ${g.subcategoria}` : ''}`}
+                  detalle={[g.concepto !== g.subcategoria ? g.concepto : '', g.empleado ? `Persona: ${g.empleado}` : ''].filter(Boolean).join(' · ')}
+                  monto={g.monto}
+                  color="#92400e"
+                />
+              ))}
+            </div>
+          )}
+
+          {dia.otrosEgresos.length > 0 && (
+            <div style={{ margin: '0.7rem 0 0.1rem', padding: '0.45rem 0.6rem', borderRadius: 6, background: '#f1f5f9', border: '1px solid #cbd5e1' }}>
+              <div style={{ fontWeight: 700, color: '#334155', fontSize: '0.82rem' }}>
+                OTROS EGRESOS DE IE · no salen de la caja del corte ({dinero(dia.totalOtrosEgresos)})
+              </div>
+              <div className="muted" style={{ fontSize: '0.74rem', marginBottom: '0.2rem' }}>
+                Vales, evidencias, préstamos o capturas manuales en IE. No se restan del resultado del día.
+              </div>
+              {dia.otrosEgresos.map((g) => (
+                <LineaMovimiento
+                  key={g.id}
+                  signo="·"
+                  texto={`${g.categoria}${g.subcategoria ? ` › ${g.subcategoria}` : ''}`}
+                  detalle={[g.concepto !== g.subcategoria ? g.concepto : '', g.empleado ? `Persona: ${g.empleado}` : ''].filter(Boolean).join(' · ')}
+                  monto={g.monto}
+                  color="#475569"
+                />
+              ))}
+            </div>
+          )}
 
           <div
             style={{
@@ -210,24 +271,33 @@ export default function LibroDiario({ supabase, sucursal }) {
       desde: semana.inicio,
       hasta: semana.fin,
       ingresos: datos.ingresosPorDia || [],
-      gastos: datos.detalleGastos || [],
+      cortes: datos.cortesLibro || [],
+      enCurso: datos.gastosEnCurso || [],
+      otros: datos.egresosOtrosIe || [],
     });
   }, [datos, tienda, semana.inicio, semana.fin]);
 
   const resumenTiendas = useMemo(() => {
     if (!datos || tienda !== TODAS) return null;
-    const ing = new Map((datos.ingresosPorTienda || []).map((t) => [t.id, Number(t.ingresos) || 0]));
-    const egr = new Map((datos.egresosPorTienda || []).map((t) => [t.id, Number(t.total) || 0]));
-    const filas = tiendas.map((id) => {
-      const ingresos = ing.get(id) || 0;
-      const gastos = egr.get(id) || 0;
-      return { id, label: etiquetaTienda(id), ingresos, gastos, resultado: Math.round((ingresos - gastos) * 100) / 100 };
-    });
-    const total = filas.reduce(
-      (a, f) => ({ ingresos: a.ingresos + f.ingresos, gastos: a.gastos + f.gastos }),
-      { ingresos: 0, gastos: 0 },
+    const porTienda = resumenLibroPorTienda(
+      {
+        ingresos: datos.ingresosPorDia || [],
+        cortes: datos.cortesLibro || [],
+        enCurso: datos.gastosEnCurso || [],
+        otros: datos.egresosOtrosIe || [],
+      },
+      tiendas,
     );
-    return { filas, total: { ...total, resultado: Math.round((total.ingresos - total.gastos) * 100) / 100 } };
+    const filas = tiendas.map((id) => {
+      const f = porTienda.find((x) => x.id === id) || { ingresos: 0, gastos: 0, enCurso: 0, otros: 0, resultado: 0 };
+      return { ...f, id, label: etiquetaTienda(id) };
+    });
+    const r2 = (n) => Math.round(n * 100) / 100;
+    const total = filas.reduce(
+      (a, f) => ({ ingresos: a.ingresos + f.ingresos, gastos: a.gastos + f.gastos, enCurso: a.enCurso + f.enCurso, otros: a.otros + f.otros }),
+      { ingresos: 0, gastos: 0, enCurso: 0, otros: 0 },
+    );
+    return { filas, total: { ...total, resultado: r2(total.ingresos - total.gastos) } };
   }, [datos, tienda, tiendas]);
 
   const alternarDia = (fecha) => setAbiertos((p) => ({ ...p, [fecha]: !p[fecha] }));
@@ -337,8 +407,10 @@ export default function LibroDiario({ supabase, sucursal }) {
               <tr style={{ textAlign: 'left', borderBottom: '2px solid rgba(100,116,139,0.35)' }}>
                 <th style={{ padding: '0.35rem 0.4rem' }}>Tienda</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Ventas</th>
-                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Gastos</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Gastos de cortes</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Resultado</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Turno en curso</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Otros IE</th>
               </tr>
             </thead>
             <tbody>
@@ -352,6 +424,8 @@ export default function LibroDiario({ supabase, sucursal }) {
                   <td style={{ padding: '0.4rem', textAlign: 'right', color: VERDE }}>{dinero(f.ingresos)}</td>
                   <td style={{ padding: '0.4rem', textAlign: 'right', color: ROJO }}>{dinero(f.gastos)}</td>
                   <td style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 700, color: colorResultado(f.resultado) }}>{dinero(f.resultado)}</td>
+                  <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{f.enCurso > 0 ? dinero(f.enCurso) : '—'}</td>
+                  <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{f.otros > 0 ? dinero(f.otros) : '—'}</td>
                 </tr>
               ))}
               <tr style={{ borderTop: '2px solid rgba(100,116,139,0.35)', fontWeight: 700 }}>
@@ -359,6 +433,8 @@ export default function LibroDiario({ supabase, sucursal }) {
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: VERDE }}>{dinero(resumenTiendas.total.ingresos)}</td>
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: ROJO }}>{dinero(resumenTiendas.total.gastos)}</td>
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: colorResultado(resumenTiendas.total.resultado) }}>{dinero(resumenTiendas.total.resultado)}</td>
+                <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{resumenTiendas.total.enCurso > 0 ? dinero(resumenTiendas.total.enCurso) : '—'}</td>
+                <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{resumenTiendas.total.otros > 0 ? dinero(resumenTiendas.total.otros) : '—'}</td>
               </tr>
             </tbody>
           </table>
@@ -369,7 +445,7 @@ export default function LibroDiario({ supabase, sucursal }) {
         <>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
             <Kpi titulo="Entró (ventas)" valor={dinero(t.ingresos)} color={VERDE} nota={t.otrosIngresos > 0 ? `Incluye ${dinero(t.otrosIngresos)} de otros ingresos` : 'Ventas de los cortes de la semana'} />
-            <Kpi titulo="Salió (gastos)" valor={dinero(t.gastos)} color={ROJO} nota={t.ingresos > 0 ? `${t.gastoPctVentas}% de lo vendido` : ''} />
+            <Kpi titulo="Salió (gastos de los cortes)" valor={dinero(t.gastos)} color={ROJO} nota={t.ingresos > 0 ? `${t.gastoPctVentas}% de lo vendido` : ''} />
             <Kpi
               titulo="Resultado de la semana"
               valor={dinero(t.resultado)}
@@ -383,9 +459,10 @@ export default function LibroDiario({ supabase, sucursal }) {
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>¿Cómo leer este libro?</summary>
             <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', lineHeight: 1.5 }}>
               <li><b style={{ color: VERDE }}>Entró</b>: venta en efectivo de los cortes (venta total menos tarjeta) y otros ingresos capturados a mano.</li>
-              <li><b style={{ color: ROJO }}>Salió</b>: gastos de la tienda (proveedores, empleados, servicios, etc.) ya registrados en IE Abarrotes. Los créditos cobrados cuentan aquí como egreso, no como ingreso.</li>
+              <li><b style={{ color: ROJO }}>Salió</b>: los gastos que guardó cada corte cerrado (los mismos del ticket). Los créditos cobrados cuentan aquí como egreso, no como ingreso.</li>
               <li><b>Resultado del día</b> = lo que entró − lo que salió. <b>Acumulado</b> = suma de los resultados desde el sábado.</li>
-              <li>Los gastos de un turno aparecen cuando el corte se cierra. Si un día se ve sin gastos, revisa que el corte esté cerrado.</li>
+              <li><b>Caja chica</b>: para cada corte se muestra caja anterior + venta en efectivo − gastos = caja al cerrar, que debe ser igual al ticket.</li>
+              <li><b>Turno en curso</b>: gastos capturados después del último corte; no cuentan hasta que se cierre el siguiente corte. <b>Otros egresos de IE</b>: vales, evidencias o préstamos que no salen de la caja del corte; se muestran aparte.</li>
               <li>No es utilidad: no incluye el costo de la mercancía ni la nómina de la semana si aún no se registra en IE.</li>
             </ul>
           </details>
