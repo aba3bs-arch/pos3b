@@ -662,6 +662,10 @@ function App() {
     sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
       if (r.cambio) setTickCubreTurno((n) => n + 1);
     });
+    // Corte diario abarrotes (medianoche): asegura ayer y días faltantes de esta tienda.
+    import('./lib/corteAbarrotesDiario.js')
+      .then(({ asegurarCortesDiariosAbarrotes }) => asegurarCortesDiariosAbarrotes(supabase, { sucursal }))
+      .catch(() => {});
   }, [sesion, supabase, sucursal]);
 
   useEffect(() => {

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { cargarContAbarrotes } from '../lib/contVirtualData.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
+import { cargarVentaPosEnVivo } from '../lib/ventaPosEnVivo.js';
 import {
   construirLibroDiario,
   desplazarSemana,
@@ -314,6 +315,8 @@ export default function LibroDiario({ supabase, sucursal }) {
   const [rango, setRango] = useState(() => ({ desde: `${hoyYmdNogales().slice(0, 8)}01`, hasta: hoyYmdNogales() }));
   const [extender, setExtender] = useState(false);
   const [progreso, setProgreso] = useState(null);
+  const [vivo, setVivo] = useState(null);
+  const [cargandoVivo, setCargandoVivo] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [datos, setDatos] = useState(null);
@@ -379,6 +382,27 @@ export default function LibroDiario({ supabase, sucursal }) {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  const incluyeHoy = periodo.desde <= hoy && hoy <= periodo.hasta;
+
+  const cargarVivo = useCallback(async () => {
+    if (!supabase || !incluyeHoy) {
+      setVivo(null);
+      return;
+    }
+    const dia = hoyYmdNogales();
+    setCargandoVivo(true);
+    const r = await cargarVentaPosEnVivo(supabase, { sucursales: tienda === TODAS ? tiendas : [tienda], fecha: dia });
+    setCargandoVivo(false);
+    setVivo(r);
+  }, [supabase, incluyeHoy, tienda, tiendas]);
+
+  useEffect(() => {
+    void cargarVivo();
+    if (!incluyeHoy) return undefined;
+    const t = setInterval(() => void cargarVivo(), 60000);
+    return () => clearInterval(t);
+  }, [cargarVivo, incluyeHoy]);
 
   const libro = useMemo(() => {
     if (!datos || tienda === TODAS) return null;
@@ -457,6 +481,8 @@ export default function LibroDiario({ supabase, sucursal }) {
           Día por día: lo que <b style={{ color: VERDE }}>entró</b> por ventas y lo que{' '}
           <b style={{ color: ROJO }}>salió</b> por gastos, con el resultado de cada día. Consulta por semana (sábado a viernes),
           mes (del 1 al último día), año (1 de enero al 31 de diciembre) o un rango de fechas.
+          La fuente es el <b>corte diario automático</b> (medianoche): ventas − gastos (los faltantes se registran como gasto) − tarjeta.
+          Los cierres de turno del cajero ya no alimentan este libro.
         </p>
       </div>
 
@@ -612,7 +638,7 @@ export default function LibroDiario({ supabase, sucursal }) {
           </label>
         )}
 
-        <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>
+        <button type="button" className="btn btn-ghost" onClick={() => { void cargar(); void cargarVivo(); }} disabled={cargando}>
           {cargando ? 'Cargando…' : 'Actualizar'}
         </button>
         {libro && (
@@ -650,6 +676,13 @@ export default function LibroDiario({ supabase, sucursal }) {
         <div className="card" style={{ padding: '0.6rem 0.8rem', overflowX: 'auto' }}>
           <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
             Toca una tienda para ver su libro día por día.
+            {vivo ? (
+              <>
+                {' '}<b style={{ color: '#0e7490' }}>Venta POS hoy (en vivo)</b>: venta del POS de hoy, todo el día; se actualiza cada minuto
+                {vivo.actualizado ? ` (${new Date(vivo.actualizado).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })})` : ''}
+                {cargandoVivo ? ' · actualizando…' : ''}. No se suma al libro: el libro toma la venta del corte de medianoche.
+              </>
+            ) : null}
           </p>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
             <thead>
@@ -660,6 +693,14 @@ export default function LibroDiario({ supabase, sucursal }) {
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Pagos con tarjeta del corte que no están en las ventas del POS (diferencia)">PCT VIRTUAL</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Gastos de cortes</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Resultado</th>
+                {vivo && (
+                  <th
+                    style={{ padding: '0.35rem 0.4rem', textAlign: 'right', color: '#0e7490' }}
+                    title="Venta total del POS de hoy (todo el día), en vivo. No se suma al libro: el libro usa el corte de medianoche."
+                  >
+                    Venta POS hoy (en vivo)
+                  </th>
+                )}
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Turno en curso</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Otros IE</th>
               </tr>
@@ -677,6 +718,11 @@ export default function LibroDiario({ supabase, sucursal }) {
                   <td style={{ padding: '0.4rem', textAlign: 'right', color: '#7c3aed' }}>{f.pctVirtual > 0 ? dinero(f.pctVirtual) : '—'}</td>
                   <td style={{ padding: '0.4rem', textAlign: 'right', color: ROJO }}>{dinero(f.gastos)}</td>
                   <td style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 700, color: colorResultado(f.resultado) }}>{dinero(f.resultado)}</td>
+                  {vivo && (
+                    <td style={{ padding: '0.4rem', textAlign: 'right', color: '#0e7490', fontWeight: 600 }}>
+                      {vivo.tiendas?.[f.id] ? dinero(vivo.tiendas[f.id].total) : '—'}
+                    </td>
+                  )}
                   <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{f.enCurso > 0 ? dinero(f.enCurso) : '—'}</td>
                   <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{f.otros > 0 ? dinero(f.otros) : '—'}</td>
                 </tr>
@@ -688,6 +734,9 @@ export default function LibroDiario({ supabase, sucursal }) {
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: '#7c3aed' }}>{resumenTiendas.total.pctVirtual > 0 ? dinero(resumenTiendas.total.pctVirtual) : '—'}</td>
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: ROJO }}>{dinero(resumenTiendas.total.gastos)}</td>
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: colorResultado(resumenTiendas.total.resultado) }}>{dinero(resumenTiendas.total.resultado)}</td>
+                {vivo && (
+                  <td style={{ padding: '0.4rem', textAlign: 'right', color: '#0e7490' }}>{dinero(vivo.total?.total || 0)}</td>
+                )}
                 <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{resumenTiendas.total.enCurso > 0 ? dinero(resumenTiendas.total.enCurso) : '—'}</td>
                 <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{resumenTiendas.total.otros > 0 ? dinero(resumenTiendas.total.otros) : '—'}</td>
               </tr>
@@ -699,6 +748,14 @@ export default function LibroDiario({ supabase, sucursal }) {
       {libro && (
         <>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+            {vivo && vivo.total && (
+              <Kpi
+                titulo="Venta POS hoy (en vivo)"
+                valor={dinero(vivo.total.total)}
+                color="#0e7490"
+                nota={`Efectivo ${dinero(vivo.total.efectivo)} · tarjeta ${dinero(vivo.total.tarjeta)}${vivo.total.otros ? ` · otros ${dinero(vivo.total.otros)}` : ''} · ${vivo.total.tickets} tickets. No se suma al libro hasta el corte de medianoche.`}
+              />
+            )}
             <Kpi titulo="Entró (ventas)" valor={dinero(t.ingresos)} color={VERDE} nota={t.otrosIngresos > 0 ? `Incluye ${dinero(t.otrosIngresos)} de otros ingresos` : 'Ventas de los cortes del periodo'} />
             <Kpi titulo="PCT ABA" valor={dinero(t.pctAba)} color="#1d4ed8" nota="Tarjeta registrada en las ventas del POS" />
             <Kpi titulo="PCT VIRTUAL" valor={dinero(t.pctVirtual)} color="#7c3aed" nota="Tarjeta del corte menos lo registrado en el POS" />

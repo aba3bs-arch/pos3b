@@ -180,7 +180,7 @@ function filasResumenModulo(data) {
     filas.push(['Caja chica anterior', fmt(e.caja_anterior)]);
     filas.push(['Venta total', fmt(e.venta)]);
     filas.push(['Tarjeta', fmt(e.tarjeta)]);
-    filas.push(['Faltante', fmt(e.faltante)]);
+    if (Number(e.faltante)) filas.push(['Faltante (corte anterior)', fmt(e.faltante)]);
     filas.push(['Recolección', fmt(e.recoleccion)]);
   } else if (mod === 'garage') {
     filas.push(['Venta actual', fmt(data.venta)]);
