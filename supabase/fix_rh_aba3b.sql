@@ -11,7 +11,7 @@ create table if not exists public.rh_empleados (
   apellidos text,
   nombre_completo text,
   tipo_empleado text not null default 'tienda'
-    check (tipo_empleado in ('tienda', 'cubre_turno', 'indirecto')),
+    check (tipo_empleado in ('tienda', 'cubre_turno', 'indirecto', 'administrador')),
   estado text not null default 'activo'
     check (estado in ('activo', 'baja')),
   sucursal_id text,
@@ -122,5 +122,5 @@ create policy "rh_recontrata_pins_anon_rw" on public.rh_recontratacion_pins for 
 drop policy if exists "rh_recontrata_pins_auth_rw" on public.rh_recontratacion_pins;
 create policy "rh_recontrata_pins_auth_rw" on public.rh_recontratacion_pins for all to authenticated using (true) with check (true);
 
-comment on table public.rh_empleados is 'RH ABA3B: expediente de altas/bajas (tienda, cubre turno, indirectos).';
+comment on table public.rh_empleados is 'RH ABA3B: expediente de altas/bajas (tienda, cubre turno, indirectos, administradores).';
 comment on column public.rh_empleados.recontratable is 'Si false, reingreso exige PIN del administrador principal (AMR).';

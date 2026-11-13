@@ -3,6 +3,8 @@ import {
   etiquetaEstadoRh,
   etiquetaTipoEmpleadoRh,
   elegirExpedienteRhDeHits,
+  esExpedienteAdministrador,
+  expedienteRhCompatibleConUsuario,
   nombreCompletoRh,
   puedeGestionarRh,
   requierePinAdminPrincipalParaAlta,
@@ -13,6 +15,24 @@ import {
 assert.equal(etiquetaTipoEmpleadoRh('tienda'), 'Empleado de tienda');
 assert.equal(etiquetaTipoEmpleadoRh('cubre_turno'), 'Cubre turnos');
 assert.equal(etiquetaTipoEmpleadoRh('indirecto'), 'Empleado indirecto (MAIN)');
+assert.equal(etiquetaTipoEmpleadoRh('administrador'), 'Administrador');
+assert.equal(esExpedienteAdministrador({ tipo_empleado: 'administrador', rol_sistema: 'Cajero' }), true);
+assert.equal(esExpedienteAdministrador({ tipo_empleado: 'indirecto', rol_sistema: 'Administrador' }), true);
+assert.equal(esExpedienteAdministrador({ tipo_empleado: 'tienda', rol_sistema: 'Cajero' }), false);
+assert.equal(
+  expedienteRhCompatibleConUsuario(
+    { id: 'u1', rol: 'Cajero', nombre: 'ABB' },
+    { usuario_id: 'u9', tipo_empleado: 'administrador', rol_sistema: 'Administrador', nombre: 'ABB' },
+  ),
+  false,
+);
+assert.equal(
+  expedienteRhCompatibleConUsuario(
+    { id: 'u9', rol: 'Administrador', nombre: 'ABB' },
+    { usuario_id: 'u9', tipo_empleado: 'administrador', rol_sistema: 'Administrador', nombre: 'ABB' },
+  ),
+  true,
+);
 assert.equal(etiquetaEstadoRh('baja'), 'Inactivo (baja)');
 assert.equal(nombreCompletoRh({ nombre: 'Ana', apellidos: 'Pérez' }), 'Ana Pérez');
 assert.equal(puedeGestionarRh({ rol: 'Administrador' }), true);

@@ -14,6 +14,7 @@ export const TIPOS_EMPLEADO_RH = [
   { id: 'tienda', label: 'Empleado de tienda' },
   { id: 'cubre_turno', label: 'Cubre turnos' },
   { id: 'indirecto', label: 'Empleado indirecto (MAIN)' },
+  { id: 'administrador', label: 'Administrador' },
 ];
 
 export const MOTIVOS_BAJA_RH = [
@@ -38,6 +39,7 @@ export const PUESTOS_RH = [
   'Contabilidad',
   'Almacén',
   'Indirecto MAIN',
+  'Administrador',
   'Otro',
 ];
 
@@ -48,6 +50,29 @@ function esErrorTablaRh(error) {
     || (msg.includes('relation') && msg.includes('rh_'))
     || (msg.toLowerCase().includes('schema cache') && msg.includes('rh_'))
   );
+}
+
+function errorCheckTipoEmpleado(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  return error?.code === '23514' && msg.includes('tipo_empleado');
+}
+
+/** Inserta expediente. Si la base aún no acepta tipo administrador, lo guarda como indirecto con rol Administrador. */
+async function insertarRhEmpleado(supabase, row) {
+  const res = await supabase.from('rh_empleados').insert([row]).select('*').single();
+  if (!res.error) return { data: res.data, error: null };
+  if (row.tipo_empleado === 'administrador' && errorCheckTipoEmpleado(res.error)) {
+    const retry = await supabase.from('rh_empleados').insert([{
+      ...row,
+      tipo_empleado: 'indirecto',
+      rol_sistema: 'Administrador',
+      sucursal_id: 'MAIN',
+      puesto: row.puesto || 'Administrador',
+    }]).select('*').single();
+    if (!retry.error) return { data: retry.data, error: null };
+    return { data: null, error: retry.error };
+  }
+  return { data: null, error: res.error };
 }
 
 function round2(n) {
@@ -86,6 +111,25 @@ export function usuarioCoincideConEmpleadoRh(usuario, emp) {
   return nombresMismaPersona(usuario.nombre, nomRh) || nombresMismaPersona(usuario.nombre, emp.nombre);
 }
 
+/** Expediente de administrador: pestaña propia, no nómina de tienda. */
+export function esExpedienteAdministrador(emp) {
+  if (!emp) return false;
+  const tipo = String(emp.tipo_empleado || '').trim().toLowerCase();
+  if (tipo === 'administrador' || tipo === 'admin') return true;
+  return normalizarRol(emp.rol_sistema) === 'Administrador';
+}
+
+/**
+ * Un expediente de empleado no se reutiliza para un administrador, ni al revés,
+ * salvo que ya esté ligado por usuario_id.
+ */
+export function expedienteRhCompatibleConUsuario(usuario, emp) {
+  if (!usuario || !emp) return false;
+  if (emp.usuario_id && String(emp.usuario_id) === String(usuario.id)) return true;
+  const usuarioEsAdmin = normalizarRol(usuario.rol) === 'Administrador';
+  return usuarioEsAdmin === esExpedienteAdministrador(emp);
+}
+
 /** Cubre turno: sin usuario POS ni nómina (se paga como gasto CUBRE TURNO). */
 export function esExpedienteCubreTurno(emp) {
   return normalizarTipo(emp?.tipo_empleado) === 'cubre_turno';
@@ -115,13 +159,14 @@ function armarNombreCompleto(patch = {}) {
 
 function normalizarTipo(tipo, sucursalId) {
   const t = String(tipo || 'tienda').toLowerCase();
+  if (t === 'administrador' || t === 'admin' || t === 'administradores') return 'administrador';
   if (t === 'cubre_turno' || t === 'cubre' || t === 'cubreturno') return 'cubre_turno';
   if (t === 'indirecto' || t === 'main') return 'indirecto';
   return 'tienda';
 }
 
 function sucursalParaTipo(tipo, sucursalId) {
-  if (tipo === 'indirecto') return 'MAIN';
+  if (tipo === 'indirecto' || tipo === 'administrador') return 'MAIN';
   return String(sucursalId || '').trim().toUpperCase() || null;
 }
 
@@ -221,18 +266,7 @@ async function sincronizarUsuarioPosActivo(supabase, emp, activo) {
   const list = await listarUsuariosPosParaMatch(supabase);
   if (!list.ok) return { ok: false, error: list.error, ids: [] };
 
-  const ids = [];
-  const seen = new Set();
-  const push = (id) => {
-    const k = String(id || '');
-    if (!k || seen.has(k)) return;
-    seen.add(k);
-    ids.push(k);
-  };
-  if (emp.usuario_id) push(emp.usuario_id);
-  for (const u of list.usuarios) {
-    if (usuarioCoincideConEmpleadoRh(u, emp)) push(u.id);
-  }
+  const ids = idsUsuariosLigadosARh(emp, list.usuarios);
   if (ids.length === 0) return { ok: true, ids: [] };
 
   const { error } = await supabase.from('usuarios').update({ activo }).in('id', ids);
@@ -258,8 +292,16 @@ function idsUsuariosLigadosARh(emp, usuarios) {
     seen.add(k);
     ids.push(k);
   };
-  if (emp?.usuario_id) push(emp.usuario_id);
-  for (const u of usuarios || []) {
+  const lista = usuarios || [];
+  const soloAdmin = esExpedienteAdministrador(emp);
+  if (emp?.usuario_id) {
+    const ligado = lista.find((u) => String(u.id) === String(emp.usuario_id));
+    if (!soloAdmin || !ligado || normalizarRol(ligado.rol) === 'Administrador') {
+      push(emp.usuario_id);
+    }
+  }
+  for (const u of lista) {
+    if (soloAdmin && normalizarRol(u.rol) !== 'Administrador') continue;
     if (usuarioCoincideConEmpleadoRh(u, emp)) push(u.id);
   }
   return ids;
@@ -271,6 +313,14 @@ async function sincronizarUsuarioPosSucursal(supabase, emp, sucursal_id) {
   if (!list.ok) return { ok: false, error: list.error, ids: [] };
   const ids = idsUsuariosLigadosARh(emp, list.usuarios);
   if (ids.length === 0) return { ok: true, ids: [] };
+  if (esExpedienteAdministrador(emp)) {
+    const { error } = await supabase
+      .from('usuarios')
+      .update({ sucursal_id: 'MAIN', tipo_empleado: 'indirecto', rol: 'Administrador' })
+      .in('id', ids);
+    if (error) return { ok: false, error: error.message, ids: [] };
+    return { ok: true, ids };
+  }
   const tipo = emp.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda';
   const { error } = await supabase
     .from('usuarios')
@@ -376,6 +426,12 @@ export async function cambiarTiendaEmpleadoPosYRh(supabase, usuario, sucursalNue
 /** Cambia sucursal desde un expediente RH (actualiza POS si hay usuario ligado). */
 export async function cambiarTiendaDesdeRh(supabase, empleadoRh, sucursalNueva, { user } = {}) {
   if (!empleadoRh) return { ok: false, error: 'Empleado inválido.' };
+  if (esExpedienteAdministrador(empleadoRh)) {
+    return {
+      ok: false,
+      error: 'Los administradores no se asignan a una tienda. Su expediente queda en la pestaña Administradores.',
+    };
+  }
   const suc = normalizarCodigoTienda(sucursalNueva);
   const list = await listarUsuariosPosParaMatch(supabase);
   if (!list.ok) return { ok: false, error: list.error };
@@ -430,7 +486,7 @@ export async function asegurarExpedienteRhDesdeUsuario(supabase, usuario, { user
   if (!supabase || !usuario?.id) return { ok: false, error: 'Usuario inválido.', empleado: null };
   const prev = await buscarExpedienteRhDeUsuario(supabase, usuario);
   if (!prev.ok) return prev;
-  if (prev.empleado) {
+  if (prev.empleado && expedienteRhCompatibleConUsuario(usuario, prev.empleado)) {
     if (!prev.empleado.usuario_id) {
       await supabase.from('rh_empleados').update({ usuario_id: usuario.id }).eq('id', prev.empleado.id);
       return { ok: true, empleado: { ...prev.empleado, usuario_id: usuario.id }, creado: false };
@@ -439,8 +495,9 @@ export async function asegurarExpedienteRhDesdeUsuario(supabase, usuario, { user
   }
 
   const { nombre, apellidos } = partirNombreUsuario(usuario.nombre);
+  const usuarioEsAdmin = normalizarRol(usuario.rol) === 'Administrador';
   const tipoPos = resolverTipoEmpleado(usuario);
-  const tipo = tipoPos === 'indirecto' ? 'indirecto' : 'tienda';
+  const tipo = usuarioEsAdmin ? 'administrador' : (tipoPos === 'indirecto' ? 'indirecto' : 'tienda');
   const sucursal_id = sucursalParaTipo(tipo, usuario.sucursal_id);
   const row = {
     usuario_id: usuario.id,
@@ -450,8 +507,8 @@ export async function asegurarExpedienteRhDesdeUsuario(supabase, usuario, { user
     tipo_empleado: tipo,
     estado: estadoInicial === 'baja' ? 'baja' : 'activo',
     sucursal_id,
-    puesto: null,
-    rol_sistema: String(usuario.rol || '').trim() || null,
+    puesto: usuarioEsAdmin ? 'Administrador' : null,
+    rol_sistema: usuarioEsAdmin ? 'Administrador' : (String(usuario.rol || '').trim() || null),
     fecha_alta: hoyYmd(),
     recontratable: true,
     documentos: {},
@@ -460,18 +517,19 @@ export async function asegurarExpedienteRhDesdeUsuario(supabase, usuario, { user
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase.from('rh_empleados').insert([row]).select('*').single();
-  if (error) {
-    if (esErrorTablaRh(error)) return { ok: false, error: AVISO_FALTA_RH_ABA3B, empleado: null };
-    return { ok: false, error: error.message, empleado: null };
+  const ins = await insertarRhEmpleado(supabase, row);
+  if (ins.error) {
+    if (esErrorTablaRh(ins.error)) return { ok: false, error: AVISO_FALTA_RH_ABA3B, empleado: null };
+    return { ok: false, error: ins.error.message, empleado: null };
   }
+  const data = ins.data;
   const folio = `RH-${String(data.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
   await supabase.from('rh_empleados').update({ folio }).eq('id', data.id);
   await registrarMovimiento(supabase, {
     empleadoId: data.id,
     tipo: estadoInicial === 'baja' ? 'baja' : 'alta',
     titulo: estadoInicial === 'baja' ? 'Baja desde Usuarios (expediente creado)' : 'Alta ligada a usuario POS',
-    detalle: `${etiquetaTipoEmpleadoRh(tipo)} · ${sucursal_id ? etiquetaTienda(sucursal_id) : '—'}`,
+    detalle: `${esExpedienteAdministrador(data) ? 'Administrador' : etiquetaTipoEmpleadoRh(data.tipo_empleado || tipo)} · ${sucursal_id ? etiquetaTienda(data.sucursal_id || sucursal_id) : '—'}`,
     payload: { origen: 'usuarios', usuario_id: usuario.id },
     actor: user,
   });
@@ -608,6 +666,107 @@ export async function listarAdminsParaRecontratacion(supabase) {
  * Sin esto el empleado no aparece en Usuarios ni en nómina.
  * Cubre turnos: no crea ficha individual (usan PIN de cubre).
  */
+/**
+ * Liga el expediente al administrador que ya entra al POS (mismo nombre o mismo PIN).
+ * No cambia su PIN. Si no existe, crea un usuario con rol Administrador en MAIN.
+ */
+async function vincularOCrearUsuarioAdministrador(supabase, emp, { pin } = {}) {
+  if (!supabase || !emp?.id) return { ok: false, error: 'Empleado inválido.' };
+  const nombre = nombreCompletoRh(emp);
+  const pinNorm = String(pin || '').trim();
+  const list = await listarUsuariosPosParaMatch(supabase);
+  if (!list.ok) return { ok: false, error: list.error };
+  const usuarios = list.usuarios || [];
+  const adminsActivos = usuarios.filter((u) => normalizarRol(u.rol) === 'Administrador' && u.activo !== false);
+
+  const porId = emp.usuario_id
+    ? adminsActivos.find((u) => String(u.id) === String(emp.usuario_id))
+    : null;
+  const porNombre = adminsActivos.filter((u) => nombresMismaPersona(u.nombre, nombre));
+  let destino = porId || null;
+  if (!destino) {
+    if (porNombre.length > 1) {
+      const sample = porNombre.slice(0, 3).map((u) => u.nombre).join(', ');
+      return {
+        ok: false,
+        error: `Hay varios administradores activos con ese nombre (${sample}). Deja uno solo en Usuarios y vuelve a ligar el expediente.`,
+      };
+    }
+    if (porNombre.length === 1) destino = porNombre[0];
+  }
+
+  const ligar = async (usuario, mensaje) => {
+    await supabase.from('rh_empleados').update({
+      usuario_id: usuario.id,
+      rol_sistema: 'Administrador',
+      updated_at: new Date().toISOString(),
+    }).eq('id', emp.id);
+    return {
+      ok: true,
+      usuario,
+      creado: false,
+      vinculado: true,
+      mensaje,
+    };
+  };
+
+  if (destino) {
+    return ligar(
+      destino,
+      `${nombre} quedó en la pestaña Administradores, ligado a su usuario de Usuarios. El PIN con el que ya entra no cambió. No entra a nómina de tienda.`,
+    );
+  }
+
+  if (pinNorm) {
+    const pinOcupado = usuarios.find((u) => u.activo !== false && String(u.pin || '').trim() === pinNorm);
+    if (pinOcupado) {
+      if (normalizarRol(pinOcupado.rol) === 'Administrador') {
+        return ligar(
+          pinOcupado,
+          `${nombre} se ligó al administrador que ya usa ese PIN (${pinOcupado.nombre}). No se creó otro acceso.`,
+        );
+      }
+      return { ok: false, error: `Ese PIN ya lo usa ${pinOcupado.nombre}. Elige otro para el administrador.` };
+    }
+  } else {
+    return {
+      ok: false,
+      error: 'No hay un administrador con ese nombre en Usuarios. Indica un PIN para crear su acceso.',
+    };
+  }
+
+  const payload = {
+    nombre,
+    pin: pinNorm,
+    rol: 'Administrador',
+    tipo_empleado: 'indirecto',
+    sucursal_id: 'MAIN',
+    nomina_pagador: 'abarrotes',
+    activo: true,
+  };
+  const { data, error } = await supabase.from('usuarios').insert([payload]).select('*').single();
+  if (error) {
+    if (error.code === '23505' || String(error.message).includes('duplicate')) {
+      return { ok: false, error: `Ya existe un usuario con PIN ${pinNorm}. Elige otro PIN.` };
+    }
+    if (String(error.message).includes('activo')) {
+      return { ok: false, error: 'Ejecuta supabase/fix_usuarios_activo.sql en Supabase.' };
+    }
+    return { ok: false, error: error.message };
+  }
+  await supabase.from('rh_empleados').update({
+    usuario_id: data.id,
+    rol_sistema: 'Administrador',
+    updated_at: new Date().toISOString(),
+  }).eq('id', emp.id);
+  return {
+    ok: true,
+    usuario: data,
+    creado: true,
+    mensaje: `${nombre} dado de alta como administrador. Entra al POS con su PIN y queda en la pestaña Administradores. No entra a nómina de tienda.`,
+  };
+}
+
 export async function crearOVincularUsuarioPosDesdeRh(supabase, emp, {
   pin,
   rol,
@@ -616,6 +775,9 @@ export async function crearOVincularUsuarioPosDesdeRh(supabase, emp, {
 } = {}) {
   if (!supabase || !emp?.id) return { ok: false, error: 'Empleado inválido.' };
   const tipoRh = normalizarTipo(emp.tipo_empleado, emp.sucursal_id);
+  if (tipoRh === 'administrador' || esExpedienteAdministrador(emp)) {
+    return vincularOCrearUsuarioAdministrador(supabase, emp, { pin, user });
+  }
   if (tipoRh === 'cubre_turno') {
     return {
       ok: true,
@@ -815,7 +977,7 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
 
   const nombre_completo = armarNombreCompleto({ ...form, nombre }) || nombre;
   const pinAlta = String(form.pin || form.pin_acceso || '').trim();
-  if (tipo !== 'cubre_turno' && !pinAlta) {
+  if (tipo !== 'cubre_turno' && tipo !== 'administrador' && !pinAlta) {
     return {
       ok: false,
       error: 'Indica el PIN de acceso al POS. Sin PIN no aparece en Usuarios ni en nómina.',
@@ -826,51 +988,78 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
   {
     const { data: rhExistentes, error: eRh } = await supabase
       .from('rh_empleados')
-      .select('id, nombre, apellidos, nombre_completo, estado, sucursal_id, tipo_empleado')
+      .select('id, nombre, apellidos, nombre_completo, estado, sucursal_id, tipo_empleado, rol_sistema')
       .limit(500);
     if (!eRh && Array.isArray(rhExistentes)) {
-      const ambitoNuevo = tipo === 'indirecto' ? 'MAIN' : sucursal_id;
-      const mismoAmbito = (e) => {
-        const t = normalizarTipo(e.tipo_empleado, e.sucursal_id);
-        const amb = t === 'indirecto' ? 'MAIN' : String(e.sucursal_id || '').toUpperCase();
-        return amb === String(ambitoNuevo || '').toUpperCase();
-      };
-      const hits = rhExistentes.filter(
-        (e) => mismoAmbito(e) && (
-          nombresMismaPersona(nombre_completo, nombreCompletoRh(e))
-          || nombresMismaPersona(nombre, e.nombre)
-        ),
+      const mismaPersona = (e) => (
+        nombresMismaPersona(nombre_completo, nombreCompletoRh(e))
+        || nombresMismaPersona(nombre, e.nombre)
       );
-      const activo = hits.find((e) => e.estado === 'activo');
-      if (activo) {
-        return {
-          ok: false,
-          error:
-            `Ya existe un expediente activo de ${nombreCompletoRh(activo)} en `
-            + `${etiquetaTienda(ambitoNuevo)}. No crees otro: edita ese o usa Reingreso si estaba de baja.`,
+      if (tipo === 'administrador') {
+        const hits = rhExistentes.filter(mismaPersona);
+        const adminActivo = hits.find((e) => e.estado === 'activo' && esExpedienteAdministrador(e));
+        if (adminActivo) {
+          return {
+            ok: false,
+            error: `Ya hay un expediente de administrador activo: ${nombreCompletoRh(adminActivo)}. Está en la pestaña Administradores.`,
+          };
+        }
+        const adminBaja = hits.find((e) => e.estado === 'baja' && esExpedienteAdministrador(e));
+        if (adminBaja) {
+          return {
+            ok: false,
+            error: `${nombreCompletoRh(adminBaja)} ya está en Administradores (baja). Usa Reingresar alta en esa pestaña.`,
+          };
+        }
+        const otroActivo = hits.find((e) => e.estado === 'activo' && !esExpedienteAdministrador(e));
+        if (otroActivo) {
+          return {
+            ok: false,
+            error: `${nombreCompletoRh(otroActivo)} ya es ${etiquetaTipoEmpleadoRh(otroActivo.tipo_empleado)}. No lo des de alta otra vez como administrador.`,
+          };
+        }
+      } else {
+        const ambitoNuevo = tipo === 'indirecto' ? 'MAIN' : sucursal_id;
+        const mismoAmbito = (e) => {
+          const t = normalizarTipo(e.tipo_empleado, e.sucursal_id);
+          if (t === 'administrador' || esExpedienteAdministrador(e)) return false;
+          const amb = t === 'indirecto' ? 'MAIN' : String(e.sucursal_id || '').toUpperCase();
+          return amb === String(ambitoNuevo || '').toUpperCase();
         };
-      }
-      const baja = hits.find((e) => e.estado === 'baja');
-      if (baja) {
-        return {
-          ok: false,
-          error:
-            `${nombreCompletoRh(baja)} ya tiene expediente (baja). Usa Reingreso en RH ABA3B o Usuarios; no crees un segundo alta.`,
-        };
+        const hits = rhExistentes.filter((e) => mismoAmbito(e) && mismaPersona(e));
+        const activo = hits.find((e) => e.estado === 'activo');
+        if (activo) {
+          return {
+            ok: false,
+            error:
+              `Ya existe un expediente activo de ${nombreCompletoRh(activo)} en `
+              + `${etiquetaTienda(ambitoNuevo)}. No crees otro: edita ese o usa Reingreso si estaba de baja.`,
+          };
+        }
+        const baja = hits.find((e) => e.estado === 'baja');
+        if (baja) {
+          return {
+            ok: false,
+            error:
+              `${nombreCompletoRh(baja)} ya tiene expediente (baja). Usa Reingreso en RH ABA3B o Usuarios; no crees un segundo alta.`,
+          };
+        }
       }
     }
   }
 
-  const listPos = await listarUsuariosPosParaMatch(supabase);
-  if (listPos.ok) {
-    const conflicto = detectarConflictoAltaUsuario(
-      listPos.usuarios,
-      { nombre: nombre_completo, sucursal_id, tipo_empleado: tipo === 'cubre_turno' ? 'tienda' : tipo },
-    );
-    // Un CT no usa usuario POS: una baja previa con ese nombre (p. ej. ex cajero) no lo bloquea.
-    const bajaPrevia = tipo === 'cubre_turno' && conflicto.tipo === 'baja';
-    if (!conflicto.ok && !bajaPrevia) {
-      return { ok: false, error: conflicto.error };
+  if (tipo !== 'administrador') {
+    const listPos = await listarUsuariosPosParaMatch(supabase);
+    if (listPos.ok) {
+      const conflicto = detectarConflictoAltaUsuario(
+        listPos.usuarios,
+        { nombre: nombre_completo, sucursal_id, tipo_empleado: tipo === 'cubre_turno' ? 'tienda' : tipo },
+      );
+      // Un CT no usa usuario POS: una baja previa con ese nombre (p. ej. ex cajero) no lo bloquea.
+      const bajaPrevia = tipo === 'cubre_turno' && conflicto.tipo === 'baja';
+      if (!conflicto.ok && !bajaPrevia) {
+        return { ok: false, error: conflicto.error };
+      }
     }
   }
 
@@ -909,11 +1098,19 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase.from('rh_empleados').insert([row]).select('*').single();
-  if (error) {
-    if (esErrorTablaRh(error)) return { ok: false, error: AVISO_FALTA_RH_ABA3B };
-    return { ok: false, error: error.message };
+  if (tipo === 'administrador') {
+    row.tipo_empleado = 'administrador';
+    row.rol_sistema = 'Administrador';
+    row.puesto = row.puesto || 'Administrador';
+    row.sucursal_id = 'MAIN';
   }
+
+  const ins = await insertarRhEmpleado(supabase, row);
+  if (ins.error) {
+    if (esErrorTablaRh(ins.error)) return { ok: false, error: AVISO_FALTA_RH_ABA3B };
+    return { ok: false, error: ins.error.message };
+  }
+  const data = ins.data;
 
   const folio = `RH-${String(data.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
   await supabase.from('rh_empleados').update({ folio }).eq('id', data.id);
@@ -950,9 +1147,9 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     if (pos.usuario?.id) {
       empConFolio.usuario_id = pos.usuario.id;
     }
-    extraPos = pos.omitido
-      ? ''
-      : ' Ya aparece en Usuarios y nómina.';
+    extraPos = tipo === 'administrador'
+      ? (pos.mensaje ? ` ${pos.mensaje}` : ' Queda en la pestaña Administradores.')
+      : (pos.omitido ? '' : ' Ya aparece en Usuarios y nómina.');
     // Typo en nombre (Geovani/giovani): unificar si quedó otra ficha activa.
     if (pos.usuario?.id && !pos.omitido) {
       try {
@@ -988,7 +1185,9 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     mensaje: (
       tipo === 'cubre_turno'
         ? `Alta CT · ${nombre_completo} (sin nómina).${extraCt}`
-        : `Alta registrada · ${nombre_completo}.${extraPos}`
+        : tipo === 'administrador'
+          ? `Administrador registrado · ${nombre_completo}.${extraPos}`
+          : `Alta registrada · ${nombre_completo}.${extraPos}`
     ),
   };
 }
@@ -1025,6 +1224,14 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
   }
   if (patch.tipo_empleado != null) upd.tipo_empleado = tipo;
   if (patch.sucursal_id != null || patch.tipo_empleado != null) upd.sucursal_id = sucursal_id;
+  if (tipo === 'administrador' || esExpedienteAdministrador({ ...prev.empleado, ...upd, tipo_empleado: tipo })) {
+    upd.tipo_empleado = tipo === 'administrador' || String(prev.empleado.tipo_empleado || '') === 'administrador'
+      ? 'administrador'
+      : (upd.tipo_empleado || prev.empleado.tipo_empleado);
+    upd.rol_sistema = 'Administrador';
+    upd.puesto = upd.puesto || prev.empleado.puesto || 'Administrador';
+    upd.sucursal_id = 'MAIN';
+  }
   const sucursalCambio = upd.sucursal_id != null
     && String(upd.sucursal_id || '') !== String(prev.empleado.sucursal_id || '');
   if (patch.salario_diario !== undefined) {
@@ -1055,12 +1262,22 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
     );
   }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('rh_empleados')
     .update(upd)
     .eq('id', empleadoId)
     .select('*')
     .single();
+  if (error && upd.tipo_empleado === 'administrador' && errorCheckTipoEmpleado(error)) {
+    const retry = await supabase
+      .from('rh_empleados')
+      .update({ ...upd, tipo_empleado: 'indirecto', rol_sistema: 'Administrador', sucursal_id: 'MAIN' })
+      .eq('id', empleadoId)
+      .select('*')
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) return { ok: false, error: error.message };
 
   await registrarMovimiento(supabase, {
@@ -1083,7 +1300,17 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
     if (!sync.ok) extraPos = ` POS: ${sync.error}`;
     else if ((sync.ids || []).length) extraPos = ' Su acceso POS anterior quedó inactivo (Cubre Turno no entra a Usuarios ni nómina).';
   }
-  if (sucursalCambio && data.tipo_empleado !== 'indirecto' && data.tipo_empleado !== 'cubre_turno') {
+  if (esExpedienteAdministrador(data) && data.usuario_id) {
+    const { error: ePos } = await supabase.from('usuarios').update({
+      rol: 'Administrador',
+      tipo_empleado: 'indirecto',
+      sucursal_id: 'MAIN',
+    }).eq('id', data.usuario_id);
+    if (ePos) extraPos = ` POS: ${ePos.message}`;
+    else if (!esExpedienteAdministrador(prev.empleado)) {
+      extraPos = ' Su acceso quedó como Administrador. No entra a nómina de tienda.';
+    }
+  } else if (sucursalCambio && data.tipo_empleado !== 'indirecto' && data.tipo_empleado !== 'cubre_turno' && !esExpedienteAdministrador(data)) {
     const sync = await sincronizarUsuarioPosSucursal(supabase, data, data.sucursal_id);
     if (!sync.ok) extraPos = ` POS: ${sync.error}`;
     else if ((sync.ids || []).length) extraPos = ' También se actualizó en Usuarios / POS.';
@@ -1210,6 +1437,17 @@ export async function darDeBajaUsuarioPosYRh(supabase, usuario, opts = {}, { use
     return {
       ok: true,
       mensaje: `${usuario.nombre} quedó dado de baja en Usuarios. RH: ${ens.error}`,
+    };
+  }
+
+  if (
+    esExpedienteAdministrador(ens.empleado)
+    && normalizarRol(usuario.rol) !== 'Administrador'
+    && String(ens.empleado.usuario_id || '') !== String(usuario.id)
+  ) {
+    return {
+      ok: true,
+      mensaje: `${usuario.nombre} quedó dado de baja en Usuarios. El expediente de administrador en RH no se modificó.`,
     };
   }
 
@@ -1609,9 +1847,12 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
   return {
     ok: true,
     empleado: { ...data, estado: 'activo' },
-    mensaje:
-      `Empleado recontratado y activo en ${etiquetaTienda(sucursal_id) || 'su sucursal'}. `
-      + `Ya aparece en RH ABA3B → Activos, nómina, turnos y Usuarios.${extraPos}`,
+    mensaje: tipo === 'administrador' || esExpedienteAdministrador(data)
+      ? `${nombreCompletoRh(data) || 'Administrador'} volvió a estar activo. Queda en la pestaña Administradores. Su PIN entra de nuevo y no pasa a nómina de tienda.${extraPos}`
+      : (
+        `Empleado recontratado y activo en ${etiquetaTienda(sucursal_id) || 'su sucursal'}. `
+        + `Ya aparece en RH ABA3B → Activos, nómina, turnos y Usuarios.${extraPos}`
+      ),
   };
 }
 

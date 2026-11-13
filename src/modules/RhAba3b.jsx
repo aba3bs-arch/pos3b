@@ -12,6 +12,7 @@ import {
   crearOVincularUsuarioPosDesdeRh,
   darDeBajaEmpleadoRh,
   editarEmpleadoRh,
+  esExpedienteAdministrador,
   etiquetaEstadoRh,
   etiquetaTipoEmpleadoRh,
   listarEmpleadosRh,
@@ -138,15 +139,15 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
     if (!supabase) return;
     setCargando(true);
     const [a, i] = await Promise.all([
-      listarEmpleadosRh(supabase, { estado: 'activo', q, tipo: filtroTipo || null }),
-      listarEmpleadosRh(supabase, { estado: 'baja', q, tipo: filtroTipo || null }),
+      listarEmpleadosRh(supabase, { estado: 'activo', q }),
+      listarEmpleadosRh(supabase, { estado: 'baja', q }),
     ]);
     if (a.error || i.error) setAviso(a.error || i.error || '');
     else setAviso('');
     setActivos(a.data || []);
     setInactivos(i.data || []);
     setCargando(false);
-  }, [supabase, q, filtroTipo]);
+  }, [supabase, q]);
 
   useEffect(() => {
     void cargarListas();
@@ -195,10 +196,15 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
     setHistorial(hist.data || []);
     setPinAdmin('');
     setPinPosReparar('');
+    const adminExp = esExpedienteAdministrador(res.empleado);
     setForm({
       ...FORM_VACIO,
       ...res.empleado,
       ...mapearExtrasAFormDocs(res.empleado),
+      tipo_empleado: adminExp ? 'administrador' : res.empleado.tipo_empleado,
+      rol_sistema: adminExp ? 'Administrador' : res.empleado.rol_sistema,
+      sucursal_id: adminExp ? 'MAIN' : res.empleado.sucursal_id,
+      puesto: adminExp ? (res.empleado.puesto || 'Administrador') : res.empleado.puesto,
       salario_diario: res.empleado.salario_diario ?? '',
       fecha_nacimiento: res.empleado.fecha_nacimiento || '',
       fecha_alta: res.empleado.fecha_alta || '',
@@ -255,7 +261,31 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
     await cargarListas();
   };
 
-  const lista = pestana === 'activos' ? activos : inactivos;
+  const personalActivos = activos.filter((e) => !esExpedienteAdministrador(e));
+  const personalInactivos = inactivos.filter((e) => !esExpedienteAdministrador(e));
+  const administradores = [...activos, ...inactivos].filter((e) => esExpedienteAdministrador(e));
+  const listaBase = pestana === 'administradores'
+    ? administradores
+    : pestana === 'activos'
+      ? personalActivos
+      : personalInactivos;
+  const lista = pestana !== 'administradores' && filtroTipo
+    ? listaBase.filter((e) => e.tipo_empleado === filtroTipo)
+    : listaBase;
+
+  const abrirAlta = (tipo = 'tienda') => {
+    const baseSuc = sucursal && sucursal !== 'MAIN' ? sucursal : (sucOperativas[0] || '');
+    setForm({
+      ...FORM_VACIO,
+      tipo_empleado: tipo,
+      sucursal_id: tipo === 'administrador' ? 'MAIN' : baseSuc,
+      puesto: tipo === 'administrador' ? 'Administrador' : FORM_VACIO.puesto,
+      rol_sistema: tipo === 'administrador' ? 'Administrador' : FORM_VACIO.rol_sistema,
+      fecha_alta: new Date().toISOString().slice(0, 10),
+    });
+    setVista('alta');
+    setMsg('');
+  };
 
   const guardarAlta = async () => {
     if (!puede) return alert('Sin permiso.');
@@ -269,7 +299,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
       if (!dias.length) {
         return alert('Indica en qué días de la semana puede cubrir el CT (al menos uno).');
       }
-    } else if (!String(form.pin || '').trim()) {
+    } else if (form.tipo_empleado !== 'administrador' && !String(form.pin || '').trim()) {
       return alert('Indica el PIN de acceso al POS. Sin PIN no aparece en Usuarios ni en nómina.');
     }
     setTrabajando(true);
@@ -280,6 +310,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
       if (form.tipo_empleado === 'cubre_turno' && res.mensaje) {
         alert(res.mensaje);
       }
+      if (form.tipo_empleado === 'administrador') setPestana('administradores');
       setVista('lista');
       setForm({ ...FORM_VACIO, sucursal_id: sucursal || '' });
       await cargarListas();
@@ -290,7 +321,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
 
   const crearAccesoPosDesdeDetalle = async () => {
     if (!puede || !empleado?.id) return;
-    if (!String(pinPosReparar || '').trim()) {
+    if (!esExpedienteAdministrador(empleado) && !String(pinPosReparar || '').trim()) {
       return alert('Escribe el PIN que usará en el POS.');
     }
     setTrabajando(true);
@@ -334,13 +365,16 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
 
   const confirmarBaja = async () => {
     if (!puede || !seleccionadoId) return;
-    if (!confirm('¿Confirmar baja? Dejará de aparecer en nómina, empleados por turno y Usuarios. El expediente queda en Inactivos de RH ABA3B.')) return;
+    const eraAdmin = esExpedienteAdministrador(empleado);
+    if (!confirm(eraAdmin
+      ? '¿Confirmar baja de este administrador? Su PIN deja de entrar. El expediente sigue en la pestaña Administradores. No se da de baja a un empleado de tienda con otro registro.'
+      : '¿Confirmar baja? Dejará de aparecer en nómina, empleados por turno y Usuarios. El expediente queda en Inactivos de RH ABA3B.')) return;
     setTrabajando(true);
     const res = await darDeBajaEmpleadoRh(supabase, seleccionadoId, bajaForm, { user });
     setTrabajando(false);
     if (!res.ok) return alert(res.error);
     setMsg(res.mensaje);
-    setPestana('inactivos');
+    setPestana(eraAdmin ? 'administradores' : 'inactivos');
     setBajaPickId('');
     await abrirDetalle(seleccionadoId);
     await cargarListas();
@@ -357,16 +391,19 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
       setVista('recontrata');
       return;
     }
-    const destino = form.sucursal_id || reingresoDestino || emp.sucursal_id;
-    if (!confirm(necesitaPin
-      ? `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)} con PIN del administrador principal?`
-      : `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)}?\n\nVolverá a nómina, turnos y Usuarios en esa tienda.`)) return;
+    const eraAdmin = esExpedienteAdministrador(emp);
+    const destino = eraAdmin ? 'MAIN' : (form.sucursal_id || reingresoDestino || emp.sucursal_id);
+    if (!confirm(eraAdmin
+      ? `¿Reingresar a ${nombreCompletoRh(emp)} como administrador?\n\nSu PIN vuelve a entrar. Sigue en la pestaña Administradores, no en nómina de tienda.`
+      : necesitaPin
+        ? `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)} con PIN del administrador principal?`
+        : `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)}?\n\nVolverá a nómina, turnos y Usuarios en esa tienda.`)) return;
     setTrabajando(true);
     const res = await recontratarEmpleadoRh(
       supabase,
       id,
       {
-        tipo_empleado: form.tipo_empleado || emp.tipo_empleado,
+        tipo_empleado: eraAdmin ? 'administrador' : (form.tipo_empleado || emp.tipo_empleado),
         sucursal_id: destino,
         puesto: form.puesto || emp.puesto,
         salario_diario: form.salario_diario !== '' && form.salario_diario != null ? form.salario_diario : emp.salario_diario,
@@ -386,15 +423,15 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
     setPinAdmin('');
     setReingresoPickId('');
     setReingresoDestino('');
-    setPestana('activos');
+    setPestana(eraAdmin ? 'administradores' : 'activos');
     await abrirDetalle(id);
     await cargarListas();
   };
 
   const continuarReingresoDesdeSelector = () => {
-    const e = inactivos.find((x) => String(x.id) === String(reingresoPickId));
+    const e = personalInactivos.find((x) => String(x.id) === String(reingresoPickId));
     if (!e) return alert('Elige el empleado dado de baja.');
-    if (e.tipo_empleado !== 'indirecto' && !reingresoDestino) {
+    if (e.tipo_empleado !== 'indirecto' && !esExpedienteAdministrador(e) && !reingresoDestino) {
       return alert('Elige la tienda destino del reingreso.');
     }
     const destino = reingresoDestino || e.sucursal_id;
@@ -416,7 +453,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
   const abrirReingresoDesdeLista = (e) => {
     if (!puede || !e?.id) return;
     if (e.estado !== 'baja') return alert('Este empleado ya está activo.');
-    if (e.tipo_empleado !== 'indirecto' && !reingresoDestino) {
+    if (e.tipo_empleado !== 'indirecto' && !esExpedienteAdministrador(e) && !reingresoDestino) {
       setReingresoPickId(String(e.id));
       return alert('Elige la tienda destino en «Cómo reingresar un empleado» y luego pulsa Reingresar alta.');
     }
@@ -456,8 +493,8 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
         <h2 style={{ margin: 0, color: '#0f766e' }}>RH ABA3B</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
           Altas, reingresos, cambio de tienda y bajas de personal.
-          Alta: <strong>+ Alta de empleado</strong>. Reingreso: elige un inactivo.
-          Cambiar de tienda: recuadro azul. Baja: elige un activo o pulsa <strong>Dar de baja</strong>.
+          Alta: <strong>+ Alta de empleado</strong>. Los administradores van en la pestaña <strong>Administradores</strong>.
+          Reingreso: elige un inactivo. Cambiar de tienda: recuadro azul. Baja: elige un activo o pulsa <strong>Dar de baja</strong>.
         </p>
       </div>
 
@@ -486,6 +523,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               <li>Pulsa <strong>+ Alta de empleado</strong>.</li>
               <li>Nombre, tipo (tienda / cubre / indirecto), sucursal y puesto. Opcional: CURP, RFC, salario.</li>
               <li>Pulsa <strong>Registrar alta</strong>. Queda en Activos de RH y en nómina.</li>
+              <li>Un administrador no va aquí: usa <strong>+ Alta de administrador</strong>. Queda en la pestaña Administradores, no en nómina de tienda.</li>
             </ol>
             <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
               Para que <strong>entre al POS con PIN</strong>, el Administrador también lo da de alta en <strong>Usuarios</strong> (nombre + PIN).
@@ -495,13 +533,18 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               type="button"
               className="btn btn-primary"
               disabled={!puede}
-              onClick={() => {
-                setForm({ ...FORM_VACIO, sucursal_id: sucursal && sucursal !== 'MAIN' ? sucursal : (sucOperativas[0] || '') });
-                setVista('alta');
-                setMsg('');
-              }}
+              onClick={() => abrirAlta('tienda')}
             >
               + Alta de empleado
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginLeft: '0.5rem' }}
+              disabled={!puede}
+              onClick={() => abrirAlta('administrador')}
+            >
+              + Alta de administrador
             </button>
           </div>
 
@@ -523,7 +566,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
                   onChange={(e) => setReingresoPickId(e.target.value)}
                 >
                   <option value="">— Elige nombre —</option>
-                  {inactivos.map((e) => (
+                  {personalInactivos.map((e) => (
                     <option key={e.id} value={e.id}>
                       {nombreCompletoRh(e)} · última: {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
                       {e.recontratable === false ? ' · no recontratable' : ''}
@@ -550,7 +593,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               </button>
             </div>
             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-              {inactivos.length === 0
+              {personalInactivos.length === 0
                 ? 'No hay inactivos. El reingreso es solo para quien ya tuvo baja.'
                 : 'También puedes pulsar Reingresar alta en la fila (pestaña Inactivos / bajas).'}
             </p>
@@ -573,7 +616,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
                   onChange={(e) => setTrasladoPickId(e.target.value)}
                 >
                   <option value="">— Elige nombre —</option>
-                  {activos.filter((e) => e.tipo_empleado !== 'indirecto').map((e) => (
+                  {personalActivos.filter((e) => e.tipo_empleado !== 'indirecto').map((e) => (
                     <option key={e.id} value={e.id}>
                       {nombreCompletoRh(e)} · ahora en {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
                     </option>
@@ -621,7 +664,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
                   onChange={(e) => setBajaPickId(e.target.value)}
                 >
                   <option value="">— Elige nombre —</option>
-                  {activos.map((e) => (
+                  {personalActivos.map((e) => (
                     <option key={e.id} value={e.id}>
                       {nombreCompletoRh(e)} · {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
                     </option>
@@ -643,28 +686,43 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               className={`btn ${pestana === 'activos' ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setPestana('activos')}
             >
-              Activos ({activos.length})
+              Activos ({personalActivos.length})
+            </button>
+            <button
+              type="button"
+              className={`btn ${pestana === 'administradores' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setPestana('administradores')}
+            >
+              Administradores ({administradores.filter((e) => e.estado !== 'baja').length})
             </button>
             <button
               type="button"
               className={`btn ${pestana === 'inactivos' ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setPestana('inactivos')}
             >
-              Inactivos / bajas ({inactivos.length})
+              Inactivos / bajas ({personalInactivos.length})
             </button>
             <button
               type="button"
               className="btn btn-primary"
               style={{ marginLeft: 'auto' }}
-              onClick={() => {
-                setForm({ ...FORM_VACIO, sucursal_id: sucursal && sucursal !== 'MAIN' ? sucursal : (sucOperativas[0] || '') });
-                setVista('alta');
-                setMsg('');
-              }}
+              onClick={() => abrirAlta(pestana === 'administradores' ? 'administrador' : 'tienda')}
             >
-              + Alta de empleado
+              {pestana === 'administradores' ? '+ Alta de administrador' : '+ Alta de empleado'}
             </button>
           </div>
+
+          {pestana === 'administradores' && (
+            <div className="card" style={{ borderLeft: '4px solid #0f766e' }}>
+              <h3 style={{ margin: '0 0 0.5rem' }}>Administradores</h3>
+              <p className="muted" style={{ margin: 0, fontSize: '0.88rem', lineHeight: 1.5 }}>
+                Aquí solo están los administradores, aparte del personal de tienda, cubre turno e indirectos.
+                Si ya entran al POS, da el alta con <strong>el mismo nombre</strong>: se liga ese usuario y <strong>el PIN no cambia</strong>.
+                No entran a nómina de tienda ni ocupan el cupo de la sucursal.
+                Dar de baja aquí apaga ese acceso de administrador; no apaga a un empleado que tenga otro registro.
+              </p>
+            </div>
+          )}
 
           <div className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             <input
@@ -674,12 +732,14 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               onChange={(e) => setQ(e.target.value)}
               style={{ flex: '1 1 220px' }}
             />
-            <select className="select" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={{ flex: '0 1 200px' }}>
-              <option value="">Todos los tipos</option>
-              {TIPOS_EMPLEADO_RH.map((t) => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
+            {pestana !== 'administradores' && (
+              <select className="select" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={{ flex: '0 1 200px' }}>
+                <option value="">Todos los tipos</option>
+                {TIPOS_EMPLEADO_RH.filter((t) => t.id !== 'administrador').map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="card table-wrap" style={{ padding: 0 }}>
@@ -699,7 +759,13 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
                 {cargando ? (
                   <tr><td colSpan={7} className="muted">Cargando…</td></tr>
                 ) : lista.length === 0 ? (
-                  <tr><td colSpan={7} className="muted">Sin empleados en esta vista.</td></tr>
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      {pestana === 'administradores'
+                        ? 'Sin administradores en RH. Usa + Alta de administrador. Si ya entran al POS, usa el mismo nombre para ligar su usuario.'
+                        : 'Sin empleados en esta vista.'}
+                    </td>
+                  </tr>
                 ) : (
                   lista.map((e) => (
                     <tr key={e.id} style={{ opacity: e.estado === 'baja' ? 0.85 : 1 }}>
@@ -707,7 +773,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
                         <strong>{nombreCompletoRh(e)}</strong>
                         <div className="muted" style={{ fontSize: '0.75rem' }}>{e.folio || e.telefono || '—'}</div>
                       </td>
-                      <td>{etiquetaTipoEmpleadoRh(e.tipo_empleado)}</td>
+                      <td>{esExpedienteAdministrador(e) ? 'Administrador' : etiquetaTipoEmpleadoRh(e.tipo_empleado)}</td>
                       <td>{e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}</td>
                       <td>{e.puesto || '—'}</td>
                       <td>{fmtFecha(e.fecha_alta)}</td>
@@ -748,13 +814,13 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
       {vista === 'alta' && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-green, #15803d)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0 }}>Alta de empleado</h3>
+            <h3 style={{ margin: 0 }}>{form.tipo_empleado === 'administrador' ? 'Alta de administrador' : 'Alta de empleado'}</h3>
             <button type="button" className="btn btn-ghost" onClick={() => setVista('lista')}>Cancelar</button>
           </div>
           <p className="muted" style={{ margin: '0.5rem 0 0.85rem', fontSize: '0.85rem' }}>
-            Completa nombre, sucursal y <strong>PIN de acceso POS</strong>, luego <strong>Registrar alta</strong>.
-            Así aparece en <strong>Usuarios</strong> y <strong>nómina</strong>.
-            Si es un reingreso, cancela y usa <strong>Cómo reingresar</strong>.
+            {form.tipo_empleado === 'administrador'
+              ? 'Queda en la pestaña Administradores. Si ya entra al POS, usa el mismo nombre: se liga su usuario y el PIN no cambia. Si es nuevo, el PIN de abajo es el de entrada. No entra a nómina de tienda.'
+              : 'Completa nombre, sucursal y PIN de acceso POS, luego Registrar alta. Así aparece en Usuarios y nómina. Si es un reingreso, cancela y usa Cómo reingresar.'}
           </p>
           {/Origen contratación/i.test(String(form.notas || '')) && (
             <p
@@ -793,12 +859,14 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
                 </button>
                 <h3 style={{ margin: 0 }}>{nombreCompletoRh(empleado)}</h3>
                 <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-                  {empleado.folio || '—'} · {etiquetaTipoEmpleadoRh(empleado.tipo_empleado)} · {etiquetaEstadoRh(empleado.estado)}
+                  {empleado.folio || '—'} · {esExpedienteAdministrador(empleado) ? 'Administrador' : etiquetaTipoEmpleadoRh(empleado.tipo_empleado)} · {etiquetaEstadoRh(empleado.estado)}
                   {empleado.estado === 'baja' ? ` · ${empleado.recontratable ? 'Recontratable' : 'No recontratable'}` : ''}
                   {empleado.estado === 'activo' && empleado.tipo_empleado !== 'cubre_turno' && (
-                    empleado.usuario_id
-                      ? ' · Acceso POS vinculado'
-                      : ' · Sin acceso POS (no aparece en Usuarios/nómina)'
+                    esExpedienteAdministrador(empleado)
+                      ? (empleado.usuario_id ? ' · Acceso de administrador ligado' : ' · Sin acceso de administrador')
+                      : (empleado.usuario_id
+                        ? ' · Acceso POS vinculado'
+                        : ' · Sin acceso POS (no aparece en Usuarios/nómina)')
                   )}
                 </p>
               </div>
@@ -936,10 +1004,13 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               className="card"
               style={{ borderLeft: '4px solid #d97706', background: '#fff7ed' }}
             >
-              <h4 style={{ margin: '0 0 0.35rem', color: '#9a3412' }}>Crear acceso POS</h4>
+              <h4 style={{ margin: '0 0 0.35rem', color: '#9a3412' }}>
+                {esExpedienteAdministrador(empleado) ? 'Ligar o crear acceso de administrador' : 'Crear acceso POS'}
+              </h4>
               <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#7c2d12' }}>
-                Este expediente (p. ej. Angela Esmeralda) está en RH pero <strong>no tiene usuario POS</strong>,
-                por eso no sale en Usuarios ni en nómina. Asigna un PIN y créalo aquí.
+                {esExpedienteAdministrador(empleado)
+                  ? 'Si ya existe en Usuarios con este nombre, se liga y el PIN que escribas no reemplaza el suyo. Si no existe, este PIN será el de entrada. No entra a nómina de tienda.'
+                  : 'Este expediente está en RH pero no tiene usuario POS, por eso no sale en Usuarios ni en nómina. Asigna un PIN y créalo aquí.'}
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end' }}>
                 <label className="muted" style={{ fontSize: '0.8rem', flex: '1 1 160px' }}>
@@ -953,7 +1024,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={trabajando || !String(pinPosReparar || '').trim()}
+                  disabled={trabajando || (!esExpedienteAdministrador(empleado) && !String(pinPosReparar || '').trim())}
                   onClick={() => void crearAccesoPosDesdeDetalle()}
                 >
                   {trabajando ? 'Creando…' : 'Crear acceso POS'}
@@ -1065,6 +1136,7 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const esIndirecto = form.tipo_empleado === 'indirecto';
   const esCubre = form.tipo_empleado === 'cubre_turno';
+  const esAdminTipo = form.tipo_empleado === 'administrador';
   const sucOps = useMemo(() => listarSucursalesOperativas(), []);
   const [ocrProg, setOcrProg] = useState(null);
   const [ocrEtapa, setOcrEtapa] = useState('');
@@ -1103,6 +1175,27 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
       return changed ? next : prev;
     });
   }, [esCubre]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!esAdminTipo) return;
+    setForm((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      if (prev.sucursal_id !== 'MAIN') {
+        next.sucursal_id = 'MAIN';
+        changed = true;
+      }
+      if (prev.rol_sistema !== 'Administrador') {
+        next.rol_sistema = 'Administrador';
+        changed = true;
+      }
+      if (!prev.puesto || prev.puesto === 'Cajero') {
+        next.puesto = 'Administrador';
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [esAdminTipo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleCtSucursal = (codigo) => {
     const cur = Array.isArray(form.ct_sucursales) ? form.ct_sucursales : [];
@@ -1246,7 +1339,24 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
         {TIPOS_EMPLEADO_RH.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
       </select>
 
-      {esCubre ? (
+      {esAdminTipo ? (
+        <div
+          style={{
+            gridColumn: '1 / -1',
+            border: '1px solid rgba(15,118,110,0.4)',
+            borderRadius: 10,
+            padding: '0.85rem 1rem',
+            background: 'rgba(15,118,110,0.06)',
+          }}
+        >
+          <strong style={{ color: '#0f766e' }}>Administrador</strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.84rem' }}>
+            Queda en la pestaña <strong>Administradores</strong>, en MAIN, con rol Administrador.
+            No entra a nómina de tienda ni al cupo de empleados por sucursal.
+            Si ya entra al POS, el mismo nombre liga ese usuario y no le cambia el PIN.
+          </p>
+        </div>
+      ) : esCubre ? (
         <div
           style={{
             gridColumn: '1 / -1',
@@ -1326,12 +1436,12 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
       ) : (
         <select
           className="select"
-          value={esIndirecto ? 'MAIN' : (form.sucursal_id || '')}
-          disabled={esIndirecto}
+          value={esIndirecto || esAdminTipo ? 'MAIN' : (form.sucursal_id || '')}
+          disabled={esIndirecto || esAdminTipo}
           onChange={(e) => set('sucursal_id', e.target.value)}
         >
           <option value="">— Sucursal —</option>
-          {(sucursales || []).map((s) => (
+          {(esAdminTipo ? ['MAIN'] : (sucursales || [])).map((s) => (
             <option key={s} value={s}>{etiquetaTienda(s)}</option>
           ))}
         </select>
@@ -1344,19 +1454,26 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
         </select>
       )}
       {!esCubre && (
-        <select className="select" value={form.rol_sistema || ''} onChange={(e) => set('rol_sistema', e.target.value)}>
+        <select
+          className="select"
+          value={esAdminTipo ? 'Administrador' : (form.rol_sistema || '')}
+          disabled={esAdminTipo}
+          onChange={(e) => set('rol_sistema', e.target.value)}
+        >
           <option value="">— Rol sistema (opcional) —</option>
-          {(roles || []).map((r) => <option key={r} value={r}>{r}</option>)}
+          {(esAdminTipo ? ['Administrador'] : (roles || [])).map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       )}
       {pedirPinAcceso && !esCubre && (
         <div>
           <label className="muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '0.25rem' }}>
-            PIN acceso POS *
+            {esAdminTipo ? 'PIN acceso POS (solo si es nuevo)' : 'PIN acceso POS *'}
           </label>
           <InputPin value={form.pin || ''} onChange={(e) => set('pin', e.target.value)} />
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.75rem' }}>
-            Obligatorio: con este PIN entra al sistema y aparece en Usuarios / nómina.
+            {esAdminTipo
+              ? 'Si es un administrador nuevo, con este PIN entra. Si ya existe con el mismo nombre, su PIN actual no cambia.'
+              : 'Obligatorio: con este PIN entra al sistema y aparece en Usuarios / nómina.'}
           </p>
         </div>
       )}
