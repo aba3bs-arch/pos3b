@@ -156,6 +156,9 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     // Socio 3B: desglose guardado al recolectar (reimpresión con el mismo ticket).
     pago_cliente: d.pago_cliente || null,
     etiqueta_cliente: d.etiqueta_cliente || null,
+    fecha_negocio: d.fecha_negocio || null,
+    egresos_dia: d.egresos_dia || null,
+    resumen_pos: d.resumen_pos || null,
   };
 }
 
@@ -269,6 +272,91 @@ export function htmlCorteContabilidad(data) {
     ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
     <div class="sep"></div>
     <p class="muted" style="text-align:center">Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE con empleado descuentan nómina.</p>
+  </body></html>`;
+}
+
+function fechaLargaYmd(ymd) {
+  const [y, m, d] = String(ymd || '').slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '—';
+  return new Date(y, m - 1, d, 12).toLocaleDateString('es-MX', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+/** Recibo del corte de caja general (24 h): ventas, caja y todos los egresos del día. */
+export function htmlReciboCorteGeneral(data) {
+  const logo = leerLogoUrl();
+  const negocio = leerNombreNegocio();
+  const e = data.estado || {};
+  const eg = data.egresos_dia || e.egresos_dia || {};
+  const pos = data.resumen_pos || e.resumen_pos || {};
+  const dia = data.fecha_negocio || e.fecha_negocio || String(data.fecha || '').slice(0, 10);
+  const gastos = data.gastos || [];
+  const consumos = gastos.filter((g) => gastoDescuentaNomina('abarrotes', g.categoria, g.subcategoria));
+  const consumosTotal = round2(eg.consumos_total ?? consumos.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  const ie = eg.egresos_ie || [];
+  const ieTotal = round2(eg.egresos_ie_total ?? ie.reduce((a, x) => a + (Number(x.monto) || 0), 0));
+  const gastosTotal = round2(data.gastos_total ?? eg.gastos_total ?? 0);
+  const totalEgresos = round2(gastosTotal + ieTotal);
+  const emitido = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : '—';
+
+  const filasConsumos = consumos.length
+    ? consumos
+      .map((g) => `<tr><td class="muted" style="padding-left:8px">${esc(String(g.usuario_nombre || '').trim() || 'Sin empleado')} · ${esc([g.categoria, g.subcategoria].filter(Boolean).join(' › '))}${g.comentario ? ` — ${esc(g.comentario)}` : ''}</td><td class="r">${fmt(g.monto)}</td></tr>`)
+      .join('')
+    : '<tr><td class="muted">Sin consumos ni cargos a empleados.</td><td></td></tr>';
+  const filasIe = ie.length
+    ? ie
+      .map((x) => `<tr><td class="muted" style="padding-left:8px">${esc([x.categoria, x.subcategoria].filter(Boolean).join(' › '))}${x.descripcion ? ` — ${esc(x.descripcion)}` : ''}</td><td class="r">${fmt(x.monto)}</td></tr>`)
+      .join('')
+    : '<tr><td class="muted">Sin otros egresos de IE.</td><td></td></tr>';
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Corte general ${esc(data.folio || '')}</title><style>
+    ${estilosCortePos()}
+  </style></head><body>
+    <img class="logo" src="${esc(logo)}" alt=""/>
+    <h1>${esc(negocio)}</h1>
+    <div class="sub">CORTE DE CAJA GENERAL · ABARROTES</div>
+    <table>
+      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
+      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
+      <tr><td>Día del corte</td><td class="r">${esc(fechaLargaYmd(dia))}</td></tr>
+      <tr><td>Periodo</td><td class="r">00:00 a 23:59 (24 h)</td></tr>
+      <tr><td>Generado</td><td class="r">${esc(data.usuario_nombre || 'Sistema')} · ${esc(emitido)}</td></tr>
+    </table>
+    <div class="sep"></div>
+    <strong>Ventas y caja del día</strong>
+    <table>
+      <tr><td>Caja chica anterior</td><td class="r"><strong>${fmt(e.caja_anterior)}</strong></td></tr>
+      <tr><td>Venta total (POS)</td><td class="r"><strong>${fmt(data.venta ?? e.venta)}</strong></td></tr>
+      <tr><td>Pagos con tarjeta / electrónico (−)</td><td class="r"><strong>${fmt(e.tarjeta)}</strong></td></tr>
+      <tr><td>Gastos del día (−)</td><td class="r"><strong>${fmt(gastosTotal)}</strong></td></tr>
+      <tr><td>Subtotal del día</td><td class="r"><strong>${fmt(data.subtotal)}</strong></td></tr>
+      <tr><td>Caja chica al cierre</td><td class="r"><strong>${fmt(data.caja_actual)}</strong></td></tr>
+      ${pos.tickets != null ? `<tr><td class="muted">Tickets · cancelaciones</td><td class="r muted">${esc(pos.tickets)} · ${esc(pos.cancelaciones ?? 0)}</td></tr>` : ''}
+    </table>
+    <div class="sep"></div>
+    <strong>Gastos del día por categoría</strong>
+    ${htmlGastosPorCategoria({ ...data, gastos })}
+    <table style="margin-top:8px">
+      <tr><td><strong>Total gastos del día</strong></td><td class="r"><strong>${fmt(gastosTotal)}</strong></td></tr>
+    </table>
+    <div class="sep"></div>
+    <strong>Consumos y cargos a empleados (nómina)</strong> <span class="muted">· ya incluidos en los gastos</span>
+    <table>${filasConsumos}</table>
+    <table style="margin-top:6px">
+      <tr><td><strong>Total consumos y cargos</strong></td><td class="r"><strong>${fmt(consumosTotal)}</strong></td></tr>
+    </table>
+    <div class="sep"></div>
+    <strong>Otros egresos de IE del día</strong>
+    <table>${filasIe}</table>
+    <table style="margin-top:6px">
+      <tr><td><strong>Total otros egresos</strong></td><td class="r"><strong>${fmt(ieTotal)}</strong></td></tr>
+    </table>
+    <div class="sep"></div>
+    <table>
+      <tr><td><strong>TOTAL EGRESOS DEL DÍA</strong></td><td class="r"><strong>${fmt(totalEgresos)}</strong></td></tr>
+    </table>
+    <div class="sep"></div>
+    <p class="muted" style="text-align:center">Corte automático cada 24 h. No modifica los cierres de turno del cajero.</p>
   </body></html>`;
 }
 
@@ -658,6 +746,9 @@ export function imprimirRecoleccionGarage(data) {
 
 export function imprimirCorteContabilidad(data) {
   const mod = ETIQUETA_AREA[data.modulo] || data.modulo || 'Corte';
+  if (data.tipo_cierre === 'cierre_diario') {
+    return abrirVentanaImpresion(htmlReciboCorteGeneral(data), `Corte general ${data.folio || ''}`.trim());
+  }
   if (data.tipo_cierre === 'recoleccion' && data.modulo === 'virtual') {
     return imprimirRecoleccionVirtual(data);
   }

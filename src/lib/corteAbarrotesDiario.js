@@ -1,5 +1,6 @@
 /**
- * Corte de Abarrotes automático por día calendario (medianoche Nogales).
+ * Corte de caja general de Abarrotes automático por día calendario (medianoche Nogales),
+ * con recibo folio CGA-00001, CGA-00002… (no afecta los cierres del cajero).
  *
  * - Alimenta Libro diario e IE Abarrotes (tipo_cierre = cierre_diario).
  * - Los cierres que hace el cajero pasan a ser solo operativos
@@ -18,6 +19,8 @@ import {
 import { calcularAbarrotes, round2 } from './corteContabilidad/calc.js';
 import { registrarCierreCorte } from './corteContabilidad/store.js';
 import { cargarDiaCaja, resumirMovimientosCaja } from './movimientosCaja.js';
+import { listarEgresosContVirtual } from './contVirtualEgresos.js';
+import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
 
 export const TIPO_CIERRE_DIARIO = 'cierre_diario';
 export const TIPO_CIERRE_OPERATIVO = 'cierre_operativo';
@@ -55,9 +58,64 @@ export function esCierreContableAbarrotes(row) {
   return false;
 }
 
+/** Prefijo del recibo de corte de caja general (un corte cada 24 h por tienda). */
+export const PREFIJO_CORTE_GENERAL = 'CGA';
+
+export function folioCorteGeneral(n) {
+  return `${PREFIJO_CORTE_GENERAL}-${String(Math.max(1, Math.round(Number(n) || 1))).padStart(5, '0')}`;
+}
+
+/** «CGA-00012» → 12 (0 si no es un folio de corte general). */
+export function numeroFolioCorteGeneral(folio) {
+  const m = String(folio || '').trim().match(/^CGA-(\d+)$/i);
+  return m ? Number(m[1]) : 0;
+}
+
+/** Folio provisional/legado por fecha (solo para pruebas o cortes anteriores al folio CGA). */
 export function folioCorteDiario(fechaYmd) {
   const f = String(fechaYmd || '').slice(0, 10).replace(/-/g, '');
   return `ABD-${f || '00000000'}`;
+}
+
+/** Siguiente folio CGA-00001, CGA-00002… de la tienda (consecutivo, sin tocar los folios AB- del cajero). */
+export async function siguienteFolioCorteGeneral(supabase, { sucursal } = {}) {
+  const suc = normalizarCodigoTienda(sucursal);
+  if (!supabase || !suc) return folioCorteGeneral(1);
+  const { equivalentesCodigoTienda } = await import('../constants/sucursales.js');
+  const vars = equivalentesCodigoTienda(suc);
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('folio')
+    .eq('modulo', 'abarrotes')
+    .in('sucursal_id', vars.length ? vars : [suc])
+    .ilike('folio', `${PREFIJO_CORTE_GENERAL}-%`)
+    .limit(2000);
+  if (error) return folioCorteGeneral(1);
+  const max = Math.max(0, ...(data || []).map((r) => numeroFolioCorteGeneral(r.folio)));
+  return folioCorteGeneral(max + 1);
+}
+
+/** Egresos del día para el recibo: gastos del corte, consumos de empleados y egresos de IE (sin duplicar). */
+export function resumenEgresosDia({ gastos = [], egresosIe = [] } = {}) {
+  const gastosTotal = round2(gastos.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  const consumos = gastos.filter((g) => gastoDescuentaNomina('abarrotes', g.categoria, g.subcategoria));
+  const consumosTotal = round2(consumos.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  const ie = egresosIe.filter((e) => e.ref_tabla !== 'cortes_contabilidad_gastos' && Number(e.monto) > 0);
+  const ieTotal = round2(ie.reduce((a, e) => a + (Number(e.monto) || 0), 0));
+  return {
+    gastos_total: gastosTotal,
+    consumos_total: consumosTotal,
+    egresos_ie: ie.map((e) => ({
+      id: e.id,
+      categoria: e.categoria_nombre || e.categoria_id || 'Sin categoría',
+      subcategoria: e.subcategoria_nombre || '',
+      descripcion: e.descripcion || '',
+      usuario_nombre: e.usuario_nombre || '',
+      monto: round2(e.monto),
+    })),
+    egresos_ie_total: ieTotal,
+    egresos_total_dia: round2(gastosTotal + ieTotal),
+  };
 }
 
 /**
@@ -70,6 +128,7 @@ export function armarEstadoCorteDiario({
   tarjeta = 0,
   cajaAnterior = 0,
   fechaNegocio,
+  folio = null,
 } = {}) {
   return {
     fondo_fijo: 0,
@@ -77,7 +136,7 @@ export function armarEstadoCorteDiario({
     venta: round2(venta),
     tarjeta: round2(tarjeta),
     recoleccion: 0,
-    folio: folioCorteDiario(fechaNegocio),
+    folio: folio || folioCorteDiario(fechaNegocio),
     comentarios: `Corte diario automático · ${fechaNegocio}`,
     fecha_negocio: fechaNegocio,
     venta_pos_por_corte: {},
@@ -135,7 +194,6 @@ export async function listarGastosAbarrotesDelDia(supabase, { sucursal, fecha } 
 export async function buscarCierreDiarioExistente(supabase, { sucursal, fecha } = {}) {
   const suc = normalizarCodigoTienda(sucursal);
   if (!supabase || !suc || !fecha) return { data: null, error: null };
-  const folio = folioCorteDiario(fecha);
   const desdeIso = inicioDia(addDaysYmd(fecha, -1)).toISOString();
   const hastaIso = finDia(addDaysYmd(fecha, 2)).toISOString();
   const { data, error } = await supabase
@@ -143,7 +201,6 @@ export async function buscarCierreDiarioExistente(supabase, { sucursal, fecha } 
     .select('*')
     .eq('modulo', 'abarrotes')
     .eq('sucursal_id', suc)
-    .eq('folio', folio)
     .gte('created_at', desdeIso)
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: false })
@@ -152,7 +209,7 @@ export async function buscarCierreDiarioExistente(supabase, { sucursal, fecha } 
   const hit = (data || []).find((c) => {
     if (c.deleted_at) return false;
     if (tipoCierreAbarrotes(c) !== TIPO_CIERRE_DIARIO) return false;
-    return fechaNegocioCierre(c) === fecha || c.folio === folio;
+    return fechaNegocioCierre(c) === fecha;
   });
   return { data: hit || null, error: null };
 }
@@ -202,12 +259,20 @@ export async function asegurarCorteDiarioAbarrotes(supabase, {
   const gastos = gas.data || [];
   const cajaAnterior = await cajaAnteriorDesdeDiarioPrevio(supabase, { sucursal: suc, fecha: ymd });
 
+  // Todo lo que egresó ese día (consumos y cargos a empleados incluidos) para el recibo del corte general.
+  const ie = await listarEgresosContVirtual(supabase, { desde: ymd, hasta: ymd, sucursal: suc, cuenta: 'abarrotes' });
+  const egresosDia = resumenEgresosDia({ gastos, egresosIe: ie?.data || [] });
+
+  const folio = existente.data?.folio && numeroFolioCorteGeneral(existente.data.folio)
+    ? existente.data.folio
+    : await siguienteFolioCorteGeneral(supabase, { sucursal: suc });
+
   const estado = armarEstadoCorteDiario({
     venta,
     tarjeta,
-    faltante: 0,
     cajaAnterior,
     fechaNegocio: ymd,
+    folio,
   });
   const calc = calcularAbarrotes(estado, gastos);
   const gastosIds = gastos.map((g) => g.id).filter(Boolean);
@@ -220,9 +285,9 @@ export async function asegurarCorteDiarioAbarrotes(supabase, {
     sucursal_id: suc,
     modulo: 'abarrotes',
     folio: estado.folio,
-    turno: 'Corte diario',
+    turno: 'Corte general',
     usuario_id: null,
-    usuario_nombre: 'Sistema · corte diario',
+    usuario_nombre: 'Sistema · corte general',
     caja_actual: calc.cajaActual ?? 0,
     ventas: calc.venta ?? 0,
     created_at: createdAt,
@@ -234,7 +299,9 @@ export async function asegurarCorteDiarioAbarrotes(supabase, {
       subtotal: calc.subtotal,
       tipo_cierre: TIPO_CIERRE_DIARIO,
       automatico: true,
+      corte_general: true,
       fecha_negocio: ymd,
+      egresos_dia: egresosDia,
       origen: 'medianoche',
       resumen_pos: {
         tickets: resumen.ticketsBruto || resumen.tickets || 0,
