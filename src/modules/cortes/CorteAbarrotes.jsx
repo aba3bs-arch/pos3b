@@ -75,6 +75,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   const [candadoRecargas, setCandadoRecargas] = useState(false);
   const [recargasPosTotal, setRecargasPosTotal] = useState(0);
   const [recargasPosRango, setRecargasPosRango] = useState('');
+  const [recargasPosDetalle, setRecargasPosDetalle] = useState([]);
   const [cargandoCandado, setCargandoCandado] = useState(false);
 
   const abrirCandadoCierre = async () => {
@@ -93,10 +94,12 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       if (r?.error) console.warn('[candado-mp]', r.error);
       setRecargasPosTotal(round2(r?.total || 0));
       setRecargasPosRango(r?.etiquetaRango || '');
+      setRecargasPosDetalle(r?.recargas || []);
     } catch (e) {
       console.warn('[candado-mp]', e);
       setRecargasPosTotal(0);
       setRecargasPosRango('');
+      setRecargasPosDetalle([]);
     } finally {
       setCargandoCandado(false);
     }
@@ -478,6 +481,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         abierto={candadoRecargas}
         posTotal={recargasPosTotal}
         posRango={recargasPosRango}
+        posDetalle={recargasPosDetalle}
         usuarioNombre={user?.nombre || '—'}
         usuarioId={user?.id || null}
         onCancelar={() => setCandadoRecargas(false)}

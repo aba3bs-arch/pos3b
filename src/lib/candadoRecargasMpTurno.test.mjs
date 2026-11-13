@@ -77,3 +77,34 @@ test('fechas candado: venta_pos de varios días rellena el rango', () => {
   assert.ok(fechas.includes('2026-11-11'));
   assert.ok(fechas.includes('2026-11-12'));
 });
+
+test('caso 3B2: cierre nocturno 07:09:49 ve la recarga de ayer (no hay que registrarla otra vez)', async () => {
+  const { rangoConsultaCorte } = await import('./corteCaja.js');
+  const { detalleRecargasPos, totalRecargasPos } = await import('./corteCajaRecargasMp.js');
+  const nocturno = { id: 'nocturno', nombre: 'Nocturno', hora_inicio: '19:00', hora_fin: '07:00' };
+  // 13/11/2026 07:09:49 Nogales = 14:09:49 UTC
+  const now = new Date('2026-11-13T14:09:49.000Z');
+  const fechas = fechasParaCandadoRecargasMp({
+    estado: { turno_sesion: nocturno },
+    gastos: [],
+    now,
+  });
+  assert.ok(fechas.includes('2026-11-12'), 'incluye el día de la recarga');
+  assert.ok(fechas.includes('2026-11-13'));
+
+  // Recarga de $25 vendida ayer a las 15:30 Nogales (22:30 UTC), turno diurno.
+  const recarga = {
+    id: 'v-25', vendedor: 'Lizbeth', total: 25, metodo_pago: 'Efectivo',
+    created_at: '2026-11-12T22:30:00.000Z',
+    articulos: [{ id: 'rec25', nombre: 'Recarga 25', precio: 25, qty: 1 }],
+  };
+  // Con solo la ventana del turno nocturno (comportamiento anterior) la recarga no entra.
+  const { ini, fin } = rangoConsultaCorte('2026-11-12', nocturno);
+  const t = new Date(recarga.created_at).getTime();
+  assert.equal(t >= ini.getTime() && t <= fin.getTime(), false);
+  // Con los días completos del candado sí se suma.
+  assert.equal(totalRecargasPos([recarga], []), 25);
+  const det = detalleRecargasPos([recarga], [{ id: 'c1', total: 10, metodo_pago: 'Recarga', created_at: '2026-11-12T23:00:00.000Z' }]);
+  assert.deepEqual(det.map((d) => d.monto), [25, -10]);
+  assert.equal(det[0].vendedor, 'Lizbeth');
+});
