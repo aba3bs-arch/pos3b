@@ -102,6 +102,8 @@ export function etiquetaTipoCierre(detalle) {
   if (t === 'recoleccion') return 'Recolección';
   if (t === 'recoleccion_temporal') return 'Recolección temporal';
   if (t === 'actualizacion') return 'Actualización';
+  if (t === 'cierre_diario') return 'Corte general (24 h)';
+  if (t === 'cierre_operativo') return 'Cierre operativo';
   return 'Cierre';
 }
 
