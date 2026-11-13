@@ -3,7 +3,7 @@
 
 -- 1) Posibles duplicados: misma tienda, vendedor, total y artículos con menos de 2 minutos de diferencia.
 with r as (
-  select id, sucursal_id, vendedor, total, metodo_pago, turno_nombre, articulos::text as arts,
+  select id, sucursal_id, vendedor, total, metodo_pago, articulos::text as arts,
          created_at, (created_at at time zone 'America/Hermosillo') as hora_nogales
   from public.ventas
   where created_at >= now() - interval '14 days'
@@ -17,7 +17,8 @@ join r b on b.sucursal_id = a.sucursal_id and b.vendedor = a.vendedor and b.tota
         and b.created_at - a.created_at <= interval '2 minutes'
 order by a.hora_nogales desc;
 
--- 2) Recargas con turno guardado distinto al turno que corresponde a su hora (12x12: diurno 07-19).
+-- 2) (Necesita la columna turno_id en ventas; si da error, salta esta consulta.)
+--    Recargas con turno guardado distinto al turno que corresponde a su hora (12x12: diurno 07-19).
 select id, sucursal_id, vendedor, total, metodo_pago, turno_id, turno_nombre,
        (created_at at time zone 'America/Hermosillo') as hora_nogales,
        case when extract(hour from (created_at at time zone 'America/Hermosillo')) between 7 and 18
@@ -31,7 +32,7 @@ where created_at >= now() - interval '14 days'
 order by created_at desc;
 
 -- 3) Ajustes del candado Mercado Pago (llevan la hora del cierre, no la de la recarga).
-select id, sucursal_id, vendedor, total, turno_nombre,
+select id, sucursal_id, vendedor, total,
        (created_at at time zone 'America/Hermosillo') as hora_nogales
 from public.ventas
 where created_at >= now() - interval '30 days'
