@@ -60,8 +60,8 @@ export function fmtYmdEs(ymd) {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
-export function hoyYmdNogales() {
-  return ymdNogalesFromDate(new Date());
+export function hoyYmdNogales(now = new Date()) {
+  return ymdNogalesFromDate(now);
 }
 
 /**

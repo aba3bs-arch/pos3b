@@ -2,6 +2,9 @@
   "functions": {
     "enviar-push": {
       "verify_jwt": false
+    },
+    "corte-general-abarrotes": {
+      "verify_jwt": false
     }
   }
 }
