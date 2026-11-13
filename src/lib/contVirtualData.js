@@ -706,6 +706,13 @@ function fmtMoneyPlain(n) {
   return `${sign}$${Math.abs(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function addDaysYmdSimple(ymd, dias) {
+  const [y, m, d] = String(ymd || '').slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return String(ymd || '').slice(0, 10);
+  const dt = new Date(Date.UTC(y, m - 1, d + dias));
+  return dt.toISOString().slice(0, 10);
+}
+
 function idsGastosDeCierre(c) {
   const det = c?.detalle && typeof c.detalle === 'object' ? c.detalle : {};
   const ids = new Set();
@@ -731,7 +738,17 @@ export function armarLibroCajaAbarrotes({
   gastosAprobados = [],
   detalleUnificado = [],
   desde = null,
+  posTarjeta = null,
 } = {}) {
+  // Tarjeta registrada en las ventas del POS por tienda y día (cortes de caja), para repartir
+  // lo que el cajero capturó como «pago tarjeta» entre PCT ABA (venta POS) y PCT VIRTUAL (la diferencia).
+  const bolsaPos = new Map();
+  if (Array.isArray(posTarjeta)) {
+    for (const r of posTarjeta) {
+      const k = `${r.tienda}|${r.fecha}`;
+      bolsaPos.set(k, round2((bolsaPos.get(k) || 0) + (Number(r.monto) || 0)));
+    }
+  }
   const porId = new Map((gastosTabla || []).map((g) => [String(g.id), g]));
   const idsCerrados = new Set();
   for (const c of todosCierres || []) {
@@ -739,7 +756,9 @@ export function armarLibroCajaAbarrotes({
   }
 
   const cortes = [];
-  for (const c of cierres || []) {
+  const cierresOrdenados = [...(cierres || [])].sort((a, b) =>
+    String(a?.created_at || '').localeCompare(String(b?.created_at || '')));
+  for (const c of cierresOrdenados) {
     const det = c?.detalle && typeof c.detalle === 'object' ? c.detalle : {};
     const item = itemIngresoVentaCierreAbarrotes(c, { desde });
     const tienda = item.tienda;
@@ -783,6 +802,16 @@ export function armarLibroCajaAbarrotes({
       });
     }
 
+    let pctAba = tarjeta;
+    let pctVirtual = 0;
+    if (Array.isArray(posTarjeta)) {
+      const k = `${tienda}|${item.fecha}`;
+      const disponible = bolsaPos.get(k) || 0;
+      pctAba = round2(Math.min(tarjeta, disponible));
+      pctVirtual = round2(tarjeta - pctAba);
+      bolsaPos.set(k, round2(disponible - pctAba));
+    }
+
     cortes.push({
       id: c.id,
       folio: c.folio || '',
@@ -793,6 +822,9 @@ export function armarLibroCajaAbarrotes({
       tienda,
       ventaTotal,
       tarjeta,
+      pctAba,
+      pctVirtual,
+      posDisponible: Array.isArray(posTarjeta),
       ventaEfectivo: round2(ventaTotal - tarjeta),
       gastosTotal: round2(gastos.reduce((a, g) => a + g.monto, 0)),
       cajaAnterior: round2(Number(det.caja_anterior) || 0),
@@ -1058,6 +1090,29 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     idsGastosLiberados,
   });
 
+  let posTarjeta = null;
+  try {
+    const d0 = addDaysYmdSimple(desde, -1);
+    const d1 = addDaysYmdSimple(hasta, 1);
+    const { data: cajasPos, error: errPos } = await supabase
+      .from('cortes_caja')
+      .select('sucursal_id,fecha,grupos')
+      .gte('fecha', d0)
+      .lte('fecha', d1)
+      .limit(5000);
+    if (!errPos) {
+      posTarjeta = (cajasPos || [])
+        .filter((r) => !sucFiltro || normalizarCodigoTienda(r.sucursal_id) === sucFiltro)
+        .map((r) => ({
+          tienda: normalizarCodigoTienda(r.sucursal_id) || 'MAIN',
+          fecha: String(r.fecha || '').slice(0, 10),
+          monto: round2(Number(r?.grupos?.tarjeta) || 0),
+        }));
+    }
+  } catch {
+    posTarjeta = null;
+  }
+
   const libroCajas = armarLibroCajaAbarrotes({
     cierres,
     todosCierres,
@@ -1065,6 +1120,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     gastosAprobados: gastos,
     detalleUnificado: unificado.detalle,
     desde,
+    posTarjeta,
   });
 
   // Forzar cuenta abarrotes en detalle unificado (mapearCorte usa virtual por defecto)

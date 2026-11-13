@@ -155,6 +155,16 @@ function TarjetaDia({ dia, abierto, onToggle }) {
             </div>
           )}
 
+          {(dia.pctAba > 0 || dia.pctVirtual > 0) && (
+            <div style={{ margin: '0.7rem 0 0.1rem', fontSize: '0.82rem' }}>
+              <div style={{ fontWeight: 700, color: '#334155' }}>PAGOS CON TARJETA · no entran a la caja de efectivo</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem 1.2rem', marginTop: '0.15rem' }}>
+                <span><b style={{ color: '#1d4ed8' }}>PCT ABA</b> (venta del POS): {dinero(dia.pctAba)}</span>
+                <span><b style={{ color: '#7c3aed' }}>PCT VIRTUAL</b> (diferencia): {dinero(dia.pctVirtual)}</span>
+              </div>
+            </div>
+          )}
+
           {dia.enCurso.length > 0 && (
             <div style={{ margin: '0.7rem 0 0.1rem', padding: '0.45rem 0.6rem', borderRadius: 6, background: '#fffbeb', border: '1px solid #fcd34d' }}>
               <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.82rem' }}>
@@ -289,13 +299,20 @@ export default function LibroDiario({ supabase, sucursal }) {
       tiendas,
     );
     const filas = tiendas.map((id) => {
-      const f = porTienda.find((x) => x.id === id) || { ingresos: 0, gastos: 0, enCurso: 0, otros: 0, resultado: 0 };
+      const f = porTienda.find((x) => x.id === id) || { ingresos: 0, gastos: 0, enCurso: 0, otros: 0, pctAba: 0, pctVirtual: 0, resultado: 0 };
       return { ...f, id, label: etiquetaTienda(id) };
     });
     const r2 = (n) => Math.round(n * 100) / 100;
     const total = filas.reduce(
-      (a, f) => ({ ingresos: a.ingresos + f.ingresos, gastos: a.gastos + f.gastos, enCurso: a.enCurso + f.enCurso, otros: a.otros + f.otros }),
-      { ingresos: 0, gastos: 0, enCurso: 0, otros: 0 },
+      (a, f) => ({
+        ingresos: a.ingresos + f.ingresos,
+        gastos: a.gastos + f.gastos,
+        enCurso: a.enCurso + f.enCurso,
+        otros: a.otros + f.otros,
+        pctAba: a.pctAba + f.pctAba,
+        pctVirtual: a.pctVirtual + f.pctVirtual,
+      }),
+      { ingresos: 0, gastos: 0, enCurso: 0, otros: 0, pctAba: 0, pctVirtual: 0 },
     );
     return { filas, total: { ...total, resultado: r2(total.ingresos - total.gastos) } };
   }, [datos, tienda, tiendas]);
@@ -407,6 +424,8 @@ export default function LibroDiario({ supabase, sucursal }) {
               <tr style={{ textAlign: 'left', borderBottom: '2px solid rgba(100,116,139,0.35)' }}>
                 <th style={{ padding: '0.35rem 0.4rem' }}>Tienda</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Ventas</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Pagos con tarjeta registrados en las ventas del POS">PCT ABA</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Pagos con tarjeta del corte que no están en las ventas del POS (diferencia)">PCT VIRTUAL</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Gastos de cortes</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Resultado</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Turno en curso</th>
@@ -422,6 +441,8 @@ export default function LibroDiario({ supabase, sucursal }) {
                 >
                   <td style={{ padding: '0.4rem' }}><b>{f.label}</b></td>
                   <td style={{ padding: '0.4rem', textAlign: 'right', color: VERDE }}>{dinero(f.ingresos)}</td>
+                  <td style={{ padding: '0.4rem', textAlign: 'right', color: '#1d4ed8' }}>{f.pctAba > 0 ? dinero(f.pctAba) : '—'}</td>
+                  <td style={{ padding: '0.4rem', textAlign: 'right', color: '#7c3aed' }}>{f.pctVirtual > 0 ? dinero(f.pctVirtual) : '—'}</td>
                   <td style={{ padding: '0.4rem', textAlign: 'right', color: ROJO }}>{dinero(f.gastos)}</td>
                   <td style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 700, color: colorResultado(f.resultado) }}>{dinero(f.resultado)}</td>
                   <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{f.enCurso > 0 ? dinero(f.enCurso) : '—'}</td>
@@ -431,6 +452,8 @@ export default function LibroDiario({ supabase, sucursal }) {
               <tr style={{ borderTop: '2px solid rgba(100,116,139,0.35)', fontWeight: 700 }}>
                 <td style={{ padding: '0.4rem' }}>Total</td>
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: VERDE }}>{dinero(resumenTiendas.total.ingresos)}</td>
+                <td style={{ padding: '0.4rem', textAlign: 'right', color: '#1d4ed8' }}>{resumenTiendas.total.pctAba > 0 ? dinero(resumenTiendas.total.pctAba) : '—'}</td>
+                <td style={{ padding: '0.4rem', textAlign: 'right', color: '#7c3aed' }}>{resumenTiendas.total.pctVirtual > 0 ? dinero(resumenTiendas.total.pctVirtual) : '—'}</td>
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: ROJO }}>{dinero(resumenTiendas.total.gastos)}</td>
                 <td style={{ padding: '0.4rem', textAlign: 'right', color: colorResultado(resumenTiendas.total.resultado) }}>{dinero(resumenTiendas.total.resultado)}</td>
                 <td className="muted" style={{ padding: '0.4rem', textAlign: 'right' }}>{resumenTiendas.total.enCurso > 0 ? dinero(resumenTiendas.total.enCurso) : '—'}</td>
@@ -445,6 +468,8 @@ export default function LibroDiario({ supabase, sucursal }) {
         <>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
             <Kpi titulo="Entró (ventas)" valor={dinero(t.ingresos)} color={VERDE} nota={t.otrosIngresos > 0 ? `Incluye ${dinero(t.otrosIngresos)} de otros ingresos` : 'Ventas de los cortes de la semana'} />
+            <Kpi titulo="PCT ABA" valor={dinero(t.pctAba)} color="#1d4ed8" nota="Tarjeta registrada en las ventas del POS" />
+            <Kpi titulo="PCT VIRTUAL" valor={dinero(t.pctVirtual)} color="#7c3aed" nota="Tarjeta del corte menos lo registrado en el POS" />
             <Kpi titulo="Salió (gastos de los cortes)" valor={dinero(t.gastos)} color={ROJO} nota={t.ingresos > 0 ? `${t.gastoPctVentas}% de lo vendido` : ''} />
             <Kpi
               titulo="Resultado de la semana"
@@ -461,6 +486,7 @@ export default function LibroDiario({ supabase, sucursal }) {
               <li><b style={{ color: VERDE }}>Entró</b>: venta en efectivo de los cortes (venta total menos tarjeta) y otros ingresos capturados a mano.</li>
               <li><b style={{ color: ROJO }}>Salió</b>: los gastos que guardó cada corte cerrado (los mismos del ticket). Los créditos cobrados cuentan aquí como egreso, no como ingreso.</li>
               <li><b>Resultado del día</b> = lo que entró − lo que salió. <b>Acumulado</b> = suma de los resultados desde el sábado.</li>
+              <li><b>PCT ABA / PCT VIRTUAL</b>: el pago con tarjeta que captura el cajero en el corte se divide en dos. PCT ABA es lo que ya está registrado como tarjeta en las ventas del POS de la tienda; PCT VIRTUAL es la diferencia. Ninguno entra a Entró/Salió porque no es efectivo.</li>
               <li><b>Caja chica</b>: para cada corte se muestra caja anterior + venta en efectivo − gastos = caja al cerrar, que debe ser igual al ticket.</li>
               <li><b>Turno en curso</b>: gastos capturados después del último corte; no cuentan hasta que se cierre el siguiente corte. <b>Otros egresos de IE</b>: vales, evidencias o préstamos que no salen de la caja del corte; se muestran aparte.</li>
               <li>No es utilidad: no incluye el costo de la mercancía ni la nómina de la semana si aún no se registra en IE.</li>

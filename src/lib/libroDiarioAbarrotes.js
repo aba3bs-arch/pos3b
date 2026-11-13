@@ -116,6 +116,8 @@ export function construirLibroDiario({
       totalGastos: 0,
       totalEnCurso: 0,
       totalOtrosEgresos: 0,
+      pctAba: 0,
+      pctVirtual: 0,
       resultado: 0,
       acumulado: 0,
       sinMovimiento: true,
@@ -180,6 +182,9 @@ export function construirLibroDiario({
       ventaEfectivo: efectivo,
       gastos: gastosCorte,
       cajaActual,
+      tarjeta: round2(c.tarjeta),
+      pctAba: round2(c.pctAba),
+      pctVirtual: round2(c.pctVirtual),
       cuadra: Math.abs(esperada - cajaActual) < 0.51,
       cajaCalculada: esperada,
     });
@@ -208,6 +213,8 @@ export function construirLibroDiario({
   let totalGastos = 0;
   let totalEnCurso = 0;
   let totalOtrosEgresos = 0;
+  let totalPctAba = 0;
+  let totalPctVirtual = 0;
   for (const dia of dias) {
     dia.ventas.sort(porHora);
     dia.otrosIngresos.sort(porHora);
@@ -221,16 +228,20 @@ export function construirLibroDiario({
     dia.totalGastos = round2(dia.gastos.reduce((s, x) => s + x.monto, 0));
     dia.totalEnCurso = round2(dia.enCurso.reduce((s, x) => s + x.monto, 0));
     dia.totalOtrosEgresos = round2(dia.otrosEgresos.reduce((s, x) => s + x.monto, 0));
+    dia.pctAba = round2(dia.cortes.reduce((s, x) => s + x.pctAba, 0));
+    dia.pctVirtual = round2(dia.cortes.reduce((s, x) => s + x.pctVirtual, 0));
     dia.resultado = round2(dia.totalIngresos - dia.totalGastos);
     acumulado = round2(acumulado + dia.resultado);
     dia.acumulado = acumulado;
     dia.sinMovimiento = !dia.ventas.length && !dia.otrosIngresos.length && !dia.gastos.length
-      && !dia.enCurso.length && !dia.otrosEgresos.length;
+      && !dia.enCurso.length && !dia.otrosEgresos.length && !dia.cortes.length;
     totalVentas = round2(totalVentas + dia.totalVentas);
     totalOtros = round2(totalOtros + dia.totalOtrosIngresos);
     totalGastos = round2(totalGastos + dia.totalGastos);
     totalEnCurso = round2(totalEnCurso + dia.totalEnCurso);
     totalOtrosEgresos = round2(totalOtrosEgresos + dia.totalOtrosEgresos);
+    totalPctAba = round2(totalPctAba + dia.pctAba);
+    totalPctVirtual = round2(totalPctVirtual + dia.pctVirtual);
     for (const g of dia.gastos) {
       catMap.set(g.categoria, round2((catMap.get(g.categoria) || 0) + g.monto));
     }
@@ -261,6 +272,8 @@ export function construirLibroDiario({
       gastos: totalGastos,
       enCurso: totalEnCurso,
       otrosEgresos: totalOtrosEgresos,
+      pctAba: totalPctAba,
+      pctVirtual: totalPctVirtual,
       resultado: round2(totalIngresos - totalGastos),
       gastoPctVentas: totalIngresos > 0 ? round2((totalGastos / totalIngresos) * 100) : 0,
       diasConMovimiento: conMov.length,
@@ -274,10 +287,10 @@ export function construirLibroDiario({
 
 /** Resumen de todas las tiendas con el mismo criterio que el libro de cada tienda. */
 export function resumenLibroPorTienda({ ingresos = [], cortes = [], enCurso = [], otros = [] } = {}, tiendas = []) {
-  const mapa = new Map(tiendas.map((id) => [id, { id, ingresos: 0, gastos: 0, enCurso: 0, otros: 0 }]));
+  const mapa = new Map(tiendas.map((id) => [id, { id, ingresos: 0, gastos: 0, enCurso: 0, otros: 0, pctAba: 0, pctVirtual: 0 }]));
   const fila = (id) => {
     const k = id || 'MAIN';
-    if (!mapa.has(k)) mapa.set(k, { id: k, ingresos: 0, gastos: 0, enCurso: 0, otros: 0 });
+    if (!mapa.has(k)) mapa.set(k, { id: k, ingresos: 0, gastos: 0, enCurso: 0, otros: 0, pctAba: 0, pctVirtual: 0 });
     return mapa.get(k);
   };
   for (const it of ingresos) {
@@ -287,6 +300,8 @@ export function resumenLibroPorTienda({ ingresos = [], cortes = [], enCurso = []
   for (const c of cortes) {
     const f = fila(c.tienda);
     f.gastos = round2(f.gastos + (c.gastos || []).reduce((s, g) => s + (Number(g.monto) || 0), 0));
+    f.pctAba = round2(f.pctAba + (Number(c.pctAba) || 0));
+    f.pctVirtual = round2(f.pctVirtual + (Number(c.pctVirtual) || 0));
   }
   for (const g of enCurso) fila(g.tienda).enCurso = round2(fila(g.tienda).enCurso + (Number(g.monto) || 0));
   for (const g of otros) fila(g.tienda).otros = round2(fila(g.tienda).otros + (Number(g.monto) || 0));
@@ -309,6 +324,9 @@ export function htmlLibroDiarioImprimible(libro, { tienda = '', semana = '' } = 
       ...d.otrosIngresos.map((x) => `<tr><td class="in">Entra</td><td>${esc(x.concepto)}</td><td class="n in">${dinero(x.monto)}</td></tr>`),
       ...d.gastos.map((x) => `<tr><td class="out">Sale</td><td>${esc(x.categoria)} · ${esc(x.concepto)}${x.empleado ? ` <span class="m">(${esc(x.empleado)})</span>` : ''}</td><td class="n out">${dinero(x.monto)}</td></tr>`),
       ...d.cortes.map((c) => `<tr><td class="m">Caja</td><td class="m">${esc(c.folio)}${c.turno ? ` · ${esc(c.turno)}` : ''}: caja anterior ${dinero(c.cajaAnterior)} + venta efectivo ${dinero(c.ventaEfectivo)} − gastos ${dinero(c.gastos)} = <b>${dinero(c.cajaActual)}</b>${c.cuadra ? '' : ` (calculado ${dinero(c.cajaCalculada)})`}</td><td></td></tr>`),
+      ...(d.pctAba > 0 || d.pctVirtual > 0
+        ? [`<tr><td class="m">Tarjeta</td><td class="m">PCT ABA (venta POS) ${dinero(d.pctAba)} · PCT VIRTUAL (diferencia) ${dinero(d.pctVirtual)}</td><td></td></tr>`]
+        : []),
       ...d.enCurso.map((x) => `<tr><td class="m">En curso</td><td class="m">${esc(x.categoria)} · ${esc(x.concepto)} (aún sin corte)</td><td class="n m">${dinero(x.monto)}</td></tr>`),
       ...d.otrosEgresos.map((x) => `<tr><td class="m">Otro IE</td><td class="m">${esc(x.categoria)} · ${esc(x.concepto)} (no sale de la caja del corte)</td><td class="n m">${dinero(x.monto)}</td></tr>`),
     ].join('');
@@ -325,6 +343,6 @@ tr.dia th{background:#eef2ff;border-top:2px solid #6366f1}tr.tot td{font-weight:
 .res{display:flex;gap:14px;margin:8px 0 14px}.res div{border:1px solid #ccc;border-radius:6px;padding:6px 10px}
 </style></head><body>
 <h1>Libro diario · Abarrotes · ${esc(tienda)}</h1><h2>${esc(semana)}</h2>
-<div class="res"><div>Ventas y entradas<br><b class="in">${dinero(t.ingresos)}</b></div><div>Gastos de los cortes<br><b class="out">${dinero(t.gastos)}</b></div><div>Resultado de la semana<br><b>${dinero(t.resultado)}</b></div>${t.enCurso > 0 ? `<div>Turno en curso (sin corte)<br><b>${dinero(t.enCurso)}</b></div>` : ''}${t.otrosEgresos > 0 ? `<div>Otros egresos IE<br><b>${dinero(t.otrosEgresos)}</b></div>` : ''}</div>
+<div class="res"><div>Ventas y entradas<br><b class="in">${dinero(t.ingresos)}</b></div><div>Gastos de los cortes<br><b class="out">${dinero(t.gastos)}</b></div><div>Resultado de la semana<br><b>${dinero(t.resultado)}</b></div>${t.pctAba > 0 ? `<div>PCT ABA<br><b>${dinero(t.pctAba)}</b></div>` : ''}${t.pctVirtual > 0 ? `<div>PCT VIRTUAL<br><b>${dinero(t.pctVirtual)}</b></div>` : ''}${t.enCurso > 0 ? `<div>Turno en curso (sin corte)<br><b>${dinero(t.enCurso)}</b></div>` : ''}${t.otrosEgresos > 0 ? `<div>Otros egresos IE<br><b>${dinero(t.otrosEgresos)}</b></div>` : ''}</div>
 <table>${filas}</table></body></html>`;
 }
