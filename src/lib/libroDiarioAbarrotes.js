@@ -504,6 +504,6 @@ tr.dia th{background:#eef2ff;border-top:2px solid #6366f1}tr.tot td{font-weight:
 .res{display:flex;gap:14px;margin:8px 0 14px}.res div{border:1px solid #ccc;border-radius:6px;padding:6px 10px}
 </style></head><body>
 <h1>Libro diario · Abarrotes · ${esc(tienda)}</h1><h2>${esc(semana)}</h2>
-<div class="res"><div>Ventas y entradas<br><b class="in">${dinero(t.ingresos)}</b></div><div>Gastos de los cortes<br><b class="out">${dinero(t.gastos)}</b></div><div>Resultado del periodo<br><b>${dinero(t.resultado)}</b></div>${t.pctAba > 0 ? `<div>PCT ABA<br><b>${dinero(t.pctAba)}</b></div>` : ''}${t.pctVirtual > 0 ? `<div>PCT VIRTUAL<br><b>${dinero(t.pctVirtual)}</b></div>` : ''}${t.enCurso > 0 ? `<div>Turno en curso (sin corte)<br><b>${dinero(t.enCurso)}</b></div>` : ''}${t.otrosEgresos > 0 ? `<div>Otros egresos IE<br><b>${dinero(t.otrosEgresos)}</b></div>` : ''}</div>
+<div class="res"><div>Ventas y entradas<br><b class="in">${dinero(t.ingresos)}</b></div><div>Gastos de los cortes<br><b class="out">${dinero(t.gastos)}</b></div><div>Resultado del periodo<br><b>${dinero(t.resultado)}</b></div>${t.pctAba > 0 ? `<div>PCT ABA<br><b>${dinero(t.pctAba)}</b></div>` : ''}${t.pctVirtual > 0 ? `<div>PCT VIRTUAL<br><b>${dinero(t.pctVirtual)}</b></div>` : ''}${t.enCurso > 0 ? `<div>Gastos sin corte<br><b>${dinero(t.enCurso)}</b></div>` : ''}${t.otrosEgresos > 0 ? `<div>Otros egresos IE<br><b>${dinero(t.otrosEgresos)}</b></div>` : ''}</div>
 <table>${filas}</table></body></html>`;
 }

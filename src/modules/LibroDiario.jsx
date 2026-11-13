@@ -239,7 +239,7 @@ function TarjetaDia({ dia, abierto, onToggle }) {
           {dia.enCurso.length > 0 && (
             <div style={{ margin: '0.7rem 0 0.1rem', padding: '0.45rem 0.6rem', borderRadius: 6, background: '#fffbeb', border: '1px solid #fcd34d' }}>
               <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.82rem' }}>
-                TURNO EN CURSO · gastos aún sin corte ({dinero(dia.totalEnCurso)})
+                GASTOS SIN CORTE · se van sumando durante el día ({dinero(dia.totalEnCurso)})
               </div>
               <div className="muted" style={{ fontSize: '0.74rem', marginBottom: '0.2rem' }}>
                 No cuentan en el resultado hasta que se cierre el corte; entonces pasan a SALIDAS.
@@ -701,7 +701,7 @@ export default function LibroDiario({ supabase, sucursal }) {
                     Venta POS hoy (en vivo)
                   </th>
                 )}
-                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Turno en curso</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Gastos ya capturados que todavía no entran a un corte general. Son egresos, no ventas.">Gastos sin corte</th>
                 <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>Otros IE</th>
               </tr>
             </thead>
@@ -777,7 +777,7 @@ export default function LibroDiario({ supabase, sucursal }) {
               <li><b>Resultado del día</b> = lo que entró − lo que salió. <b>Acumulado</b> = suma de los resultados desde el primer día del periodo consultado.</li>
               <li><b>PCT ABA / PCT VIRTUAL</b>: el pago con tarjeta que captura el cajero en el corte se divide en dos. PCT ABA es lo que ya está registrado como tarjeta en las ventas del POS de la tienda; PCT VIRTUAL es la diferencia. Ninguno entra a Entró/Salió porque no es efectivo.</li>
               <li><b>Caja chica</b>: para cada corte se muestra caja anterior + venta en efectivo − gastos = caja al cerrar, que debe ser igual al ticket.</li>
-              <li><b>Turno en curso</b>: gastos capturados después del último corte; no cuentan hasta que se cierre el siguiente corte. <b>Otros egresos de IE</b>: vales, evidencias o préstamos que no salen de la caja del corte; se muestran aparte.</li>
+              <li><b>Gastos sin corte</b>: gastos (no ventas) ya capturados que todavía no entran al corte general de medianoche; se actualizan cada vez que abres o actualizas el libro y no cuentan en el resultado hasta que se genere el corte. <b>Otros egresos de IE</b>: vales, evidencias o préstamos que no salen de la caja del corte; se muestran aparte.</li>
               <li>No es utilidad: no incluye el costo de la mercancía ni la nómina del periodo si aún no se registra en IE.</li>
             </ul>
           </details>
