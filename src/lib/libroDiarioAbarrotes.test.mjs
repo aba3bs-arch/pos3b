@@ -8,6 +8,13 @@ import {
   dinero,
   htmlLibroDiarioImprimible,
   resumenLibroPorTienda,
+  periodoLibro,
+  trocearPeriodo,
+  fusionarDatosLibro,
+  resumenPorMes,
+  resumenPorSemana,
+  nombreMes,
+  diasEntre,
 } from './libroDiarioAbarrotes.js';
 
 // Semana sáb–vie
@@ -92,7 +99,7 @@ assert.equal(vacio.dias.every((d) => d.sinMovimiento), true);
 
 const html = htmlLibroDiarioImprimible(libro, { tienda: '<3B5>', semana: 'x' });
 assert.ok(html.includes('&lt;3B5&gt;'));
-assert.ok(html.includes('Resultado de la semana'));
+assert.ok(html.includes('Resultado del periodo'));
 // Caso AB-210 (3B5, jueves 12 nov): el libro debe cerrar igual que el ticket.
 const ab210 = construirLibroDiario({
   desde: '2026-11-07',
@@ -154,5 +161,66 @@ const resTar = resumenLibroPorTienda({ cortes: [
 ] }, ['3B5']);
 assert.equal(resTar[0].pctAba, 300);
 assert.equal(resTar[0].pctVirtual, 300);
+
+// Periodos: semana, mes, año y rango
+const pSem = periodoLibro({ modo: 'semana', semana: { inicio: '2026-11-07', fin: '2026-11-13' } });
+assert.deepEqual([pSem.desde, pSem.hasta, pSem.dias], ['2026-11-07', '2026-11-13', 7]);
+const pMes = periodoLibro({ modo: 'mes', mes: { anio: 2026, mes: 11 } });
+assert.deepEqual([pMes.desde, pMes.hasta, pMes.dias], ['2026-11-01', '2026-11-30', 30]);
+assert.equal(pMes.etiqueta, 'Noviembre 2026');
+const pFeb = periodoLibro({ modo: 'mes', mes: { anio: 2028, mes: 2 } });
+assert.equal(pFeb.hasta, '2028-02-29');
+// Noviembre 2026 empieza domingo (1 nov) → sábado anterior 31 oct; el 30 nov es lunes → viernes 4 dic
+const pMesExt = periodoLibro({ modo: 'mes', mes: { anio: 2026, mes: 11 }, extender: true });
+assert.deepEqual([pMesExt.desde, pMesExt.hasta], ['2026-10-31', '2026-12-04']);
+assert.equal(nombreDia(pMesExt.desde), 'Sábado');
+assert.equal(nombreDia(pMesExt.hasta), 'Viernes');
+const pAnio = periodoLibro({ modo: 'anio', anio: 2026 });
+assert.deepEqual([pAnio.desde, pAnio.hasta, pAnio.dias], ['2026-01-01', '2026-12-31', 365]);
+const pRango = periodoLibro({ modo: 'rango', desde: '2026-11-20', hasta: '2026-11-03' });
+assert.deepEqual([pRango.desde, pRango.hasta], ['2026-11-03', '2026-11-20']);
+const pRangoExt = periodoLibro({ modo: 'rango', desde: '2026-11-03', hasta: '2026-11-20', extender: true });
+assert.deepEqual([pRangoExt.desde, pRangoExt.hasta], ['2026-10-31', '2026-11-20']);
+const pLargo = periodoLibro({ modo: 'rango', desde: '2020-01-01', hasta: '2026-01-01' });
+assert.equal(pLargo.recortado, true);
+assert.equal(pLargo.dias, 400);
+
+const tramos = trocearPeriodo('2026-01-01', '2026-12-31', 31);
+assert.equal(tramos[0].desde, '2026-01-01');
+assert.equal(tramos[0].hasta, '2026-01-31');
+assert.equal(tramos[tramos.length - 1].hasta, '2026-12-31');
+assert.equal(tramos.reduce((s, t) => s + diasEntre(t.desde, t.hasta), 0), 365);
+assert.equal(trocearPeriodo('2026-11-07', '2026-11-13').length, 1);
+
+const fus = fusionarDatosLibro([
+  { ingresosPorDia: [{ id: 'a' }], cortesLibro: [{ id: 'c1' }] },
+  { ingresosPorDia: [{ id: 'a' }, { id: 'b' }], cortesLibro: [{ id: 'c2' }], gastosEnCurso: [{ id: 'e' }] },
+]);
+assert.equal(fus.ingresosPorDia.length, 2);
+assert.equal(fus.cortesLibro.length, 2);
+assert.equal(fus.gastosEnCurso.length, 1);
+
+// Libro de un año completo: resumen por mes y por semana
+const anio = construirLibroDiario({
+  desde: '2026-01-01',
+  hasta: '2026-12-31',
+  ingresos: [
+    { id: 'i1', fecha: '2026-01-15', monto: 100, tipo_mov: 'venta_cierre' },
+    { id: 'i2', fecha: '2026-11-12', monto: 300, tipo_mov: 'venta_cierre' },
+  ],
+  cortes: [{ id: 'k', folio: 'AB-1', fecha: '2026-11-12', cajaAnterior: 0, ventaEfectivo: 300, cajaActual: 250, gastos: [{ id: 'g', monto: 50, categoria: 'X' }] }],
+});
+assert.equal(anio.dias.length, 365);
+assert.equal(anio.totales.ingresos, 400);
+assert.equal(anio.totales.resultado, 350);
+const meses = resumenPorMes(anio.dias);
+assert.equal(meses.length, 12);
+assert.equal(meses[0].ventas, 100);
+assert.equal(meses[10].etiqueta, 'Noviembre 2026');
+assert.equal(meses[10].resultado, 250);
+const semanas = resumenPorSemana(anio.dias.filter((d) => d.fecha >= '2026-11-07' && d.fecha <= '2026-11-20'));
+assert.equal(semanas.length, 2);
+assert.equal(semanas[0].inicio, '2026-11-07');
+assert.equal(semanas[0].resultado, 250);
 
 console.log('libroDiarioAbarrotes.test.mjs OK');
