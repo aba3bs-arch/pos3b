@@ -21,6 +21,7 @@ import {
   reclasificarGastosRtFranciscoAAbarrotes,
 } from './contabilidadDepartamentos.js';
 import { finDia, inicioDia, hoyYmdNogales, ymdNogalesFromDate, ymdNegocioDesdeIso } from './corteCaja.js';
+import { esCierreContableAbarrotes } from './corteAbarrotesDiario.js';
 
 function toYmd(d) {
   return ymdNogalesFromDate(d) || hoyYmdNogales();
@@ -251,7 +252,11 @@ function itemIngresoVentaCierreAbarrotes(c, { desde } = {}) {
     efectivo: venta,
     gastos_total: gastosEmb,
     gastos: [],
-    comentario: `Ventas Abarrotes · ${etiquetaTienda(t)} · ${c.folio || ''}`.trim(),
+    comentario: (
+      String(detalle.tipo_cierre || '').toLowerCase() === 'cierre_diario'
+        ? `Corte diario · ${etiquetaTienda(t)} · ${c.folio || ''}`
+        : `Ventas Abarrotes · ${etiquetaTienda(t)} · ${c.folio || ''}`
+    ).trim(),
     cuenta: 'abarrotes',
     tienda: t,
     tipo_mov: 'venta_cierre',
@@ -266,10 +271,9 @@ function tipoCierre(row) {
 }
 
 function esCierreTurno(row) {
-  const t = tipoCierre(row);
-  // Sin tipo (cierres viejos) o 'cierre' cuentan; excluye recolección / actualización.
-  if (!t || t === 'cierre') return true;
-  return !t.startsWith('recoleccion') && t !== 'actualizacion';
+  // Contabilidad / libro diario: solo corte diario automático (y legado pre-cutover).
+  // Los cierres del cajero (cierre_operativo) ya no entran.
+  return esCierreContableAbarrotes(row);
 }
 
 /** Recolección definitiva aprobable para IE (Garage: solo con máquinas en cero). */
@@ -873,6 +877,18 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   const tiendas = listarSucursalesOperativas();
   const tiendasFiltro = sucFiltro ? [sucFiltro] : tiendas;
   const { desdeIso, hastaIso } = rangoIsoNogales(desde, hasta);
+
+  // Genera cortes diarios faltantes (medianoche Nogales) antes de armar IE / libro.
+  try {
+    const { asegurarCortesDiariosAbarrotes } = await import('./corteAbarrotesDiario.js');
+    await asegurarCortesDiariosAbarrotes(supabase, {
+      sucursal: sucFiltro || null,
+      desde,
+      hasta,
+    });
+  } catch {
+    /* no tumbar el panel si falla el auto-corte */
+  }
 
   // Sync CUBRE legado en fondo (no bloquear lectura del panel).
   dispararSyncIeFondo(supabase, 'abarrotes');

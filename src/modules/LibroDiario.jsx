@@ -457,6 +457,8 @@ export default function LibroDiario({ supabase, sucursal }) {
           Día por día: lo que <b style={{ color: VERDE }}>entró</b> por ventas y lo que{' '}
           <b style={{ color: ROJO }}>salió</b> por gastos, con el resultado de cada día. Consulta por semana (sábado a viernes),
           mes (del 1 al último día), año (1 de enero al 31 de diciembre) o un rango de fechas.
+          La fuente es el <b>corte diario automático</b> (medianoche): ventas − gastos (los faltantes se registran como gasto) − tarjeta.
+          Los cierres de turno del cajero ya no alimentan este libro.
         </p>
       </div>
 
