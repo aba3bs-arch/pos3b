@@ -16,10 +16,10 @@ import { recomendarPedido, textoRecomendacion } from '../../src/lib/comprasRecom
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const SALIDA = path.join(DIR, 'Manual_Capacitacion_Compras_Las3B.pdf');
-const LETRAS = ['A', 'B', 'C', 'D', 'E'];
+export const LETRAS = ['A', 'B', 'C', 'D', 'E'];
 
-const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const inline = (s) =>
+export const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+export const inline = (s) =>
   esc(s)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -37,7 +37,7 @@ function mulberry32(a) {
 }
 
 /** Mezcla las opciones de forma estable para que la respuesta correcta no sea siempre la misma letra. */
-function preguntasImpresas(quiz) {
+export function preguntasImpresas(quiz) {
   return quiz.map((q, qi) => {
     const rnd = mulberry32(1000 + qi * 7919);
     const idx = q.opciones.map((_, i) => i);
@@ -57,7 +57,7 @@ const AVATARES = {
   Chispita: { x: 858, y: 213 },
 };
 const REGION = 170;
-function avatar(quien, tam = 64) {
+export function avatar(quien, tam = 64) {
   const nombre = Object.keys(AVATARES).find((n) => quien.startsWith(n));
   if (!nombre) return '';
   const k = tam / REGION;
@@ -66,7 +66,7 @@ function avatar(quien, tam = 64) {
   return `<span class="av" style="${style}"></span>`;
 }
 
-function dialogoHtml(dialogo) {
+export function dialogoHtml(dialogo) {
   return `<div class="dialogo">${dialogo
     .map((d) => {
       const lado = d.lado === 'proveedor' ? 'prov' : 'tienda';
@@ -104,13 +104,13 @@ function seccionHtml(s) {
   return `<section class="sec sec-${s.id}">${partes.join('')}</section>`;
 }
 
-function tarjetaHtml(s) {
+export function tarjetaHtml(s) {
   return `<section class="sec tarjeta-wrap"><h2>${esc(s.titulo)}</h2>
     <p class="muted">Recorta esta tarjeta y llévala junto a la computadora o la tableta al hacer el pedido.</p>
     <div class="tarjeta">${(s.cuerpo || []).map((l) => `<p>${inline(l)}</p>`).join('')}</div></section>`;
 }
 
-function fraseHtml(s) {
+export function fraseHtml(s) {
   return `<section class="sec"><h2>${esc(s.titulo)}</h2>${(s.cuerpo || []).map((l, i) => `<p class="${i === 0 ? 'frase' : ''}">${inline(l)}</p>`).join('')}</section>`;
 }
 
@@ -141,7 +141,7 @@ function practicaHtml() {
   </section>`;
 }
 
-function examenHtml(s, preguntas) {
+export function examenHtml(s, preguntas) {
   const items = preguntas
     .map((q, i) => `<div class="preg"><p class="enun"><strong>${i + 1}.</strong> ${inline(q.pregunta)}</p>
       ${q.opciones.map((o, k) => `<p class="opc"><span class="circ"></span><strong>${LETRAS[k]})</strong> ${inline(o)}</p>`).join('')}</div>`)
@@ -199,7 +199,7 @@ function portadaHtml() {
   </section>`;
 }
 
-const CSS = `
+export const CSS = `
 @page { size: Letter; margin: 14mm 14mm 17mm;
   @bottom-center { content: "Las 3B · Manual de capacitación de compras  ·  página " counter(page); font: 8pt Arial, sans-serif; color: #6b7280; } }
 @page :first { @bottom-center { content: ""; } }
@@ -279,7 +279,7 @@ table { border-collapse: collapse; width: 100%; }
 .clave-t td.c { text-align: center; }
 `;
 
-function buscarChrome() {
+export function buscarChrome() {
   const candidatos = [
     process.env.CHROME_PATH,
     '/opt/google/chrome/chrome',
