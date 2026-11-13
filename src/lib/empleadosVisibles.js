@@ -800,7 +800,7 @@ export function enriquecerEmpleadosNominaIndirectos(empleados) {
   return dedupeEmpleadosPorNombre(out);
 }
 
-/** Lista global para nómina: operativos + placeholders de indirectos (vales). Sin socios 3B. */
+/** Lista global para nómina: operativos, administradores y placeholders de indirectos (vales). Sin socios 3B. */
 export function empleadosParaNominaGlobal(empleados, { bajasEnPeriodo = null } = {}) {
   const base = (empleados || []).map((e) => {
     if (e?.activo !== false || !bajasEnPeriodo) return e;
@@ -811,7 +811,6 @@ export function empleadosParaNominaGlobal(empleados, { bajasEnPeriodo = null } =
   }).filter((e) => {
     if (e?.activo === false) return false;
     const rol = normalizarRol(e.rol);
-    if (rol === 'Administrador') return false;
     if (rol === 'Cliente') return false;
     if (e?.excluir_nomina || e?.socio_3b || e?.tipo_empleado === 'socio_3b') return false;
     return true;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import InputPin from '../components/InputPin.jsx';
 import {
@@ -22,6 +22,7 @@ import {
   puedeGestionarRh,
   recontratarEmpleadoRh,
   requierePinAdminPrincipalParaAlta,
+  sincronizarAdministradoresRh,
 } from '../lib/rhAba3b.js';
 import {
   fusionarDatosIneEnForm,
@@ -152,6 +153,15 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
   useEffect(() => {
     void cargarListas();
   }, [cargarListas]);
+
+  const adminsSincronizados = useRef(false);
+  useEffect(() => {
+    if (!supabase || !esSoloAdmin || adminsSincronizados.current) return;
+    adminsSincronizados.current = true;
+    void sincronizarAdministradoresRh(supabase, { user }).then((r) => {
+      if (r.creados > 0) void cargarListas();
+    });
+  }, [supabase, esSoloAdmin, user, cargarListas]);
 
   // Prefill desde Contratación → «Dar de alta en RH ABA3B»
   useEffect(() => {
