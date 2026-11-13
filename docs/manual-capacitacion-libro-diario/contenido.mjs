@@ -251,7 +251,7 @@ export const MANUAL_LIBRO_DIARIO = {
         '**3. Gastos del día:** abre SALIDAS y busca duplicados, faltantes de más o conceptos mal puestos (categoría equivocada).',
         '**4. Tarjeta:** si PCT VIRTUAL es muy alto, el cajero capturó más tarjeta que la registrada en el POS. Pregunta qué cobros se hicieron fuera del POS.',
         '**5. Periodo correcto:** confirma que estás en la semana, el mes o el rango que quieres y que la **tienda** es la correcta.',
-        '**6. ¿Falta una tienda?** Puede que su corte aún no se genere (sección 10). Pide que abran la app en esa sucursal o actualiza el libro.',
+        '**6. ¿Falta una tienda?** Puede que su corte aún no se genere (sección 10): el proceso corre a las 00:10 y reintenta a las 03:10. Si pasó esa hora, avisa al administrador y pulsa **Actualizar**.',
       ],
       dialogo: [
         t(LULU, 'Una tienda dice −$568 el jueves. ¿Qué reviso primero?'),
