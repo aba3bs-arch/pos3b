@@ -254,7 +254,7 @@ function itemIngresoVentaCierreAbarrotes(c, { desde } = {}) {
     gastos: [],
     comentario: (
       String(detalle.tipo_cierre || '').toLowerCase() === 'cierre_diario'
-        ? `Corte diario · ${etiquetaTienda(t)} · ${c.folio || ''}`
+        ? `Corte general · ${etiquetaTienda(t)} · ${c.folio || ''}`
         : `Ventas Abarrotes · ${etiquetaTienda(t)} · ${c.folio || ''}`
     ).trim(),
     cuenta: 'abarrotes',

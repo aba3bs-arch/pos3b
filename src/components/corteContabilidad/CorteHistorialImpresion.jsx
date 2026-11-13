@@ -96,9 +96,11 @@ export default function CorteHistorialImpresion({
                         style={{ padding: '0.2rem 0.45rem', fontSize: '0.75rem' }}
                         onClick={() => imprimirHistorial(h)}
                       >
-                        {h?.detalle?.tipo_cierre === 'recoleccion' || h?.detalle?.tipo_cierre === 'recoleccion_temporal'
-                          ? 'Reimprimir'
-                          : 'Imprimir'}
+                        {h?.detalle?.tipo_cierre === 'cierre_diario'
+                          ? 'Imprimir recibo'
+                          : h?.detalle?.tipo_cierre === 'recoleccion' || h?.detalle?.tipo_cierre === 'recoleccion_temporal'
+                            ? 'Reimprimir'
+                            : 'Imprimir'}
                       </button>
                       {puedeEditar && onGuardarEdicion && (
                         <button

@@ -149,8 +149,8 @@ export function construirLibroDiario({
       empleado: it.empleado || '',
       concepto: it.tipo_mov === 'venta_cierre'
         ? (
-          String(it.folio || '').startsWith('ABD-')
-            ? `Corte diario${it.folio ? ` ${it.folio}` : ''}`
+          /^(ABD|CGA)-/.test(String(it.folio || ''))
+            ? `Corte general${it.folio ? ` ${it.folio}` : ''}`
             : `Venta del corte${it.folio ? ` ${it.folio}` : ''}${etiquetaTurno(it) ? ` · ${etiquetaTurno(it)}` : ''}`
         )
         : (it.comentario || 'Ingreso capturado'),
