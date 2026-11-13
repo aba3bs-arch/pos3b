@@ -27,6 +27,7 @@ import {
 } from '../lib/proveedoresCostoRuta.js';
 import { folioVisibleCompra } from '../lib/foliosInventario.js';
 import { pedirFolioEditado, renombrarFolioInventario } from '../lib/folioInventarioEditar.js';
+import { fmtHoraNogales, resumenRecargasConsulta, ticketsDeArticulo } from '../lib/consultasRecargas.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import ReportePreciosVentas from '../components/ReportePreciosVentas.jsx';
 import './Consultas.css';
@@ -400,6 +401,16 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const reporteArticulo = useMemo(
     () => agruparVentaPorArticulo(ventas, { productoPorId }),
     [ventas, productoPorId],
+  );
+
+  const [articuloAbierto, setArticuloAbierto] = useState('');
+  const detalleArticulo = useMemo(
+    () => (articuloAbierto && seccion === 'ventas_articulo' ? ticketsDeArticulo(ventas, articuloAbierto) : []),
+    [ventas, articuloAbierto, seccion],
+  );
+  const resumenRecargas = useMemo(
+    () => (seccion === 'ventas_articulo' ? resumenRecargasConsulta(ventas) : null),
+    [ventas, seccion],
   );
 
   const articulosFiltrados = useMemo(() => {
@@ -1111,7 +1122,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                             <td>
                               <div className="consultas-folio">
                                 {folio}
-                                <small>{fmtFechaCorta(v.created_at)}</small>
+                                <small>{fmtHoraNogales(v.created_at)}{v.turno_nombre ? ` · ${v.turno_nombre}` : ''}</small>
                               </div>
                             </td>
                             <td className="muted">{seccion === 'cfdi_ventas' ? '—' : ''}</td>
@@ -1166,6 +1177,31 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                         </div>
                       ))}
                     </div>
+                    {resumenRecargas && (resumenRecargas.duplicados > 0 || resumenRecargas.turnoDistinto > 0 || resumenRecargas.ajustes > 0) && (
+                      <div
+                        style={{
+                          marginBottom: '0.6rem',
+                          padding: '0.5rem 0.7rem',
+                          borderRadius: 8,
+                          background: '#fffbeb',
+                          border: '1px solid #f59e0b',
+                          fontSize: '0.85rem',
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        <strong>Recargas del periodo: {resumenRecargas.lineas} ventas.</strong>
+                        {resumenRecargas.duplicados > 0 && (
+                          <> {resumenRecargas.duplicados} posible(s) duplicado(s) por {fmtMonto(resumenRecargas.importeDuplicado)} (mismo importe, tienda y vendedor a menos de 2 min).</>
+                        )}
+                        {resumenRecargas.turnoDistinto > 0 && (
+                          <> {resumenRecargas.turnoDistinto} con turno guardado distinto al de su hora.</>
+                        )}
+                        {resumenRecargas.ajustes > 0 && (
+                          <> {resumenRecargas.ajustes} ajuste(s) del candado Mercado Pago (llevan la hora del cierre, no la de la recarga).</>
+                        )}
+                        {' '}Toca el artículo para ver la hora y el turno de cada venta.
+                      </div>
+                    )}
                     <table className="consultas-table">
                       <thead>
                         <tr>
@@ -1184,7 +1220,12 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       </thead>
                       <tbody>
                         {articulosConPct.map((r) => (
-                          <tr key={r.id}>
+                          <React.Fragment key={r.id}>
+                          <tr
+                            onClick={() => setArticuloAbierto(articuloAbierto === String(r.id) ? '' : String(r.id))}
+                            style={{ cursor: 'pointer' }}
+                            className={articuloAbierto === String(r.id) ? 'selected' : ''}
+                          >
                             <td>
                               <div className="consultas-prod-cell">
                                 <ProductoThumb producto={productoPorId.get(r.id) || { id: r.id, nombre: r.nombre }} size={36} />
@@ -1212,6 +1253,54 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                               {r.tickets}
                             </td>
                           </tr>
+                          {articuloAbierto === String(r.id) && (
+                            <tr>
+                              <td colSpan={9} style={{ background: 'var(--surface, #f8fafc)', padding: '0.5rem 0.7rem' }}>
+                                <div className="muted" style={{ fontSize: '0.76rem', marginBottom: '0.3rem' }}>
+                                  Hora de Nogales y turno de cada venta de «{r.nombre}».
+                                </div>
+                                <table className="consultas-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Hora</th>
+                                      <th>Tienda</th>
+                                      <th>Vendedor</th>
+                                      <th>Turno guardado</th>
+                                      <th>Turno por hora</th>
+                                      <th>Pago</th>
+                                      <th style={{ textAlign: 'right' }}>Pzas</th>
+                                      <th style={{ textAlign: 'right' }}>Importe</th>
+                                      <th>Aviso</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {detalleArticulo.map((f, k) => (
+                                      <tr key={`${f.id}_${k}`} style={f.duplicado ? { background: '#fef3c7' } : undefined}>
+                                        <td style={{ fontWeight: 600 }}>{fmtHoraNogales(f.creado)}</td>
+                                        <td>{etiquetaTienda(f.sucursal)}</td>
+                                        <td>{f.vendedor || '—'}</td>
+                                        <td>{f.turnoGuardado || '—'}</td>
+                                        <td>{f.turnoPorHora || '—'}</td>
+                                        <td style={{ fontSize: '0.82rem' }}>{f.metodo || '—'}</td>
+                                        <td style={{ textAlign: 'right' }}>{f.piezas}</td>
+                                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtMonto(f.importe)}</td>
+                                        <td style={{ fontSize: '0.78rem' }}>
+                                          {f.duplicado && (
+                                            <span style={{ color: '#b45309', fontWeight: 700 }}>
+                                              {f.mismoInstante ? 'Repetida, misma hora exacta' : 'Posible duplicado'}
+                                            </span>
+                                          )}
+                                          {f.turnoDistinto && <span style={{ color: '#b91c1c' }}> Turno distinto a la hora</span>}
+                                          {f.ajuste && <span style={{ color: '#0e7490' }}> Ajuste candado MP</span>}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                       <tfoot>

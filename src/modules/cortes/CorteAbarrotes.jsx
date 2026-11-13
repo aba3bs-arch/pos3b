@@ -131,6 +131,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           sucursal,
           user,
           turno: turnoSesion,
+          fecha: fechaSesion,
         });
         if (!resVenta?.ok) {
           alert(resVenta?.error || 'No se pudo registrar la venta de recarga en el POS.');

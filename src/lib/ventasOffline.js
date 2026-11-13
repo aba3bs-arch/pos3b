@@ -165,6 +165,24 @@ export function aplicarDescuentoStockLocal(productos, articulos, sucursal) {
   return list;
 }
 
+/** ¿Ya existe en la nube esta venta (misma tienda, vendedor, total y hora exacta)? */
+export async function ventaYaEnNube(supabase, row) {
+  try {
+    const { data, error } = await supabase
+      .from('ventas')
+      .select('id')
+      .eq('sucursal_id', row.sucursal_id)
+      .eq('created_at', row.created_at)
+      .eq('total', row.total)
+      .eq('vendedor', row.vendedor)
+      .limit(1);
+    if (error) return false;
+    return Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Sube ventas pendientes. Al terminar con éxito, el caller debe recargar catálogo.
  */
@@ -198,6 +216,13 @@ export async function sincronizarColaVentasOffline(supabase, { sucursal = null }
       };
       // Conservar hora real de la venta; si no, corte/consultas la meten en el día del sync.
       if (venta.created_at) row.created_at = venta.created_at;
+      if (venta.created_at && await ventaYaEnNube(supabase, row)) {
+        // Un timeout pudo dejar la venta guardada en la nube y también en la cola: no duplicarla.
+        cola = leerColaRaw().filter((x) => x.id !== venta.id);
+        guardarColaRaw(cola);
+        synced += 1;
+        continue;
+      }
       const { data: insertada, error } = await supabase.from('ventas').insert([row]).select('id').maybeSingle();
       if (error) throw error;
       const ventaIdNube = insertada?.id || venta.id || null;
