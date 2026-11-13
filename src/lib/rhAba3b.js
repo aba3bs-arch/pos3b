@@ -536,6 +536,42 @@ export async function asegurarExpedienteRhDesdeUsuario(supabase, usuario, { user
   return { ok: true, empleado: { ...data, folio }, creado: true };
 }
 
+/** Administradores activos que todavía no tienen expediente en RH. */
+export function administradoresSinExpedienteRh(usuarios = [], expedientes = []) {
+  return (usuarios || []).filter((u) => {
+    if (!u?.id || u.activo === false) return false;
+    if (normalizarRol(u.rol) !== 'Administrador') return false;
+    return !(expedientes || []).some(
+      (e) => usuarioCoincideConEmpleadoRh(u, e) && expedienteRhCompatibleConUsuario(u, e),
+    );
+  });
+}
+
+/** Crea en RH el expediente de cada administrador activo que aún no lo tenga. */
+export async function sincronizarAdministradoresRh(supabase, { user } = {}) {
+  if (!supabase) return { ok: true, creados: 0, errores: [] };
+  let usr = await supabase.from('usuarios').select('id, nombre, rol, sucursal_id, tipo_empleado, activo').eq('rol', 'Administrador');
+  if (usr.error && errorMencionaActivo(usr.error)) {
+    usr = await supabase.from('usuarios').select('id, nombre, rol, sucursal_id, tipo_empleado').eq('rol', 'Administrador');
+  }
+  if (usr.error) return { ok: false, creados: 0, errores: [usr.error.message] };
+  const exp = await supabase.from('rh_empleados').select('*').limit(2000);
+  if (exp.error) {
+    if (esErrorTablaRh(exp.error)) return { ok: false, creados: 0, errores: [AVISO_FALTA_RH_ABA3B] };
+    return { ok: false, creados: 0, errores: [exp.error.message] };
+  }
+  const faltan = administradoresSinExpedienteRh(usr.data || [], exp.data || []);
+  let creados = 0;
+  const errores = [];
+  for (const admin of faltan) {
+    // eslint-disable-next-line no-await-in-loop
+    const r = await asegurarExpedienteRhDesdeUsuario(supabase, admin, { user });
+    if (!r.ok) errores.push(`${admin.nombre}: ${r.error}`);
+    else if (r.creado) creados += 1;
+  }
+  return { ok: errores.length === 0, creados, errores };
+}
+
 async function registrarMovimiento(supabase, {
   empleadoId,
   tipo,

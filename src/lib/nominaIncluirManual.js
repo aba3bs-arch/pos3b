@@ -1,6 +1,6 @@
 import { normalizarRol } from './roles.js';
 
-const ROLES_FUERA_DE_NOMINA = new Set(['Administrador', 'Cliente']);
+const ROLES_FUERA_DE_NOMINA = new Set(['Cliente']);
 
 /**
  * Marca como activos (solo para esta nómina) a los usuarios que el administrador

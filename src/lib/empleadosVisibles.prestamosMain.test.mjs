@@ -49,7 +49,7 @@ const empleados = [
   const list = empleadosParaNominaGlobal(empleados);
   assert.ok(!list.some((e) => e.id === 4), 'bajas no van a nómina');
   assert.ok(list.some((e) => e.id === 1));
-  assert.ok(!list.some((e) => e.rol === 'Administrador'));
+  assert.ok(list.some((e) => e.rol === 'Administrador'), 'los administradores activos sí van a nómina');
 }
 
 console.log('empleadosVisibles.prestamosMain.test.mjs OK');
