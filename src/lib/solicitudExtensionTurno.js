@@ -4,14 +4,16 @@
  * en overlay flotante con PIN y elige 2 / 4 / 6 / 8 / 12 horas.
  */
 
-import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { equivalentesCodigoTienda, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import {
   crearNotificacion,
   marcarNotificacionAtendida,
   TIPOS_NOTIF,
 } from './contabilidadNotificaciones.js';
 import {
+  aplicarAutorizacionEnEquipo,
   otorgarAutorizacionFueraHorario,
+  sincronizarAutorizacionFueraHorarioDesdeNube,
   verificarPinAdministradorGlobal,
 } from './autorizacionTurnoFueraHorario.js';
 import { auditarPinAdmin } from './auditoriaUso.js';
@@ -41,6 +43,12 @@ function roundHoras(h) {
   return n;
 }
 
+function variantesSucursal(sucursal) {
+  const suc = normalizarCodigoTienda(sucursal);
+  const variantes = equivalentesCodigoTienda(suc);
+  return variantes.length ? variantes : [suc].filter(Boolean);
+}
+
 /**
  * Empleado solicita más tiempo. Crea fila + notificación para admin/gerente.
  */
@@ -59,7 +67,7 @@ export async function solicitarExtensionTurno(supabase, {
     .from(REF_TABLA_SOLICITUD_EXTENSION)
     .select('*')
     .eq('usuario_id', String(usuario.id))
-    .eq('sucursal_id', suc)
+    .in('sucursal_id', variantesSucursal(suc))
     .eq('estado', 'pendiente')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -133,21 +141,73 @@ export async function obtenerSolicitudExtension(supabase, id) {
   return { data };
 }
 
-/** Estado de la solicitud pendiente del empleado (login esperando). */
-export async function estadoSolicitudExtensionEmpleado(supabase, { usuarioId, sucursal } = {}) {
-  if (!supabase || !usuarioId || !sucursal) return { data: null };
-  const suc = normalizarCodigoTienda(sucursal);
+async function solicitudAprobadaReciente(supabase, usuarioId, sucursal) {
   const { data, error } = await supabase
     .from(REF_TABLA_SOLICITUD_EXTENSION)
     .select('*')
     .eq('usuario_id', String(usuarioId))
-    .eq('sucursal_id', suc)
+    .in('sucursal_id', variantesSucursal(sucursal))
+    .eq('estado', 'aprobada')
+    .order('atendida_at', { ascending: false })
+    .limit(1);
+  if (error) return null;
+  return (Array.isArray(data) ? data[0] : data) || null;
+}
+
+/** Estado de la solicitud pendiente del empleado (login esperando). */
+export async function estadoSolicitudExtensionEmpleado(supabase, { usuarioId, sucursal } = {}) {
+  if (!supabase || !usuarioId || !sucursal) return { data: null };
+  const { data, error } = await supabase
+    .from(REF_TABLA_SOLICITUD_EXTENSION)
+    .select('*')
+    .eq('usuario_id', String(usuarioId))
+    .in('sucursal_id', variantesSucursal(sucursal))
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  const row = Array.isArray(data) ? data[0] : data;
   if (error && faltaTabla(error)) return { data: null, aviso: AVISO_FALTA_SOLICITUD_EXTENSION };
   if (error) return { data: null, error: error.message };
-  return { data };
+  return { data: row || null };
+}
+
+/**
+ * La caja entra si la autorización de nube sigue vigente, o si la última
+ * solicitud aprobada aún cubre las horas (por si la tabla de autorización
+ * no respondió). Acepta Fusión/FUSION.
+ */
+export async function resolverAccesoExtendido(supabase, usuarioId, sucursal) {
+  if (!supabase || !usuarioId || !sucursal) return { ok: true, vigente: false, estadoSolicitud: null };
+  const sync = await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, usuarioId, sucursal);
+  if (sync.vigente) return { ...sync, estadoSolicitud: null };
+
+  const aprobada = await solicitudAprobadaReciente(supabase, usuarioId, sucursal);
+  if (aprobada?.horas_otorgadas) {
+    const otorgadoEn = new Date(aprobada.atendida_at || aprobada.updated_at || aprobada.created_at).getTime();
+    const expiraServidor = otorgadoEn + Number(aprobada.horas_otorgadas) * 60 * 60 * 1000;
+    if (Number.isFinite(otorgadoEn) && expiraServidor > Date.now()) {
+      const entry = aplicarAutorizacionEnEquipo({
+        usuarioId: aprobada.usuario_id,
+        sucursal: aprobada.sucursal_id,
+        adminId: aprobada.admin_id,
+        adminNombre: aprobada.admin_nombre,
+        otorgadoEn,
+        expiraEn: expiraServidor,
+      });
+      if (entry) {
+        return { ok: true, vigente: true, entry, fuente: 'solicitud', estadoSolicitud: 'aprobada' };
+      }
+    }
+  }
+
+  const st = await estadoSolicitudExtensionEmpleado(supabase, { usuarioId, sucursal });
+  const sol = st.data;
+
+  return {
+    ...sync,
+    vigente: false,
+    estadoSolicitud: sol?.estado || null,
+    motivoRechazo: sol?.motivo_rechazo || null,
+  };
 }
 
 /**
@@ -190,6 +250,9 @@ export async function aprobarExtensionTurnoConPin(supabase, {
     supabase,
   });
   if (!entry) return { ok: false, error: 'No se pudo otorgar la autorización.' };
+  if (entry.errorNube) {
+    return { ok: false, error: entry.errorNube };
+  }
 
   const ahora = new Date().toISOString();
   const { error: errUp } = await supabase

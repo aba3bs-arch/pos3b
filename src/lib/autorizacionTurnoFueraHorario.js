@@ -1,4 +1,4 @@
-import { normalizarCodigoTienda } from '../constants/sucursales.js';
+import { equivalentesCodigoTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { rolSistemaEfectivo } from './roles.js';
 import { normalizarPinComparacion } from './cubreTurno.js';
 import { usuarioEstaActivo } from './usuariosAuth.js';
@@ -19,8 +19,34 @@ function claveAutorizacion(usuarioId, sucursal) {
   return `${String(usuarioId)}|${normalizarCodigoTienda(sucursal)}`;
 }
 
+/** Copia en memoria: si localStorage está lleno, la caja igual puede entrar. */
+const memoriaAutorizaciones = new Map();
+
 function limpiarExpiradas(lista, ahora = Date.now()) {
   return (lista || []).filter((a) => a.expiraEn > ahora);
+}
+
+function recordarEnMemoria(entry) {
+  if (!entry?.clave || !(entry.expiraEn > Date.now())) return;
+  memoriaAutorizaciones.set(entry.clave, entry);
+}
+
+/**
+ * El servidor ya dijo que la fila sigue vigente (`expira_en > now()` de Postgres).
+ * Si el reloj de la caja va adelantado, `expira_en` queda en el pasado local y
+ * la autorización se borraba al guardarla: el empleado no podía entrar.
+ * En ese caso se ancla la duración original al reloj de esta caja.
+ */
+export function expiracionLocalDesdeServidor(otorgadoEn, expiraEn, ahora = Date.now()) {
+  const otorgado = Number(otorgadoEn);
+  const expira = Number(expiraEn);
+  if (!Number.isFinite(expira)) return ahora + 60 * 60 * 1000;
+  if (expira > ahora) return expira;
+  const duracion = Number.isFinite(otorgado) && expira > otorgado
+    ? expira - otorgado
+    : 60 * 60 * 1000;
+  const acotada = Math.min(Math.max(duracion, 60 * 1000), 12 * 60 * 60 * 1000);
+  return ahora + acotada;
 }
 
 function faltaTablaAuthFh(error) {
@@ -41,8 +67,13 @@ export function leerAutorizacionesTurnoFueraHorario() {
     const list = JSON.parse(raw);
     if (!Array.isArray(list)) return [];
     const vigentes = limpiarExpiradas(list);
+    for (const a of vigentes) recordarEnMemoria(a);
     if (vigentes.length !== list.length) {
-      localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(vigentes));
+      try {
+        localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(vigentes));
+      } catch {
+        /* cuota llena: la copia en memoria sigue valiendo */
+      }
     }
     return vigentes;
   } catch {
@@ -51,13 +82,21 @@ export function leerAutorizacionesTurnoFueraHorario() {
 }
 
 function escribirAutorizacionesLocal(lista) {
-  localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(limpiarExpiradas(lista)));
+  const vigentes = limpiarExpiradas(lista);
+  for (const a of vigentes) recordarEnMemoria(a);
+  try {
+    localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(vigentes));
+  } catch {
+    /* cuota llena */
+  }
 }
 
 export function tieneAutorizacionFueraHorario(user, sucursal, date = new Date()) {
   if (!user?.id || !sucursal) return false;
   const clave = claveAutorizacion(user.id, sucursal);
   const ahora = date.getTime();
+  const mem = memoriaAutorizaciones.get(clave);
+  if (mem && mem.expiraEn > ahora) return true;
   return leerAutorizacionesTurnoFueraHorario().some((a) => a.clave === clave && a.expiraEn > ahora);
 }
 
@@ -100,10 +139,37 @@ export async function otorgarAutorizacionFueraHorario({
     const { error } = await supabase
       .from('pos_autorizacion_turno_fh')
       .upsert(row, { onConflict: 'usuario_id,sucursal_id' });
-    if (error && !faltaTablaAuthFh(error)) {
-      console.warn('autorizacion turno FH nube:', error.message);
+    if (error) {
+      entry.errorNube = faltaTablaAuthFh(error) ? AVISO_FALTA_AUTORIZACION_TURNO_FH : error.message;
+      if (!faltaTablaAuthFh(error)) console.warn('autorizacion turno FH nube:', error.message);
     }
   }
+  return entry;
+}
+
+/** Deja la autorización en este equipo (memoria + localStorage) sin depender de la red. */
+export function aplicarAutorizacionEnEquipo({
+  usuarioId,
+  sucursal,
+  adminId = '',
+  adminNombre = 'Administrador',
+  otorgadoEn,
+  expiraEn,
+} = {}) {
+  if (!usuarioId || !sucursal) return null;
+  const sid = normalizarCodigoTienda(sucursal);
+  const otorgado = Number(otorgadoEn) || Date.now();
+  const entry = {
+    clave: claveAutorizacion(usuarioId, sid),
+    usuarioId: String(usuarioId),
+    sucursal: sid,
+    adminId: String(adminId || ''),
+    adminNombre: String(adminNombre || 'Administrador'),
+    otorgadoEn: otorgado,
+    expiraEn: expiracionLocalDesdeServidor(otorgado, Number(expiraEn)),
+  };
+  const next = [...leerAutorizacionesTurnoFueraHorario().filter((a) => a.clave !== entry.clave), entry];
+  escribirAutorizacionesLocal(next);
   return entry;
 }
 
@@ -111,6 +177,8 @@ export function revocarAutorizacionFueraHorario(usuarioId, sucursal) {
   const clave = claveAutorizacion(usuarioId, sucursal);
   const next = leerAutorizacionesTurnoFueraHorario().filter((a) => a.clave !== clave);
   escribirAutorizacionesLocal(next);
+  // leer() vuelve a copiar la fila vieja a memoria; se borra después de reescribir.
+  memoriaAutorizaciones.delete(clave);
 }
 
 /** Revoca en local + nube. */
@@ -136,27 +204,33 @@ export async function revocarAutorizacionFueraHorarioNube(supabase, usuarioId, s
 export async function sincronizarAutorizacionFueraHorarioDesdeNube(supabase, usuarioId, sucursal) {
   if (!supabase || !usuarioId || !sucursal) return { ok: true, vigente: false };
   const sid = normalizarCodigoTienda(sucursal);
-  const ahoraIso = new Date().toISOString();
+  const variantes = equivalentesCodigoTienda(sid);
+  // `now` lo evalúa Postgres, no el reloj de la caja (en Fusión iba adelantado y
+  // la autorización recién aprobada ya parecía vencida).
   const { data, error } = await supabase
     .from('pos_autorizacion_turno_fh')
     .select('usuario_id,sucursal_id,admin_id,admin_nombre,otorgado_en,expira_en')
     .eq('usuario_id', String(usuarioId))
-    .eq('sucursal_id', sid)
-    .gt('expira_en', ahoraIso)
-    .maybeSingle();
+    .in('sucursal_id', variantes.length ? variantes : [sid])
+    .gt('expira_en', 'now')
+    .order('expira_en', { ascending: false })
+    .limit(1);
   if (error) {
     if (faltaTablaAuthFh(error)) return { ok: true, vigente: false, aviso: AVISO_FALTA_AUTORIZACION_TURNO_FH };
     return { ok: false, error: error.message, vigente: false };
   }
-  if (!data) return { ok: true, vigente: false };
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return { ok: true, vigente: false };
+  const otorgadoEn = new Date(row.otorgado_en).getTime();
+  const expiraServidor = new Date(row.expira_en).getTime();
   const entry = {
-    clave: claveAutorizacion(data.usuario_id, data.sucursal_id),
-    usuarioId: String(data.usuario_id),
-    sucursal: normalizarCodigoTienda(data.sucursal_id),
-    adminId: String(data.admin_id || ''),
-    adminNombre: String(data.admin_nombre || 'Administrador'),
-    otorgadoEn: new Date(data.otorgado_en).getTime(),
-    expiraEn: new Date(data.expira_en).getTime(),
+    clave: claveAutorizacion(row.usuario_id, row.sucursal_id),
+    usuarioId: String(row.usuario_id),
+    sucursal: normalizarCodigoTienda(row.sucursal_id),
+    adminId: String(row.admin_id || ''),
+    adminNombre: String(row.admin_nombre || 'Administrador'),
+    otorgadoEn,
+    expiraEn: expiracionLocalDesdeServidor(otorgadoEn, expiraServidor),
   };
   const next = [...leerAutorizacionesTurnoFueraHorario().filter((a) => a.clave !== entry.clave), entry];
   escribirAutorizacionesLocal(next);
@@ -166,11 +240,10 @@ export async function sincronizarAutorizacionFueraHorarioDesdeNube(supabase, usu
 /** Lista autorizaciones vigentes (panel admin). */
 export async function listarAutorizacionesFueraHorarioVigentes(supabase, { sucursal = null } = {}) {
   if (!supabase) return { ok: false, data: [], error: 'Sin conexión.' };
-  const ahoraIso = new Date().toISOString();
   let q = supabase
     .from('pos_autorizacion_turno_fh')
     .select('usuario_id,sucursal_id,admin_id,admin_nombre,otorgado_en,expira_en')
-    .gt('expira_en', ahoraIso)
+    .gt('expira_en', 'now')
     .order('expira_en', { ascending: true });
   if (sucursal) q = q.eq('sucursal_id', normalizarCodigoTienda(sucursal));
   const { data, error } = await q;
