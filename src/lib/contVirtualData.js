@@ -21,7 +21,7 @@ import {
   reclasificarGastosRtFranciscoAAbarrotes,
 } from './contabilidadDepartamentos.js';
 import { finDia, inicioDia, hoyYmdNogales, ymdNogalesFromDate, ymdNegocioDesdeIso } from './corteCaja.js';
-import { esCierreContableAbarrotes } from './corteAbarrotesDiario.js';
+import { CUTOVER_CIERRE_DIARIO, esCierreContableAbarrotes } from './corteAbarrotesDiario.js';
 
 function toYmd(d) {
   return ymdNogalesFromDate(d) || hoyYmdNogales();
@@ -754,8 +754,10 @@ export function armarLibroCajaAbarrotes({
     }
   }
   const porId = new Map((gastosTabla || []).map((g) => [String(g.id), g]));
+  // Un gasto deja de estar «en curso» cuando entra a un corte contable (corte general o cierre
+  // de cajero anterior al cutover). Los cierres operativos del cajero no cuentan.
   const idsCerrados = new Set();
-  for (const c of todosCierres || []) {
+  for (const c of cierres || []) {
     for (const id of idsGastosDeCierre(c)) idsCerrados.add(id);
   }
 
@@ -839,13 +841,15 @@ export function armarLibroCajaAbarrotes({
 
   const enCurso = [];
   for (const g of gastosAprobados || []) {
-    if (g.cerrado === true) continue;
+    const fechaGasto = ymdNegocio(g.created_at) || desde;
+    // Antes del cutover el cajero cierra la contabilidad: un gasto ya cerrado sin cierre no se muestra.
+    if (g.cerrado === true && fechaGasto && fechaGasto < CUTOVER_CIERRE_DIARIO) continue;
     if (idsCerrados.has(String(g.id))) continue;
     const monto = round2(g.monto);
     if (!(monto > 0)) continue;
     enCurso.push({
       id: `ec-${g.id}`,
-      fecha: ymdNegocio(g.created_at) || desde,
+      fecha: fechaGasto,
       created_at: g.created_at || null,
       categoria: g.categoria || 'Sin categoría',
       subcategoria: g.subcategoria || '',
