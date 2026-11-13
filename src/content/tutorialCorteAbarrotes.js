@@ -58,7 +58,7 @@ export const TUTORIAL_CORTE_ABARROTES = {
         '· **Caja chica anterior (+)** — arrastre del turno previo (`2020`).',
         '· **Venta total (+)** — venta del turno.',
         '· **Pago tarjeta (−)** — se resta del efectivo.',
-        '· **Faltante (−)** — faltante de caja (resta).',
+        '· Los **faltantes** ya no se capturan aquí: se registran en **Gastos del turno** (Categoría **EMPLEADO** → concepto **FALTANTE**), restan de la caja y se descuentan al empleado en nómina.',
         '· **Recolección (−)** — efectivo retirado (resta).',
       ],
       imagen: `${IMG}/02-movimientos.png`,
@@ -73,7 +73,7 @@ export const TUTORIAL_CORTE_ABARROTES = {
       titulo: '4. Subtotal y gastos del turno',
       cuerpo: [
         'Al centro, el bloque oscuro **Subtotal turno** muestra el resultado con la fórmula de pantalla:',
-        '`Venta − egresos − tarjeta − faltante`.',
+        '`Venta − egresos − tarjeta`.',
         'Debajo: **Gastos del turno** — eliges **Categoría**, **Empleado** (si aplica), **Concepto**, **Monto**, comentario opcional y pulsas **Agregar**.',
         'La tabla lista los gastos (hora, empleado, cat., monto, estado). Si no hay: *Sin gastos en este turno*.',
       ],
@@ -106,7 +106,7 @@ export const TUTORIAL_CORTE_ABARROTES = {
       titulo: '6. Practica: cómo se forma un negativo',
       cuerpo: [
         'Usa los mismos campos de **Movimientos** / **Caja chica**. Partimos de la captura (`caja anterior 2020`).',
-        'Sube **gastos**, **faltante**, **tarjeta** o **recolección** y mira cuándo la **Caja chica actual** pasa a rojo.',
+        'Sube **gastos** (incluido un faltante registrado como gasto), **tarjeta** o **recolección** y mira cuándo la **Caja chica actual** pasa a rojo.',
       ],
       imagen: `${IMG}/00-pantalla-real.png`,
       imagenAlt: 'Referencia: pantalla real del corte (números base de la captura)',
@@ -119,33 +119,32 @@ export const TUTORIAL_CORTE_ABARROTES = {
           venta: 0,
           gastos: 0,
           tarjeta: 0,
-          faltante: 0,
           recoleccion: 0,
         },
         presets: [
           {
             id: 'captura',
             label: 'Como la captura',
-            campos: { caja_anterior: 2020, venta: 0, gastos: 0, tarjeta: 0, faltante: 0, recoleccion: 0 },
+            campos: { caja_anterior: 2020, venta: 0, gastos: 0, tarjeta: 0, recoleccion: 0 },
           },
           {
             id: 'faltante',
-            label: 'Ejemplo faltante',
-            campos: { caja_anterior: 2020, venta: 500, gastos: 0, tarjeta: 0, faltante: 2800, recoleccion: 0 },
+            label: 'Ejemplo faltante (como gasto)',
+            campos: { caja_anterior: 2020, venta: 500, gastos: 2800, tarjeta: 0, recoleccion: 0 },
           },
           {
             id: 'gastos',
             label: 'Ejemplo gastos altos',
-            campos: { caja_anterior: 2020, venta: 800, gastos: 3500, tarjeta: 200, faltante: 0, recoleccion: 0 },
+            campos: { caja_anterior: 2020, venta: 800, gastos: 3500, tarjeta: 200, recoleccion: 0 },
           },
           {
             id: 'recoleccion',
             label: 'Ejemplo recolección',
-            campos: { caja_anterior: 2020, venta: 1500, gastos: 100, tarjeta: 0, faltante: 0, recoleccion: 4000 },
+            campos: { caja_anterior: 2020, venta: 1500, gastos: 100, tarjeta: 0, recoleccion: 4000 },
           },
         ],
         explicacion:
-          'Fórmulas de la pantalla: **Subtotal** = Venta − egresos − tarjeta − faltante · **Caja actual** = Anterior + subtotal − recolección. En rojo = negativo.',
+          'Fórmulas de la pantalla: **Subtotal** = Venta − egresos − tarjeta · **Caja actual** = Anterior + subtotal − recolección. En rojo = negativo.',
       },
     },
     {
@@ -181,22 +180,22 @@ export const TUTORIAL_CORTE_ABARROTES = {
           pregunta: '¿Qué campos restan en Movimientos (signo −)?',
           opciones: [
             'Venta total y Caja chica anterior',
-            'Pago tarjeta, Faltante y Recolección',
+            'Pago tarjeta y Recolección',
             'Solo Fondo fijo',
           ],
           correcta: 1,
-          explicacion: 'En la columna izquierda: **Pago tarjeta (−)**, **Faltante (−)** y **Recolección (−)**.',
+          explicacion: 'En la columna izquierda: **Pago tarjeta (−)** y **Recolección (−)**. El faltante se registra en Gastos del turno.',
         },
         {
           id: 'q3',
           pregunta: 'Fórmula del bloque Subtotal turno en pantalla:',
           opciones: [
             'Anterior + subtotal − recolección',
-            'Venta − egresos − tarjeta − faltante',
-            'Fondo fijo − faltante',
+            'Venta − egresos − tarjeta',
+            'Fondo fijo − tarjeta',
           ],
           correcta: 1,
-          explicacion: 'El bloque oscuro dice exactamente: **Venta − egresos − tarjeta − faltante**.',
+          explicacion: 'El bloque oscuro dice exactamente: **Venta − egresos − tarjeta**.',
         },
         {
           id: 'q4',
@@ -223,7 +222,7 @@ export const TUTORIAL_CORTE_ABARROTES = {
       titulo: 'Frase para capacitar',
       cuerpo: [
         '**Movimientos → Gastos del turno → revisa Caja chica → Cerrar corte / Imprimir.**',
-        'Si **Caja chica actual** se pone en **rojo**, hay negativo: revisa faltante, gastos, tarjeta y recolección.',
+        'Si **Caja chica actual** se pone en **rojo**, hay negativo: revisa gastos (incluidos faltantes), tarjeta y recolección.',
       ],
     },
   ],

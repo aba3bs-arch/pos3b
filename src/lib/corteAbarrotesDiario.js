@@ -63,12 +63,11 @@ export function folioCorteDiario(fechaYmd) {
 /**
  * Montos del día desde POS + gastos de abarrotes.
  * venta = total sistema; tarjeta = electrónicos (no efectivo);
- * faltante = 0 (los FALTANTE van como gasto EMPLEADO).
+ * Los FALTANTE van como gasto EMPLEADO (no hay campo de faltante en el corte).
  */
 export function armarEstadoCorteDiario({
   venta = 0,
   tarjeta = 0,
-  faltante = 0,
   cajaAnterior = 0,
   fechaNegocio,
 } = {}) {
@@ -77,7 +76,6 @@ export function armarEstadoCorteDiario({
     caja_anterior: round2(cajaAnterior),
     venta: round2(venta),
     tarjeta: round2(tarjeta),
-    faltante: round2(faltante),
     recoleccion: 0,
     folio: folioCorteDiario(fechaNegocio),
     comentarios: `Corte diario automático · ${fechaNegocio}`,

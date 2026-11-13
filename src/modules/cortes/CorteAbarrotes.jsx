@@ -31,7 +31,6 @@ const CAMPOS = [
   { key: 'caja_anterior', label: 'Caja chica anterior (+)' },
   { key: 'venta', label: 'Venta total (+)' },
   { key: 'tarjeta', label: 'Pago tarjeta (−)' },
-  { key: 'faltante', label: 'Faltante (−)', danger: true },
   { key: 'recoleccion', label: 'Recolección (−)' },
 ];
 
@@ -399,7 +398,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <div style={{ background: '#2c3e50', color: '#fff', padding: '1rem', borderRadius: 8, textAlign: 'center' }}>
             <div style={{ fontSize: '0.85rem' }}>Subtotal turno</div>
             <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#f1c40f' }}>{fmtCorte(calc.subtotal)}</div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>Venta − egresos − tarjeta − faltante</div>
+            <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>Venta − egresos − tarjeta</div>
           </div>
           <CorteInversionesPanel
             modulo="abarrotes"

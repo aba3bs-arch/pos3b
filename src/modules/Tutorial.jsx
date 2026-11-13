@@ -33,7 +33,6 @@ function calcCaja(campos) {
   const subtotal = round2(
     (Number(c.venta) || 0) -
       (Number(c.gastos) || 0) -
-      (Number(c.faltante) || 0) -
       (Number(c.tarjeta) || 0),
   );
   const caja = round2(
@@ -182,7 +181,6 @@ function EjemploCaja({ ejemplo }) {
     { key: 'venta', label: 'Venta total (+)' },
     { key: 'gastos', label: 'Gastos / egresos (−)' },
     { key: 'tarjeta', label: 'Pago tarjeta (−)' },
-    { key: 'faltante', label: 'Faltante (−)' },
     { key: 'recoleccion', label: 'Recolección (−)' },
   ];
 
@@ -190,7 +188,7 @@ function EjemploCaja({ ejemplo }) {
     <div className="tut-ejemplo">
       <h4 className="tut-ejemplo__titulo">{ejemplo.titulo}</h4>
       <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
-        Misma lógica que en pantalla: subtotal = venta − egresos − tarjeta − faltante;
+        Misma lógica que en pantalla: subtotal = venta − egresos − tarjeta;
         caja = anterior + subtotal − recolección.
       </p>
       {(ejemplo.presets || []).length > 0 ? (
@@ -227,7 +225,7 @@ function EjemploCaja({ ejemplo }) {
           <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>Subtotal turno</div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#f1c40f' }}>{fmtMx(subtotal)}</div>
           <div style={{ fontSize: '0.72rem', opacity: 0.75, marginTop: '0.15rem' }}>
-            Venta − egresos − tarjeta − faltante
+            Venta − egresos − tarjeta
           </div>
           <div style={{ fontSize: '0.8rem', opacity: 0.9, marginTop: '0.85rem' }}>Caja chica actual</div>
           <div

@@ -36,11 +36,10 @@ test('esCierreContable: legado de cajero solo antes del cutover', () => {
   }), false);
 });
 
-test('armar + calc: ventas − gastos − tarjeta − faltante', () => {
+test('armar + calc: ventas − gastos − tarjeta (el faltante va como gasto)', () => {
   const estado = armarEstadoCorteDiario({
     venta: 1000,
     tarjeta: 200,
-    faltante: 50,
     cajaAnterior: 100,
     fechaNegocio: '2026-11-12',
   });
@@ -48,10 +47,12 @@ test('armar + calc: ventas − gastos − tarjeta − faltante', () => {
   const calc = calcularAbarrotes(estado, gastos);
   assert.equal(calc.venta, 1000);
   assert.equal(calc.gastosTotal, 80);
-  // subtotal = 1000 - 80 - 50 - 200 = 670
-  assert.equal(calc.subtotal, 670);
-  // caja = 1000 + 100 - 80 - 0 - 50 - 200 = 770
-  assert.equal(calc.cajaActual, 770);
+  // subtotal = 1000 - 80 - 200 = 720
+  assert.equal(calc.subtotal, 720);
+  // caja = 1000 + 100 - 80 - 0 - 200 = 820
+  assert.equal(calc.cajaActual, 820);
+  // un faltante viejo guardado en el estado ya no resta dos veces
+  assert.equal(calcularAbarrotes({ ...estado, faltante: 50 }, gastos).subtotal, 720);
   assert.equal(estado.folio, 'ABD-20261112');
   assert.match(estado.comentarios, /automático/i);
 });
