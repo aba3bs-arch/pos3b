@@ -22,6 +22,44 @@ function esErrorDeRedLocal(err) {
   );
 }
 
+const OFFSET_NOGALES = '-07:00';
+
+function minutosDeHora(h) {
+  const m = String(h || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+function nogalesDesde(ymd, minutos) {
+  const hh = String(Math.floor(minutos / 60)).padStart(2, '0');
+  const mm = String(minutos % 60).padStart(2, '0');
+  return new Date(`${ymd}T${hh}:${mm}:00${OFFSET_NOGALES}`);
+}
+
+function sumarDia(ymd) {
+  const d = new Date(`${ymd}T12:00:00${OFFSET_NOGALES}`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Hermosillo' }).format(d);
+}
+
+/**
+ * Hora con la que se guarda la venta de ajuste del candado.
+ * Si el cierre ocurre después de que terminó el turno que se cierra (tolerancia, CT o admin),
+ * la venta quedaría con hora del turno siguiente y caería en dos turnos: se fecha un minuto
+ * antes del fin del turno cerrado. Sin cambio si el cierre es dentro del turno.
+ */
+export function horaVentaAjusteRecarga({ turno = null, fecha = '', now = new Date() } = {}) {
+  const ahora = now instanceof Date ? now : new Date(now);
+  const ini = minutosDeHora(turno?.hora_inicio);
+  const fin = minutosDeHora(turno?.hora_fin);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha || '')) || ini == null || fin == null) return ahora;
+  const inicio = nogalesDesde(fecha, ini);
+  const finTurno = ini < fin ? nogalesDesde(fecha, fin) : nogalesDesde(sumarDia(fecha), fin);
+  if (ini === fin) return ahora;
+  if (ahora.getTime() <= finTurno.getTime()) return ahora;
+  const tope = new Date(finTurno.getTime() - 60 * 1000);
+  return tope.getTime() >= inicio.getTime() ? tope : ahora;
+}
+
 function etiquetaTurnoLocal(turno) {
   if (!turno) return null;
   if (turno.nombre) return String(turno.nombre);
@@ -351,6 +389,7 @@ export async function registrarVentaRecargaMpAjuste(supabase, {
   sucursal,
   user,
   turno = null,
+  fecha = '',
 } = {}) {
   const total = round2(monto);
   if (!(total > 0.009)) return { ok: false, error: 'Monto de venta inválido.' };
@@ -373,7 +412,7 @@ export async function registrarVentaRecargaMpAjuste(supabase, {
     articulos,
     turno_id: turno?.id || null,
     turno_nombre: etiquetaTurnoLocal(turno),
-    created_at: new Date().toISOString(),
+    created_at: horaVentaAjusteRecarga({ turno, fecha }).toISOString(),
   };
 
   if (!supabase) {
