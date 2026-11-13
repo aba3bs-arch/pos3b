@@ -8,6 +8,8 @@ import { periodoSemanaNomina, ymdLocal } from './semanaNomina.js';
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+export const MAX_DIAS_LIBRO = 400;
+const MESES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
 function parseYmd(ymd) {
@@ -51,6 +53,161 @@ export function etiquetaSemana(inicio, fin) {
   const b = parseYmd(fin);
   if (!a || !b) return '';
   return `Sábado ${fechaCorta(inicio)} al viernes ${fechaCorta(fin)} de ${b.getFullYear()}`;
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+export function nombreMes(m) {
+  return MESES_LARGO[(Number(m) || 1) - 1] || '';
+}
+
+export function ultimoDiaDelMes(anio, mes) {
+  return new Date(Number(anio), Number(mes), 0).getDate();
+}
+
+/** «31 oct 2026 al 4 dic 2026» */
+export function etiquetaRango(desde, hasta) {
+  const a = parseYmd(desde);
+  const b = parseYmd(hasta);
+  if (!a || !b) return '';
+  return `${a.getDate()} ${MESES[a.getMonth()]} ${a.getFullYear()} al ${b.getDate()} ${MESES[b.getMonth()]} ${b.getFullYear()}`;
+}
+
+export function diasEntre(desde, hasta) {
+  const a = parseYmd(desde);
+  const b = parseYmd(hasta);
+  if (!a || !b) return 0;
+  return Math.round((b - a) / 86400000) + 1;
+}
+
+/**
+ * Periodo a consultar según el modo elegido.
+ * - semana: sábado → viernes.
+ * - mes: del día 1 al último día; con `extender` se amplía al sábado en que empieza esa semana
+ *   y al viernes en que cierra la semana del último día.
+ * - anio: 1 de enero → 31 de diciembre.
+ * - rango: fechas libres; con `extender` se ajusta a sábado → viernes.
+ * @returns {{ desde: string, hasta: string, etiqueta: string, dias: number, recortado: boolean }}
+ */
+export function periodoLibro({ modo = 'semana', semana, mes, anio, desde, hasta, extender = false } = {}) {
+  let d = '';
+  let h = '';
+  let etiqueta = '';
+  if (modo === 'mes') {
+    const y = Number(mes?.anio);
+    const m = Number(mes?.mes);
+    d = `${y}-${pad2(m)}-01`;
+    h = `${y}-${pad2(m)}-${pad2(ultimoDiaDelMes(y, m))}`;
+    etiqueta = `${nombreMes(m)} ${y}`;
+    if (extender) {
+      d = semanaDeFecha(d).inicio;
+      h = semanaDeFecha(h).fin;
+      etiqueta += ` · del sábado ${fechaCorta(d)} al viernes ${fechaCorta(h)}`;
+    }
+  } else if (modo === 'anio') {
+    const y = Number(anio);
+    d = `${y}-01-01`;
+    h = `${y}-12-31`;
+    etiqueta = `Año ${y} (1 ene al 31 dic)`;
+  } else if (modo === 'rango') {
+    d = String(desde || '').slice(0, 10);
+    h = String(hasta || '').slice(0, 10);
+    if (d && h && d > h) [d, h] = [h, d];
+    if (extender && d && h) {
+      d = semanaDeFecha(d).inicio;
+      h = semanaDeFecha(h).fin;
+    }
+    etiqueta = d && h ? etiquetaRango(d, h) : '';
+  } else {
+    d = semana?.inicio || '';
+    h = semana?.fin || '';
+    etiqueta = etiquetaSemana(d, h);
+  }
+  let recortado = false;
+  if (d && h && diasEntre(d, h) > MAX_DIAS_LIBRO) {
+    h = sumarDias(d, MAX_DIAS_LIBRO - 1);
+    recortado = true;
+  }
+  return { desde: d, hasta: h, etiqueta, dias: d && h ? diasEntre(d, h) : 0, recortado };
+}
+
+/** Parte un periodo largo en tramos (para no topar con límites de filas al consultar). */
+export function trocearPeriodo(desde, hasta, maxDias = 31) {
+  const out = [];
+  let ini = desde;
+  while (ini && ini <= hasta && out.length < 40) {
+    let fin = sumarDias(ini, maxDias - 1);
+    if (fin > hasta) fin = hasta;
+    out.push({ desde: ini, hasta: fin });
+    ini = sumarDias(fin, 1);
+  }
+  return out;
+}
+
+/** Une los datos de varios tramos de `cargarContAbarrotes` en uno solo. */
+export function fusionarDatosLibro(lista = []) {
+  const base = { ok: true, ingresosPorDia: [], cortesLibro: [], gastosEnCurso: [], egresosOtrosIe: [] };
+  const vistos = {
+    ingresosPorDia: new Set(),
+    cortesLibro: new Set(),
+    gastosEnCurso: new Set(),
+    egresosOtrosIe: new Set(),
+  };
+  for (const d of lista) {
+    for (const k of Object.keys(vistos)) {
+      for (const it of d?.[k] || []) {
+        const id = it?.id ?? JSON.stringify(it);
+        if (vistos[k].has(id)) continue;
+        vistos[k].add(id);
+        base[k].push(it);
+      }
+    }
+  }
+  return base;
+}
+
+/** Totales por mes calendario a partir de los días del libro. */
+export function resumenPorMes(dias = []) {
+  const mapa = new Map();
+  for (const d of dias) {
+    const k = d.fecha.slice(0, 7);
+    if (!mapa.has(k)) {
+      const [y, m] = k.split('-');
+      mapa.set(k, { clave: k, anio: Number(y), mes: Number(m), etiqueta: `${nombreMes(m)} ${y}`, ventas: 0, pctAba: 0, pctVirtual: 0, gastos: 0, resultado: 0, enCurso: 0, otros: 0, dias: 0, diasConMovimiento: 0 });
+    }
+    const f = mapa.get(k);
+    f.ventas = round2(f.ventas + d.totalIngresos);
+    f.pctAba = round2(f.pctAba + d.pctAba);
+    f.pctVirtual = round2(f.pctVirtual + d.pctVirtual);
+    f.gastos = round2(f.gastos + d.totalGastos);
+    f.resultado = round2(f.resultado + d.resultado);
+    f.enCurso = round2(f.enCurso + d.totalEnCurso);
+    f.otros = round2(f.otros + d.totalOtrosEgresos);
+    f.dias += 1;
+    if (!d.sinMovimiento) f.diasConMovimiento += 1;
+  }
+  return [...mapa.values()];
+}
+
+/** Totales por semana (sábado → viernes) a partir de los días del libro. */
+export function resumenPorSemana(dias = []) {
+  const mapa = new Map();
+  for (const d of dias) {
+    const sem = semanaDeFecha(d.fecha);
+    if (!mapa.has(sem.inicio)) {
+      mapa.set(sem.inicio, { inicio: sem.inicio, fin: sem.fin, etiqueta: `${fechaCorta(sem.inicio)} – ${fechaCorta(sem.fin)}`, ventas: 0, pctAba: 0, pctVirtual: 0, gastos: 0, resultado: 0, enCurso: 0, otros: 0, dias: 0 });
+    }
+    const f = mapa.get(sem.inicio);
+    f.ventas = round2(f.ventas + d.totalIngresos);
+    f.pctAba = round2(f.pctAba + d.pctAba);
+    f.pctVirtual = round2(f.pctVirtual + d.pctVirtual);
+    f.gastos = round2(f.gastos + d.totalGastos);
+    f.resultado = round2(f.resultado + d.resultado);
+    f.enCurso = round2(f.enCurso + d.totalEnCurso);
+    f.otros = round2(f.otros + d.totalOtrosEgresos);
+    f.dias += 1;
+  }
+  return [...mapa.values()];
 }
 
 export function dinero(n) {
@@ -99,7 +256,7 @@ export function construirLibroDiario({
 } = {}) {
   const dias = [];
   const porFecha = new Map();
-  for (let f = desde, n = 0; f && f <= hasta && n < 62; f = sumarDias(f, 1), n += 1) {
+  for (let f = desde, n = 0; f && f <= hasta && n < MAX_DIAS_LIBRO; f = sumarDias(f, 1), n += 1) {
     const dia = {
       fecha: f,
       nombre: nombreDia(f),
@@ -320,7 +477,7 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
-/** HTML imprimible del libro (una tienda, una semana). */
+/** HTML imprimible del libro (una tienda, un periodo). */
 export function htmlLibroDiarioImprimible(libro, { tienda = '', semana = '' } = {}) {
   const filas = libro.dias.map((d) => {
     const lineas = [
@@ -347,6 +504,6 @@ tr.dia th{background:#eef2ff;border-top:2px solid #6366f1}tr.tot td{font-weight:
 .res{display:flex;gap:14px;margin:8px 0 14px}.res div{border:1px solid #ccc;border-radius:6px;padding:6px 10px}
 </style></head><body>
 <h1>Libro diario · Abarrotes · ${esc(tienda)}</h1><h2>${esc(semana)}</h2>
-<div class="res"><div>Ventas y entradas<br><b class="in">${dinero(t.ingresos)}</b></div><div>Gastos de los cortes<br><b class="out">${dinero(t.gastos)}</b></div><div>Resultado de la semana<br><b>${dinero(t.resultado)}</b></div>${t.pctAba > 0 ? `<div>PCT ABA<br><b>${dinero(t.pctAba)}</b></div>` : ''}${t.pctVirtual > 0 ? `<div>PCT VIRTUAL<br><b>${dinero(t.pctVirtual)}</b></div>` : ''}${t.enCurso > 0 ? `<div>Gastos sin corte<br><b>${dinero(t.enCurso)}</b></div>` : ''}${t.otrosEgresos > 0 ? `<div>Otros egresos IE<br><b>${dinero(t.otrosEgresos)}</b></div>` : ''}</div>
+<div class="res"><div>Ventas y entradas<br><b class="in">${dinero(t.ingresos)}</b></div><div>Gastos de los cortes<br><b class="out">${dinero(t.gastos)}</b></div><div>Resultado del periodo<br><b>${dinero(t.resultado)}</b></div>${t.pctAba > 0 ? `<div>PCT ABA<br><b>${dinero(t.pctAba)}</b></div>` : ''}${t.pctVirtual > 0 ? `<div>PCT VIRTUAL<br><b>${dinero(t.pctVirtual)}</b></div>` : ''}${t.enCurso > 0 ? `<div>Gastos sin corte<br><b>${dinero(t.enCurso)}</b></div>` : ''}${t.otrosEgresos > 0 ? `<div>Otros egresos IE<br><b>${dinero(t.otrosEgresos)}</b></div>` : ''}</div>
 <table>${filas}</table></body></html>`;
 }
