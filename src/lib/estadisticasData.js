@@ -2,6 +2,7 @@ import { rangoDesdePreset as rangoDesdePresetBase, PRESETS_FECHA_PRODUCTO, carga
 import { etiquetaTienda, esAlmacenCentral, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { costoUnitarioInventario, resumirValorInventario } from './valorInventario.js';
 import { inventarioParaSucursal } from './inventarioMultitienda.js';
+import { esCierreContableAbarrotes } from './corteAbarrotesDiario.js';
 
 export { PRESETS_FECHA_PRODUCTO };
 
@@ -432,9 +433,13 @@ export function pastelPagoEfectivoTarjeta(rows) {
 }
 
 function ventasDesdeCierres(cierres) {
+  // Abarrotes: solo cortes diarios (y legado). Operativos de cajero no entran.
+  // Virtual/Garage siguen excluyendo solo recolecciones.
   return (cierres || [])
     .filter((c) => {
+      const mod = String(c?.modulo || '').toLowerCase();
       const tipo = String(c?.detalle?.tipo_cierre || '').toLowerCase();
+      if (mod === 'abarrotes') return esCierreContableAbarrotes(c);
       return tipo !== 'recoleccion' && tipo !== 'recoleccion_temporal';
     })
     .map((c) => ({

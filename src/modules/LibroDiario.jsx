@@ -334,6 +334,8 @@ export default function LibroDiario({ supabase, sucursal }) {
         <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.86rem' }}>
           Día por día de la semana (sábado a viernes): lo que <b style={{ color: VERDE }}>entró</b> por ventas y lo que{' '}
           <b style={{ color: ROJO }}>salió</b> por gastos, con el resultado de cada día.
+          La fuente es el <b>corte diario automático</b> (medianoche): ventas − gastos − tarjeta − faltantes.
+          Los cierres de turno del cajero ya no alimentan este libro.
         </p>
       </div>
 

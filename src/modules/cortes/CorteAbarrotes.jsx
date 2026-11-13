@@ -194,7 +194,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       const calcCierre = calcularAbarrotes(estadoCierre, gastosPreview);
 
       const msg =
-        `¿Cerrar corte abarrotes?\n\n` +
+        `¿Cerrar corte operativo de abarrotes?\n\n` +
+        `(Solo cierra la caja del turno. Libro diario e IE usan el corte diario automático a medianoche.)\n\n` +
         `Folio: ${f}\n` +
         `Venta: ${fmtCorte(calcCierre.venta)}\n` +
         `Subtotal: ${fmtCorte(calcCierre.subtotal)}\n` +
@@ -322,7 +323,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                 className="btn btn-primary"
                 onClick={abrirCandadoCierre}
                 disabled={cargando || cargandoCandado}
-                title="Antes de cerrar se pide el total de recargas de la terminal Mercado Pago"
+                title="Cierre operativo del turno (candado MP). La contabilidad usa el corte diario a medianoche."
               >
                 {cargandoCandado ? 'Preparando…' : 'Cerrar corte'}
               </button>

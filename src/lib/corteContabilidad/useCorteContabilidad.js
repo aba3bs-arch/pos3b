@@ -476,7 +476,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         total_lectura: calcCierre.totalLectura,
         comentarios: estadoCierre.comentarios || '',
         ...detalleExtra,
-        tipo_cierre: 'cierre',
+        // Abarrotes: el cajero solo cierra operativo; la contabilidad usa el corte diario automático.
+        tipo_cierre: modulo === 'abarrotes' ? 'cierre_operativo' : 'cierre',
+        contabilidad: modulo === 'abarrotes' ? false : true,
         turno_sesion: turnoCierre,
       },
     };
@@ -521,6 +523,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         'Corte cerrado. Gastos y faltantes se conservan para el siguiente turno.\n' +
           'Solo se ponen en cero (y pasan a IE) al generar recolección con máquinas en cero.',
       );
+    } else if (modulo === 'abarrotes') {
+      alert(
+        'Corte operativo cerrado (caja del turno).\n'
+        + 'La contabilidad / libro diario usan el corte diario automático a medianoche.',
+      );
     } else if (modulo !== 'virtual') {
       alert('Corte cerrado y guardado en historial contabilidad.');
     }
@@ -529,7 +536,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       ok: true,
       folio: folioCierre,
       turno: turnoTexto,
-      estadoImpresion: { ...estadoCierre, ...detalleExtra, tipo_cierre: 'cierre' },
+      estadoImpresion: {
+        ...estadoCierre,
+        ...detalleExtra,
+        tipo_cierre: modulo === 'abarrotes' ? 'cierre_operativo' : 'cierre',
+      },
       gastosImpresion: gastosCierre,
       calcImpresion: calcCierre,
     };
