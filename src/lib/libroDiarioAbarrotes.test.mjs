@@ -133,4 +133,26 @@ assert.equal(resumen.find((f) => f.id === '3B5').resultado, 1197);
 assert.equal(resumen.find((f) => f.id === '3B5').enCurso, 2647);
 assert.equal(resumen.find((f) => f.id === '3B6').resultado, 0);
 
+const conTarjeta = construirLibroDiario({
+  desde: '2026-11-07',
+  hasta: '2026-11-13',
+  cortes: [
+    { id: 'a', folio: 'AB-1', fecha: '2026-11-12', cajaAnterior: 0, ventaEfectivo: 100, cajaActual: 100, tarjeta: 500, pctAba: 300, pctVirtual: 200, gastos: [] },
+    { id: 'b', folio: 'AB-2', fecha: '2026-11-12', cajaAnterior: 100, ventaEfectivo: 50, cajaActual: 150, tarjeta: 100, pctAba: 0, pctVirtual: 100, gastos: [] },
+  ],
+});
+const dj = conTarjeta.dias.find((d) => d.fecha === '2026-11-12');
+assert.equal(dj.pctAba, 300);
+assert.equal(dj.pctVirtual, 300);
+assert.equal(conTarjeta.totales.pctAba, 300);
+assert.equal(conTarjeta.totales.pctVirtual, 300);
+assert.equal(conTarjeta.totales.resultado, 0); // la tarjeta no mueve el efectivo
+assert.ok(htmlLibroDiarioImprimible(conTarjeta, {}).includes('PCT VIRTUAL'));
+const resTar = resumenLibroPorTienda({ cortes: [
+  { tienda: '3B5', pctAba: 300, pctVirtual: 200, gastos: [] },
+  { tienda: '3B5', pctAba: 0, pctVirtual: 100, gastos: [] },
+] }, ['3B5']);
+assert.equal(resTar[0].pctAba, 300);
+assert.equal(resTar[0].pctVirtual, 300);
+
 console.log('libroDiarioAbarrotes.test.mjs OK');
