@@ -14,6 +14,19 @@ function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
+function horaNogales(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-MX', {
+    timeZone: 'America/Hermosillo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 /**
  * Modal obligatorio antes de cerrar/guardar corte.
  * Compara total de la terminal Mercado Pago vs recargas registradas en el POS.
@@ -23,6 +36,8 @@ export default function CandadoRecargasMp({
   posTotal = 0,
   /** Etiqueta del periodo consultado, p. ej. «11/11/2026 – 12/11/2026». */
   posRango = '',
+  /** Recargas que suma el POS en ese periodo: [{ id, creado, vendedor, monto, ajuste, cancelacion }]. */
+  posDetalle = [],
   usuarioNombre = '—',
   usuarioId = null,
   onCancelar,
@@ -135,6 +150,28 @@ export default function CandadoRecargasMp({
             </div>
           </div>
 
+          {posDetalle.length > 0 && (
+            <details className="candado-mp-detalle" style={{ margin: '0 0 0.6rem', fontSize: '0.84rem' }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                Ver las {posDetalle.length} recarga(s) que suma el POS
+              </summary>
+              <table style={{ width: '100%', marginTop: '0.35rem', borderCollapse: 'collapse' }}>
+                <tbody>
+                  {posDetalle.map((r, i) => (
+                    <tr key={`${r.id}_${i}`} style={{ borderBottom: '1px solid rgba(100,116,139,0.2)' }}>
+                      <td style={{ padding: '0.2rem 0.3rem' }}>{horaNogales(r.creado)}</td>
+                      <td style={{ padding: '0.2rem 0.3rem' }}>{r.vendedor || '—'}</td>
+                      <td style={{ padding: '0.2rem 0.3rem', textAlign: 'right', fontWeight: 600 }}>{fmt(r.monto)}</td>
+                      <td className="muted" style={{ padding: '0.2rem 0.3rem' }}>
+                        {r.ajuste ? 'ajuste del candado' : r.cancelacion ? 'cancelación' : ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+
           <label className="muted candado-mp-field">
             Total recargas en terminal MP (MXN)
             <input
@@ -176,6 +213,9 @@ export default function CandadoRecargasMp({
                 <span>
                   <strong>Registrar venta en el POS</strong> por {fmt(preview.diferencia)}.
                   Cuadra la terminal con el sistema sin faltante al cajero/CT.
+                  {posDetalle.length > 0 && (
+                    <> Antes de elegirla, revisa la lista de recargas del POS: si la recarga ya aparece ahí (de otro turno u otro día), no la registres otra vez.</>
+                  )}
                 </span>
               </label>
 

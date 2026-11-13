@@ -14,7 +14,7 @@ import {
   fmtYmdEs,
   ymdNogalesFromDate,
 } from './corteCaja.js';
-import { totalRecargasPos } from './corteCajaRecargasMp.js';
+import { detalleRecargasPos, totalRecargasPos } from './corteCajaRecargasMp.js';
 import { cargarDiaCaja } from './movimientosCaja.js';
 import {
   horaEnVentanaLogin,
@@ -295,6 +295,7 @@ export async function cargarTotalRecargasPosCandado(supabase, {
 
   return {
     total: totalRecargasPos(ventas, cancelaciones),
+    recargas: detalleRecargasPos(ventas, cancelaciones),
     fechas,
     etiquetaRango: etiquetaRangoFechasCandado(fechas),
     tickets: ventas.length,

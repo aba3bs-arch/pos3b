@@ -163,6 +163,36 @@ export function montoRecargasDeCancelacion(canc, { productoPorId = null } = {}) 
   return hay ? sum : 0;
 }
 
+/** Recargas (y cancelaciones en negativo) que suma el candado, con hora, para mostrarlas al cajero. */
+export function detalleRecargasPos(ventas = [], cancelaciones = [], opts = {}) {
+  const filas = [];
+  for (const v of ventas || []) {
+    const monto = montoRecargasDeVenta(v, opts);
+    if (!(monto > 0.009)) continue;
+    filas.push({
+      id: v.id,
+      creado: v.created_at || null,
+      vendedor: v.vendedor || '',
+      monto,
+      ajuste: String(v.metodo_pago || '').toLowerCase().includes('recarga mercado pago'),
+      cancelacion: false,
+    });
+  }
+  for (const c of cancelaciones || []) {
+    const monto = montoRecargasDeCancelacion(c, opts);
+    if (!(monto > 0.009)) continue;
+    filas.push({
+      id: c.id,
+      creado: c.created_at || null,
+      vendedor: c.usuario || c.vendedor || '',
+      monto: -monto,
+      ajuste: false,
+      cancelacion: true,
+    });
+  }
+  return filas.sort((a, b) => new Date(a.creado || 0) - new Date(b.creado || 0));
+}
+
 /** Total neto de recargas registradas en el POS del turno. */
 export function totalRecargasPos(ventas = [], cancelaciones = [], opts = {}) {
   let total = 0;
