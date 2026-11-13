@@ -1035,12 +1035,11 @@ export async function marcarCumplidaCt(supabase, solicitudId) {
  * Devuelve errores claros si el PIN existe pero no aplica (otra tienda, otro día, vencido).
  * @returns {{ ok: true, solicitud } | { ok: false, error?: string, razon?: string, faltaTabla?: boolean }}
  */
-export async function validarPinTemporalCt(supabase, pin, sucursal) {
+export async function validarPinTemporalCt(supabase, pin, sucursal, ahora = new Date()) {
   if (!supabase) return { ok: false };
   const p = normalizarPinComparacion(pin);
   const suc = normalizarCodigoTienda(sucursal);
   if (!p || !suc) return { ok: false };
-  const ahora = new Date();
 
   // Buscar por PIN sin filtrar tienda/estado para poder diagnosticar.
   const { data, error } = await supabase

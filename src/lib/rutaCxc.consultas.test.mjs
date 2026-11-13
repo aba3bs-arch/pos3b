@@ -52,7 +52,7 @@ let sent;
 r=await pagarCreditosRutaConPin({async rpc(name,args){sent={name,args};return {error:{code:'PGRST202'}}}},
  {movimientoIds:['c1'],sucursal:'Fusión',cajeroUser:{nombre:'Cajera'},montoPagar:30,solicitudId:request});
 assert.equal(r.ok,false);
-assert.match(r.error,/activar los pagos seguros/);
+assert.match(r.error,/Falta la tabla o la función de cobro/);
 assert.equal(sent.args.p_solicitud,request);
 assert.equal(sent.args.p_sucursal,'FUSION');
 assert.equal(sent.name,'pagar_creditos_ruta_atomico');
