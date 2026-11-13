@@ -653,6 +653,8 @@ export function nombresMismaPersona(a, b) {
 
   const ta = na.split(' ').filter(Boolean);
   const tb = nb.split(' ').filter(Boolean);
+  // Mismas palabras en otro orden (apellidos invertidos): misma persona.
+  if (ta.length >= 3 && ta.length === tb.length && [...ta].sort().join(' ') === [...tb].sort().join(' ')) return true;
   if (!ta[0] || !tb[0]) return false;
   if (ta[0].length < 4 || tb[0].length < 4) return false;
   if (!(ta[0] === tb[0] || tokensNombreSimilares(ta[0], tb[0]))) return false;

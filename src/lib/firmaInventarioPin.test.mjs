@@ -15,7 +15,7 @@ test('usuario normal de la tienda firma con su PIN', async () => {
 
 test('PIN temporal de CT activo en la tienda firma y queda marcado como CT', async () => {
   const ahora = new Date('2026-10-27T20:00:00-07:00');
-  const r = await resolverFirmanteInventario({}, '4827', 'FUSION', { buscarUsuario: sinUsuario, validarPinCt: (d, p, s) => validarPinTemporalCt(dbCon([solicitud]), p, s), ahora });
+  const r = await resolverFirmanteInventario({}, '4827', 'FUSION', { buscarUsuario: sinUsuario, validarPinCt: (d, p, s, a) => validarPinTemporalCt(dbCon([solicitud]), p, s, a), ahora });
   assert.equal(r.ok, true);
   assert.deepEqual(r.firmante, { nombre: 'Rosa CT', usuario_id: null, cubre_turno: true, cubre_solicitud_id: 'sol1' });
 });
