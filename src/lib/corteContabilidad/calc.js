@@ -459,12 +459,12 @@ export function calcularAbarrotes(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
   const venta = round2(estado.venta);
   const tarjeta = round2(estado.tarjeta);
-  const faltante = round2(estado.faltante);
   const recoleccion = round2(estado.recoleccion);
   const cajaAnterior = round2(estado.caja_anterior);
-  const subtotalCalc = round2(venta - gastosTotal - faltante - tarjeta);
+  // El faltante ya no es un campo del corte: se registra en Gastos (EMPLEADO → FALTANTE) y descuenta ahí.
+  const subtotalCalc = round2(venta - gastosTotal - tarjeta);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
-  const cajaActualCalc = round2(venta + cajaAnterior - gastosTotal - recoleccion - faltante - tarjeta);
+  const cajaActualCalc = round2(venta + cajaAnterior - gastosTotal - recoleccion - tarjeta);
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   return { venta, gastosTotal, subtotal, cajaActual };
 }
