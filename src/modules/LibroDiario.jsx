@@ -3,6 +3,7 @@ import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } fr
 import { cargarContAbarrotes } from '../lib/contVirtualData.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import { cargarVentaPosEnVivo } from '../lib/ventaPosEnVivo.js';
+import CortesGeneralesPanel from '../components/CortesGeneralesPanel.jsx';
 import {
   construirLibroDiario,
   desplazarSemana,
@@ -813,6 +814,13 @@ export default function LibroDiario({ supabase, sucursal }) {
               Para ver el detalle día por día elige un mes (toca el mes en el resumen) o un rango de hasta {MAX_DIAS_TARJETAS} días.
             </p>
           )}
+
+          <CortesGeneralesPanel
+            supabase={supabase}
+            sucursal={tienda === TODAS ? null : tienda}
+            desde={periodo.desde}
+            hasta={periodo.hasta}
+          />
 
           {libro.gastosPorCategoria.length > 0 && (
             <div className="card" style={{ padding: '0.7rem 0.9rem' }}>
