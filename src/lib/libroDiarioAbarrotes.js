@@ -148,7 +148,11 @@ export function construirLibroDiario({
       turno: etiquetaTurno(it),
       empleado: it.empleado || '',
       concepto: it.tipo_mov === 'venta_cierre'
-        ? `Venta del corte${it.folio ? ` ${it.folio}` : ''}${etiquetaTurno(it) ? ` · ${etiquetaTurno(it)}` : ''}`
+        ? (
+          String(it.folio || '').startsWith('ABD-')
+            ? `Corte diario${it.folio ? ` ${it.folio}` : ''}`
+            : `Venta del corte${it.folio ? ` ${it.folio}` : ''}${etiquetaTurno(it) ? ` · ${etiquetaTurno(it)}` : ''}`
+        )
         : (it.comentario || 'Ingreso capturado'),
       monto,
     };
