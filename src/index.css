@@ -6051,11 +6051,11 @@ table.data th {
   justify-content: center;
   gap: 0.05in;
   text-align: left;
-  border: 1px solid rgba(250, 204, 21, 0.45);
-  border-left: 5px solid #eab308;
+  border: 1px solid rgba(202, 138, 4, 0.45);
+  border-left: 5px solid #d97706;
   border-radius: 12px;
-  background: linear-gradient(160deg, #1e293b 0%, #0f172a 72%);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  background: linear-gradient(160deg, #5c6b7d 0%, #3f4d5f 100%);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
   animation: none;
 }
 
