@@ -567,24 +567,39 @@ export function calcularPagosBonoPorEmpleado({
 }
 
 /**
- * De dónde sale el monto del bono en el corte virtual.
- * La moneda final en 0 de arranque no es un conteo: si se tomara, la venta
- * queda en 0 y la alerta muestra $0.00 aunque los factores estén apagados.
- * Solo cuenta si el cajero la editó o capturó un monto mayor a cero.
+ * Venta acumulada del bono: tope menos el saldo conocido del corte.
+ * Sin moneda final el saldo es la moneda inicial que dejaron los cierres.
+ * Con moneda final capturada, la venta sube si esa moneda baja.
+ * El cero de arranque de la moneda final no cuenta como conteo.
  */
-export function resolverOrigenBonoCorte({
-  recoleccion = 0,
+export function ventaAcumuladaBonoVirtual({
+  tope = 0,
+  monedaInicial = 0,
   monedaFinal = null,
   monedaFinalEditada = false,
-  venta = 0,
 } = {}) {
-  const rec = round2(recoleccion);
-  if (rec > 0) return { origen: 'recoleccion', monto: rec };
+  const techo = round2(tope);
+  const mi = round2(monedaInicial);
   const vacio = monedaFinal === '' || monedaFinal == null;
   const mf = Number(monedaFinal);
   const capturada = !vacio && (Boolean(monedaFinalEditada) || (Number.isFinite(mf) && mf > 0));
-  if (!capturada) return { origen: 'pendiente', monto: null };
-  return { origen: 'moneda_final', monto: Math.max(0, round2(venta)) };
+  const saldo = capturada ? round2(mf) : mi;
+  return Math.max(0, round2(techo - saldo));
+}
+
+export function resolverOrigenBonoCorte({
+  recoleccion = 0,
+  tope = 0,
+  monedaInicial = 0,
+  monedaFinal = null,
+  monedaFinalEditada = false,
+} = {}) {
+  const rec = round2(recoleccion);
+  if (rec > 0) return { origen: 'recoleccion', monto: rec };
+  return {
+    origen: 'acumulado',
+    monto: ventaAcumuladaBonoVirtual({ tope, monedaInicial, monedaFinal, monedaFinalEditada }),
+  };
 }
 
 /**

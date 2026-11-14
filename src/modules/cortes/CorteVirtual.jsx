@@ -114,9 +114,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
   const miInyectada = Boolean(calc.monedaInyectada);
   const origenMontoBono = resolverOrigenBonoCorte({
     recoleccion: montoRec,
+    tope: monedaOperacion,
+    monedaInicial: miCorte,
     monedaFinal: estado.moneda_final,
     monedaFinalEditada: estado.moneda_final_editada,
-    venta: calc.venta,
   });
   const origenBono = origenMontoBono.origen;
   const montoBono = origenMontoBono.monto;

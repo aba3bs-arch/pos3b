@@ -111,17 +111,14 @@ export function textoConfirmacionBono({ pack, pagos, origen }) {
   const lineas = ['', 'Bono (se paga en la recolección):'];
   if (!nombres.length) {
     lineas.push('Nadie recibe bono: falta vigente (vuelve a los 8 días sin falta).');
-  } else if (origen === 'pendiente') {
-    lineas.push(`Reciben: ${nombres.join(', ')}.`);
-    lineas.push('Captura la moneda final para ver el monto.');
   } else {
     lineas.push(`Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)}`);
     (pagos || []).forEach((p) => lineas.push(p.ecuacion));
     lineas.push(`A pagar ${fmtMoney(reparto.totalAPagar)} (${reparto.cobran} de ${reparto.partes} partes). La parte de quien tiene falta no se suma.`);
-    if (origen === 'moneda_final') {
-      lineas.push('Estimado con moneda inicial − moneda final. Se paga al recolectar.');
-    } else {
+    if (origen === 'recoleccion') {
       lineas.push('Calculado con el monto de esta recolección.');
+    } else {
+      lineas.push('Venta acumulada: tope − saldo del corte. Sube si la venta sube y queda guardada en el siguiente cierre. Se paga al recolectar.');
     }
   }
   if (factores) lineas.push(`Factores: ${factores}`);
@@ -138,7 +135,7 @@ export default function AlertaBonoCorte({
   if (!visible || !pack?.ok || pack.activo === false) return null;
   const reciben = (pagos || []).filter((p) => !p.conFalta);
   const reparto = resumenRepartoBono(pagos);
-  const mostrarMonto = origen === 'recoleccion' || origen === 'moneda_final';
+  const mostrarMonto = origen === 'recoleccion' || origen === 'moneda_final' || origen === 'acumulado';
   const peso = pack.pesoFactor || pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct || 0;
   const pagosDistintos = [...new Set(reciben.map((p) => p.pago))];
   const mismoPago = pagosDistintos.length === 1;
@@ -149,7 +146,7 @@ export default function AlertaBonoCorte({
 
   let linea = cargando ? 'Calculando…' : 'Falta moneda final';
   if (partesTxt && mostrarMonto) linea = partesTxt;
-  else if (origen === 'moneda_final') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
+  else if (origen === 'moneda_final' || origen === 'acumulado') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
   else if (origen === 'recoleccion') linea = mismoPago ? 'c/u · esta recolección' : 'A pagar en esta recolección';
   const nombres = !reciben.length
     ? 'Nadie recibe bono'

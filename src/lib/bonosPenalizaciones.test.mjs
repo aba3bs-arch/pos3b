@@ -9,6 +9,7 @@ import {
   calcularPagosBonoPorEmpleado,
   resumenRepartoBono,
   resolverOrigenBonoCorte,
+  ventaAcumuladaBonoVirtual,
   normalizarBonosConfig,
 } from './bonosConfig.js'
 import { DIAS_BLOQUEO_BONO_POR_FALTA } from './resumenDiasAsistencia.js'
@@ -411,38 +412,19 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Moneda final en 0 de arranque no es un conteo: no calcular bono en $0.
+  // Tope $10,000 e inicial $4,676: la venta ya acumulada es $5,324, sin moneda final.
   const abierto = resolverOrigenBonoCorte({
     recoleccion: 0,
+    tope: 10000,
+    monedaInicial: 4676,
     monedaFinal: 0,
     monedaFinalEditada: false,
-    venta: 0,
   })
-  assert.equal(abierto.origen, 'pendiente')
-  assert.equal(abierto.monto, null)
-
-  // Conteo real por debajo de $3,000: el tabulador sí es $0.
-  const corto = resolverOrigenBonoCorte({
-    recoleccion: 0,
-    monedaFinal: 4000,
-    monedaFinalEditada: true,
-    venta: 676,
-  })
-  assert.equal(corto.origen, 'moneda_final')
-  assert.equal(corto.monto, 676)
-  assert.equal(bonoBasePorMonto(corto.monto), 0)
-
-  // Venta de $5,000 con factores apagados: cada quien cobra su parte si no tiene falta.
-  const listo = resolverOrigenBonoCorte({
-    recoleccion: 0,
-    monedaFinal: 0,
-    monedaFinalEditada: true,
-    venta: 5000,
-  })
-  assert.equal(listo.origen, 'moneda_final')
-  assert.equal(listo.monto, 5000)
+  assert.equal(abierto.origen, 'acumulado')
+  assert.equal(abierto.monto, 5324)
+  assert.equal(bonoBasePorMonto(abierto.monto), 200)
   const pagos = calcularPagosBonoPorEmpleado({
-    base: bonoBasePorMonto(listo.monto),
+    base: bonoBasePorMonto(abierto.monto),
     pctTienda: 100,
     plantilla: [
       { id: 1, nombre: 'Manuel' },
@@ -450,6 +432,36 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     ],
   })
   assert.equal(pagos.every((p) => p.pago === 100), true)
+
+  // Si la venta del turno sube (moneda final más baja), el acumulado sube en el momento.
+  assert.equal(ventaAcumuladaBonoVirtual({
+    tope: 10000,
+    monedaInicial: 4676,
+    monedaFinal: 4000,
+    monedaFinalEditada: true,
+  }), 6000)
+
+  // Al cerrar, la moneda final pasa a ser la inicial del siguiente corte y el bono sigue.
+  const siguiente = resolverOrigenBonoCorte({
+    tope: 10000,
+    monedaInicial: 4000,
+    monedaFinal: 0,
+    monedaFinalEditada: false,
+  })
+  assert.equal(siguiente.monto, 6000)
+
+  // La falta apaga la parte de esa persona aunque los factores den 100%.
+  const conFalta = calcularPagosBonoPorEmpleado({
+    base: 200,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Manuel' },
+      { id: 2, nombre: 'Mayra' },
+    ],
+    bloqueosFalta: [{ clave: 'id:2' }],
+  })
+  assert.equal(conFalta.find((p) => p.nombre === 'Manuel').pago, 100)
+  assert.equal(conFalta.find((p) => p.nombre === 'Mayra').pago, 0)
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')
