@@ -62,7 +62,7 @@ export const BONOS_CONFIG_DEFAULT = {
       label: 'Cero faltante de efectivo',
       /** Si true, faltante deja el % en 0 de golpe (turno con faltante en esa recolección). */
       esRequisito: true,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
     },
     checklistDiario: {
       activo: true,
@@ -70,13 +70,13 @@ export const BONOS_CONFIG_DEFAULT = {
       diasEsperados: 6,
       /** Penaliza si días con checklist son estrictamente menores a este valor. */
       diasPenalizaSiHasta: 4,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
     },
     evaluacionMinPct: {
       activo: true,
       label: 'Evaluación operativa',
       minPct: 70,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
       /** Días que permanece vigente la evaluación para el medidor. */
       ventanaDias: DIAS_VENTANA_EVALUACION_BONO,
     },
@@ -84,7 +84,7 @@ export const BONOS_CONFIG_DEFAULT = {
       activo: true,
       label: 'Inventario (merma)',
       maxPct: 6,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
       /** Días de vigencia del medidor según merma del último inventario (día de tienda). */
       ventanaDias: DIAS_VENTANA_INVENTARIO_BONO,
     },
@@ -95,6 +95,7 @@ export const BONOS_CONFIG_DEFAULT = {
       toleranciaMinutos: 15,
       /** Con estos retardos en el periodo se pierde la parte de este factor. */
       maxRetardos: 3,
+      penalizacionPct: 20,
     },
   },
   /**
@@ -178,18 +179,18 @@ export function normalizarBonosConfig(raw) {
   const evalMinDefault = migrarUmbrales && Number(reglasIn.evaluacionMinPct?.minPct) === 75
     ? base.reglas.evaluacionMinPct.minPct
     : num(reglasIn.evaluacionMinPct?.minPct, base.reglas.evaluacionMinPct.minPct);
-  const migrarPen25 = (val, viejo) => {
+  // 25 y 60 eran castigos viejos, no el porcentaje que aporta el factor.
+  const pesoFactor = (val, fallback = 20) => {
     const n = Number(val);
-    if (!Number.isFinite(n)) return base.reglas.checklistDiario.penalizacionPct;
-    if (n === viejo) return 25;
-    return n;
+    if (!Number.isFinite(n)) return fallback;
+    if (n === 25 || n === 60) return 20;
+    return Math.max(0, Math.min(100, round2(n)));
   };
-  const penCheckIn = reglasIn.checklistDiario?.penalizacionPct;
-  const penEvalIn = reglasIn.evaluacionMinPct?.penalizacionPct;
-  const penMermaIn = reglasIn.mermaMaxPct?.penalizacionPct;
-  const penCheck = penCheckIn == null ? 25 : migrarPen25(penCheckIn, 20);
-  const penEval = penEvalIn == null ? 25 : migrarPen25(penEvalIn, 20);
-  const penMerma = penMermaIn == null ? 25 : migrarPen25(penMermaIn, 60);
+  const penCheck = pesoFactor(reglasIn.checklistDiario?.penalizacionPct);
+  const penEval = pesoFactor(reglasIn.evaluacionMinPct?.penalizacionPct);
+  const penMerma = pesoFactor(reglasIn.mermaMaxPct?.penalizacionPct);
+  const penFaltante = pesoFactor(reglasIn.faltanteCero?.penalizacionPct);
+  const penRetardo = pesoFactor(reglasIn.retardos?.penalizacionPct);
   return {
     activo: r.activo !== false,
     periodo: r.periodo === 'dia' ? 'dia' : 'semana',
@@ -202,10 +203,7 @@ export function normalizarBonosConfig(raw) {
         label: String(reglasIn.faltanteCero?.label || base.reglas.faltanteCero.label),
         // Default true (requisito duro). Solo false si se guarda explícitamente.
         esRequisito: reglasIn.faltanteCero?.esRequisito !== false,
-        penalizacionPct: Math.max(0, Math.min(100, round2(num(
-          reglasIn.faltanteCero?.penalizacionPct,
-          base.reglas.faltanteCero.penalizacionPct,
-        )))),
+        penalizacionPct: penFaltante,
       },
       checklistDiario: {
         activo: reglasIn.checklistDiario?.activo !== false,
@@ -218,13 +216,13 @@ export function normalizarBonosConfig(raw) {
           reglasIn.checklistDiario?.diasPenalizaSiHasta,
           base.reglas.checklistDiario.diasPenalizaSiHasta,
         ))),
-        penalizacionPct: Math.max(0, Math.min(100, round2(penCheck))),
+        penalizacionPct: penCheck,
       },
       evaluacionMinPct: {
         activo: reglasIn.evaluacionMinPct?.activo !== false,
         label: String(reglasIn.evaluacionMinPct?.label || base.reglas.evaluacionMinPct.label),
         minPct: round2(evalMinDefault),
-        penalizacionPct: Math.max(0, Math.min(100, round2(penEval))),
+        penalizacionPct: penEval,
         ventanaDias: Math.max(1, Math.round(num(
           reglasIn.evaluacionMinPct?.ventanaDias,
           base.reglas.evaluacionMinPct.ventanaDias ?? DIAS_VENTANA_EVALUACION_BONO,
@@ -234,7 +232,7 @@ export function normalizarBonosConfig(raw) {
         activo: reglasIn.mermaMaxPct?.activo !== false,
         label: String(reglasIn.mermaMaxPct?.label || base.reglas.mermaMaxPct.label),
         maxPct: round2(mermaMaxDefault),
-        penalizacionPct: Math.max(0, Math.min(100, round2(penMerma))),
+        penalizacionPct: penMerma,
         ventanaDias: Math.max(1, Math.round(num(
           reglasIn.mermaMaxPct?.ventanaDias,
           base.reglas.mermaMaxPct.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO,
@@ -251,6 +249,7 @@ export function normalizarBonosConfig(raw) {
           reglasIn.retardos?.maxRetardos,
           base.reglas.retardos.maxRetardos,
         ))),
+        penalizacionPct: penRetardo,
       },
     },
     bonosTurno: normalizarBonosTurno(r.bonosTurno),
@@ -376,13 +375,14 @@ export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
 
 export const IDS_FACTORES_BONO = ['faltanteCero', 'checklistDiario', 'evaluacionMinPct', 'mermaMaxPct', 'retardos'];
 
-/** Cuántos factores están encendidos y qué parte del 100% vale cada uno. */
+/** Porcentaje que aporta cada factor encendido. Lo edita el administrador. */
 export function pesosFactoresBono(config = null) {
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
   const activos = IDS_FACTORES_BONO.filter((id) => cfg.reglas[id]?.activo);
-  const n = activos.length;
-  const peso = n > 0 ? round2(100 / n) : 0;
-  return { activos, n, peso };
+  const pesos = {};
+  for (const id of activos) pesos[id] = round2(Number(cfg.reglas[id]?.penalizacionPct) || 0);
+  const suma = round2(activos.reduce((s, id) => s + pesos[id], 0));
+  return { activos, n: activos.length, pesos, suma };
 }
 
 function juicioFactorBono(id, reglas, metricas) {
@@ -434,9 +434,9 @@ function juicioFactorBono(id, reglas, metricas) {
 }
 
 /**
- * % del bono según los factores encendidos.
- * Cada uno vale 100 / N. El % es la suma de los que se cumplen.
- * Sin ninguno encendido, el tabulador se paga al 100%.
+ * % del bono = suma de los porcentajes de los factores encendidos que sí se cumplen.
+ * Cada porcentaje se edita en configuración. Si los cinco suman 100% y se cumplen, se paga el total.
+ * Sin ninguno encendido, el tabulador se paga al 100% (solo decide la falta).
  *
  * @param {{
  *   faltanteOk: boolean,
@@ -448,7 +448,7 @@ function juicioFactorBono(id, reglas, metricas) {
  */
 export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
-  const { activos, n, peso } = pesosFactoresBono(cfg);
+  const { activos, n, pesos } = pesosFactoresBono(cfg);
   if (!n) {
     return {
       pct: 100,
@@ -458,10 +458,12 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
       fallosLineamiento: 0,
       factoresActivos: 0,
       pesoFactor: 0,
+      sumaFactores: 0,
     };
   }
 
   const detalle = activos.map((id) => {
+    const peso = pesos[id];
     const juicio = juicioFactorBono(id, cfg.reglas, metricas);
     return {
       id,
@@ -474,31 +476,34 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
       porEmpleado: juicio.porEmpleado === true,
     };
   });
-  const cumplidas = detalle.filter((d) => d.ok).length;
-  const pct = round2((cumplidas / n) * 100);
+  const cumplidas = detalle.filter((d) => d.ok);
+  const pct = round2(Math.min(100, cumplidas.reduce((s, d) => s + d.pesoPct, 0)));
+  const pesosUnicos = [...new Set(detalle.map((d) => d.pesoPct))];
 
   return {
     pct,
     detalle,
-    penalizacionTotal: round2(100 - pct),
+    penalizacionTotal: round2(Math.max(0, 100 - pct)),
     bloqueadoPorFaltante: false,
-    fallosLineamiento: n - cumplidas,
+    fallosLineamiento: n - cumplidas.length,
     factoresActivos: n,
-    pesoFactor: peso,
+    pesoFactor: pesosUnicos.length === 1 ? pesosUnicos[0] : 0,
+    sumaFactores: round2(detalle.reduce((s, d) => s + d.pesoPct, 0)),
   };
 }
 
 /**
- * Pago de bono por empleado de tienda.
+ * Pago de bono por empleado de tienda (turno diurno y turno nocturno).
  *
- * El tabulador es el bono de la tienda y se parte entre la plantilla.
- * Tabulador $400 y 2 empleados → cada parte $200.
- * Quien tiene falta cobra $0 y su parte no se suma: la otra persona
- * se queda con sus $200, no con los $400.
+ * El tabulador sale de la venta de moneda virtual y se recalcula en cada cierre.
+ * Cada empleado cobra el tabulador completo por el porcentaje que sumen los factores.
+ * Tabulador $200 al 100% → $200 cada uno. Al 80% → $160 cada uno.
+ * La falta pesa más que los factores: ese empleado cobra $0 por 8 días.
+ * El otro sigue con su porcentaje del tabulador.
  *
- * - pctTienda = % tras lineamientos.
+ * - pctTienda = suma de los factores encendidos que se cumplen.
  * - Falta vigente → pct = 0.
- * - pago = (tabulador / empleados) × pct_empleado / 100.
+ * - pago = tabulador × pct_empleado / 100.
  *
  * @param {{
  *   base: number,
@@ -521,8 +526,6 @@ export function calcularPagosBonoPorEmpleado({
 } = {}) {
   const baseN = round2(Number(base) || 0);
   const pctT = Math.max(0, Math.min(100, Number(pctTienda) || 0));
-  const partes = Math.max(1, (plantilla || []).length);
-  const parte = round2(baseN / partes);
   const bloqueados = new Set(
     (bloqueosFalta || [])
       .map((b) => String(b?.clave || '').trim())
@@ -538,13 +541,13 @@ export function calcularPagosBonoPorEmpleado({
     const pesoR = Math.max(0, Number(pesoRetardo) || 0);
     const pierdeRetardo = !conFalta && pesoR > 0 && nRet >= Math.max(1, Number(umbralRetardos) || 3);
     const pct = conFalta ? 0 : round2(Math.max(0, Math.min(100, pctT - (pierdeRetardo ? pesoR : 0))));
-    const pago = bonoFinal(parte, pct);
+    const pago = bonoFinal(baseN, pct);
     const money = (n) => `$${n.toLocaleString('es-MX')}`;
     const ecuacion = conFalta
-      ? `${nombre} · ${money(parte)} × 0% (falta, su parte no se suma) = $0`
+      ? `${nombre} · ${money(baseN)} × 0% (falta, 8 días sin bono) = $0`
       : pierdeRetardo
-        ? `${nombre} · ${money(parte)} × ${pct}% (${nRet} retardos) = ${money(pago)}`
-        : `${nombre} · ${money(parte)} × ${pct}% = ${money(pago)}`;
+        ? `${nombre} · ${money(baseN)} × ${pct}% (${nRet} retardos) = ${money(pago)}`
+        : `${nombre} · ${money(baseN)} × ${pct}% = ${money(pago)}`;
     return {
       id,
       clave,
@@ -553,7 +556,7 @@ export function calcularPagosBonoPorEmpleado({
       retardos: nRet,
       pierdeRetardo,
       tabulador: baseN,
-      base: parte,
+      base: baseN,
       pctTienda: pctT,
       pct,
       pago,
@@ -603,9 +606,9 @@ export function resolverOrigenBonoCorte({
 }
 
 /**
- * Cómo se reparte el tabulador en la tienda.
- * `parte` es tabulador / empleados.
- * `totalAPagar` suma solo las partes que sí se cobran.
+ * Cómo se paga el tabulador en la tienda.
+ * `parte` es el tabulador completo: cada empleado de tienda lo cobra por su porcentaje.
+ * `totalAPagar` suma lo que sí se cobra. Quien tiene falta queda en cero.
  */
 export function resumenRepartoBono(pagos = []) {
   const lista = pagos || [];

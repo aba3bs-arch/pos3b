@@ -189,8 +189,6 @@ export default function PanelBonoInicio({
   const clase = hayBono ? 'bono-panel bono-panel-parpadeo' : 'bono-panel';
   const fallos = (pack.reglas || []).filter((r) => !r.ok).length;
   const invVentana = pack.metricas?.inventarioVentana;
-  const pesoFactor = pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct ?? 0;
-
   return (
     <div className={`card ${clase}`} style={{ borderLeft: `4px solid ${hayBono ? '#b45309' : '#a8a29e'}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -206,11 +204,9 @@ export default function PanelBonoInicio({
             ) : null}
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
-            Ingresa el monto de <strong>esta recolección</strong>. El tabulador es el bono de la tienda
-            y se divide en partes iguales. Con tabulador de $400 y dos empleados, cada parte es $200.
-            Si uno tiene falta, cobra $0 y el otro se queda con sus $200. Los factores encendidos se reparten el 100%.
-            Tres retardos del reloj (15 min) quitan la parte de ese factor.
-            Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días.
+            La venta del bono es tope menos moneda final y se recalcula en cada cierre.
+            Cada empleado de tienda, diurno y nocturno, cobra el tabulador por el porcentaje que sumen los factores encendidos.
+            Una falta deja a esa persona en $0 por {DIAS_BLOQUEO_BONO_POR_FALTA} días. Los demás siguen con su porcentaje.
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -275,14 +271,14 @@ export default function PanelBonoInicio({
             <strong>{fmtMoney(montoCalc)}</strong>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: '0.7rem' }}>Parte</div>
-            <strong>{fmtMoney(reparto.partes > 0 ? reparto.parte : baseCalc)}</strong>
+            <div className="muted" style={{ fontSize: '0.7rem' }}>Tabulador c/u</div>
+            <strong>{fmtMoney(baseCalc)}</strong>
           </div>
           <div>
             <div className="muted" style={{ fontSize: '0.7rem' }}>% medidores</div>
             <strong>{pack.pct}%</strong>
             <span className="muted" style={{ marginLeft: 4 }}>
-              ({fallos === 0 ? 'completo' : `${fallos}× −${pesoFactor}%`})
+              ({fallos === 0 ? 'completo' : `${fallos} factor${fallos === 1 ? '' : 'es'} sin cumplir`})
             </span>
           </div>
           <div>
@@ -291,17 +287,17 @@ export default function PanelBonoInicio({
           </div>
           <div>
             <div className="muted" style={{ fontSize: '0.7rem' }}>
-              A pagar {reparto.partes > 0 ? `(${reparto.cobran} de ${reparto.partes} partes)` : ''}
+              A pagar {reparto.sinCobro > 0 ? `(${reparto.sinCobro} con falta)` : ''}
             </div>
             <strong style={{ color: '#b45309' }}>{fmtMoney(totalPagar)}</strong>
           </div>
         </div>
-        {reparto.partes >= 2 && baseCalc > 0 ? (
+        {reparto.partes >= 1 && baseCalc > 0 ? (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Tabulador {fmtMoney(reparto.totalTabulador)} en {reparto.partes} partes de {fmtMoney(reparto.parte)}.
+            Tabulador {fmtMoney(baseCalc)} para cada empleado de tienda × {pack.pct}%.
             {reparto.sinCobro > 0
-              ? ` Se pagan ${reparto.cobran} de ${reparto.partes} (${fmtMoney(reparto.totalAPagar)}). La parte de quien tiene falta no se suma.`
-              : ` Se pagan las ${reparto.partes} partes.`}
+              ? ` Quien tiene falta no cobra por ${DIAS_BLOQUEO_BONO_POR_FALTA} días. A pagar ${fmtMoney(reparto.totalAPagar)}.`
+              : ` Se paga a ${reparto.cobran} empleado${reparto.cobran === 1 ? '' : 's'}.`}
           </p>
         ) : montoCalc > 0 && baseCalc > 0 ? (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
@@ -309,8 +305,8 @@ export default function PanelBonoInicio({
           </p>
         ) : (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Ejemplo: tabulador $400 y 2 empleados → cada parte $200.
-            Si uno tiene falta, se paga $200 y la otra parte no se cobra.
+            Ejemplo: tabulador $200 al 100% → $200 al diurno y $200 al nocturno.
+            Si uno falta, ese queda en $0 por 8 días y el otro sigue con sus $200.
           </p>
         )}
       </div>

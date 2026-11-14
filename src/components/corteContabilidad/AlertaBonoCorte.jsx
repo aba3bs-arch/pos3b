@@ -112,9 +112,9 @@ export function textoConfirmacionBono({ pack, pagos, origen }) {
   if (!nombres.length) {
     lineas.push('Nadie recibe bono: falta vigente (vuelve a los 8 días sin falta).');
   } else {
-    lineas.push(`Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)}`);
+    lineas.push(`Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} para cada empleado × ${pack.pct || 0}%.`);
     (pagos || []).forEach((p) => lineas.push(p.ecuacion));
-    lineas.push(`A pagar ${fmtMoney(reparto.totalAPagar)} (${reparto.cobran} de ${reparto.partes} partes). La parte de quien tiene falta no se suma.`);
+    lineas.push(`A pagar ${fmtMoney(reparto.totalAPagar)}. Quien tiene falta no cobra por 8 días.`);
     if (origen === 'recoleccion') {
       lineas.push('Calculado con el monto de esta recolección.');
     } else {
@@ -136,17 +136,12 @@ export default function AlertaBonoCorte({
   const reciben = (pagos || []).filter((p) => !p.conFalta);
   const reparto = resumenRepartoBono(pagos);
   const mostrarMonto = origen === 'recoleccion' || origen === 'moneda_final' || origen === 'acumulado';
-  const peso = pack.pesoFactor || pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct || 0;
+  const hayFactores = (pack.factoresActivos || pack.reglas?.length || 0) > 0;
   const pagosDistintos = [...new Set(reciben.map((p) => p.pago))];
   const mismoPago = pagosDistintos.length === 1;
   const montoCaja = mismoPago ? pagosDistintos[0] : null;
-  const partesTxt = reparto.sinCobro > 0 && reparto.partes > 1
-    ? `${reparto.cobran} de ${reparto.partes} partes`
-    : '';
-
-  let linea = cargando ? 'Calculando…' : 'Falta moneda final';
-  if (partesTxt && mostrarMonto) linea = partesTxt;
-  else if (origen === 'moneda_final' || origen === 'acumulado') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
+  let linea = cargando ? 'Calculando…' : 'c/u · se paga al recolectar';
+  if (origen === 'moneda_final' || origen === 'acumulado') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
   else if (origen === 'recoleccion') linea = mismoPago ? 'c/u · esta recolección' : 'A pagar en esta recolección';
   const nombres = !reciben.length
     ? 'Nadie recibe bono'
@@ -156,9 +151,9 @@ export default function AlertaBonoCorte({
   const detalle = [
     nombres,
     mostrarMonto
-      ? `Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)} · a pagar ${fmtMoney(reparto.totalAPagar)}`
+      ? `Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} para cada empleado · a pagar ${fmtMoney(reparto.totalAPagar)}`
       : linea,
-    peso > 0 ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : '',
+    hayFactores ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · se acumula ${pack.pct || 0}%` : '',
   ].filter(Boolean).join('\n');
 
   return (
