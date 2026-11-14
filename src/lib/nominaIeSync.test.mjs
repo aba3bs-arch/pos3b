@@ -177,5 +177,22 @@ console.log('nominaIeSync mixto: ok');
   assert.deepEqual(partesPayrollPendientes(mixto, 3000, enAmbas), []);
   // Línea no mixta ya en corte: se omite completa.
   assert.deepEqual(partesPayrollPendientes({ usuario_id: 'u1', nombre: 'AMR', pagador_nomina: 'abarrotes' }, 800, enCorte), []);
+  // Administrador: su nómina va a IE aunque el corte tenga un gasto con su nombre.
+  assert.deepEqual(
+    partesPayrollPendientes(
+      { usuario_id: 'u1', nombre: 'AMR', rol: 'Administrador', pagador_nomina: 'abarrotes' },
+      800,
+      enCorte,
+    ).map((x) => [x.cuenta, x.monto]),
+    [['abarrotes', 800]],
+  );
+  assert.deepEqual(
+    partesPayrollPendientes(
+      { usuario_id: 'u1', nombre: 'AMR', rol: 'Administrador', pagador_nomina: 'virtual' },
+      1200,
+      enCorte,
+    ).map((x) => [x.cuenta, x.monto]),
+    [['virtual', 1200]],
+  );
 }
 console.log('nominaIeSync.test.mjs mixto OK');
