@@ -60,19 +60,28 @@ export function plantillaDetallesEmpleado(cat) {
   return DETALLES_GASTO_EMPLEADO.map((d) => ({ ...d, fijo: true }));
 }
 
+/** Administrador activo que ya entra en nómina: va al grupo Main del catálogo Empleado. */
+function administradorEnCatalogoEmpleado(e) {
+  if (!e || e.activo === false) return false;
+  if (normalizarRol(e.rol) !== 'Administrador') return false;
+  if (e.excluir_nomina || e.socio_3b || e.tipo_empleado === 'socio_3b') return false;
+  return true;
+}
+
 /**
- * Empleados visibles en catálogo Empleado / select de corte:
+ * Empleados visibles en catálogo Empleado:
  * - MAIN/indirectos: todas las sucursales (+ placeholders de vales si faltan)
+ * - Administradores de nómina: también en Main (no en la lista de tienda ni en el corte)
  * - Tienda: solo los de `sucursalActiva` (si MAIN o vacío: todas las sucursales operativas, máx. 2 c/u)
- * - Nunca incluye Administrador
  */
 export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
-  const enriquecidos = enriquecerEmpleadosNominaIndirectos(empleados || []);
+  const lista = empleados || [];
+  const enriquecidos = enriquecerEmpleadosNominaIndirectos(lista);
   const { porTienda, indirectos } = agruparEmpleadosCatalogo(enriquecidos, { incluirBajas: false });
   const suc = normalizarCodigoTienda(sucursalActiva);
-  const main = dedupeEmpleadosPorNombre(indirectos).filter(
-    (e) => normalizarRol(e?.rol) !== 'Administrador',
-  );
+  const administradores = lista.filter(administradorEnCatalogoEmpleado);
+  const main = dedupeEmpleadosPorNombre([...indirectos, ...administradores])
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
 
   let tiendaGrupos;
   if (suc && suc !== 'MAIN') {

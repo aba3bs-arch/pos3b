@@ -9,6 +9,7 @@ import { indiceEmpleados, resolverClaveEmpleado, normalizarNombreEmpleado } from
 import { MODULOS_CORTE_NOMINA, round2 } from './nominaGastos.js';
 import { pagoNominaLinea } from './nominaCalculos.js';
 import { repartoPagoPorCuenta, esPagoMixto } from './nominaPagoMixto.js';
+import { normalizarRol } from './roles.js';
 
 export const FUENTE_NOM_CORTE = 'nom_corte';
 export const FUENTE_PAYROLL = 'payroll';
@@ -100,21 +101,29 @@ export function cuentasLineaEnCorte(linea, empleadosEnCorte, indice = null) {
   return cuentas;
 }
 
+/** El administrador no cobra por el corte de caja: su nómina siempre se registra en IE. */
+export function esLineaNominaAdministrador(linea) {
+  return normalizarRol(linea?.rol) === 'Administrador';
+}
+
 /**
  * Partes (cuenta + monto) de una línea que faltan por registrar como egreso `payroll`.
  * Línea normal ya en corte → ninguna. Pago mixto → solo las cuentas que no se reportaron en corte.
+ * Administrador → todas sus partes, aunque haya un gasto de corte con su nombre.
  */
 export function partesPayrollPendientes(linea, monto, enCorte, indice = null) {
+  const partes = repartoPagoPorCuenta(linea, monto, cuentaIeDesdePagadorNomina(linea.pagador_nomina));
+  if (esLineaNominaAdministrador(linea)) return partes;
   const yaEnCorte = lineaNominaYaEnCorte(linea, enCorte, indice);
   if (yaEnCorte && !esPagoMixto(linea)) return [];
-  const partes = repartoPagoPorCuenta(linea, monto, cuentaIeDesdePagadorNomina(linea.pagador_nomina));
   if (!yaEnCorte) return partes;
   const enCuentas = cuentasLineaEnCorte(linea, enCorte, indice);
   return partes.filter((x) => !enCuentas.has(x.cuenta));
 }
 
 /**
- * Al cerrar nómina: crea egresos IE `payroll` solo para quien NO reportó en corte.
+ * Al cerrar nómina: crea egresos IE `payroll` para quien no reportó sueldo en corte.
+ * El administrador siempre entra, aunque exista un gasto de corte con su nombre.
  * Monto = neto pagado (total de la línea).
  */
 export async function sincronizarEgresosPayrollNomina(supabase, {
@@ -162,7 +171,7 @@ export async function sincronizarEgresosPayrollNomina(supabase, {
         subcategoria_id: 'empleado-nomina',
         subcategoria_nombre: 'Payroll',
         monto: parte.monto,
-        descripcion: `PAYROLL · ${l.nombre || 'Empleado'} · ${desde}→${hasta}${partes.length > 1 ? ` · parte ${parte.cuenta}` : ''}`.trim(),
+        descripcion: `PAYROLL${esLineaNominaAdministrador(l) ? ' · Administrador' : ''} · ${l.nombre || 'Empleado'} · ${desde}→${hasta}${partes.length > 1 ? ` · parte ${parte.cuenta}` : ''}`.trim(),
         fuente: FUENTE_PAYROLL,
         ref_tabla: 'nomina_lineas',
         ref_id: `${l.id}${parte.sufijoRef}`,

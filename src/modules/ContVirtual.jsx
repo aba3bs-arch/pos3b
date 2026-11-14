@@ -3442,7 +3442,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               {esCategoriaEmpleado(c) && (
                 <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: '1px dashed var(--border, #ddd)' }}>
                   <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.45rem' }}>
-                    Personal que puede recibir estos gastos: <strong>Main</strong> (todas las tiendas) y <strong>tienda</strong> (solo la sucursal).
+                    Personal que puede recibir estos gastos: <strong>Main</strong> (todas las tiendas, incluye administradores de nómina) y <strong>tienda</strong> (solo la sucursal).
                     Al capturar en corte o egreso manual se elige la persona. Alta de Main aquí; baja de personal en <strong>Usuarios</strong> o <strong>RH ABA3B</strong>.
                   </p>
                   <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.5rem' }}>

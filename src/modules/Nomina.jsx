@@ -414,7 +414,8 @@ export default function Nomina({ supabase, sucursal, user }) {
           + `Se consolidan deducciones de todas las sucursales.\n`
           + `Se marcarán consumos de cortes y se aplicarán abonos a préstamos.\n\n`
           + `IE: quien reportó sueldo en corte → «Nom corte» (sin duplicar).\n`
-          + `Quien no → egreso «Payroll» en IE Virtual/Abarrotes.`,
+          + `Quien no → egreso «Payroll» en IE Virtual/Abarrotes.\n`
+          + `Los administradores siempre se registran en IE, aunque no tengan corte.`,
       )
     )
       return;
