@@ -6035,81 +6035,90 @@ table.data th {
   cursor: not-allowed;
 }
 
-@keyframes alerta-bono-corte-borde {
-  0%, 100% { border-color: #facc15; }
-  50% { border-color: #ef4444; }
-}
-
 .alerta-pagare-abierto.alerta-bono-corte {
-  width: 3in;
-  height: 1in;
+  width: 3.7in;
+  min-height: 1.4in;
+  height: auto;
   max-width: 100%;
   margin: 0;
-  padding: 0.12in 0.14in;
+  padding: 0.16in 0.2in 0.14in 0.22in;
   box-sizing: border-box;
   overflow: hidden;
   flex: 0 0 auto;
-  align-self: flex-start;
+  align-self: center;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 0.02in;
+  gap: 0.05in;
   text-align: left;
-  border-width: 2px;
-  border-radius: 8px;
-  box-shadow: none;
-  animation: alerta-bono-corte-borde 1.05s ease-in-out infinite;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  border-left: 5px solid #eab308;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #1e293b 0%, #0f172a 72%);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  animation: none;
 }
 
 .alerta-bono-corte__fila {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.08in;
+  gap: 0.12in;
   min-width: 0;
 }
 
 .alerta-bono-corte__titulo {
-  font-size: 0.62rem;
+  font-size: 0.78rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
   color: #fde68a;
   flex: 0 0 auto;
+  padding: 0.08rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.14);
+  border: 1px solid rgba(250, 204, 21, 0.35);
 }
 
 .alerta-bono-corte__monto {
-  font-size: 0.95rem;
-  font-weight: 900;
+  font-size: 1.45rem;
+  font-weight: 800;
   line-height: 1;
+  letter-spacing: -0.02em;
   color: #facc15;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .alerta-bono-corte__espera {
-  font-size: 0.68rem;
-  font-weight: 800;
-  line-height: 1.1;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.2;
   color: #fde68a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.alerta-bono-corte__nombres,
-.alerta-bono-corte__pie {
-  font-size: 0.68rem;
+.alerta-bono-corte__nombres {
+  font-size: 0.98rem;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.25;
   color: #f8fafc;
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .alerta-bono-corte__pie {
-  font-size: 0.58rem;
+  font-size: 0.82rem;
   font-weight: 600;
+  line-height: 1.2;
   color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Vista cajero: Abonar/Liquidar grandes en Vales → Pagaré (sin depender del scroll de tabla) */
