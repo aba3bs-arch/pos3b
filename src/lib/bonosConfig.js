@@ -567,6 +567,27 @@ export function calcularPagosBonoPorEmpleado({
 }
 
 /**
+ * De dónde sale el monto del bono en el corte virtual.
+ * La moneda final en 0 de arranque no es un conteo: si se tomara, la venta
+ * queda en 0 y la alerta muestra $0.00 aunque los factores estén apagados.
+ * Solo cuenta si el cajero la editó o capturó un monto mayor a cero.
+ */
+export function resolverOrigenBonoCorte({
+  recoleccion = 0,
+  monedaFinal = null,
+  monedaFinalEditada = false,
+  venta = 0,
+} = {}) {
+  const rec = round2(recoleccion);
+  if (rec > 0) return { origen: 'recoleccion', monto: rec };
+  const vacio = monedaFinal === '' || monedaFinal == null;
+  const mf = Number(monedaFinal);
+  const capturada = !vacio && (Boolean(monedaFinalEditada) || (Number.isFinite(mf) && mf > 0));
+  if (!capturada) return { origen: 'pendiente', monto: null };
+  return { origen: 'moneda_final', monto: Math.max(0, round2(venta)) };
+}
+
+/**
  * Cómo se reparte el tabulador en la tienda.
  * `parte` es tabulador / empleados.
  * `totalAPagar` suma solo las partes que sí se cobran.

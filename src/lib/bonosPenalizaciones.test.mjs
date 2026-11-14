@@ -8,6 +8,7 @@ import {
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
   resumenRepartoBono,
+  resolverOrigenBonoCorte,
   normalizarBonosConfig,
 } from './bonosConfig.js'
 import { DIAS_BLOQUEO_BONO_POR_FALTA } from './resumenDiasAsistencia.js'
@@ -407,6 +408,48 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   })
   assert.equal(mitad.find((p) => p.nombre === 'Ana').pago, 100)
   assert.equal(resumenRepartoBono(mitad).totalAPagar, 100)
+}
+
+{
+  // Moneda final en 0 de arranque no es un conteo: no calcular bono en $0.
+  const abierto = resolverOrigenBonoCorte({
+    recoleccion: 0,
+    monedaFinal: 0,
+    monedaFinalEditada: false,
+    venta: 0,
+  })
+  assert.equal(abierto.origen, 'pendiente')
+  assert.equal(abierto.monto, null)
+
+  // Conteo real por debajo de $3,000: el tabulador sí es $0.
+  const corto = resolverOrigenBonoCorte({
+    recoleccion: 0,
+    monedaFinal: 4000,
+    monedaFinalEditada: true,
+    venta: 676,
+  })
+  assert.equal(corto.origen, 'moneda_final')
+  assert.equal(corto.monto, 676)
+  assert.equal(bonoBasePorMonto(corto.monto), 0)
+
+  // Venta de $5,000 con factores apagados: cada quien cobra su parte si no tiene falta.
+  const listo = resolverOrigenBonoCorte({
+    recoleccion: 0,
+    monedaFinal: 0,
+    monedaFinalEditada: true,
+    venta: 5000,
+  })
+  assert.equal(listo.origen, 'moneda_final')
+  assert.equal(listo.monto, 5000)
+  const pagos = calcularPagosBonoPorEmpleado({
+    base: bonoBasePorMonto(listo.monto),
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Manuel' },
+      { id: 2, nombre: 'Mayra' },
+    ],
+  })
+  assert.equal(pagos.every((p) => p.pago === 100), true)
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')

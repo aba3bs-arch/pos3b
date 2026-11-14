@@ -40,6 +40,7 @@ import {
 } from '../../lib/clientesMaquinas.js';
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
 import AlertaBonoCorte, { textoConfirmacionBono, useAlertaBonoCorte } from '../../components/corteContabilidad/AlertaBonoCorte.jsx';
+import { resolverOrigenBonoCorte } from '../../lib/bonosConfig.js';
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 
 const ACCENT = '#6c3483';
@@ -111,12 +112,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
   const monedaOperacion = round2(estado.moneda_inicial);
   const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const miInyectada = Boolean(calc.monedaInyectada);
-  const mfRaw = estado.moneda_final;
-  const mfCapturada = mfRaw !== '' && mfRaw != null && Number.isFinite(Number(mfRaw));
-  const origenBono = montoRec > 0 ? 'recoleccion' : (mfCapturada ? 'moneda_final' : 'pendiente');
-  const montoBono = origenBono === 'recoleccion'
-    ? montoRec
-    : (origenBono === 'moneda_final' ? Math.max(0, round2(calc.venta)) : null);
+  const origenMontoBono = resolverOrigenBonoCorte({
+    recoleccion: montoRec,
+    monedaFinal: estado.moneda_final,
+    monedaFinalEditada: estado.moneda_final_editada,
+    venta: calc.venta,
+  });
+  const origenBono = origenMontoBono.origen;
+  const montoBono = origenMontoBono.monto;
   const bonoAlerta = useAlertaBonoCorte({
     supabase,
     sucursal,
