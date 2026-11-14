@@ -489,11 +489,16 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 }
 
 /**
- * Pago de bono por empleado de tienda (ecuación justa).
+ * Pago de bono por empleado de tienda.
  *
- * - pctTienda = % tras lineamientos (100 / 75 / 50 / 25 / 0).
- * - Si el empleado tiene falta vigente → pct = 0.
- * - pago = base_tabulador × pct_empleado / 100.
+ * El tabulador es una parte por empleado. El total de la tienda es
+ * parte × empleados (2 personas y tabulador $200 → total $400).
+ * Quien tiene falta cobra $0: su parte no se suma a los demás
+ * (de un total de $400, la otra persona cobra sus $200).
+ *
+ * - pctTienda = % tras lineamientos.
+ * - Falta vigente → pct = 0.
+ * - pago = parte × pct_empleado / 100.
  *
  * @param {{
  *   base: number,
@@ -534,7 +539,7 @@ export function calcularPagosBonoPorEmpleado({
     const pago = bonoFinal(baseN, pct);
     const money = (n) => `$${n.toLocaleString('es-MX')}`;
     const ecuacion = conFalta
-      ? `${nombre} · ${money(baseN)} × 0% (falta) = $0`
+      ? `${nombre} · ${money(baseN)} × 0% (falta, su parte no se suma) = $0`
       : pierdeRetardo
         ? `${nombre} · ${money(baseN)} × ${pct}% (${nRet} retardos) = ${money(pago)}`
         : `${nombre} · ${money(baseN)} × ${pct}% = ${money(pago)}`;
@@ -556,4 +561,21 @@ export function calcularPagosBonoPorEmpleado({
     if (b.pago !== a.pago) return b.pago - a.pago;
     return a.nombre.localeCompare(b.nombre, 'es');
   });
+}
+
+/**
+ * Cómo se reparte el tabulador en la tienda.
+ * `parte` es el monto del tabulador (una por empleado).
+ * `totalTabulador` = parte × plantilla.
+ * `totalAPagar` suma solo las partes que sí se cobran.
+ */
+export function resumenRepartoBono(pagos = []) {
+  const lista = pagos || [];
+  const partes = lista.length;
+  const parte = partes ? round2(Number(lista[0]?.base) || 0) : 0;
+  const totalTabulador = round2(parte * partes);
+  const totalAPagar = round2(lista.reduce((s, p) => s + (Number(p?.pago) || 0), 0));
+  const cobran = lista.filter((p) => !p?.conFalta).length;
+  const sinCobro = lista.filter((p) => p?.conFalta).length;
+  return { partes, parte, totalTabulador, totalAPagar, cobran, sinCobro };
 }

@@ -7,6 +7,7 @@ import {
   bonoFinal,
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
+  resumenRepartoBono,
   normalizarBonosConfig,
 } from './bonosConfig.js'
 import { DIAS_BLOQUEO_BONO_POR_FALTA } from './resumenDiasAsistencia.js'
@@ -219,7 +220,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(pagos[1].conFalta, true)
   assert.equal(pagos[1].pct, 0)
   assert.equal(pagos[1].pago, 0)
-  assert.match(pagos[1].ecuacion, /0% \(falta\)/)
+  assert.match(pagos[1].ecuacion, /0% \(falta, su parte no se suma\)/)
 }
 
 // Migración: castigos viejos 20/60 → 25 (umbrales solo migran si no había penalizacionPct)
@@ -364,6 +365,36 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(luis.pago, 160)
   assert.equal(luis.pierdeRetardo, true)
   assert.match(luis.ecuacion, /3 retardos/)
+}
+
+{
+  // Recolección $5,000 → tabulador $200 por empleado.
+  // 2 partes = total $400. La falta cobra $0 y su parte no pasa al otro.
+  const base = bonoBasePorMonto(5000)
+  assert.equal(base, 200)
+  const pagos = calcularPagosBonoPorEmpleado({
+    base,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Ana' },
+      { id: 2, nombre: 'Luis' },
+    ],
+    bloqueosFalta: [{ clave: 'id:2' }],
+  })
+  const ana = pagos.find((p) => p.nombre === 'Ana')
+  const luis = pagos.find((p) => p.nombre === 'Luis')
+  const reparto = resumenRepartoBono(pagos)
+  assert.equal(ana.pago, 200)
+  assert.equal(luis.pago, 0)
+  assert.equal(luis.conFalta, true)
+  assert.match(luis.ecuacion, /su parte no se suma/)
+  assert.equal(reparto.partes, 2)
+  assert.equal(reparto.parte, 200)
+  assert.equal(reparto.totalTabulador, 400)
+  assert.equal(reparto.totalAPagar, 200)
+  assert.equal(reparto.cobran, 1)
+  assert.equal(reparto.sinCobro, 1)
+  assert.equal(ana.pago, reparto.totalAPagar)
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')

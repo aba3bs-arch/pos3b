@@ -6,6 +6,7 @@ import {
   bonoBasePorMonto,
   bonoFinal,
   calcularPagosBonoPorEmpleado,
+  resumenRepartoBono,
 } from '../lib/bonosConfig.js';
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
@@ -54,8 +55,8 @@ function plantillaTiendaBono(usuarios, sucursal) {
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
  * Ingresa el monto de la recolección → tabulador → % medidores → pago por empleado.
- * Ej.: $6,900 → base $200 c/u; al 75% → $150; al 100% → $200.
- * Falta → 0% (8 días). Faltante de efectivo → 0% en esa recolección.
+ * El tabulador es una parte por empleado. Total = parte × plantilla.
+ * Falta → esa parte es $0 y no se suma a los demás (8 días).
  */
 export default function PanelBonoInicio({
   supabase,
@@ -155,10 +156,9 @@ export default function PanelBonoInicio({
     [pagosEmpleado],
   );
 
-  const totalPagar = useMemo(
-    () => pagosVisibles.reduce((s, p) => s + (Number(p.pago) || 0), 0),
-    [pagosVisibles],
-  );
+  const reparto = useMemo(() => resumenRepartoBono(pagosEmpleado), [pagosEmpleado]);
+
+  const totalPagar = reparto.totalAPagar;
 
   const bonoPorEmpleadoAlPct = useMemo(
     () => bonoFinal(baseCalc, pack?.pct || 0),
@@ -189,7 +189,6 @@ export default function PanelBonoInicio({
   const clase = hayBono ? 'bono-panel bono-panel-parpadeo' : 'bono-panel';
   const fallos = (pack.reglas || []).filter((r) => !r.ok).length;
   const invVentana = pack.metricas?.inventarioVentana;
-  const nEmpleados = pagosVisibles.length;
   const pesoFactor = pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct ?? 0;
 
   return (
@@ -207,10 +206,11 @@ export default function PanelBonoInicio({
             ) : null}
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
-            Ingresa el monto de <strong>esta recolección</strong>. El tabulador da el bono base;
-            los factores encendidos se reparten el 100% y el tabulador es por empleado.
-            Tres retardos del reloj (15 min de tolerancia) quitan la parte de ese factor.
-            Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días. El pago es en la recolección.
+            Ingresa el monto de <strong>esta recolección</strong>. El tabulador es la parte de cada empleado.
+            Con dos empleados, dos partes: si el total es $400 y uno tiene falta, el otro cobra $200.
+            Esa parte no se suma. Los factores encendidos se reparten el 100%.
+            Tres retardos del reloj (15 min) quitan la parte de ese factor.
+            Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días.
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -291,19 +291,26 @@ export default function PanelBonoInicio({
           </div>
           <div>
             <div className="muted" style={{ fontSize: '0.7rem' }}>
-              Total {nEmpleados > 0 ? `(${nEmpleados} emp.)` : ''}
+              A pagar {reparto.partes > 0 ? `(${reparto.cobran} de ${reparto.partes} partes)` : ''}
             </div>
             <strong style={{ color: '#b45309' }}>{fmtMoney(totalPagar)}</strong>
           </div>
         </div>
-        {montoCalc > 0 && baseCalc > 0 ? (
+        {reparto.partes >= 2 && baseCalc > 0 ? (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Ej.: {fmtMoney(montoCalc)} → base {fmtMoney(baseCalc)} × {pack.pct}% = {fmtMoney(bonoPorEmpleadoAlPct)} por empleado
-            {nEmpleados >= 2 ? ` · total ${fmtMoney(baseCalc * nEmpleados)} al 100% entre ${nEmpleados}` : ''}.
+            Tabulador {fmtMoney(reparto.parte)} por empleado · total {fmtMoney(reparto.totalTabulador)} en {reparto.partes} partes.
+            {reparto.sinCobro > 0
+              ? ` Se pagan ${reparto.cobran} partes (${fmtMoney(reparto.totalAPagar)}). La parte de quien tiene falta no se suma.`
+              : ` Se pagan las ${reparto.partes} partes.`}
+          </p>
+        ) : montoCalc > 0 && baseCalc > 0 ? (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
+            {fmtMoney(montoCalc)} → tabulador {fmtMoney(baseCalc)} × {pack.pct}% = {fmtMoney(bonoPorEmpleadoAlPct)}.
           </p>
         ) : (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Ejemplo: $6,900 → tabulador $200 c/u; al 75% pagan $150; al 100% pagan $200 (total $400 entre 2).
+            Ejemplo: recolección $5,000 → tabulador $200 por empleado. Con 2 empleados el total es $400.
+            Si uno tiene falta, se paga una parte ($200) y la otra no se cobra.
           </p>
         )}
       </div>
@@ -321,8 +328,8 @@ export default function PanelBonoInicio({
           Pago por empleado (ecuación)
         </h4>
         <p className="muted" style={{ margin: '0 0 0.55rem', fontSize: '0.74rem' }}>
-          <code style={{ fontSize: '0.72rem' }}>pago = tabulador × % medidores</code>
-          {' · '}si hay falta: <code style={{ fontSize: '0.72rem' }}>× 0%</code>.
+          <code style={{ fontSize: '0.72rem' }}>pago = su parte del tabulador × % medidores</code>
+          {' · '}si hay falta: <code style={{ fontSize: '0.72rem' }}>$0</code> y esa parte no pasa a los demás.
           Cada tienda es independiente.
         </p>
         {pagosVisibles.length === 0 ? (

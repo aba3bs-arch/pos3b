@@ -4,7 +4,7 @@ import { resolverTipoEmpleado } from '../../lib/empleadosVisibles.js';
 import { normalizarRol } from '../../lib/roles.js';
 import { usuarioEstaActivo } from '../../lib/usuariosAuth.js';
 import { calcularBonoSucursal } from '../../lib/bonosData.js';
-import { EVENTO_BONOS_CONFIG, calcularPagosBonoPorEmpleado } from '../../lib/bonosConfig.js';
+import { EVENTO_BONOS_CONFIG, calcularPagosBonoPorEmpleado, resumenRepartoBono } from '../../lib/bonosConfig.js';
 import { ajusteRetardoBono, cargarRetardosBono } from '../../lib/bonosRetardos.js';
 import {
   cargarBloqueosBonoPorFalta,
@@ -103,7 +103,7 @@ export function useAlertaBonoCorte({ supabase, sucursal, monto = null, enabled =
 export function textoConfirmacionBono({ pack, pagos, origen }) {
   if (!pack?.ok || pack.activo === false) return '';
   const reciben = (pagos || []).filter((p) => !p.conFalta);
-  const total = reciben.reduce((s, p) => s + (Number(p.pago) || 0), 0);
+  const reparto = resumenRepartoBono(pagos);
   const nombres = reciben.map((p) => p.nombre).filter(Boolean);
   const factores = (pack.reglas || [])
     .map((r) => `${r.ok ? '✓' : '✗'} ${r.label} (${r.pesoPct}%)`)
@@ -115,9 +115,9 @@ export function textoConfirmacionBono({ pack, pagos, origen }) {
     lineas.push(`Reciben: ${nombres.join(', ')}.`);
     lineas.push('Captura la moneda final para ver el monto.');
   } else {
-    lineas.push(`Tabulador ${fmtMoney(pack.base)} por empleado × su %`);
-    reciben.forEach((p) => lineas.push(p.ecuacion));
-    lineas.push(`Total bono: ${fmtMoney(total)}`);
+    lineas.push(`Tabulador ${fmtMoney(pack.base)} por empleado · ${reparto.partes} partes · total ${fmtMoney(reparto.totalTabulador)}`);
+    (pagos || []).forEach((p) => lineas.push(p.ecuacion));
+    lineas.push(`A pagar ${fmtMoney(reparto.totalAPagar)} (${reparto.cobran} de ${reparto.partes} partes). La parte de quien tiene falta no se suma.`);
     if (origen === 'moneda_final') {
       lineas.push('Estimado con moneda inicial − moneda final. Se paga al recolectar.');
     } else {
@@ -137,15 +137,19 @@ export default function AlertaBonoCorte({
 }) {
   if (!visible || !pack?.ok || pack.activo === false) return null;
   const reciben = (pagos || []).filter((p) => !p.conFalta);
-  const total = reciben.reduce((s, p) => s + (Number(p.pago) || 0), 0);
+  const reparto = resumenRepartoBono(pagos);
   const mostrarMonto = origen === 'recoleccion' || origen === 'moneda_final';
   const peso = pack.pesoFactor || pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct || 0;
   const pagosDistintos = [...new Set(reciben.map((p) => p.pago))];
   const mismoPago = pagosDistintos.length === 1;
   const montoCaja = mismoPago ? pagosDistintos[0] : null;
+  const partesTxt = reparto.sinCobro > 0 && reparto.partes > 1
+    ? `${reparto.cobran} de ${reparto.partes} partes`
+    : '';
 
   let linea = cargando ? 'Calculando…' : 'Falta moneda final';
-  if (origen === 'moneda_final') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
+  if (partesTxt && mostrarMonto) linea = partesTxt;
+  else if (origen === 'moneda_final') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
   else if (origen === 'recoleccion') linea = mismoPago ? 'c/u · esta recolección' : 'A pagar en esta recolección';
   const nombres = !reciben.length
     ? 'Nadie recibe bono'
@@ -154,7 +158,9 @@ export default function AlertaBonoCorte({
       : reciben.map((p) => `${p.nombre} ${fmtMoney(p.pago)}`).join(' · ');
   const detalle = [
     nombres,
-    mostrarMonto ? `Tabulador ${fmtMoney(pack.base)} por empleado · total ${fmtMoney(total)}` : linea,
+    mostrarMonto
+      ? `Tabulador ${fmtMoney(pack.base)} por empleado · total ${fmtMoney(reparto.totalTabulador)} en ${reparto.partes} partes · a pagar ${fmtMoney(reparto.totalAPagar)}`
+      : linea,
     peso > 0 ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : '',
   ].filter(Boolean).join('\n');
 
