@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { esCentralAdmin, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
+import { esCentralAdmin, etiquetaTienda, listarSucursalesParaUI, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, esPersonalCentralAdmin, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
 import { usuarioAutorizadoChecador, estiloTurnoMarcaje, estiloTipoMarcaje, estiloPorTurno, leerTurnos } from '../lib/turnos.js';
@@ -236,6 +236,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [mostrarNuevoMarcaje, setMostrarNuevoMarcaje] = useState(false);
   const [guardandoAjuste, setGuardandoAjuste] = useState(false);
   const [tutorialRelojAbierto, setTutorialRelojAbierto] = useState(false);
+  const [pinManual, setPinManual] = useState('');
+  const [empleadoPorPin, setEmpleadoPorPin] = useState(null);
+  const [marcajesEmpleadoPin, setMarcajesEmpleadoPin] = useState([]);
+  const [buscandoPinManual, setBuscandoPinManual] = useState(false);
+  const [tickMarcajes, setTickMarcajes] = useState(0);
 
   const [codigo, setCodigo] = useState('');
 
@@ -360,6 +365,28 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     };
   }, [esAdmin, supabase, pestana, filtroTiendaHist, sucursal, veTodasTiendas]);
 
+  useEffect(() => {
+    if (pestana !== 'historial' || !supabase || !empleadoPorPin?.id) {
+      return undefined;
+    }
+    let vivo = true;
+    const { desde, hasta } = rangoHistorial;
+    supabase
+      .from('asistencias')
+      .select('id,nombre,tipo,created_at,sucursal_id,usuario_id')
+      .eq('usuario_id', empleadoPorPin.id)
+      .gte('created_at', desde.toISOString())
+      .lte('created_at', hasta.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data, error }) => {
+        if (vivo) setMarcajesEmpleadoPin(error ? [] : data || []);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [pestana, supabase, empleadoPorPin, rangoHistorial, tickMarcajes]);
+
   const producto = useMemo(() => {
     const t = codigo.trim();
     if (!t) return null;
@@ -466,7 +493,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         supabase,
         p,
         sucursal,
-        { aceptarPersonalCentral: true },
+        { aceptarPersonalCentral: true, aceptarCualquierSucursal: esAdmin },
       );
       if (error) {
         setMsg(error);
@@ -482,6 +509,20 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
           setMsg(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
         }
         setEmpleado(null);
+        setPinEmpleado('');
+        return;
+      }
+      if (esAdmin) {
+        setPendienteChecador(null);
+        setPinAdminChecador('');
+        const sucEmp = data.sucursal_id ? normalizarCodigoTienda(data.sucursal_id) : '';
+        const otraTienda = Boolean(sucEmp && sucEmp !== normalizarCodigoTienda(sucursal));
+        setAvisoCobertura(
+          otraTienda
+            ? `Empleado de ${etiquetaTienda(data.sucursal_id)}. Puedes corregir sus entradas y salidas aunque ya tenga marcaje hoy.`
+            : 'Modo administrador: puedes registrar o corregir más de una entrada y salida el mismo día.',
+        );
+        setEmpleado({ id: data.id, nombre: data.nombre, rol: data.rol, sucursal_id: data.sucursal_id || null });
         setPinEmpleado('');
         return;
       }
@@ -566,6 +607,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       tipo: formAjuste.tipo,
       created_at,
       ajustado_por: user?.nombre,
+      unicoPorDia: false,
     });
     setGuardandoAjuste(false);
     if (!res.ok) {
@@ -574,6 +616,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     }
     setMsg('Marcaje actualizado.');
     setAjustando(null);
+    setTickMarcajes((n) => n + 1);
     void cargarHistorialCompleto();
     void cargarHistorialHoy();
   };
@@ -591,15 +634,52 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     }
     setMsg('Marcaje eliminado.');
     if (ajustando?.id === registro.id) setAjustando(null);
+    setTickMarcajes((n) => n + 1);
     void cargarHistorialCompleto();
     void cargarHistorialHoy();
   };
 
+  const opcionesEmpleadoManual = useMemo(() => {
+    const list = [...empleadosTienda];
+    if (empleadoPorPin && !list.some((e) => String(e.id) === String(empleadoPorPin.id))) {
+      list.unshift(empleadoPorPin);
+    }
+    return list;
+  }, [empleadosTienda, empleadoPorPin]);
+
+  const buscarEmpleadoPorPin = async () => {
+    if (!supabase) return;
+    const p = pinManual.trim();
+    if (!p || buscandoPinManual) return;
+    setBuscandoPinManual(true);
+    setMsg('');
+    const { user: data, error } = await buscarUsuarioPorPinYSucursal(
+      supabase,
+      p,
+      tiendaHistorial || sucursal,
+      { aceptarPersonalCentral: true, aceptarCualquierSucursal: true },
+    );
+    setBuscandoPinManual(false);
+    if (error || !data) {
+      setEmpleadoPorPin(null);
+      setMarcajesEmpleadoPin([]);
+      setMsg(error || 'PIN no encontrado.');
+      return;
+    }
+    setEmpleadoPorPin(data);
+    setFormNuevo((f) => ({ ...f, usuario_id: String(data.id), nombre: data.nombre || '' }));
+    setMostrarNuevoMarcaje(true);
+    setAjustando(null);
+    if (veTodasTiendas && data.sucursal_id) setFiltroTiendaHist(normalizarCodigoTienda(data.sucursal_id));
+    const sucEmp = data.sucursal_id ? ` · ${etiquetaTienda(data.sucursal_id)}` : '';
+    setMsg(`Empleado encontrado: ${data.nombre}${sucEmp}. Puedes agregar o ajustar varias entradas y salidas el mismo día.`);
+  };
+
   const guardarNuevoMarcaje = async () => {
     if (!supabase) return;
-    const emp = empleadosTienda.find((e) => String(e.id) === String(formNuevo.usuario_id));
+    const emp = opcionesEmpleadoManual.find((e) => String(e.id) === String(formNuevo.usuario_id));
     const nombre = emp?.nombre || formNuevo.nombre.trim();
-    if (!nombre) return setMsg('Selecciona un empleado.');
+    if (!nombre) return setMsg('Selecciona un empleado o búscalo por PIN.');
     const created_at = isoDesdeFechaHoraLocal(formNuevo.fecha, formNuevo.hora) || new Date().toISOString();
     setGuardandoAjuste(true);
     setMsg('');
@@ -610,15 +690,15 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       tipo: formNuevo.tipo,
       created_at,
       ajustado_por: user?.nombre,
+      unicoPorDia: false,
     });
     setGuardandoAjuste(false);
     if (!res.ok) {
       setMsg(res.error || 'No se pudo registrar el marcaje.');
       return;
     }
-    setMsg('Marcaje registrado por administrador.');
-    setMostrarNuevoMarcaje(false);
-    setFormNuevo({ usuario_id: '', nombre: '', tipo: 'ENTRADA', fecha: '', hora: '' });
+    setMsg('Marcaje registrado por administrador. Puedes agregar otro el mismo día.');
+    setTickMarcajes((n) => n + 1);
     void cargarHistorialCompleto();
     void cargarHistorialHoy();
   };
@@ -641,7 +721,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     return () => {
       vivo = false;
     };
-  }, [supabase, empleado]);
+  }, [supabase, empleado, tickMarcajes]);
 
   const estadoHoyEmpleado = useMemo(() => {
     if (!empleado || !marcajesEmpleadoHoy) return null;
@@ -661,12 +741,14 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       nombre,
       sucursal_id: sucursal,
       tipo,
+      ajustado_por: esAdmin ? user?.nombre : null,
+      unicoPorDia: !esAdmin,
     });
     marcandoRef.current = false;
     setMarcando(false);
     if (!res.ok) {
       const err = String(res.error || '');
-      if (res.duplicado) {
+      if (res.duplicado && !esAdmin) {
         setEmpleado(null);
         setAvisoCobertura('');
         void cargarHistorialHoy();
@@ -679,8 +761,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       return;
     }
     setMsg(tipo === 'ENTRADA' ? 'Entrada registrada.' : 'Salida registrada.');
-    setEmpleado(null);
-    setAvisoCobertura('');
+    if (!esAdmin) {
+      setEmpleado(null);
+      setAvisoCobertura('');
+    }
+    setTickMarcajes((n) => n + 1);
     void cargarHistorialHoy();
   };
 
@@ -824,6 +909,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                 Quien cubre turno usa el{' '}
                 <strong>PIN de cubre turno</strong> de la sucursal (nombre + teléfono). Si un fijo no coincide con su turno, puede marcar
                 cubriendo otro turno (±20 min). Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
+                {esAdmin && (
+                  <>
+                    {' '}Como administrador puedes usar el PIN de cualquier empleado, de cualquier tienda, y registrar o corregir más de una entrada y salida el mismo día.
+                  </>
+                )}
               </p>
             </div>
             <button
@@ -860,7 +950,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                     value={pinEmpleado}
                     onChange={(e) => setPinEmpleado(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !cargandoPin && identificarEmpleado()}
-                    placeholder="PIN de esta tienda"
+                    placeholder={esAdmin ? 'PIN de cualquier empleado' : 'PIN de esta tienda'}
                     autoComplete="off"
                     name="checador-pin"
                     style={{ fontSize: '1.2rem', letterSpacing: '0.15em', marginBottom: 0 }}
@@ -1007,7 +1097,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                 <button
                   type="button"
                   className="btn btn-success"
-                  disabled={marcando || Boolean(estadoHoyEmpleado?.entrada)}
+                  disabled={marcando || (!esAdmin && Boolean(estadoHoyEmpleado?.entrada))}
                   onClick={() => registrarMarcaje('ENTRADA')}
                   style={{ flex: '1 1 140px' }}
                 >
@@ -1016,19 +1106,41 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                 <button
                   type="button"
                   className="btn btn-gold"
-                  disabled={marcando || Boolean(estadoHoyEmpleado?.salida)}
+                  disabled={marcando || (!esAdmin && Boolean(estadoHoyEmpleado?.salida))}
                   onClick={() => registrarMarcaje('SALIDA')}
                   style={{ flex: '1 1 140px' }}
                 >
                   Salida
                 </button>
               </div>
-              {estadoHoyEmpleado && (estadoHoyEmpleado.entrada || estadoHoyEmpleado.salida) && (
+              {esAdmin && (
+                <p style={{ margin: '0.6rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
+                  Puedes registrar otra entrada o salida el mismo día. Los marcajes de hoy de este empleado se pueden ajustar abajo.
+                </p>
+              )}
+              {!esAdmin && estadoHoyEmpleado && (estadoHoyEmpleado.entrada || estadoHoyEmpleado.salida) && (
                 <p style={{ margin: '0.6rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
                   {estadoHoyEmpleado.entrada && `Entrada de hoy ya registrada (${fmtHoraMarcaje(estadoHoyEmpleado.entrada.created_at)}). `}
                   {estadoHoyEmpleado.salida && `Salida de hoy ya registrada (${fmtHoraMarcaje(estadoHoyEmpleado.salida.created_at)}). `}
                   Solo se permite una entrada y una salida por día.
                 </p>
+              )}
+              {esAdmin && marcajesEmpleadoHoy?.length > 0 && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  {marcajesEmpleadoHoy
+                    .slice()
+                    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+                    .map((h) => (
+                      <div key={h.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
+                        <BadgeTipoMarcaje tipo={h.tipo} />
+                        <span style={{ fontSize: '0.85rem' }}>{fmtHoraMarcaje(h.created_at)}</span>
+                        {h.sucursal_id && <span className="muted" style={{ fontSize: '0.78rem' }}>{etiquetaTienda(h.sucursal_id)}</span>}
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => abrirAjuste(h)} disabled={marcando || guardandoAjuste}>
+                          Ajustar
+                        </button>
+                      </div>
+                    ))}
+                </div>
               )}
               <button
                 type="button"
@@ -1045,8 +1157,44 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             </div>
           )}
 
+          {esAdmin && ajustando && (
+            <div className="card" style={{ marginTop: '0.75rem', background: 'rgba(59,105,181,0.08)', border: '1px solid var(--border)' }}>
+              <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>
+                Ajustar marcaje · {ajustando.nombre}
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Tipo
+                  <select className="select" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formAjuste.tipo} onChange={(e) => setFormAjuste((f) => ({ ...f, tipo: e.target.value }))}>
+                    <option value="ENTRADA">Entrada</option>
+                    <option value="SALIDA">Salida</option>
+                  </select>
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Fecha
+                  <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formAjuste.fecha} onChange={(e) => setFormAjuste((f) => ({ ...f, fecha: e.target.value }))} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Hora
+                  <input className="input" type="time" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formAjuste.hora} onChange={(e) => setFormAjuste((f) => ({ ...f, hora: e.target.value }))} />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary btn-sm" onClick={guardarAjuste} disabled={guardandoAjuste}>
+                  {guardandoAjuste ? 'Guardando…' : 'Guardar ajuste'}
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => eliminarMarcaje(ajustando)} disabled={guardandoAjuste}>
+                  Eliminar
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAjustando(null)} disabled={guardandoAjuste}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
           {msg && (
-            <p style={{ marginTop: '0.75rem', color: msg.includes('registrad') || msg.includes('Entrada') || msg.includes('Salida') ? 'var(--brand-green)' : 'var(--brand-red)' }}>{msg}</p>
+            <p style={{ marginTop: '0.75rem', color: msg.includes('registrad') || msg.includes('Entrada') || msg.includes('Salida') || msg.includes('actualizado') || msg.includes('eliminado') ? 'var(--brand-green)' : 'var(--brand-red)' }}>{msg}</p>
           )}
 
           <h4 style={{ margin: '1.25rem 0 0.5rem', color: 'var(--brand-blue-dark)' }}>Marcajes de hoy</h4>
@@ -1109,7 +1257,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Historial de entradas y salidas</h3>
           {esAdmin && (
             <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-              Como administrador puedes corregir hora/tipo de un marcaje o registrar entrada/salida manual si el empleado no checó.
+              Como administrador puedes corregir hora/tipo de un marcaje o registrar varias entradas y salidas el mismo día. Busca al empleado con su PIN, aunque sea de otra tienda.
               {veTodasTiendas
                 ? ' En MAIN puedes elegir cualquier tienda.'
                 : ` Solo ves marcajes de ${etiquetaTienda(sucursal)}.`}
@@ -1154,7 +1302,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                   const hora = `${pad(hoy.getHours())}:${pad(hoy.getMinutes())}`;
                   setMostrarNuevoMarcaje(true);
                   setAjustando(null);
-                  setFormNuevo({ usuario_id: '', nombre: '', tipo: 'ENTRADA', fecha, hora });
+                  setFormNuevo({
+                    usuario_id: empleadoPorPin ? String(empleadoPorPin.id) : '',
+                    nombre: empleadoPorPin?.nombre || '',
+                    tipo: 'ENTRADA',
+                    fecha,
+                    hora,
+                  });
                 }}
               >
                 Registrar marcaje manual
@@ -1162,13 +1316,33 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             )}
           </div>
           {msg && pestana === 'historial' && (
-            <p style={{ margin: '0 0 0.75rem', color: msg.includes('actualizado') || msg.includes('registrado') || msg.includes('eliminado') ? 'var(--brand-green)' : 'var(--brand-red)' }}>
+            <p style={{ margin: '0 0 0.75rem', color: msg.includes('actualizado') || msg.includes('registrado') || msg.includes('eliminado') || msg.includes('encontrado') ? 'var(--brand-green)' : 'var(--brand-red)' }}>
               {msg}
             </p>
           )}
           {esAdmin && mostrarNuevoMarcaje && (
             <div className="card" style={{ marginBottom: '0.75rem', background: 'rgba(200,180,68,0.1)', border: '1px solid rgba(200,180,68,0.35)' }}>
               <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>Nuevo marcaje (administrador)</h4>
+              <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+                Puedes registrar más de una entrada y una salida el mismo día. El PIN sirve para cualquier empleado, de cualquier tienda.
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '0.65rem' }}>
+                <label className="muted" style={{ fontSize: '0.8rem', flex: '1 1 180px' }}>
+                  PIN del empleado
+                  <div style={{ marginTop: '0.2rem' }}>
+                    <InputPin
+                      value={pinManual}
+                      onChange={(e) => setPinManual(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !buscandoPinManual && buscarEmpleadoPorPin()}
+                      placeholder="Cualquier empleado"
+                      style={{ marginBottom: 0 }}
+                    />
+                  </div>
+                </label>
+                <button type="button" className="btn btn-primary btn-sm" onClick={buscarEmpleadoPorPin} disabled={buscandoPinManual || !pinManual.trim()}>
+                  {buscandoPinManual ? 'Buscando…' : 'Buscar PIN'}
+                </button>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
                 <label className="muted" style={{ fontSize: '0.8rem' }}>
                   Empleado
@@ -1179,9 +1353,9 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                     onChange={(e) => setFormNuevo((f) => ({ ...f, usuario_id: e.target.value }))}
                   >
                     <option value="">— Seleccionar —</option>
-                    {empleadosTienda.map((e) => (
+                    {opcionesEmpleadoManual.map((e) => (
                       <option key={e.id} value={e.id}>
-                        {e.nombre} ({e.rol})
+                        {e.nombre} ({e.rol}){e.sucursal_id ? ` · ${etiquetaTienda(e.sucursal_id)}` : ''}
                       </option>
                     ))}
                   </select>
@@ -1210,6 +1384,29 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                   Cancelar
                 </button>
               </div>
+            </div>
+          )}
+          {esAdmin && empleadoPorPin && (
+            <div className="card" style={{ marginBottom: '0.75rem', background: 'rgba(59,105,181,0.06)', border: '1px solid var(--border)' }}>
+              <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.35rem' }}>
+                Marcajes de {empleadoPorPin.nombre} en este periodo ({marcajesEmpleadoPin.length})
+              </p>
+              {marcajesEmpleadoPin.length === 0 ? (
+                <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>Sin marcajes en el periodo. Puedes registrar el que falte.</p>
+              ) : (
+                marcajesEmpleadoPin.map((h) => (
+                  <div key={h.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.82rem' }}>
+                      {h.created_at ? new Date(h.created_at).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </span>
+                    <BadgeTipoMarcaje tipo={h.tipo} />
+                    {h.sucursal_id && <span className="muted" style={{ fontSize: '0.78rem' }}>{etiquetaTienda(h.sucursal_id)}</span>}
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => abrirAjuste(h)} disabled={guardandoAjuste}>
+                      Ajustar
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           )}
           {esAdmin && ajustando && (

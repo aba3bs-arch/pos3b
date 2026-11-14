@@ -59,4 +59,20 @@ tabla.push({ id: 'b', usuario_id: 7, nombre: 'Luis', tipo: 'SALIDA', created_at:
 r = await actualizarMarcajeAsistencia(sb, 'b', { tipo: 'ENTRADA' });
 assert.equal(r.ok, false);
 assert.match(r.error, /una entrada/);
+
+// El administrador puede agregar y cambiar tipo aunque ya exista esa marca en el día.
+const antes = sb.insertados.length;
+r = await crearMarcajeAsistencia(sb, {
+  ...base,
+  tipo: 'ENTRADA',
+  created_at: '2026-11-06T18:00:00.000Z',
+  ajustado_por: 'Admin',
+  unicoPorDia: false,
+});
+assert.equal(r.ok, true);
+assert.equal(sb.insertados.length, antes + 1);
+assert.equal(sb.insertados.at(-1).ajustado_por, 'Admin');
+
+r = await actualizarMarcajeAsistencia(sb, 'b', { tipo: 'ENTRADA', ajustado_por: 'Admin', unicoPorDia: false });
+assert.equal(r.ok, true);
 console.log('asistencias.unicoPorDia.test.mjs ok');

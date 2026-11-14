@@ -65,7 +65,7 @@ const GUIAS = [
       ['falta mi salida', 8], ['falta mi entrada', 8], ['no aparece mi salida', 8], ['no aparece mi entrada', 8],
       ['me falta salida', 7], ['sin salida', 6], ['sin entrada', 6], ['no registro mi salida', 8], ['no registro mi entrada', 8],
     ],
-    texto: 'Si olvidaste marcar la entrada o la salida, avisa a un administrador: solo él puede usar «Registrar marcaje manual» en Checador → Historial entradas/salidas. Mientras no se corrija, ese día no cuenta como trabajado, porque cada día necesita Entrada y Salida (la salida debe quedar máximo 18 horas después de la entrada). Para ver qué checadas tienes ve a Checador → Resumen días → «Ver checadas».',
+    texto: 'Si olvidaste marcar la entrada o la salida, avisa a un administrador: solo él puede usar «Registrar marcaje manual» en Checador → Historial entradas/salidas. Ahí puede buscarte con tu PIN aunque seas de otra tienda, y puede registrar o corregir más de una entrada y una salida el mismo día. El empleado en el reloj sigue limitado a una entrada y una salida por día. Mientras no se corrija, ese día no cuenta como trabajado, porque cada día necesita Entrada y Salida (la salida debe quedar máximo 18 horas después de la entrada). Para ver qué checadas tienes ve a Checador → Resumen días → «Ver checadas».',
   },
   {
     id: 'resumen_dias',

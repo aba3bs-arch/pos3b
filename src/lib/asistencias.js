@@ -2,6 +2,12 @@
 import { diaMarcaje, rangoDiaMarcajeIso, validarMarcajeUnicoPorDia } from './marcajesDia.js';
 
 const MSG_DUPLICADO = 'Solo se permite una entrada y una salida por día para cada empleado.';
+const MSG_INDICE_ADMIN =
+  'La base de datos todavía impide más de una entrada o salida por día. En Supabase ejecuta el SQL de supabase/asistencias_un_marcaje_por_dia.sql para que el administrador pueda registrar varias.';
+
+function errorMarcajeDuplicado(unicoPorDia) {
+  return { ok: false, error: unicoPorDia ? MSG_DUPLICADO : MSG_INDICE_ADMIN, duplicado: true };
+}
 
 function esErrorDuplicado(error) {
   return error?.code === '23505' || /duplicate key|unique constraint/i.test(String(error?.message || ''));
@@ -17,7 +23,7 @@ export async function listarMarcajesEmpleadoDia(supabase, empleado, ymd) {
       .select('id,usuario_id,nombre,tipo,created_at,sucursal_id')
       .gte('created_at', rango.desde)
       .lt('created_at', rango.hasta)
-      .limit(20);
+      .limit(50);
   const consultas = [];
   if (empleado.id) {
     consultas.push(base().eq('usuario_id', empleado.id));
@@ -59,7 +65,12 @@ export function isoDesdeFechaHoraLocal(fecha, hora) {
   return d.toISOString();
 }
 
-export async function actualizarMarcajeAsistencia(supabase, id, { tipo, created_at, ajustado_por = null }) {
+export async function actualizarMarcajeAsistencia(supabase, id, {
+  tipo,
+  created_at,
+  ajustado_por = null,
+  unicoPorDia = true,
+}) {
   if (!supabase || !id) return { ok: false, error: 'Datos incompletos.' };
   const payload = {};
   if (tipo === 'ENTRADA' || tipo === 'SALIDA') payload.tipo = tipo;
@@ -67,7 +78,7 @@ export async function actualizarMarcajeAsistencia(supabase, id, { tipo, created_
   if (ajustado_por) payload.ajustado_por = ajustado_por;
   if (!Object.keys(payload).length) return { ok: false, error: 'Nada que actualizar.' };
 
-  if (payload.tipo || payload.created_at) {
+  if (unicoPorDia && (payload.tipo || payload.created_at)) {
     const { data: actual } = await supabase
       .from('asistencias')
       .select('id,usuario_id,nombre,tipo,created_at')
@@ -85,17 +96,13 @@ export async function actualizarMarcajeAsistencia(supabase, id, { tipo, created_
     }
   }
 
-  const { error } = await supabase.from('asistencias').update(payload).eq('id', id);
-  if (error && esErrorDuplicado(error)) return { ok: false, error: MSG_DUPLICADO };
-  if (error) {
-    if (error.message?.includes('ajustado_por')) {
-      const { ajustado_por: _omit, ...rest } = payload;
-      const { error: err2 } = await supabase.from('asistencias').update(rest).eq('id', id);
-      if (err2) return { ok: false, error: err2.message };
-      return { ok: true };
-    }
-    return { ok: false, error: error.message };
+  let { error } = await supabase.from('asistencias').update(payload).eq('id', id);
+  if (error?.message?.includes('ajustado_por')) {
+    const { ajustado_por: _omit, ...rest } = payload;
+    ({ error } = await supabase.from('asistencias').update(rest).eq('id', id));
   }
+  if (error && esErrorDuplicado(error)) return errorMarcajeDuplicado(unicoPorDia);
+  if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
 
@@ -129,7 +136,7 @@ export async function crearMarcajeAsistencia(supabase, {
     delete row.ajustado_por;
     ({ error } = await supabase.from('asistencias').insert([row]));
   }
-  if (error && esErrorDuplicado(error)) return { ok: false, error: MSG_DUPLICADO, duplicado: true };
+  if (error && esErrorDuplicado(error)) return errorMarcajeDuplicado(unicoPorDia);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }

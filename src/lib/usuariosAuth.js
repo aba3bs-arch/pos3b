@@ -114,6 +114,8 @@ function errorFilasAmbiguas(error) {
  * - Empleados fijos (cajero, etc.): solo en la sucursal de la caja.
  * - Administrador: PIN válido desde cualquier tienda o dispositivo (sin anclaje).
  * - opts.aceptarPersonalCentral: personal de MAIN también válido (reloj empleados).
+ * - opts.aceptarCualquierSucursal: el PIN de un empleado de otra tienda también vale
+ *   (el administrador corrige sus entradas y salidas).
  */
 export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva, opts = {}) {
   if (!supabase) return { user: null, error: 'Sin conexión a Supabase.' };
@@ -181,6 +183,23 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
 
   const sinSucursal = list.find((u) => !sucursalUsuario(u));
   if (sinSucursal) return { user: sinSucursal, error: null, sinColumnaSucursal: true };
+
+  // Administrador corrigiendo marcajes: el PIN identifica al empleado aunque sea de otra tienda.
+  if (opts.aceptarCualquierSucursal) {
+    if (list.length === 1) {
+      return {
+        user: list[0],
+        error: null,
+        otraSucursal: true,
+        sucursalReal: sucursalUsuario(list[0]),
+      };
+    }
+    const tiendas = [...new Set(list.map((u) => etiquetaTienda(sucursalUsuario(u))))].join(', ');
+    return {
+      user: null,
+      error: `Ese PIN está en varias tiendas (${tiendas}). No se puede saber qué empleado modificar.`,
+    };
+  }
 
   return {
     user: null,
