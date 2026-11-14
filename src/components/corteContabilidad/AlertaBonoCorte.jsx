@@ -123,50 +123,33 @@ export default function AlertaBonoCorte({
   const mostrarMonto = origen === 'recoleccion' || origen === 'moneda_final';
   const peso = pack.pesoFactor || pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct || 0;
 
-  let hint = 'Captura la moneda final y cierra el corte para ver el cálculo. El bono se paga en la recolección.';
-  if (origen === 'moneda_final') {
-    hint = 'Calculado con moneda inicial − moneda final. Se paga hasta la recolección, no en este cierre.';
-  } else if (origen === 'recoleccion') {
-    hint = 'Este es el bono a pagar con esta recolección.';
-  }
+  let linea = cargando ? 'Calculando…' : 'Falta moneda final';
+  if (origen === 'moneda_final') linea = 'Se paga al recolectar';
+  else if (origen === 'recoleccion') linea = 'A pagar en esta recolección';
+  const nombres = reciben.length
+    ? reciben.map((p) => p.nombre).join(' · ')
+    : 'Nadie recibe bono';
+  const detalle = [
+    nombres,
+    mostrarMonto ? `Total ${fmtMoney(total)} · ${pack.pct}%` : linea,
+    peso > 0 ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : '',
+  ].filter(Boolean).join('\n');
 
   return (
-    <div className="alerta-pagare-abierto alerta-bono-corte" role="status" aria-live="polite">
-      <div className="alerta-pagare-abierto__titulo">
-        BONO POR RECOLECCIÓN
-        {peso > 0 ? ` · ${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : ''}
+    <div
+      className="alerta-pagare-abierto alerta-bono-corte"
+      role="status"
+      aria-live="polite"
+      title={detalle}
+    >
+      <div className="alerta-bono-corte__fila">
+        <span className="alerta-bono-corte__titulo">BONO</span>
+        {mostrarMonto ? (
+          <span className="alerta-bono-corte__monto">{fmtMoney(total)}</span>
+        ) : null}
       </div>
-      {mostrarMonto ? (
-        <div className="alerta-pagare-abierto__monto">{fmtMoney(total)}</div>
-      ) : (
-        <div className="alerta-bono-corte__espera">{cargando ? 'Calculando…' : 'Pendiente de moneda final'}</div>
-      )}
-      <div className="alerta-pagare-abierto__acreedor">
-        {reciben.length
-          ? reciben.map((p) => p.nombre).join(' · ')
-          : 'Nadie recibe bono'}
-      </div>
-      {mostrarMonto && reciben.length > 0 && (
-        <div className="alerta-bono-corte__lista">
-          {reciben.map((p) => (
-            <div key={p.clave || p.nombre} className="alerta-pagare-abierto__item-meta">
-              <span>{p.nombre}</span>
-              <span>{fmtMoney(p.pago)}</span>
-              <span className="alerta-pagare-abierto__badge">{p.pct}%</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {(pack.reglas || []).length > 0 && (
-        <div className="alerta-bono-corte__factores">
-          {(pack.reglas || []).map((r) => (
-            <span key={r.id} style={{ color: r.ok ? '#86efac' : '#fca5a5' }}>
-              {r.ok ? '✓' : '✗'} {r.label}
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="alerta-pagare-abierto__hint">{hint}</div>
+      <div className="alerta-bono-corte__nombres">{nombres}</div>
+      <div className="alerta-bono-corte__pie">{linea}</div>
     </div>
   );
 }

@@ -400,6 +400,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
               </p>
             )}
           </div>
+          {!sinAlertas && (
+            <AlertaBonoCorte
+              cargando={bonoAlerta.cargando}
+              pack={bonoAlerta.pack}
+              pagos={bonoAlerta.pagos}
+              origen={origenBono}
+            />
+          )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', justifyContent: 'flex-end', maxWidth: 420 }}>
             <button
               type="button"
@@ -591,15 +599,6 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
           style={{ minHeight: 72, width: '100%', resize: 'vertical' }}
         />
       </div>
-
-      {!sinAlertas && (
-        <AlertaBonoCorte
-          cargando={bonoAlerta.cargando}
-          pack={bonoAlerta.pack}
-          pagos={bonoAlerta.pagos}
-          origen={origenBono}
-        />
-      )}
 
       {!sinAlertas && (
         <AlertaPagareAbierto
