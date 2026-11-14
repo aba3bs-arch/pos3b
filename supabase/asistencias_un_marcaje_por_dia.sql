@@ -1,13 +1,22 @@
--- Refuerzo en base de datos: una ENTRADA y una SALIDA por empleado por día (hora Sonora).
--- La app ya lo valida; este índice evita duplicados por doble clic simultáneo o dos dispositivos.
+-- Refuerzo en base de datos: una ENTRADA y una SALIDA por empleado por día (hora Sonora)
+-- cuando el marcaje lo hizo el propio empleado (sin ajustado_por).
+-- El administrador puede registrar o corregir varias el mismo día: esas filas llevan
+-- ajustado_por y no entran en el índice.
+-- La app ya valida el caso del empleado; este índice evita duplicados por doble clic o dos dispositivos.
 --
--- Hay duplicados históricos, así que el índice solo aplica a marcajes NUEVOS (desde la fecha de corte; usa el día siguiente a cuando despliegues la app).
+-- Hay duplicados históricos, así que el índice solo aplica a marcajes NUEVOS (desde la fecha de corte).
 -- No borra ni modifica nada del historial.
+-- Si ya corriste una versión anterior de este archivo, vuelve a ejecutarlo: borra el índice viejo y lo recrea.
 
--- Paso 1 (requerido): índice único solo para marcajes desde el 2026-11-07 (hora Sonora).
+alter table public.asistencias add column if not exists ajustado_por text;
+
+-- Paso 1 (requerido): índice único solo para marcajes del empleado desde el 2026-11-07 (hora Sonora).
+drop index if exists public.uq_asistencias_empleado_tipo_dia_nuevos;
+
 create unique index if not exists uq_asistencias_empleado_tipo_dia_nuevos
   on public.asistencias (usuario_id, tipo, ((created_at at time zone 'America/Hermosillo')::date))
   where usuario_id is not null
+    and ajustado_por is null
     and created_at >= timestamptz '2026-11-07 00:00:00-07';
 
 -- Paso 2 (opcional): ver los duplicados históricos.

@@ -80,7 +80,7 @@ export const TUTORIAL_RELOJ_EMPLEADO = {
       cuerpo: [
         'Abajo del reloj ves los marcajes de **hoy** en esta tienda.',
         'Cada fila muestra empleado, tipo (Entrada/Salida), hora y **turno** (colores distintos por turno).',
-        'Admin puede editar o borrar un registro si hubo error.',
+        'Admin puede editar o borrar un registro si hubo error, registrar más de una entrada o salida el mismo día y buscar al empleado con su PIN de cualquier tienda.',
       ],
       imagen: `${IMG}/06-historial.png`,
       imagenAlt: 'Histora 3D del historial de asistencias del día',
