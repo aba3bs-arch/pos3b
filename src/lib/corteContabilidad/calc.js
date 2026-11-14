@@ -213,8 +213,11 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 export function calcularVirtual(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
   const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
-  const mf = round2(estado.moneda_final);
-  const capturada = Boolean(estado.moneda_final_editada) || mf > 0;
+  const mfRaw = estado.moneda_final;
+  const mfVacio = mfRaw === '' || mfRaw == null;
+  const mf = round2(mfRaw);
+  // Campo vacío no es un conteo en cero: si no, la venta sería toda la moneda inicial.
+  const capturada = !mfVacio && (Boolean(estado.moneda_final_editada) || mf > 0);
   const ventaCalc = capturada ? round2(mi - mf) : 0;
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const fondo = round2(estado.fondo);

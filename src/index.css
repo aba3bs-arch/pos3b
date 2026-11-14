@@ -6035,6 +6035,83 @@ table.data th {
   cursor: not-allowed;
 }
 
+@keyframes alerta-bono-corte-borde {
+  0%, 100% { border-color: #facc15; }
+  50% { border-color: #ef4444; }
+}
+
+.alerta-pagare-abierto.alerta-bono-corte {
+  width: 3in;
+  height: 1in;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.12in 0.14in;
+  box-sizing: border-box;
+  overflow: hidden;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.02in;
+  text-align: left;
+  border-width: 2px;
+  border-radius: 8px;
+  box-shadow: none;
+  animation: alerta-bono-corte-borde 1.05s ease-in-out infinite;
+}
+
+.alerta-bono-corte__fila {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.08in;
+  min-width: 0;
+}
+
+.alerta-bono-corte__titulo {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fde68a;
+  flex: 0 0 auto;
+}
+
+.alerta-bono-corte__monto {
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #facc15;
+  white-space: nowrap;
+}
+
+.alerta-bono-corte__espera {
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #fde68a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alerta-bono-corte__nombres,
+.alerta-bono-corte__pie {
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alerta-bono-corte__pie {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
 /* Vista cajero: Abonar/Liquidar grandes en Vales → Pagaré (sin depender del scroll de tabla) */
 .pagare-cajero-lista {
   display: flex;
