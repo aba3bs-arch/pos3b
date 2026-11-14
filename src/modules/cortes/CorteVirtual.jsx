@@ -111,7 +111,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
   const monedaOperacion = round2(estado.moneda_inicial);
   const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const miInyectada = Boolean(calc.monedaInyectada);
-  const mfCapturada = Boolean(estado.moneda_final_editada) || Number(estado.moneda_final) > 0;
+  const mfRaw = estado.moneda_final;
+  const mfCapturada = mfRaw !== '' && mfRaw != null && Number.isFinite(Number(mfRaw));
   const origenBono = montoRec > 0 ? 'recoleccion' : (mfCapturada ? 'moneda_final' : 'pendiente');
   const montoBono = origenBono === 'recoleccion'
     ? montoRec
