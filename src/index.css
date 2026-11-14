@@ -6035,6 +6035,35 @@ table.data th {
   cursor: not-allowed;
 }
 
+.alerta-bono-corte {
+  text-align: center;
+}
+
+.alerta-bono-corte .alerta-pagare-abierto__monto {
+  font-size: 1.65rem;
+}
+
+.alerta-bono-corte__espera {
+  margin: 0.35rem 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fde68a;
+}
+
+.alerta-bono-corte__lista {
+  margin-top: 0.45rem;
+}
+
+.alerta-bono-corte__factores {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem 0.75rem;
+  margin-top: 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 /* Vista cajero: Abonar/Liquidar grandes en Vales → Pagaré (sin depender del scroll de tabla) */
 .pagare-cajero-lista {
   display: flex;

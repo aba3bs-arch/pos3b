@@ -45,15 +45,16 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Con faltante → 0% (requisito duro: turno con faltante en esa recolección)
+  // Con los 4 encendidos, el faltante de efectivo quita solo su 25% (no apaga el bono)
   const r = calcularPctBonoPorPenalizaciones({
     faltanteOk: false,
     checklistDias: 6,
     evaluacionPct: 90,
     mermaPct: 1,
   })
-  assert.equal(r.pct, 0)
-  assert.equal(r.bloqueadoPorFaltante, true)
+  assert.equal(r.pct, 75)
+  assert.equal(r.bloqueadoPorFaltante, false)
+  assert.equal(r.pesoFactor, 25)
   assert.equal(r.fallosLineamiento, 1)
 }
 
@@ -248,6 +249,90 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(rango.diaSemana, 1) // lunes
   assert.equal(rango.desde, '2026-09-14')
   assert.equal(rango.hasta, '2026-09-21')
+}
+
+{
+  // Un solo factor encendido vale el 100%. Si falla, el bono queda en 0.
+  const soloCheck = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      faltanteCero: { ...BONOS_CONFIG_DEFAULT.reglas.faltanteCero, activo: false },
+      checklistDiario: { ...BONOS_CONFIG_DEFAULT.reglas.checklistDiario, activo: true },
+      evaluacionMinPct: { ...BONOS_CONFIG_DEFAULT.reglas.evaluacionMinPct, activo: false },
+      mermaMaxPct: { ...BONOS_CONFIG_DEFAULT.reglas.mermaMaxPct, activo: false },
+    },
+  })
+  assert.equal(calcularPctBonoPorPenalizaciones({
+    faltanteOk: false,
+    checklistDias: 6,
+    evaluacionPct: 10,
+    mermaPct: 20,
+  }, soloCheck).pct, 100)
+  assert.equal(calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 1,
+    evaluacionPct: 90,
+    mermaPct: 1,
+  }, soloCheck).pct, 0)
+
+  // Dos encendidos: cada uno 50%. Fallar uno deja 50%.
+  const dos = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      faltanteCero: { ...BONOS_CONFIG_DEFAULT.reglas.faltanteCero, activo: true },
+      checklistDiario: { ...BONOS_CONFIG_DEFAULT.reglas.checklistDiario, activo: true },
+      evaluacionMinPct: { ...BONOS_CONFIG_DEFAULT.reglas.evaluacionMinPct, activo: false },
+      mermaMaxPct: { ...BONOS_CONFIG_DEFAULT.reglas.mermaMaxPct, activo: false },
+    },
+  })
+  const mitad = calcularPctBonoPorPenalizaciones({
+    faltanteOk: false,
+    checklistDias: 6,
+    evaluacionPct: 0,
+    mermaPct: 99,
+  }, dos)
+  assert.equal(mitad.pesoFactor, 50)
+  assert.equal(mitad.pct, 50)
+  assert.equal(mitad.factoresActivos, 2)
+
+  // Tres encendidos: cada uno ≈ 33.33%. Fallar uno deja 66.67%.
+  const tres = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      faltanteCero: { ...BONOS_CONFIG_DEFAULT.reglas.faltanteCero, activo: true },
+      checklistDiario: { ...BONOS_CONFIG_DEFAULT.reglas.checklistDiario, activo: true },
+      evaluacionMinPct: { ...BONOS_CONFIG_DEFAULT.reglas.evaluacionMinPct, activo: true },
+      mermaMaxPct: { ...BONOS_CONFIG_DEFAULT.reglas.mermaMaxPct, activo: false },
+    },
+  })
+  const tercio = calcularPctBonoPorPenalizaciones({
+    faltanteOk: false,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 99,
+  }, tres)
+  assert.equal(tercio.factoresActivos, 3)
+  assert.equal(tercio.pesoFactor, 33.33)
+  assert.equal(tercio.pct, 66.67)
+
+  // Ninguno encendido: tabulador al 100%, sin factores que restar.
+  const ninguno = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      faltanteCero: { activo: false },
+      checklistDiario: { activo: false },
+      evaluacionMinPct: { activo: false },
+      mermaMaxPct: { activo: false },
+    },
+  })
+  const libre = calcularPctBonoPorPenalizaciones({
+    faltanteOk: false,
+    checklistDias: 0,
+    evaluacionPct: null,
+    mermaPct: 99,
+  }, ninguno)
+  assert.equal(libre.pct, 100)
+  assert.equal(libre.factoresActivos, 0)
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')

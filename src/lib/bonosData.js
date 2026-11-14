@@ -456,6 +456,8 @@ export async function calcularBonoSucursal(supabase, {
   let pct = 0;
   let penalizacionTotal = 0;
   let bloqueadoPorFaltante = false;
+  let pesoFactor = 0;
+  let factoresActivos = 0;
 
   if (usarPenalizaciones) {
     const calc = calcularPctBonoPorPenalizaciones({
@@ -476,6 +478,8 @@ export async function calcularBonoSucursal(supabase, {
     });
     penalizacionTotal = calc.penalizacionTotal;
     bloqueadoPorFaltante = calc.bloqueadoPorFaltante;
+    pesoFactor = calc.pesoFactor;
+    factoresActivos = calc.factoresActivos;
     activas = detalleReglas.length;
     cumplidas = detalleReglas.filter((r) => r.ok).length;
   } else {
@@ -559,6 +563,8 @@ export async function calcularBonoSucursal(supabase, {
     pct,
     penalizacionTotal,
     bloqueadoPorFaltante,
+    pesoFactor,
+    factoresActivos,
     bono,
     bonoRecoleccion,
     bonoTurnos,

@@ -131,9 +131,14 @@ export default function PanelBonoInicio({
     });
   }, [pack, baseCalc, usuarios, sucursal, bloqueosFalta]);
 
-  const totalPagar = useMemo(
-    () => pagosEmpleado.reduce((s, p) => s + (Number(p.pago) || 0), 0),
+  const pagosVisibles = useMemo(
+    () => pagosEmpleado.filter((p) => !p.conFalta),
     [pagosEmpleado],
+  );
+
+  const totalPagar = useMemo(
+    () => pagosVisibles.reduce((s, p) => s + (Number(p.pago) || 0), 0),
+    [pagosVisibles],
   );
 
   const bonoPorEmpleadoAlPct = useMemo(
@@ -165,7 +170,8 @@ export default function PanelBonoInicio({
   const clase = hayBono ? 'bono-panel bono-panel-parpadeo' : 'bono-panel';
   const fallos = (pack.reglas || []).filter((r) => !r.ok).length;
   const invVentana = pack.metricas?.inventarioVentana;
-  const nEmpleados = pagosEmpleado.length;
+  const nEmpleados = pagosVisibles.length;
+  const pesoFactor = pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct ?? 0;
 
   return (
     <div className={`card ${clase}`} style={{ borderLeft: `4px solid ${hayBono ? '#b45309' : '#a8a29e'}` }}>
@@ -182,9 +188,9 @@ export default function PanelBonoInicio({
             ) : null}
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
-            Ingresa el monto de <strong>esta recolección</strong>. El tabulador da el bono base por empleado;
-            el % de medidores (100 · 75 · 50 · 25 · 0) es lo que se paga.
-            Falta → 0% por {DIAS_BLOQUEO_BONO_POR_FALTA} días. Faltante de efectivo → 0% en esa recolección.
+            Ingresa el monto de <strong>esta recolección</strong>. El tabulador da el bono base;
+            los factores encendidos se reparten el 100%.
+            Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días. El pago es en la recolección.
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -194,7 +200,6 @@ export default function PanelBonoInicio({
           <div className="muted" style={{ fontSize: '0.75rem', marginTop: 2 }}>
             Tabulador {fmtMoney(baseCalc)}
             {pack.penalizacionTotal > 0 ? ` · −${pack.penalizacionTotal}%` : ' · completo'}
-            {pack.bloqueadoPorFaltante ? ' · faltante 0%' : ''}
           </div>
         </div>
       </div>
@@ -257,7 +262,7 @@ export default function PanelBonoInicio({
             <div className="muted" style={{ fontSize: '0.7rem' }}>% medidores</div>
             <strong>{pack.pct}%</strong>
             <span className="muted" style={{ marginLeft: 4 }}>
-              ({fallos === 0 ? '100%' : `${fallos}× −25%`})
+              ({fallos === 0 ? 'completo' : `${fallos}× −${pesoFactor}%`})
             </span>
           </div>
           <div>
@@ -300,13 +305,15 @@ export default function PanelBonoInicio({
           {' · '}si hay falta: <code style={{ fontSize: '0.72rem' }}>× 0%</code>.
           Cada tienda es independiente.
         </p>
-        {pagosEmpleado.length === 0 ? (
+        {pagosVisibles.length === 0 ? (
           <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
-            Sin empleados de tienda en la plantilla de esta sucursal.
+            {pagosEmpleado.length > 0
+              ? 'Nadie aparece: tienen falta vigente. El nombre vuelve a los 8 días sin falta.'
+              : 'Sin empleados de tienda en la plantilla de esta sucursal.'}
           </p>
         ) : (
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '0.35rem' }}>
-            {pagosEmpleado.map((p) => (
+            {pagosVisibles.map((p) => (
               <li
                 key={p.clave || p.id || p.nombre}
                 style={{
@@ -347,9 +354,9 @@ export default function PanelBonoInicio({
           Sin bono por falta (empleados de tienda)
         </h4>
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
-          Quien tiene falta vigente queda en <strong>0%</strong>. Descanso del plan horario
+          El nombre sale de la lista de bono. Descanso del plan horario
           (Checador → Plan) o descanso autorizado no es falta.
-          Recuperan el bono {DIAS_BLOQUEO_BONO_POR_FALTA} días después de la última falta (si no vuelven a faltar).
+          Vuelve a aparecer {DIAS_BLOQUEO_BONO_POR_FALTA} días después de la última falta, si no vuelve a faltar.
         </p>
         {avisoDescansos ? (
           <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoDescansos}</p>
