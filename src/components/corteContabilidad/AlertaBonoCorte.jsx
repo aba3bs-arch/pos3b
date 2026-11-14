@@ -5,6 +5,7 @@ import { normalizarRol } from '../../lib/roles.js';
 import { usuarioEstaActivo } from '../../lib/usuariosAuth.js';
 import { calcularBonoSucursal } from '../../lib/bonosData.js';
 import { EVENTO_BONOS_CONFIG, calcularPagosBonoPorEmpleado } from '../../lib/bonosConfig.js';
+import { ajusteRetardoBono, cargarRetardosBono } from '../../lib/bonosRetardos.js';
 import {
   cargarBloqueosBonoPorFalta,
   cargarUsuariosResumen,
@@ -63,12 +64,29 @@ export function useAlertaBonoCorte({ supabase, sucursal, monto = null, enabled =
         cargarUsuariosResumen(supabase, { sucursalId: sucursal }),
       ]);
       if (!vivo) return;
+      const plantilla = plantillaTienda(uRes?.data || [], sucursal);
+      let retardos = {};
+      if (res?.ok) {
+        try {
+          retardos = await cargarRetardosBono(supabase, {
+            sucursal,
+            desde: res.periodo?.desde,
+            hasta: res.periodo?.hasta,
+            plantilla,
+            config: res.config,
+          });
+        } catch {
+          retardos = {};
+        }
+      }
+      if (!vivo) return;
       const pagos = res?.ok
         ? calcularPagosBonoPorEmpleado({
           base: res.base,
           pctTienda: res.pct,
-          plantilla: plantillaTienda(uRes?.data || [], sucursal),
+          plantilla,
           bloqueosFalta: bloq?.data || [],
+          ...ajusteRetardoBono(res, retardos),
         })
         : [];
       setState({ cargando: false, pack: res, pagos });
@@ -97,7 +115,7 @@ export function textoConfirmacionBono({ pack, pagos, origen }) {
     lineas.push(`Reciben: ${nombres.join(', ')}.`);
     lineas.push('Captura la moneda final para ver el monto.');
   } else {
-    lineas.push(`Tabulador ${fmtMoney(pack.base)} × ${pack.pct}%`);
+    lineas.push(`Tabulador ${fmtMoney(pack.base)} por empleado × su %`);
     reciben.forEach((p) => lineas.push(p.ecuacion));
     lineas.push(`Total bono: ${fmtMoney(total)}`);
     if (origen === 'moneda_final') {
@@ -122,16 +140,21 @@ export default function AlertaBonoCorte({
   const total = reciben.reduce((s, p) => s + (Number(p.pago) || 0), 0);
   const mostrarMonto = origen === 'recoleccion' || origen === 'moneda_final';
   const peso = pack.pesoFactor || pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct || 0;
+  const pagosDistintos = [...new Set(reciben.map((p) => p.pago))];
+  const mismoPago = pagosDistintos.length === 1;
+  const montoCaja = mismoPago ? pagosDistintos[0] : null;
 
   let linea = cargando ? 'Calculando…' : 'Falta moneda final';
-  if (origen === 'moneda_final') linea = 'Se paga al recolectar';
-  else if (origen === 'recoleccion') linea = 'A pagar en esta recolección';
-  const nombres = reciben.length
-    ? reciben.map((p) => p.nombre).join(' · ')
-    : 'Nadie recibe bono';
+  if (origen === 'moneda_final') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
+  else if (origen === 'recoleccion') linea = mismoPago ? 'c/u · esta recolección' : 'A pagar en esta recolección';
+  const nombres = !reciben.length
+    ? 'Nadie recibe bono'
+    : mismoPago
+      ? reciben.map((p) => p.nombre).join(' · ')
+      : reciben.map((p) => `${p.nombre} ${fmtMoney(p.pago)}`).join(' · ');
   const detalle = [
     nombres,
-    mostrarMonto ? `Total ${fmtMoney(total)} · ${pack.pct}%` : linea,
+    mostrarMonto ? `Tabulador ${fmtMoney(pack.base)} por empleado · total ${fmtMoney(total)}` : linea,
     peso > 0 ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : '',
   ].filter(Boolean).join('\n');
 
@@ -144,8 +167,8 @@ export default function AlertaBonoCorte({
     >
       <div className="alerta-bono-corte__fila">
         <span className="alerta-bono-corte__titulo">BONO</span>
-        {mostrarMonto ? (
-          <span className="alerta-bono-corte__monto">{fmtMoney(total)}</span>
+        {mostrarMonto && montoCaja != null ? (
+          <span className="alerta-bono-corte__monto">{fmtMoney(montoCaja)}</span>
         ) : null}
       </div>
       <div className="alerta-bono-corte__nombres">{nombres}</div>

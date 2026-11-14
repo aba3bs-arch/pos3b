@@ -9,6 +9,7 @@ import {
 } from '../lib/bonosConfig.js';
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
+import { ajusteRetardoBono, cargarRetardosBono } from '../lib/bonosRetardos.js';
 import { EVENTO_DESCANSOS_AUTORIZADOS } from '../lib/descansosAutorizados.js';
 import { EVENTO_PLAN_HORARIO } from '../lib/planHorarioSync.js';
 import {
@@ -69,6 +70,7 @@ export default function PanelBonoInicio({
   const [usuarios, setUsuarios] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [montoInput, setMontoInput] = useState('');
+  const [retardosPorClave, setRetardosPorClave] = useState({});
 
   useEffect(() => {
     if (!supabase || !sucursal || esAlmacenCentral(sucursal)) {
@@ -91,6 +93,22 @@ export default function PanelBonoInicio({
       setBloqueosFalta(bloq?.data || []);
       setAvisoDescansos(bloq?.avisoDescansos || '');
       setUsuarios(uRes?.data || []);
+      let retardos = {};
+      if (res?.ok) {
+        try {
+          retardos = await cargarRetardosBono(supabase, {
+            sucursal,
+            desde: res.periodo?.desde,
+            hasta: res.periodo?.hasta,
+            plantilla: plantillaTiendaBono(uRes?.data || [], sucursal),
+            config: res.config,
+          });
+        } catch {
+          retardos = {};
+        }
+      }
+      if (!ok) return;
+      setRetardosPorClave(retardos || {});
       setCargando(false);
     };
     load();
@@ -128,8 +146,9 @@ export default function PanelBonoInicio({
       pctTienda: pack.pct,
       plantilla: plantillaTiendaBono(usuarios, sucursal),
       bloqueosFalta,
+      ...ajusteRetardoBono(pack, retardosPorClave),
     });
-  }, [pack, baseCalc, usuarios, sucursal, bloqueosFalta]);
+  }, [pack, baseCalc, usuarios, sucursal, bloqueosFalta, retardosPorClave]);
 
   const pagosVisibles = useMemo(
     () => pagosEmpleado.filter((p) => !p.conFalta),
@@ -189,7 +208,8 @@ export default function PanelBonoInicio({
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
             Ingresa el monto de <strong>esta recolección</strong>. El tabulador da el bono base;
-            los factores encendidos se reparten el 100%.
+            los factores encendidos se reparten el 100% y el tabulador es por empleado.
+            Tres retardos del reloj (15 min de tolerancia) quitan la parte de ese factor.
             Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días. El pago es en la recolección.
           </p>
         </div>

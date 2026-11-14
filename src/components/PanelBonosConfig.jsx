@@ -4,6 +4,7 @@ import {
   AVISO_FALTA_BONOS_SQL,
   BONOS_CONFIG_DEFAULT,
   leerBonosConfig,
+  IDS_FACTORES_BONO,
   normalizarBonosConfig,
   persistirBonosConfig,
   sincronizarBonosConfigDesdeNube,
@@ -124,9 +125,9 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
     <div className="card" style={{ maxWidth: 900 }}>
       <h3 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Bonos por recolección</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        El bono base sale del <strong>tabulador</strong> de recolección. Enciende los factores que quieras aplicar:
-        faltantes, check list, evaluación e inventario. Si enciendes uno, vale el <strong>100%</strong>; si enciendes dos, cada uno vale el <strong>50%</strong>;
-        con los cuatro, cada uno vale el <strong>25%</strong>. Una falta de asistencia quita el bono <strong>8 días</strong>; el nombre vuelve al cumplirlos sin falta.
+        El tabulador marca el bono <strong>por empleado</strong>. Enciende los factores que quieras aplicar:
+        faltantes, check list, evaluación, inventario y retardos. Si enciendes uno, vale el <strong>100%</strong>; si enciendes dos, cada uno vale el <strong>50%</strong>;
+        con los cinco, cada uno vale el <strong>20%</strong>. Una falta de asistencia quita el bono <strong>8 días</strong>; el nombre vuelve al cumplirlos sin falta.
         El pago se entrega en la recolección.
       </p>
 
@@ -239,8 +240,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
           <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Factores del bono</h4>
           <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
             {(() => {
-              const n = ['faltanteCero', 'checklistDiario', 'evaluacionMinPct', 'mermaMaxPct']
-                .filter((k) => cfg.reglas?.[k]?.activo !== false).length;
+              const n = IDS_FACTORES_BONO.filter((k) => cfg.reglas?.[k]?.activo !== false).length;
               if (!n) return 'Todos apagados: el tabulador se paga al 100%, sin factores.';
               const peso = Math.round((100 / n) * 100) / 100;
               return `${n} encendido${n === 1 ? '' : 's'}: cada uno vale ${peso}% del bono.`;
@@ -339,6 +339,33 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Ventana (días)
                   <input className="input" type="number" min={1} max={30} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.ventanaDias ?? 8} onChange={(e) => setRegla('mermaMaxPct', { ventanaDias: Number(e.target.value) })} />
+                </label>
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <strong>Retardos</strong>
+                <button
+                  type="button"
+                  className={cfg.reglas.retardos.activo !== false ? 'btn btn-primary' : 'btn btn-ghost'}
+                  onClick={() => setRegla('retardos', { activo: !(cfg.reglas.retardos.activo !== false) })}
+                >
+                  {cfg.reglas.retardos.activo !== false ? 'Encendido' : 'Apagado'}
+                </button>
+              </div>
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
+                Sale del reloj de empleados. Llegar más de {cfg.reglas.retardos.toleranciaMinutos ?? 15} min tarde es un retardo.
+                Con {cfg.reglas.retardos.maxRetardos ?? 3} en el periodo se pierde la parte de este factor.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Tolerancia (min)
+                  <input className="input" type="number" min={0} max={180} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.retardos.toleranciaMinutos ?? 15} onChange={(e) => setRegla('retardos', { toleranciaMinutos: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Retardos que lo pierden
+                  <input className="input" type="number" min={1} max={31} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.retardos.maxRetardos ?? 3} onChange={(e) => setRegla('retardos', { maxRetardos: Number(e.target.value) })} />
                 </label>
               </div>
             </div>
