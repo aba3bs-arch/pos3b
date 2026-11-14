@@ -491,14 +491,14 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 /**
  * Pago de bono por empleado de tienda.
  *
- * El tabulador es una parte por empleado. El total de la tienda es
- * parte × empleados (2 personas y tabulador $200 → total $400).
- * Quien tiene falta cobra $0: su parte no se suma a los demás
- * (de un total de $400, la otra persona cobra sus $200).
+ * El tabulador es el bono de la tienda y se parte entre la plantilla.
+ * Tabulador $400 y 2 empleados → cada parte $200.
+ * Quien tiene falta cobra $0 y su parte no se suma: la otra persona
+ * se queda con sus $200, no con los $400.
  *
  * - pctTienda = % tras lineamientos.
  * - Falta vigente → pct = 0.
- * - pago = parte × pct_empleado / 100.
+ * - pago = (tabulador / empleados) × pct_empleado / 100.
  *
  * @param {{
  *   base: number,
@@ -521,6 +521,8 @@ export function calcularPagosBonoPorEmpleado({
 } = {}) {
   const baseN = round2(Number(base) || 0);
   const pctT = Math.max(0, Math.min(100, Number(pctTienda) || 0));
+  const partes = Math.max(1, (plantilla || []).length);
+  const parte = round2(baseN / partes);
   const bloqueados = new Set(
     (bloqueosFalta || [])
       .map((b) => String(b?.clave || '').trim())
@@ -536,13 +538,13 @@ export function calcularPagosBonoPorEmpleado({
     const pesoR = Math.max(0, Number(pesoRetardo) || 0);
     const pierdeRetardo = !conFalta && pesoR > 0 && nRet >= Math.max(1, Number(umbralRetardos) || 3);
     const pct = conFalta ? 0 : round2(Math.max(0, Math.min(100, pctT - (pierdeRetardo ? pesoR : 0))));
-    const pago = bonoFinal(baseN, pct);
+    const pago = bonoFinal(parte, pct);
     const money = (n) => `$${n.toLocaleString('es-MX')}`;
     const ecuacion = conFalta
-      ? `${nombre} · ${money(baseN)} × 0% (falta, su parte no se suma) = $0`
+      ? `${nombre} · ${money(parte)} × 0% (falta, su parte no se suma) = $0`
       : pierdeRetardo
-        ? `${nombre} · ${money(baseN)} × ${pct}% (${nRet} retardos) = ${money(pago)}`
-        : `${nombre} · ${money(baseN)} × ${pct}% = ${money(pago)}`;
+        ? `${nombre} · ${money(parte)} × ${pct}% (${nRet} retardos) = ${money(pago)}`
+        : `${nombre} · ${money(parte)} × ${pct}% = ${money(pago)}`;
     return {
       id,
       clave,
@@ -550,7 +552,8 @@ export function calcularPagosBonoPorEmpleado({
       conFalta,
       retardos: nRet,
       pierdeRetardo,
-      base: baseN,
+      tabulador: baseN,
+      base: parte,
       pctTienda: pctT,
       pct,
       pago,
@@ -565,15 +568,16 @@ export function calcularPagosBonoPorEmpleado({
 
 /**
  * Cómo se reparte el tabulador en la tienda.
- * `parte` es el monto del tabulador (una por empleado).
- * `totalTabulador` = parte × plantilla.
+ * `parte` es tabulador / empleados.
  * `totalAPagar` suma solo las partes que sí se cobran.
  */
 export function resumenRepartoBono(pagos = []) {
   const lista = pagos || [];
   const partes = lista.length;
   const parte = partes ? round2(Number(lista[0]?.base) || 0) : 0;
-  const totalTabulador = round2(parte * partes);
+  const totalTabulador = partes
+    ? round2(Number(lista[0]?.tabulador) || parte * partes)
+    : 0;
   const totalAPagar = round2(lista.reduce((s, p) => s + (Number(p?.pago) || 0), 0));
   const cobran = lista.filter((p) => !p?.conFalta).length;
   const sinCobro = lista.filter((p) => p?.conFalta).length;

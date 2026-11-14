@@ -171,12 +171,10 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Ejemplo operativo: recolección $6,900 → base $200 c/u
-  // Total al 100% entre 2 empleados = $400. Al 75% → $150 c/u.
+  // Recolección $6,900 → tabulador $200 de la tienda.
+  // 2 empleados: $100 c/u al 100%. Al 75% → $75 c/u.
   const base = bonoBasePorMonto(6900)
   assert.equal(base, 200)
-  assert.equal(bonoFinal(base, 100), 200)
-  assert.equal(bonoFinal(base, 75), 150)
   const pagos100 = calcularPagosBonoPorEmpleado({
     base,
     pctTienda: 100,
@@ -185,8 +183,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
       { id: 2, nombre: 'Luis TN' },
     ],
   })
-  assert.equal(pagos100[0].pago + pagos100[1].pago, 400)
-  assert.equal(pagos100.every((p) => p.pago === 200), true)
+  assert.equal(pagos100[0].pago + pagos100[1].pago, 200)
+  assert.equal(pagos100.every((p) => p.pago === 100), true)
 
   const pagos75 = calcularPagosBonoPorEmpleado({
     base,
@@ -196,8 +194,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
       { id: 2, nombre: 'Luis TN' },
     ],
   })
-  assert.equal(pagos75.every((p) => p.pago === 150), true)
-  assert.equal(pagos75[0].pago + pagos75[1].pago, 300)
+  assert.equal(pagos75.every((p) => p.pago === 75), true)
+  assert.equal(pagos75[0].pago + pagos75[1].pago, 150)
 }
 
 {
@@ -214,8 +212,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(pagos.length, 2)
   assert.equal(pagos[0].nombre, 'Ana')
   assert.equal(pagos[0].pct, 75)
-  assert.equal(pagos[0].pago, 225)
-  assert.match(pagos[0].ecuacion, /Ana · \$300 × 75% = \$225/)
+  assert.equal(pagos[0].pago, 112.5)
+  assert.match(pagos[0].ecuacion, /Ana · \$150 × 75% = \$112[.,]5/)
   assert.equal(pagos[1].nombre, 'Luis')
   assert.equal(pagos[1].conFalta, true)
   assert.equal(pagos[1].pct, 0)
@@ -344,7 +342,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // El tabulador es por empleado. 3 retardos quitan solo el 20% de quien llegó tarde.
+  // 3 retardos quitan solo el 20% de la parte de quien llegó tarde.
   const pagos = calcularPagosBonoPorEmpleado({
     base: 200,
     pctTienda: 100,
@@ -359,21 +357,19 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   const ana = pagos.find((p) => p.nombre === 'Ana')
   const luis = pagos.find((p) => p.nombre === 'Luis')
   assert.equal(ana.pct, 100)
-  assert.equal(ana.pago, 200)
+  assert.equal(ana.pago, 100)
   assert.equal(ana.pierdeRetardo, false)
   assert.equal(luis.pct, 80)
-  assert.equal(luis.pago, 160)
+  assert.equal(luis.pago, 80)
   assert.equal(luis.pierdeRetardo, true)
   assert.match(luis.ecuacion, /3 retardos/)
 }
 
 {
-  // Recolección $5,000 → tabulador $200 por empleado.
-  // 2 partes = total $400. La falta cobra $0 y su parte no pasa al otro.
-  const base = bonoBasePorMonto(5000)
-  assert.equal(base, 200)
+  // El recuadro de 3B2 mostraba $400 (tabulador de la venta) a una sola persona.
+  // Con 2 empleadas esa cantidad se parte: quien no tiene falta cobra $200.
   const pagos = calcularPagosBonoPorEmpleado({
-    base,
+    base: 400,
     pctTienda: 100,
     plantilla: [
       { id: 1, nombre: 'Ana' },
@@ -385,6 +381,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   const luis = pagos.find((p) => p.nombre === 'Luis')
   const reparto = resumenRepartoBono(pagos)
   assert.equal(ana.pago, 200)
+  assert.equal(ana.base, 200)
+  assert.equal(ana.tabulador, 400)
   assert.equal(luis.pago, 0)
   assert.equal(luis.conFalta, true)
   assert.match(luis.ecuacion, /su parte no se suma/)
@@ -394,7 +392,21 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(reparto.totalAPagar, 200)
   assert.equal(reparto.cobran, 1)
   assert.equal(reparto.sinCobro, 1)
-  assert.equal(ana.pago, reparto.totalAPagar)
+
+  // Recolección $5,000 → tabulador $200 de la tienda, $100 por parte.
+  const base = bonoBasePorMonto(5000)
+  assert.equal(base, 200)
+  const mitad = calcularPagosBonoPorEmpleado({
+    base,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Ana' },
+      { id: 2, nombre: 'Luis' },
+    ],
+    bloqueosFalta: [{ clave: 'id:2' }],
+  })
+  assert.equal(mitad.find((p) => p.nombre === 'Ana').pago, 100)
+  assert.equal(resumenRepartoBono(mitad).totalAPagar, 100)
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')

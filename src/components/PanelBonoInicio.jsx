@@ -54,8 +54,8 @@ function plantillaTiendaBono(usuarios, sucursal) {
 
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
- * Ingresa el monto de la recolección → tabulador → % medidores → pago por empleado.
- * El tabulador es una parte por empleado. Total = parte × plantilla.
+ * Ingresa el monto de la recolección → tabulador de la tienda → se divide entre la plantilla.
+ * El tabulador es el bono de la tienda. Se divide entre la plantilla.
  * Falta → esa parte es $0 y no se suma a los demás (8 días).
  */
 export default function PanelBonoInicio({
@@ -161,8 +161,8 @@ export default function PanelBonoInicio({
   const totalPagar = reparto.totalAPagar;
 
   const bonoPorEmpleadoAlPct = useMemo(
-    () => bonoFinal(baseCalc, pack?.pct || 0),
-    [baseCalc, pack?.pct],
+    () => bonoFinal(reparto.partes > 0 ? reparto.parte : baseCalc, pack?.pct || 0),
+    [reparto.partes, reparto.parte, baseCalc, pack?.pct],
   );
 
   if (esAlmacenCentral(sucursal)) return null;
@@ -206,9 +206,9 @@ export default function PanelBonoInicio({
             ) : null}
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
-            Ingresa el monto de <strong>esta recolección</strong>. El tabulador es la parte de cada empleado.
-            Con dos empleados, dos partes: si el total es $400 y uno tiene falta, el otro cobra $200.
-            Esa parte no se suma. Los factores encendidos se reparten el 100%.
+            Ingresa el monto de <strong>esta recolección</strong>. El tabulador es el bono de la tienda
+            y se divide en partes iguales. Con tabulador de $400 y dos empleados, cada parte es $200.
+            Si uno tiene falta, cobra $0 y el otro se queda con sus $200. Los factores encendidos se reparten el 100%.
             Tres retardos del reloj (15 min) quitan la parte de ese factor.
             Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días.
           </p>
@@ -275,8 +275,8 @@ export default function PanelBonoInicio({
             <strong>{fmtMoney(montoCalc)}</strong>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: '0.7rem' }}>Bono base / empleado</div>
-            <strong>{fmtMoney(baseCalc)}</strong>
+            <div className="muted" style={{ fontSize: '0.7rem' }}>Parte</div>
+            <strong>{fmtMoney(reparto.partes > 0 ? reparto.parte : baseCalc)}</strong>
           </div>
           <div>
             <div className="muted" style={{ fontSize: '0.7rem' }}>% medidores</div>
@@ -298,9 +298,9 @@ export default function PanelBonoInicio({
         </div>
         {reparto.partes >= 2 && baseCalc > 0 ? (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Tabulador {fmtMoney(reparto.parte)} por empleado · total {fmtMoney(reparto.totalTabulador)} en {reparto.partes} partes.
+            Tabulador {fmtMoney(reparto.totalTabulador)} en {reparto.partes} partes de {fmtMoney(reparto.parte)}.
             {reparto.sinCobro > 0
-              ? ` Se pagan ${reparto.cobran} partes (${fmtMoney(reparto.totalAPagar)}). La parte de quien tiene falta no se suma.`
+              ? ` Se pagan ${reparto.cobran} de ${reparto.partes} (${fmtMoney(reparto.totalAPagar)}). La parte de quien tiene falta no se suma.`
               : ` Se pagan las ${reparto.partes} partes.`}
           </p>
         ) : montoCalc > 0 && baseCalc > 0 ? (
@@ -309,8 +309,8 @@ export default function PanelBonoInicio({
           </p>
         ) : (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Ejemplo: recolección $5,000 → tabulador $200 por empleado. Con 2 empleados el total es $400.
-            Si uno tiene falta, se paga una parte ($200) y la otra no se cobra.
+            Ejemplo: tabulador $400 y 2 empleados → cada parte $200.
+            Si uno tiene falta, se paga $200 y la otra parte no se cobra.
           </p>
         )}
       </div>

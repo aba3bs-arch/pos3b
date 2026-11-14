@@ -115,7 +115,7 @@ export function textoConfirmacionBono({ pack, pagos, origen }) {
     lineas.push(`Reciben: ${nombres.join(', ')}.`);
     lineas.push('Captura la moneda final para ver el monto.');
   } else {
-    lineas.push(`Tabulador ${fmtMoney(pack.base)} por empleado · ${reparto.partes} partes · total ${fmtMoney(reparto.totalTabulador)}`);
+    lineas.push(`Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)}`);
     (pagos || []).forEach((p) => lineas.push(p.ecuacion));
     lineas.push(`A pagar ${fmtMoney(reparto.totalAPagar)} (${reparto.cobran} de ${reparto.partes} partes). La parte de quien tiene falta no se suma.`);
     if (origen === 'moneda_final') {
@@ -159,7 +159,7 @@ export default function AlertaBonoCorte({
   const detalle = [
     nombres,
     mostrarMonto
-      ? `Tabulador ${fmtMoney(pack.base)} por empleado · total ${fmtMoney(reparto.totalTabulador)} en ${reparto.partes} partes · a pagar ${fmtMoney(reparto.totalAPagar)}`
+      ? `Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)} · a pagar ${fmtMoney(reparto.totalAPagar)}`
       : linea,
     peso > 0 ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : '',
   ].filter(Boolean).join('\n');

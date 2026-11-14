@@ -125,8 +125,8 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
     <div className="card" style={{ maxWidth: 900 }}>
       <h3 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Bonos por recolección</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        El tabulador marca el bono <strong>por empleado</strong> (una parte).
-        Con dos empleados el total son dos partes: si una tiene falta, solo se paga la otra.
+        El tabulador marca el bono <strong>de la tienda</strong>. Se divide en partes iguales entre los empleados.
+        Con tabulador de $400 y dos personas, cada parte es $200; si una tiene falta, solo se paga la otra.
         Enciende los factores que quieras aplicar:
         faltantes, check list, evaluación, inventario y retardos. Si enciendes uno, vale el <strong>100%</strong>; si enciendes dos, cada uno vale el <strong>50%</strong>;
         con los cinco, cada uno vale el <strong>20%</strong>. Una falta de asistencia quita el bono <strong>8 días</strong>; el nombre vuelve al cumplirlos sin falta.
