@@ -128,7 +128,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
         El tabulador marca el bono y, en las columnas <strong>TD</strong> y <strong>TN</strong>, lo que cobra cada turno.
         De $3,000 a $4,000 el bono es $100: el día cobra $100 y la noche $100. Si dos personas comparten turno, parten esa columna.
         La venta es moneda tope menos moneda final y se recalcula en cada cierre del corte virtual.
-        Cada factor encendido aporta el porcentaje que el administrador edite. Si esos porcentajes suman 100% y se cumplen, cada turno cobra su columna.
+        Los factores encendidos se reparten el 100% del tabulador. Si uno falla, se pierde solo su parte. Si está apagado, los demás se quedan con el total.
         Una falta quita el bono <strong>7 días</strong> a partir de esa falta. El pago se entrega en la recolección.
       </p>
 
@@ -262,8 +262,8 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
             {(() => {
               const activos = IDS_FACTORES_BONO.filter((k) => cfg.reglas?.[k]?.activo !== false);
               if (!activos.length) return 'Todos apagados: se paga el 100% del tabulador. Solo la falta quita el bono.';
-              const suma = activos.reduce((s, k) => s + (Number(cfg.reglas?.[k]?.penalizacionPct) || 0), 0);
-              return `${activos.length} encendido${activos.length === 1 ? '' : 's'}: suman ${Math.round(suma * 100) / 100}%. Ese porcentaje, si se cumplen, es el bono de cada empleado.`;
+              const parte = Math.round((100 / activos.length) * 100) / 100;
+              return `${activos.length} encendido${activos.length === 1 ? '' : 's'}: cada uno vale ${parte}% del tabulador. Si se cumplen todos, cada turno cobra su columna.`;
             })()}
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

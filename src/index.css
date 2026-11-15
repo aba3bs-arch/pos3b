@@ -6043,7 +6043,7 @@ table.data th {
   margin: 0;
   padding: 0.14in 0.16in 0.12in 0.18in;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
   flex: 0 0 auto;
   align-self: center;
   display: flex;
