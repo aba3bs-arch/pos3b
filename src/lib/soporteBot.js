@@ -252,7 +252,7 @@ const GUIAS = [
     id: 'tutorial',
     tema: 'tutoriales y ayuda',
     claves: [['tutorial', 5], ['tutoriales', 5], ['capacitacion', 4], ['manual', 3], ['centro de ayuda', 5], ['ayuda', 1]],
-    texto: 'En el menú Tutorial hay guías con imágenes: cómo cobrar en el POS, cómo cerrar el corte de caja, Corte Abarrotes, Vales y Préstamos, ingresar compras, reloj checador, cubre turnos y más. En Ayuda → Centro de ayuda están las guías rápidas y la sección de turnos diurno y nocturno.',
+    texto: 'En el menú Tutorial hay guías con imágenes: cómo cobrar en el POS, cómo cerrar el corte de caja, Corte Abarrotes, Vales y Préstamos, ingresar compras, reloj checador, cubre turnos, Bonos por recolección (tabulador, medidores y la alerta N/B) y más. En Ayuda → Centro de ayuda están las guías rápidas y la sección de turnos diurno y nocturno.',
   },
   {
     id: 'login',

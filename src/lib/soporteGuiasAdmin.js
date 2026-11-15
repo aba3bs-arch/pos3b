@@ -65,6 +65,16 @@ export const GUIAS_MODULOS = [
     texto: 'Menú «Configuracion». «Turnos de caja»: elige tienda, ajusta horarios y tolerancia, «Empleados por turno» (solo el Administrador asigna) y «Guardar y sincronizar». «Métodos de pago»: activa o «Agregar método». «Periféricos»: lector y báscula. «Impresión de documentos»: ancho de papel y «Guardar impresión». «Catálogo de tiendas»: «Agregar tienda».',
   },
   {
+    id: 'bonos_recoleccion',
+    tema: 'bono por recolección, tabulador y alerta N/B',
+    modulos: ['Inicio', 'Configuracion', 'Tutorial'],
+    claves: [
+      ['bono por recoleccion', 8], ['sistema de bono', 8], ['tabulador', 6], ['alerta de bono', 8],
+      ['fecha de activacion', 7], ['significa n/b', 8], ['nb', 6], ['sin bono', 7], ['medidores del bono', 7],
+    ],
+    texto: 'El bono es por tienda. El tabulador sale del monto recolectado (ej. $6,900 → $200) y los medidores parten de 100%: cada fallo (faltante, check list, evaluación, inventario) resta 25%. Faltante de efectivo deja esa recolección en 0%. En Inicio la alerta muestra el monto de cada empleado, o «N/B» y la fecha en que se activa (8 días después de una falta; el descanso no es falta). Configuración → «Bonos por recolección»: ajusta rangos y medidores y «Guardar parámetros» (solo administrador). El paso a paso con imágenes está en Tutorial y en «Ver tutorial».',
+  },
+  {
     id: 'multitienda',
     tema: 'inventario multitienda: entradas y traspasos desde el almacén central',
     modulos: ['Configuracion'],

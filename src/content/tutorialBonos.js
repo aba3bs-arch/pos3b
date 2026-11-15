@@ -1,0 +1,177 @@
+/** Tutorial · Bonos por recolección (configuración, cálculo y alerta en Inicio). */
+
+const IMG = '/tutorial-bonos';
+
+export const TUTORIAL_BONOS = {
+  id: 'bonos-recoleccion',
+  titulo: 'Bonos por recolección (paso a paso)',
+  resumen:
+    'Tabulador, medidores, alerta en Inicio (monto o N/B con fecha) y cómo guardar la configuración.',
+  interactivo: false,
+  secciones: [
+    {
+      id: 'mapa',
+      titulo: '1. Dónde está y qué hace',
+      cuerpo: [
+        'Menú **Configuración** → **Bonos por recolección**.',
+        'El bono es **por tienda** y por cada recolección. Tiene cuatro piezas:',
+        '· **Tabulador** — el monto recolectado fija el bono base de cada empleado.',
+        '· **Medidores** — se parte de 100% y cada fallo resta 25%.',
+        '· **Alerta en Inicio** — cada empleado ve su monto, o **N/B** y la fecha en que se activa.',
+        '· **Monitoreo** — el bono estimado de cada tienda.',
+      ],
+      imagen: `${IMG}/bonos-00-mapa.jpg`,
+      imagenAlt: 'Mapa de Configuración · Bonos: tabulador, medidores, alerta y monitoreo',
+    },
+    {
+      id: 'tabulador',
+      titulo: '2. Tabulador de recolección',
+      cuerpo: [
+        'En **Parámetros**, la tabla **Rangos de recolección → bono base** dice cuánto corresponde:',
+        '· $3,000 a $4,000 → **$100**',
+        '· $4,001 a $7,000 → **$200**',
+        '· $7,001 a $10,000 → **$300**',
+        '· $10,001 a $13,000 → **$400**',
+        '· $13,001 a $17,000 → **$500**',
+        '· $17,001 a $20,000 → **$600**',
+        'Ejemplo: una recolección de **$6,900** cae en $200. Ese $200 es la base de **cada** empleado de la tienda.',
+        'Si la recolección supera el último rango, se usa el bono máximo (puedes desmarcar esa opción).',
+        'El periodo normal es la **semana de nómina (sábado a viernes)**. También puedes dejarlo en «solo hoy».',
+      ],
+      imagen: `${IMG}/bonos-01-tabulador.jpg`,
+      imagenAlt: 'Tabla del tabulador: de $3,000 a $20,000 y el ejemplo de $6,900 = $200',
+    },
+    {
+      id: 'medidores',
+      titulo: '3. Cómo baja el porcentaje',
+      cuerpo: [
+        'Se empieza en **100%**. Cada medidor fallido resta **25%**: 100 · 75 · 50 · 25 · 0.',
+        '**Pago = tabulador × porcentaje.** Ejemplo: $200 × 75% = **$150**.',
+        '1. **Cero faltante de efectivo.** Si esa recolección tiene faltante, el bono queda en **0%** (requisito duro).',
+        '2. **Check list.** De 4 a 6 días laborales está bien. Menos de 4 días resta 25%. El checklist no pone un monto: solo mueve el %.',
+        '3. **Evaluación.** Mínimo **70%**, vigente **15 días**. Si no llega, resta 25%.',
+        '4. **Inventario.** Merma máxima **6%**, vigente **8 días** desde el día de inventario de la tienda. Si se pasa, resta 25%.',
+        'Deja el modo en **Penalizaciones**. El modo «conteo de reglas» es el sistema viejo.',
+      ],
+      imagen: `${IMG}/bonos-02-medidores.jpg`,
+      imagenAlt: 'Porcentajes 100, 75, 50, 25 y 0, y los cuatro medidores',
+      notas: [
+        'La merma que usa el bono es la que se guarda en Reportes → Inventario → **Guardar para bono**.',
+      ],
+    },
+    {
+      id: 'alerta',
+      titulo: '4. La alerta en Inicio',
+      cuerpo: [
+        'En **Inicio** de cada tienda, la tarjeta de bono muestra la **alerta** con una línea por empleado:',
+        '· Quien cobra: `manuel ocejo = 200`',
+        '· Quien no cobra: `mayra = N/B 11/21`',
+        '**N/B** significa sin bono. **11/21** es el mes y el día en que se activa otra vez (21 de noviembre).',
+        'Una **falta** (día laboral sin entrada ni salida) deja el bono en cero **8 días** después de la última falta.',
+        'El **descanso** del plan horario, o un descanso autorizado, **no es falta**. Entrada sola o salida sola **sí cuenta** como presente.',
+        'Abajo de la alerta puedes capturar el monto de **esta** recolección y ver la ecuación de cada quien.',
+      ],
+      imagen: `${IMG}/bonos-03-alerta.jpg`,
+      imagenAlt: 'Alerta: manuel ocejo = 200 y mayra = N/B 11/21',
+    },
+    {
+      id: 'guardar',
+      titulo: '5. Cómo configurar y guardar',
+      cuerpo: [
+        '1. Menú **Configuración**.',
+        '2. Toca **Bonos por recolección**.',
+        '3. Ajusta los rangos del tabulador y los cuatro medidores.',
+        '4. Elige el periodo: **semana de nómina, de sábado a viernes**.',
+        '5. Pulsa **Guardar parámetros**.',
+        'Queda **sincronizado en todas las cajas**. Solo el **administrador** puede guardar.',
+        'En la pestaña **Monitoreo** ves recolección, base, % y bono estimado de cada tienda. Pulsa **Actualizar** para recargar.',
+        'El botón **Ver tutorial** de esta misma pantalla abre esta guía.',
+      ],
+      imagen: `${IMG}/bonos-04-guardar.jpg`,
+      imagenAlt: 'Cinco pasos para guardar los parámetros de bono',
+      notas: [
+        'Si la nube aún no tiene la tabla, se guarda en este equipo y aparece el aviso para ejecutar `supabase/fix_bonos_config.sql`.',
+      ],
+    },
+    {
+      id: 'resumen',
+      titulo: '6. Resumen para capacitar',
+      cuerpo: [
+        '1. La recolección elige el **tabulador**.',
+        '2. Los medidores bajan el porcentaje **de 25 en 25**.',
+        '3. Cada empleado cobra **tabulador × porcentaje**.',
+        '4. En la alerta se ve el **monto**, o **N/B** con la **fecha de activación**.',
+        '5. Se guarda en **Configuración → Bonos por recolección**.',
+      ],
+      imagen: `${IMG}/bonos-05-resumen.jpg`,
+      imagenAlt: 'Resumen de cinco pasos del bono por recolección',
+      notas: [
+        'Frase: **Tabulador × porcentaje. Si no cobra, N/B y la fecha en que se activa.**',
+      ],
+      quiz: [
+        {
+          id: 'base',
+          pregunta: 'Una recolección de $6,900, con todo en orden, ¿qué base da el tabulador?',
+          opciones: ['$100', '$200', '$300', '$0'],
+          correcta: 1,
+          explicacion: '$6,900 cae en el rango $4,001 a $7,000, que es $200 por empleado.',
+        },
+        {
+          id: 'pct',
+          pregunta: 'Si solo falla el check list y lo demás está bien, ¿qué porcentaje se paga?',
+          opciones: ['100%', '75%', '50%', '0%'],
+          correcta: 1,
+          explicacion: 'Se parte de 100% y un medidor fallido resta 25%. Queda 75%.',
+        },
+        {
+          id: 'faltante',
+          pregunta: 'Hay faltante de efectivo en esa recolección. ¿Qué pasa con el bono?',
+          opciones: [
+            'Se paga el 75%',
+            'Se paga igual, el faltante no afecta',
+            'Queda en 0% en esa recolección',
+            'Solo baja $25',
+          ],
+          correcta: 2,
+          explicacion: 'El faltante es requisito duro: esa recolección paga 0%.',
+        },
+        {
+          id: 'nb',
+          pregunta: 'En la alerta dice mayra = N/B 11/21. ¿Qué significa?',
+          opciones: [
+            'Mayra cobra $11.21',
+            'Mayra no cobra; el bono se le activa el 21 de noviembre',
+            'Mayra cobra $200 el día 11',
+            'Mayra está de descanso ese día',
+          ],
+          correcta: 1,
+          explicacion: 'N/B es sin bono. 11/21 es el mes y el día en que vuelve a cobrar.',
+        },
+        {
+          id: 'falta',
+          pregunta: '¿Qué cuenta como falta para perder el bono?',
+          opciones: [
+            'El día de descanso del plan horario',
+            'Un día laboral sin entrada ni salida',
+            'Marcar solo la entrada',
+            'Marcar solo la salida',
+          ],
+          correcta: 1,
+          explicacion: 'Falta es un día laboral sin ninguna checada. Descanso, entrada sola o salida sola no quitan el bono. La suspensión dura 8 días.',
+        },
+        {
+          id: 'guardar',
+          pregunta: '¿Quién puede guardar los parámetros del bono?',
+          opciones: [
+            'Cualquier cajero',
+            'Solo el administrador',
+            'Cualquier empleado de la tienda',
+            'Nadie: se calculan solos y no se guardan',
+          ],
+          correcta: 1,
+          explicacion: 'Solo el administrador guarda. Al guardar, la configuración se sincroniza en todas las cajas.',
+        },
+      ],
+    },
+  ],
+};

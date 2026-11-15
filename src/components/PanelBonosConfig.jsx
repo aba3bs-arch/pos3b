@@ -9,6 +9,8 @@ import {
   sincronizarBonosConfigDesdeNube,
 } from '../lib/bonosConfig.js';
 import { calcularBonosVariasSucursales } from '../lib/bonosData.js';
+import { TUTORIAL_BONOS } from '../content/tutorialBonos.js';
+import VisorTutorialModal from './VisorTutorialModal.jsx';
 
 function fmtMoney(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -23,6 +25,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
   const [aviso, setAviso] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [tab, setTab] = useState('params'); // params | monitor
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
   const [monitor, setMonitor] = useState([]);
   const [cargandoMon, setCargandoMon] = useState(false);
 
@@ -122,12 +125,24 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
 
   return (
     <div className="card" style={{ maxWidth: 900 }}>
-      <h3 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Bonos por recolección</h3>
-      <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        El bono base sale del <strong>tabulador</strong> de recolección. Se parte del <strong>100%</strong> y cada lineamiento fallido
-        (cero faltante, check list, evaluación, inventario) descuenta <strong>−25%</strong> → 100 · 75 · 50 · 25 · 0%.
-        En Inicio, cada tienda muestra la ecuación por empleado; quien tiene falta queda en <strong>0%</strong>.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div>
+          <h3 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Bonos por recolección</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem', maxWidth: 640 }}>
+            El bono base sale del <strong>tabulador</strong> de recolección. Se parte del <strong>100%</strong> y cada lineamiento fallido
+            (cero faltante, check list, evaluación, inventario) descuenta <strong>−25%</strong> → 100 · 75 · 50 · 25 · 0%.
+            En Inicio, la alerta muestra el monto de cada empleado, o <strong>N/B</strong> y la fecha en que se activa.
+          </p>
+        </div>
+        <button type="button" className="btn btn-ghost" onClick={() => setTutorialAbierto(true)}>
+          Ver tutorial
+        </button>
+      </div>
+      <VisorTutorialModal
+        tutorial={TUTORIAL_BONOS}
+        abierto={tutorialAbierto}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
 
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem' }}>
         <button type="button" className={`btn ${tab === 'params' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('params')}>
