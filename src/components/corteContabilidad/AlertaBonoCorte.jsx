@@ -131,9 +131,9 @@ export function textoConfirmacionBono({ pack, pagos, origen }) {
   if (!reciben.length) {
     lineas.push('Nadie cobra en esta recolección.');
   } else {
-    lineas.push(`Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)}`);
+    lineas.push(`Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} para TD y para TN × ${pack.pct || 0}%.`);
     (pagos || []).forEach((p) => lineas.push(p.ecuacion));
-    lineas.push(`A pagar ${fmtMoney(reparto.totalAPagar)} (${reparto.cobran} de ${reparto.partes} partes). La parte de quien tiene falta no se suma.`);
+    lineas.push(`A pagar ${fmtMoney(reparto.totalAPagar)}. Quien tiene falta no cobra por 7 días.`);
     if (origen === 'recoleccion') {
       lineas.push('Calculado con el monto de esta recolección.');
     } else {
@@ -155,7 +155,7 @@ export default function AlertaBonoCorte({
   const reciben = (pagos || []).filter((p) => !p.conFalta);
   const reparto = resumenRepartoBono(pagos);
   const mostrarMonto = origen === 'recoleccion' || origen === 'moneda_final' || origen === 'acumulado';
-  const peso = pack.pesoFactor || pack.reglas?.find((r) => r.pesoPct > 0)?.pesoPct || 0;
+  const hayFactores = (pack.factoresActivos || pack.reglas?.length || 0) > 0;
   const pagosDistintos = [...new Set(reciben.map((p) => p.pago))];
   const mismoPago = pagosDistintos.length === 1;
   const montoCaja = mismoPago ? pagosDistintos[0] : null;
@@ -176,9 +176,9 @@ export default function AlertaBonoCorte({
     ventaTxt,
     lineasEmpleado.join('\n') || 'Sin empleados de tienda',
     mostrarMonto
-      ? `Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)} · a pagar ${fmtMoney(reparto.totalAPagar)}`
+      ? `Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} para TD y para TN · a pagar ${fmtMoney(reparto.totalAPagar)}`
       : linea,
-    peso > 0 ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : '',
+    hayFactores ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · se acumula ${pack.pct || 0}%` : '',
     ...alertas.map((a) => a.texto),
   ].filter(Boolean).join('\n');
 

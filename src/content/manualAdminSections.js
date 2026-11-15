@@ -185,14 +185,14 @@ En **Configuración → Privilegios por rol o usuario** puedes restringir o ampl
 **Reingreso (alta de nuevo):**
 
 - Si es **recontratable**: en RH ABA3B o Usuarios usa **Reingresar alta**. Vuelve a nómina, turnos y Usuarios.
-- Si **no es recontratable**: hace falta el **PIN del administrador principal** para volver a darlo de alta.
+- Si **no es recontratable**: hace falta el **PUN del administrador principal** para volver a darlo de alta.
 
 ### 4.7 Cómo reingresar un empleado
 
 1. **No** crees otro usuario. Busca al que ya está de baja.
 2. **Usuarios:** recuadro **Cómo reingresar un empleado** → elige el nombre → **Reingresar alta**. También: *Ver dados de baja* → **Reingresar alta** en la fila.
 3. **RH ABA3B:** pestaña **Inactivos / bajas** → **Reingresar alta** en la fila (o Perfil).
-4. Si está marcado **no recontratable**, captura el PIN del administrador principal.
+4. Si está marcado **no recontratable**, captura el PUN del administrador principal.
 
 Al confirmar, vuelve a nómina, turnos y Usuarios; puede entrar otra vez con su PIN.
 

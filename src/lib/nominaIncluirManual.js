@@ -22,6 +22,7 @@ export function candidatosAgregarNomina(usuarios, listaNomina) {
     .filter((u) => {
       if (!u?.id || enNomina.has(String(u.id))) return false;
       if (ROLES_FUERA_DE_NOMINA.has(normalizarRol(u.rol))) return false;
+      if (u.es_admin_principal === true) return false;
       if (u.socio_3b || u.tipo_empleado === 'socio_3b') return false;
       return true;
     })

@@ -104,7 +104,7 @@ const SECCIONES = [
         <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
           <li>Usuarios: recuadro <strong>Cómo reingresar</strong> → elige el nombre dado de baja → <strong>Reingresar alta</strong>.</li>
           <li>O RH ABA3B → <strong>Inactivos / bajas</strong> → <strong>Reingresar alta</strong> en la fila.</li>
-          <li>Si está marcado no recontratable, pide el PIN del administrador principal.</li>
+          <li>Si está marcado no recontratable, pide el PUN del administrador principal.</li>
         </ol>
         <p style={{ margin: 0 }}>
           Vuelve a nómina, turnos y Usuarios. Puede entrar otra vez con su PIN.

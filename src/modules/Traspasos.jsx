@@ -25,7 +25,7 @@ import {
   stockOrigenDisponible,
   normalizarLineasTraspasoIniciales,
 } from '../lib/traspasosInventario.js';
-import { normalizarRol } from '../lib/roles.js';
+import { normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
 
 const TABS = [
   { id: 'enviar', label: 'Enviar productos', icon: 'truck' },
@@ -87,7 +87,7 @@ export default function Traspasos({
   const enCentral = esAlmacenCentral(sucursalOp);
   const usuario = user?.nombre || user?.email || '—';
   const rol = normalizarRol(user?.rol);
-  const esAdmin = rol === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(rol);
 
   const [tab, setTab] = useState(enCentral ? 'enviar' : 'recibir');
   const [lista, setLista] = useState([]);

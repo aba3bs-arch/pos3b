@@ -500,6 +500,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
       const src = pagoVirtualPor.get(`${r.usuario_id || ''}|${r.nombre}`);
       return {
         ...r,
+        rol: src?.rol || r.rol || null,
         pago_virtual: src?.pago_virtual || 0,
         dias_trabajados: src?.dias_trabajados,
       };

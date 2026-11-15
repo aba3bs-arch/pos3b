@@ -30,7 +30,7 @@ import { cargarMapaSaldosArrastre } from '../lib/nominaSaldoArrastre.js';
 import { reabrirPeriodoNomina, eliminarPeriodoNomina } from '../lib/nominaReabrir.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
-import { normalizarRol } from '../lib/roles.js';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 function fmt(n) {
@@ -120,7 +120,7 @@ const COLS = [
 
 export default function Nomina({ supabase, sucursal, user }) {
   const semanaCalendario = periodoSemanaNomina();
-  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   /** Quien puede cerrar nómina también puede borrar duplicadas del historial. */
   const puedeEliminarNomina = Boolean(user);
   const [aviso, setAviso] = useState('');
@@ -169,9 +169,9 @@ export default function Nomina({ supabase, sucursal, user }) {
       setErr('');
       let empleadosRes = await supabase
         .from('usuarios')
-        .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo')
+        .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo, es_admin_principal')
         .order('nombre');
-      if (empleadosRes.error && String(empleadosRes.error.message || '').includes('activo')) {
+      if (empleadosRes.error && /es_admin_principal|activo/i.test(String(empleadosRes.error.message || ''))) {
         empleadosRes = await supabase
           .from('usuarios')
           .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario')
@@ -414,7 +414,8 @@ export default function Nomina({ supabase, sucursal, user }) {
           + `Se consolidan deducciones de todas las sucursales.\n`
           + `Se marcarán consumos de cortes y se aplicarán abonos a préstamos.\n\n`
           + `IE: quien reportó sueldo en corte → «Nom corte» (sin duplicar).\n`
-          + `Quien no → egreso «Payroll» en IE Virtual/Abarrotes.`,
+          + `Quien no → egreso «Payroll» en IE Virtual/Abarrotes.\n`
+          + `Los administradores siempre se registran en IE, aunque no tengan corte.`,
       )
     )
       return;

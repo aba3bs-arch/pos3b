@@ -74,7 +74,7 @@ export default function FormularioBajaEmpleado({
       </div>
       {!form.recontratable && (
         <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.65rem' }}>
-          Sin reingreso: para volver a darlo de alta se necesita el <strong>PIN del administrador principal</strong>.
+          Sin reingreso: para volver a darlo de alta se necesita el <strong>PUN del administrador principal</strong>.
         </p>
       )}
       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>

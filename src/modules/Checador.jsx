@@ -352,13 +352,15 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       if (!tienda) return;
       const res = await supabase
         .from('usuarios')
-        .select('id,nombre,rol,sucursal_id,activo')
+        .select('id,nombre,rol,sucursal_id,activo,es_admin_principal')
         .eq('sucursal_id', tienda)
         .order('nombre');
-      const data = res.error && String(res.error.message || '').includes('activo')
+      const data = res.error && /activo|es_admin_principal/i.test(String(res.error.message || ''))
         ? (await supabase.from('usuarios').select('id,nombre,rol,sucursal_id').eq('sucursal_id', tienda).order('nombre')).data
         : res.data;
-      if (ok) setEmpleadosTienda((data || []).filter((e) => e?.activo !== false));
+      if (ok) {
+        setEmpleadosTienda((data || []).filter((e) => e?.activo !== false && e?.es_admin_principal !== true));
+      }
     })();
     return () => {
       ok = false;

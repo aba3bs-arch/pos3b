@@ -68,7 +68,7 @@ export const TUTORIALES = [
         cuerpo: [
           '**Usuarios:** recuadro **Cómo reingresar un empleado** → elige el nombre dado de baja → **Reingresar alta**.',
           '**RH ABA3B:** pestaña **Inactivos / bajas** → **Reingresar alta** en la fila (o Perfil).',
-          'Si está **no recontratable**, captura el PIN del administrador principal.',
+          'Si está **no recontratable**, captura el PUN del administrador principal.',
         ],
       },
       {
@@ -169,7 +169,7 @@ export const TUTORIALES = [
         cuerpo: [
           '**Motivo:** renuncia, despido, abandono, fin de contrato, etc.',
           '**Fecha** de baja.',
-          'Marca si **puede reingresar** (recontratable). Si no, escribe el motivo: un futuro alta pedirá el **PIN del administrador principal**.',
+          'Marca si **puede reingresar** (recontratable). Si no, escribe el motivo: un futuro alta pedirá el **PUN del administrador principal**.',
           'Pulsa **Confirmar baja**.',
         ],
       },
@@ -188,7 +188,7 @@ export const TUTORIALES = [
         cuerpo: [
           'En **Usuarios**, recuadro **Cómo reingresar un empleado** (o marca **Ver dados de baja** y pulsa **Reingresar alta**).',
           'En **RH ABA3B**, pestaña **Inactivos / bajas** → **Reingresar alta**.',
-          'Si estaba marcado **no recontratable**, hace falta el PIN del administrador principal.',
+          'Si estaba marcado **no recontratable**, hace falta el PUN del administrador principal.',
         ],
         notas: [
           'Frase para capacitar: **Usuarios o RH ABA3B → elegir nombre → Dar de baja → Confirmar baja.**',

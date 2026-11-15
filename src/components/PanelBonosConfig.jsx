@@ -127,10 +127,9 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
         El tabulador marca el bono y, en las columnas <strong>TD</strong> y <strong>TN</strong>, lo que cobra cada turno.
         De $3,000 a $4,000 el bono es $100: el día cobra $100 y la noche $100. Si dos personas comparten turno, parten esa columna.
-        Enciende los factores que quieras aplicar:
-        faltantes, check list, evaluación, inventario y retardos. Si enciendes uno, vale el <strong>100%</strong>; si enciendes dos, cada uno vale el <strong>50%</strong>;
-        con los cinco, cada uno vale el <strong>20%</strong>. Una falta de asistencia quita el bono <strong>7 días</strong> a partir de esa falta.
-        El pago se entrega en la recolección.
+        La venta es moneda tope menos moneda final y se recalcula en cada cierre del corte virtual.
+        Cada factor encendido aporta el porcentaje que el administrador edite. Si esos porcentajes suman 100% y se cumplen, cada turno cobra su columna.
+        Una falta quita el bono <strong>7 días</strong> a partir de esa falta. El pago se entrega en la recolección.
       </p>
 
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem' }}>
@@ -261,10 +260,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
           <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Factores del bono</h4>
           <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
             {(() => {
-              const n = IDS_FACTORES_BONO.filter((k) => cfg.reglas?.[k]?.activo !== false).length;
-              if (!n) return 'Todos apagados: el tabulador se paga al 100%, sin factores.';
-              const peso = Math.round((100 / n) * 100) / 100;
-              return `${n} encendido${n === 1 ? '' : 's'}: cada uno vale ${peso}% del bono.`;
+              const activos = IDS_FACTORES_BONO.filter((k) => cfg.reglas?.[k]?.activo !== false);
+              if (!activos.length) return 'Todos apagados: se paga el 100% del tabulador. Solo la falta quita el bono.';
+              const suma = activos.reduce((s, k) => s + (Number(cfg.reglas?.[k]?.penalizacionPct) || 0), 0);
+              return `${activos.length} encendido${activos.length === 1 ? '' : 's'}: suman ${Math.round(suma * 100) / 100}%. Ese porcentaje, si se cumplen, es el bono de cada empleado.`;
             })()}
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -279,9 +278,13 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                   {cfg.reglas.faltanteCero.activo !== false ? 'Encendido' : 'Apagado'}
                 </button>
               </div>
-              <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
-                Se toma de gastos del corte con categoría FALTANTE. Si está encendido y hay faltante, se pierde solo la parte de este factor.
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
+                Se toma de gastos del corte con categoría FALTANTE. Si hay faltante, no suma este porcentaje.
               </p>
+              <label className="muted" style={{ fontSize: '0.72rem' }}>
+                Porcentaje del bono
+                <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.faltanteCero.penalizacionPct ?? 20} onChange={(e) => setRegla('faltanteCero', { penalizacionPct: Number(e.target.value) })} />
+              </label>
             </div>
 
             <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
@@ -300,6 +303,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 Menos de {cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} pierde la parte de este factor.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Porcentaje del bono
+                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.checklistDiario.penalizacionPct ?? 20} onChange={(e) => setRegla('checklistDiario', { penalizacionPct: Number(e.target.value) })} />
+                </label>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Días esperados
                   <input className="input" type="number" min={1} max={7} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.diasEsperados ?? 6} onChange={(e) => setRegla('checklistDiario', { diasEsperados: Number(e.target.value) })} />
@@ -326,6 +333,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 Por debajo del mínimo se pierde la parte de este factor. Vigente {cfg.reglas.evaluacionMinPct.ventanaDias ?? 15} días.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Porcentaje del bono
+                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.penalizacionPct ?? 20} onChange={(e) => setRegla('evaluacionMinPct', { penalizacionPct: Number(e.target.value) })} />
+                </label>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Mínimo %
                   <input className="input" type="number" style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.minPct} onChange={(e) => setRegla('evaluacionMinPct', { minPct: Number(e.target.value) })} />
@@ -354,6 +365,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Porcentaje del bono
+                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.penalizacionPct ?? 20} onChange={(e) => setRegla('mermaMaxPct', { penalizacionPct: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Máx. merma %
                   <input className="input" type="number" step="0.1" style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.maxPct} onChange={(e) => setRegla('mermaMaxPct', { maxPct: Number(e.target.value) })} />
                 </label>
@@ -380,6 +395,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 Con {cfg.reglas.retardos.maxRetardos ?? 3} en el periodo se pierde la parte de este factor.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Porcentaje del bono
+                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.retardos.penalizacionPct ?? 20} onChange={(e) => setRegla('retardos', { penalizacionPct: Number(e.target.value) })} />
+                </label>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Tolerancia (min)
                   <input className="input" type="number" min={0} max={180} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.retardos.toleranciaMinutos ?? 15} onChange={(e) => setRegla('retardos', { toleranciaMinutos: Number(e.target.value) })} />

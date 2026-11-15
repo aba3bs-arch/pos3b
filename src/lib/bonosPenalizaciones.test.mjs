@@ -24,10 +24,11 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(cfg.reglas.mermaMaxPct.maxPct, 6)
   assert.equal(cfg.reglas.evaluacionMinPct.minPct, 70)
   assert.equal(cfg.reglas.checklistDiario.diasPenalizaSiHasta, 4)
-  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 25)
-  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 25)
+  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 20)
+  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 20)
+  assert.equal(cfg.reglas.retardos.penalizacionPct, 20)
   assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
   assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, DIAS_VENTANA_EVALUACION_BONO)
   assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, DIAS_VENTANA_INVENTARIO_BONO)
@@ -176,8 +177,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Recolección $6,900 → tabulador $200 de la tienda.
-  // 2 empleados: $100 c/u al 100%. Al 75% → $75 c/u.
+  // Recolección $6,900 → tabulador $200. Diurno y nocturno cobran el total cada uno.
+  // Al 100% → $200 c/u. Al 75% → $150 c/u.
   const base = bonoBasePorMonto(6900)
   assert.equal(base, 200)
   const pagos100 = calcularPagosBonoPorEmpleado({
@@ -188,8 +189,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
       { id: 2, nombre: 'Luis TN' },
     ],
   })
-  assert.equal(pagos100[0].pago + pagos100[1].pago, 200)
-  assert.equal(pagos100.every((p) => p.pago === 100), true)
+  assert.equal(pagos100.every((p) => p.pago === 200), true)
 
   const pagos75 = calcularPagosBonoPorEmpleado({
     base,
@@ -199,8 +199,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
       { id: 2, nombre: 'Luis TN' },
     ],
   })
-  assert.equal(pagos75.every((p) => p.pago === 75), true)
-  assert.equal(pagos75[0].pago + pagos75[1].pago, 150)
+  assert.equal(pagos75.every((p) => p.pago === 150), true)
 }
 
 {
@@ -251,16 +250,16 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(pagos.length, 2)
   assert.equal(pagos[0].nombre, 'Ana')
   assert.equal(pagos[0].pct, 75)
-  assert.equal(pagos[0].pago, 112.5)
-  assert.match(pagos[0].ecuacion, /Ana · \$150 × 75% = \$112[.,]5/)
+  assert.equal(pagos[0].pago, 225)
+  assert.match(pagos[0].ecuacion, /Ana · \$300 × 75% = \$225/)
   assert.equal(pagos[1].nombre, 'Luis')
   assert.equal(pagos[1].conFalta, true)
   assert.equal(pagos[1].pct, 0)
   assert.equal(pagos[1].pago, 0)
-  assert.match(pagos[1].ecuacion, /0% \(falta, su parte no se suma\)/)
+  assert.match(pagos[1].ecuacion, /0% \(falta, 7 días sin bono\)/)
 }
 
-// Migración: castigos viejos 20/60 → 25 (umbrales solo migran si no había penalizacionPct)
+// El porcentaje del factor se edita. 25 y 60 eran castigos viejos y vuelven a 20.
 {
   const cfg = normalizarBonosConfig({
     activo: true,
@@ -268,12 +267,14 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
       faltanteCero: { activo: true },
       mermaMaxPct: { activo: true, maxPct: 6, penalizacionPct: 60 },
       evaluacionMinPct: { activo: true, minPct: 70, penalizacionPct: 20 },
-      checklistDiario: { activo: true, penalizacionPct: 20 },
+      checklistDiario: { activo: true, penalizacionPct: 30 },
     },
   })
-  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 25)
+  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 30)
+  assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 20)
+  assert.equal(cfg.reglas.retardos.penalizacionPct, 20)
   assert.equal(cfg.modoCalculo, 'penalizaciones')
   assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
   assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, 15)
@@ -293,7 +294,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Un solo factor encendido vale el 100%. Si falla, el bono queda en 0.
+  // Un solo factor encendido aporta su porcentaje (20% por defecto). Si falla, no suma.
   const soloCheck = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -309,7 +310,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     checklistDias: 6,
     evaluacionPct: 10,
     mermaPct: 20,
-  }, soloCheck).pct, 100)
+  }, soloCheck).pct, 20)
   assert.equal(calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
     checklistDias: 1,
@@ -317,7 +318,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     mermaPct: 1,
   }, soloCheck).pct, 0)
 
-  // Dos encendidos: cada uno 50%. Fallar uno deja 50%.
+  // Dos encendidos al 20%: fallar uno deja el 20% del que sí se cumple.
   const dos = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -334,11 +335,11 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     evaluacionPct: 0,
     mermaPct: 99,
   }, dos)
-  assert.equal(mitad.pesoFactor, 50)
-  assert.equal(mitad.pct, 50)
+  assert.equal(mitad.pesoFactor, 20)
+  assert.equal(mitad.pct, 20)
   assert.equal(mitad.factoresActivos, 2)
 
-  // Tres encendidos: cada uno ≈ 33.33%. Fallar uno deja 66.67%.
+  // Tres encendidos al 20%: fallar uno deja 40%.
   const tres = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -356,8 +357,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     mermaPct: 99,
   }, tres)
   assert.equal(tercio.factoresActivos, 3)
-  assert.equal(tercio.pesoFactor, 33.33)
-  assert.equal(tercio.pct, 66.67)
+  assert.equal(tercio.pesoFactor, 20)
+  assert.equal(tercio.pct, 40)
 
   // Ninguno encendido: tabulador al 100%, sin factores que restar.
   const ninguno = normalizarBonosConfig({
@@ -378,6 +379,32 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   }, ninguno)
   assert.equal(libre.pct, 100)
   assert.equal(libre.factoresActivos, 0)
+
+  // Porcentajes editados: se paga la suma de los encendidos que se cumplen.
+  const editados = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      faltanteCero: { activo: true, penalizacionPct: 40 },
+      checklistDiario: { activo: true, penalizacionPct: 30 },
+      evaluacionMinPct: { activo: true, penalizacionPct: 30 },
+      mermaMaxPct: { activo: false, penalizacionPct: 20 },
+      retardos: { activo: false, penalizacionPct: 20 },
+    },
+  })
+  const suma = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 1,
+  }, editados)
+  assert.equal(suma.pct, 100)
+  const fallaUno = calcularPctBonoPorPenalizaciones({
+    faltanteOk: false,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 1,
+  }, editados)
+  assert.equal(fallaUno.pct, 60)
 }
 
 {
@@ -396,17 +423,16 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   const ana = pagos.find((p) => p.nombre === 'Ana')
   const luis = pagos.find((p) => p.nombre === 'Luis')
   assert.equal(ana.pct, 100)
-  assert.equal(ana.pago, 100)
+  assert.equal(ana.pago, 200)
   assert.equal(ana.pierdeRetardo, false)
   assert.equal(luis.pct, 80)
-  assert.equal(luis.pago, 80)
+  assert.equal(luis.pago, 160)
   assert.equal(luis.pierdeRetardo, true)
   assert.match(luis.ecuacion, /3 retardos/)
 }
 
 {
-  // El recuadro de 3B2 mostraba $400 (tabulador de la venta) a una sola persona.
-  // Con 2 empleadas esa cantidad se parte: quien no tiene falta cobra $200.
+  // El tabulador es de cada empleado. Quien no tiene falta cobra los $400. Quien faltó cobra $0.
   const pagos = calcularPagosBonoPorEmpleado({
     base: 400,
     pctTienda: 100,
@@ -419,20 +445,20 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   const ana = pagos.find((p) => p.nombre === 'Ana')
   const luis = pagos.find((p) => p.nombre === 'Luis')
   const reparto = resumenRepartoBono(pagos)
-  assert.equal(ana.pago, 200)
-  assert.equal(ana.base, 200)
+  assert.equal(ana.pago, 400)
+  assert.equal(ana.base, 400)
   assert.equal(ana.tabulador, 400)
   assert.equal(luis.pago, 0)
   assert.equal(luis.conFalta, true)
-  assert.match(luis.ecuacion, /su parte no se suma/)
+  assert.match(luis.ecuacion, /7 días sin bono/)
   assert.equal(reparto.partes, 2)
-  assert.equal(reparto.parte, 200)
+  assert.equal(reparto.parte, 400)
   assert.equal(reparto.totalTabulador, 400)
-  assert.equal(reparto.totalAPagar, 200)
+  assert.equal(reparto.totalAPagar, 400)
   assert.equal(reparto.cobran, 1)
   assert.equal(reparto.sinCobro, 1)
 
-  // Recolección $5,000 → tabulador $200 de la tienda, $100 por parte.
+  // Recolección $5,000 → tabulador $200. Quien no faltó cobra los $200.
   const base = bonoBasePorMonto(5000)
   assert.equal(base, 200)
   const mitad = calcularPagosBonoPorEmpleado({
@@ -444,8 +470,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     ],
     bloqueosFalta: [{ clave: 'id:2' }],
   })
-  assert.equal(mitad.find((p) => p.nombre === 'Ana').pago, 100)
-  assert.equal(resumenRepartoBono(mitad).totalAPagar, 100)
+  assert.equal(mitad.find((p) => p.nombre === 'Ana').pago, 200)
+  assert.equal(resumenRepartoBono(mitad).totalAPagar, 200)
 }
 
 {
@@ -468,7 +494,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
       { id: 2, nombre: 'Mayra' },
     ],
   })
-  assert.equal(pagos.every((p) => p.pago === 100), true)
+  assert.equal(pagos.every((p) => p.pago === 200), true)
 
   // Si la venta del turno sube (moneda final más baja), el acumulado sube en el momento.
   assert.equal(ventaAcumuladaBonoVirtual({
@@ -519,7 +545,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     ],
     bloqueosFalta: [{ clave: 'id:2' }],
   })
-  assert.equal(conFalta.find((p) => p.nombre === 'Manuel').pago, 100)
+  assert.equal(conFalta.find((p) => p.nombre === 'Manuel').pago, 200)
   assert.equal(conFalta.find((p) => p.nombre === 'Mayra').pago, 0)
 }
 

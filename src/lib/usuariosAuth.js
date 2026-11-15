@@ -1,6 +1,11 @@
 import { normalizarCodigoTienda, etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
 
+/** La cuenta oculta del administrador principal no entra con PIN. */
+function esAdminPrincipalOculto(user) {
+  return user?.es_admin_principal === true;
+}
+
 export function sucursalUsuario(user) {
   const s = user?.sucursal_id;
   return s ? normalizarCodigoTienda(s) : null;
@@ -133,7 +138,7 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   if (qExact.error && !faltaColumnaSucursal(qExact.error) && !errorFilasAmbiguas(qExact.error)) {
     return { user: null, error: mensajeErrorConsultaUsuarios(qExact.error) };
   }
-  const exactos = (qExact.data || []).filter(Boolean);
+  const exactos = (qExact.data || []).filter((u) => u && !esAdminPrincipalOculto(u));
   if (exactos.length) {
     const preferido = exactos.find(usuarioEstaActivo) || exactos[0];
     const r = rechazarSiInactivo(preferido);
@@ -147,7 +152,7 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
       if (qLegacy.error && !errorFilasAmbiguas(qLegacy.error)) {
         return { user: null, error: mensajeErrorConsultaUsuarios(qLegacy.error) };
       }
-      const legacy = (qLegacy.data || [])[0];
+      const legacy = (qLegacy.data || []).find((u) => !esAdminPrincipalOculto(u));
       if (legacy) {
         const r = rechazarSiInactivo(legacy);
         return r.error ? r : { user: r.user, error: null, sinColumnaSucursal: true };
@@ -156,7 +161,7 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
     return { user: null, error: mensajeErrorConsultaUsuarios(qAll.error) };
   }
 
-  const list = (qAll.data || []).filter(usuarioEstaActivo);
+  const list = (qAll.data || []).filter((u) => usuarioEstaActivo(u) && !esAdminPrincipalOculto(u));
   if (list.length === 0) {
     const algunoBaja = (qAll.data || []).some((u) => !usuarioEstaActivo(u));
     if (algunoBaja) return { user: null, error: 'Este usuario está dado de baja. Pide al administrador reactivarlo.' };

@@ -70,7 +70,7 @@ import {
   esCentralAdmin,
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente, esRolRepartidor } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente, esRolRepartidor, fijarSesionPrivilegios } from './lib/roles.js';
 import { inventarioParaSucursal, asegurarMapaStock } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -88,6 +88,7 @@ import {
   sucursalDePinCubreTurno,
 } from './lib/cubreTurnoSync.js';
 import { buscarUsuarioPorPinYSucursal, buscarUsuarioPorId, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
+import { entrarConPun, olvidarPunSesion, recordarPunSesion } from './lib/punAdminPrincipal.js';
 import {
   buscarSocioPorPinAcceso,
   esUsuarioSocio3B,
@@ -693,6 +694,11 @@ function App() {
   }, [sesion, supabase, sucursal]);
 
   useEffect(() => {
+    fijarSesionPrivilegios(sesion ? user : null);
+    return () => fijarSesionPrivilegios(null);
+  }, [sesion, user]);
+
+  useEffect(() => {
     if (!sesion || !user) return;
     const hubContab = vista === VISTA_HUB_CONTABILIDAD;
     const hubEstad = vista === VISTA_HUB_ESTADISTICAS;
@@ -1045,8 +1051,16 @@ function App() {
       return;
     }
 
-    const { user: data, error, avisoSucursal, sinColumnaSucursal, ajustarSucursal, sucursalReal } =
+    let { user: data, error, avisoSucursal, sinColumnaSucursal, ajustarSucursal, sucursalReal } =
       await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
+    olvidarPunSesion();
+    if (!data && !error) {
+      const porPun = await entrarConPun(supabase, p);
+      if (porPun.ok) {
+        recordarPunSesion(p);
+        data = porPun.user;
+      }
+    }
     if (error) {
       alert(error);
       setPin('');
@@ -1216,6 +1230,7 @@ function App() {
 
   const forzarCierreSesionPorTurno = useCallback(() => {
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
+    olvidarPunSesion();
     setAvisoExtensionTurno(null);
     setEsperandoAprobacionSesion(false);
     setSolicitandoMasTiempo(false);
@@ -1364,6 +1379,7 @@ function App() {
     limpiarAnunciosVistos();
     limpiarNotificacionesDispositivoMostradas();
     limpiarSesionPersistenteMovil();
+    olvidarPunSesion();
     setAvisoExtensionTurno(null);
     setOfertaBiometria(null);
     setSesion(false);

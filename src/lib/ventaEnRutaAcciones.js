@@ -1,5 +1,5 @@
 import { leerPrivilegios } from './posConfig.js';
-import { normalizarRol, puedeVerModulo } from './roles.js';
+import { normalizarRol, puedeVerModulo, sesionConPrivilegiosAdmin } from './roles.js';
 
 /**
  * Subcomandos del hub Venta en Ruta (privilegios en ACCIONES_PRIVILEGIO).
@@ -76,7 +76,7 @@ function lecturaExplicitaAccion(data, accionId, rol, userId) {
  */
 export function puedeAccionVentaRuta(rol, userId, accionId, data = null) {
   const r = normalizarRol(rol);
-  if (r === 'Administrador') return true;
+  if (r === 'Administrador' || sesionConPrivilegiosAdmin(rol, userId)) return true;
   if (!SUBCOMANDOS_VENTA_RUTA.some((s) => s.id === accionId)) return false;
   if (!puedeVerModulo(rol, 'Venta en Ruta', userId)) return false;
 

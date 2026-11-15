@@ -6,7 +6,7 @@
 
 import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
-import { normalizarRol, rolSistemaEfectivo } from './roles.js';
+import { normalizarRol, rolSistemaEfectivo, sesionConPrivilegiosAdmin } from './roles.js';
 
 /** Prefijo carga_id / notas para créditos nacidos en Recolecciones. */
 export const PREFIJO_CXC_RECOLECCION = 'rec:';
@@ -853,6 +853,7 @@ export async function pagarCreditosRutaConPin(supabase, {
 
 /** Solo Administrador puede borrar créditos pendientes (corrección de errores). */
 export function puedeEliminarCreditosRuta(rol) {
+  if (sesionConPrivilegiosAdmin(rol)) return true;
   return rolSistemaEfectivo(rol) === 'Administrador';
 }
 

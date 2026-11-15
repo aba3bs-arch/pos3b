@@ -203,13 +203,17 @@ export async function verificarPinAdministradorGlobal(supabase, pin) {
       lastError = error;
       continue;
     }
-    const hits = (data || []).filter(usuarioEstaActivo);
+    const hits = (data || []).filter((u) => usuarioEstaActivo(u) && u?.es_admin_principal !== true);
     if (hits.length) {
       lista = hits;
       break;
     }
-    // Conservar inactivos solo si no hay activos en ninguna variante
-    if (!lista.length && (data || []).length) lista = data || [];
+    // Conservar inactivos solo si no hay activos en ninguna variante.
+    // La cuenta oculta del administrador principal no entra por PIN.
+    if (!lista.length) {
+      const visibles = (data || []).filter((u) => u?.es_admin_principal !== true);
+      if (visibles.length) lista = visibles;
+    }
   }
 
   if (lastError && !lista.length) return { ok: false, error: lastError.message };

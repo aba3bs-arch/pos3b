@@ -5,13 +5,14 @@ import { iconoDeModulo } from '../lib/moduloIcons.js';
 import { etiquetaTienda, esAlmacenCentral, esSucursalNoVenta } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
-import { normalizarRol } from '../lib/roles.js';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
 import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 import PanelAppMovilInicio from '../components/PanelAppMovilInicio.jsx';
 import PanelProyeccionFaltante from '../components/PanelProyeccionFaltante.jsx';
 import PanelBonoInicio from '../components/PanelBonoInicio.jsx';
+import PanelPunAdminPrincipal from '../components/PanelPunAdminPrincipal.jsx';
 
 function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
@@ -36,7 +37,7 @@ export default function Inicio({
   const puedeVerValorizacion = puede('Productos') && consolaCentral;
   // Proyección de faltante (carrito / cancelaciones / checador): en cada sucursal operativa.
   const puedeVerProyeccion = puede('Productos') && !esSucursalNoVenta(sucursal);
-  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   const esAdminPrincipal = esAdministradorPrincipal(user);
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
@@ -196,6 +197,8 @@ export default function Inicio({
       </div>
 
       <PanelAppMovilInicio sucursal={sucursal} />
+
+      {esAdminPrincipal && <PanelPunAdminPrincipal supabase={supabase} />}
 
       {esAdmin && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
