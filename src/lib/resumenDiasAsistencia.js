@@ -439,13 +439,16 @@ export function diasConAlgunaChecada(marcajes = []) {
  * de cumplirlos, si no volvió a faltar.
  * Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
  * (= se reactiva 7 días después de la última falta de la cadena).
- * Las faltas anteriores a BONO_FALTAS_CUENTAN_DESDE no cuentan: ese día todos
- * parten con su parte. El día en curso tampoco es falta hasta que termina.
+ * Se respetan las faltas de los 7 días anteriores al 15/11/2026.
+ * Las más viejas no cuentan. El día en curso tampoco es falta hasta que termina.
  */
 export const DIAS_BLOQUEO_BONO_POR_FALTA = 7
 
-/** Primera fecha que puede suspender el bono. Lo anterior queda en cero. */
-export const BONO_FALTAS_CUENTAN_DESDE = '2026-11-15'
+/** El 15/11/2026. Las faltas de los 7 días previos siguen vigentes. */
+export const BONO_FALTAS_ARRANQUE = '2026-11-15'
+
+/** Primera falta que puede suspender: 7 días antes del arranque (08/11/2026). */
+export const BONO_FALTAS_CUENTAN_DESDE = '2026-11-08'
 
 export function sumarDiasYmd(ymd, dias) {
   if (!ymd) return ''
@@ -677,7 +680,7 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
  * - 1 falta: sin bono 7 días a partir de ese día.
  * - Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
  *   (vuelve 7 días después de la última falta de la cadena).
- * - `faltasDesde`: ignora faltas anteriores (arranque en cero).
+ * - `faltasDesde`: ignora faltas más viejas que esa fecha.
  * - El día de `ahora` no cierra falta: aún pueden checar.
  *
  * @param {{ plan?: object, descansosAutorizados?: Array|Set<string>, faltasDesde?: string }} [opts]

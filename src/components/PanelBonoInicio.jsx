@@ -210,8 +210,8 @@ export default function PanelBonoInicio({
             y se divide en partes iguales. Con tabulador de $400 y dos empleados, cada parte es $200.
             Si uno tiene falta, cobra $0 y el otro se queda con sus $200. Los factores encendidos se reparten el 100%.
             Tres retardos del reloj (15 min) quitan la parte de ese factor.
-            Las faltas de antes no cuentan: todos parten con su parte.
-            Quien falte a partir de ahora queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde el día de la falta.
+            Se respetan las faltas de los {DIAS_BLOQUEO_BONO_POR_FALTA} días anteriores al 15/11.
+            Las más viejas no cuentan. Quien falte queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde ese día.
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -384,7 +384,8 @@ export default function PanelBonoInicio({
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
           El nombre sale de la lista de bono. Descanso del plan horario
           (Checador → Plan) o descanso autorizado no es falta.
-          Las faltas anteriores al arranque no cuentan. Quien falte queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde ese día, si no vuelve a faltar.
+          Se respetan las faltas de los {DIAS_BLOQUEO_BONO_POR_FALTA} días anteriores al 15/11. Las más viejas no cuentan.
+          Quien falte queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde ese día, si no vuelve a faltar.
         </p>
         {avisoDescansos ? (
           <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoDescansos}</p>
