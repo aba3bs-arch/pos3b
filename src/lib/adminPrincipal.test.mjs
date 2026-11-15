@@ -38,7 +38,8 @@ assert.ok(esAdministradorPrincipal({
 const oculto = { id: 'p', nombre: 'Administrador principal', rol: 'Administrador', es_admin_principal: true };
 const andres = { id: 'a', nombre: 'Andrés Marrero', rol: 'Gerente', es_admin_principal: false };
 assert.deepEqual(omitirAdminPrincipalOculto([oculto, andres]).map((u) => u.id), ['a']);
-assert.deepEqual(filtrarEmpleadosAdmin([oculto, andres]).map((u) => u.id), ['a']);
+const amr = { id: 'amr', nombre: 'AMR', rol: 'Gerente' };
+assert.deepEqual(filtrarEmpleadosAdmin([oculto, andres, amr]).map((u) => u.id), ['a']);
 
 assert.equal(encontrarReservadoAdmin('pago a AMR'), 'amr');
 assert.equal(encontrarReservadoAdmin('gasto Andrés'), 'andres');

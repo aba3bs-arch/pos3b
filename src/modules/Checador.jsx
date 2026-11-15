@@ -15,6 +15,7 @@ import {
   otorgarAutorizacionFueraHorario,
   verificarPinAdministradorGlobal,
 } from '../lib/autorizacionTurnoFueraHorario.js';
+import { esFichaAmrAlias } from '../lib/empleadosVisibles.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
@@ -359,7 +360,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         ? (await supabase.from('usuarios').select('id,nombre,rol,sucursal_id').eq('sucursal_id', tienda).order('nombre')).data
         : res.data;
       if (ok) {
-        setEmpleadosTienda((data || []).filter((e) => e?.activo !== false && e?.es_admin_principal !== true));
+        setEmpleadosTienda((data || []).filter((e) => e?.activo !== false && e?.es_admin_principal !== true && !esFichaAmrAlias(e)));
       }
     })();
     return () => {
