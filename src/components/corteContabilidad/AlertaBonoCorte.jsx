@@ -4,7 +4,7 @@ import { resolverTipoEmpleado } from '../../lib/empleadosVisibles.js';
 import { normalizarRol } from '../../lib/roles.js';
 import { usuarioEstaActivo } from '../../lib/usuariosAuth.js';
 import { calcularBonoSucursal } from '../../lib/bonosData.js';
-import { EVENTO_BONOS_CONFIG, calcularPagosBonoPorEmpleado, resumenRepartoBono } from '../../lib/bonosConfig.js';
+import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, resumenRepartoBono } from '../../lib/bonosConfig.js';
 import { ajusteRetardoBono, cargarRetardosBono } from '../../lib/bonosRetardos.js';
 import {
   cargarBloqueosBonoPorFalta,
@@ -144,8 +144,11 @@ export default function AlertaBonoCorte({
     ? `${reparto.cobran} de ${reparto.partes} partes`
     : '';
 
+  const alertas = alertasVisiblesBono(pack, pagos);
   let linea = cargando ? 'Calculando…' : 'Falta moneda final';
-  if (partesTxt && mostrarMonto) linea = partesTxt;
+  if (!reciben.length && alertas.some((a) => a.tipo === 'falta')) linea = 'Falta vigente · no se paga';
+  else if (!reciben.length && !(pagos || []).length) linea = 'Sin empleados de tienda';
+  else if (partesTxt && mostrarMonto) linea = partesTxt;
   else if (origen === 'moneda_final' || origen === 'acumulado') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
   else if (origen === 'recoleccion') linea = mismoPago ? 'c/u · esta recolección' : 'A pagar en esta recolección';
   const nombres = !reciben.length
@@ -159,6 +162,7 @@ export default function AlertaBonoCorte({
       ? `Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)} · a pagar ${fmtMoney(reparto.totalAPagar)}`
       : linea,
     peso > 0 ? `${pack.factoresActivos || pack.reglas?.length || 0} factores · ${peso}% c/u` : '',
+    ...alertas.map((a) => a.texto),
   ].filter(Boolean).join('\n');
 
   return (
@@ -175,6 +179,13 @@ export default function AlertaBonoCorte({
         ) : null}
       </div>
       <div className="alerta-bono-corte__nombres">{nombres}</div>
+      {alertas.length > 0 ? (
+        <ul className="alerta-bono-corte__alertas">
+          {alertas.map((a) => (
+            <li key={a.id}>{a.texto}</li>
+          ))}
+        </ul>
+      ) : null}
       <div className="alerta-bono-corte__pie">{linea}</div>
     </div>
   );

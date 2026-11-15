@@ -619,3 +619,31 @@ export function resumenRepartoBono(pagos = []) {
   const sinCobro = lista.filter((p) => p?.conFalta).length;
   return { partes, parte, totalTabulador, totalAPagar, cobran, sinCobro };
 }
+
+/**
+ * Avisos que se leen en la tarjeta de Corte virtual.
+ * Las notificaciones del dispositivo no se usan: el cajero ve aquí el factor
+ * que falló, la falta y el retardo que baja el bono.
+ */
+export function alertasVisiblesBono(pack, pagos = []) {
+  const alertas = [];
+  for (const r of pack?.reglas || []) {
+    if (!r || r.ok || r.porEmpleado) continue;
+    const peso = Number(r.penalizacionPct) || Number(r.pesoPct) || 0;
+    const medida = String(r.valor || '').trim();
+    const nombre = String(r.label || 'Factor').trim() || 'Factor';
+    const texto = [nombre, peso ? `−${peso}%` : '', medida].filter(Boolean).join(' · ');
+    alertas.push({ id: String(r.id || nombre), tipo: 'factor', texto });
+  }
+  for (const p of pagos || []) {
+    const nombre = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+    const clave = String(p?.clave || p?.id || nombre);
+    if (p?.conFalta) {
+      alertas.push({ id: `falta:${clave}`, tipo: 'falta', texto: `Falta · ${nombre}` });
+    } else if (p?.pierdeRetardo) {
+      const n = Math.max(0, Math.round(Number(p.retardos) || 0));
+      alertas.push({ id: `retardo:${clave}`, tipo: 'retardo', texto: `Retardos · ${nombre} (${n})` });
+    }
+  }
+  return alertas;
+}

@@ -7,6 +7,7 @@ import {
   bonoFinal,
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
+  alertasVisiblesBono,
   resumenRepartoBono,
   resolverOrigenBonoCorte,
   ventaAcumuladaBonoVirtual,
@@ -462,6 +463,27 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   })
   assert.equal(conFalta.find((p) => p.nombre === 'Manuel').pago, 100)
   assert.equal(conFalta.find((p) => p.nombre === 'Mayra').pago, 0)
+}
+
+{
+  const alertas = alertasVisiblesBono(
+    {
+      reglas: [
+        { id: 'checklistDiario', label: 'Check list', ok: false, penalizacionPct: 20, valor: '2/6 días' },
+        { id: 'retardos', label: 'Retardos', ok: true, porEmpleado: true, pesoPct: 20 },
+        { id: 'mermaMaxPct', label: 'Merma o inventario', ok: true, pesoPct: 20, valor: '2%' },
+      ],
+    },
+    [
+      { clave: 'id:1', nombre: 'Manuel', conFalta: false, pierdeRetardo: true, retardos: 3 },
+      { clave: 'id:2', nombre: 'Mayra', conFalta: true, retardos: 0 },
+    ],
+  )
+  assert.deepEqual(alertas.map((a) => a.texto), [
+    'Check list · −20% · 2/6 días',
+    'Retardos · Manuel (3)',
+    'Falta · Mayra',
+  ])
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')

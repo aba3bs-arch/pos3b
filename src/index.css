@@ -6121,6 +6121,26 @@ table.data th {
   text-overflow: ellipsis;
 }
 
+.alerta-bono-corte__alertas {
+  list-style: none;
+  margin: 0.02in 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.02in;
+  min-width: 0;
+}
+
+.alerta-bono-corte__alertas li {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #fecaca;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Vista cajero: Abonar/Liquidar grandes en Vales → Pagaré (sin depender del scroll de tabla) */
 .pagare-cajero-lista {
   display: flex;
