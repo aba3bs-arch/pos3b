@@ -55,8 +55,22 @@ export function detalleRecoleccionParaIe({ efectivo, gastosTotal, extras = {} })
 }
 
 /**
+ * Corte general automático (folio CGA, tipo cierre_diario).
+ * Es contabilidad del día: no es un cierre de cajero y no arrastra caja.
+ */
+export function esCierreGeneralAbarrotes(row) {
+  if (!row) return false;
+  const tipo = String(row?.detalle?.tipo_cierre || '').toLowerCase();
+  if (tipo === 'cierre_diario') return true;
+  if (/^CGA-\d/i.test(String(row?.folio || '').trim())) return true;
+  const turno = String(row?.turno || '').trim().toLowerCase();
+  return turno === 'corte general';
+}
+
+/**
  * Gastos del periodo desde la última recolección (cierres de turno + abiertos actuales).
  * Sirve para mandar la recolección bruta a IE sin descontar gastos dos veces.
+ * El corte general no entra: sus gastos ya están en los cierres del cajero.
  */
 export function gastosPeriodoDesdeUltimaRecoleccion(historial = [], gastosAbiertosTotal = 0) {
   let sum = round2(gastosAbiertosTotal);
@@ -66,6 +80,7 @@ export function gastosPeriodoDesdeUltimaRecoleccion(historial = [], gastosAbiert
     return tb - ta;
   });
   for (const h of lista) {
+    if (esCierreGeneralAbarrotes(h)) continue;
     const tipo = String(h?.detalle?.tipo_cierre || h?.turno || '').toLowerCase();
     if (tipo === 'recoleccion') break;
     sum = round2(sum + (Number(h?.detalle?.gastos_total) || 0));
@@ -133,6 +148,7 @@ export function gastosListaDesdeUltimaRecoleccion(historial = [], gastosAbiertos
     return tb - ta;
   });
   for (const h of lista) {
+    if (esCierreGeneralAbarrotes(h)) continue;
     if (esCierreRecoleccion(h)) break;
     const meta = {
       folio: h.folio || '—',
