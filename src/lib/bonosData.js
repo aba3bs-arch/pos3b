@@ -23,6 +23,12 @@ import {
 } from './bonosConfig.js';
 import { cicloInventarioSucursal, etiquetaDiaInventario } from './calendarioInventario.js';
 import { resultadoInventarioParaBono } from './resultadoInventario.js';
+import { normalizarRol } from './roles.js';
+import { resolverTipoEmpleado } from './empleadosVisibles.js';
+import { usuarioEstaActivo } from './usuariosAuth.js';
+import { cargarMarcajesResumen, cargarUsuariosResumen } from './resumenDiasAsistencia.js';
+import { calcularDiasDesdeAsistencias, GRACIA_RETARDO_MINUTOS } from './nominaAsistencias.js';
+import { leerTurnos } from './turnos.js';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -76,6 +82,56 @@ async function totalRecoleccionPeriodo(supabase, sucursal, desde, hasta) {
   } catch (e) {
     return { total: 0, count: 0, error: e?.message || String(e) };
   }
+}
+
+function esEmpleadoTiendaBono(u, suc) {
+  if (!usuarioEstaActivo(u)) return false;
+  if (normalizarRol(u.rol) === 'Administrador') return false;
+  if (resolverTipoEmpleado(u) !== 'tienda') return false;
+  const sucU = normalizarCodigoTienda(u.sucursal_id);
+  if (!sucU || sucU === 'MAIN') return false;
+  if (suc && sucU !== suc) return false;
+  return true;
+}
+
+/**
+ * Retardos del periodo: primera entrada de cada jornada, después de la hora
+ * de inicio del turno más la gracia (la misma regla del checador / nómina).
+ */
+async function retardosPeriodo(supabase, sucursal, desde, hasta, graciaMin = GRACIA_RETARDO_MINUTOS) {
+  const suc = normalizarCodigoTienda(sucursal);
+  const [uRes, mRes] = await Promise.all([
+    cargarUsuariosResumen(supabase, { sucursalId: suc }),
+    cargarMarcajesResumen(supabase, {
+      desdeIso: inicioDia(desde).toISOString(),
+      hastaIso: finDia(hasta).toISOString(),
+      sucursalId: suc,
+    }),
+  ]);
+  const plantilla = (uRes.data || []).filter((u) => esEmpleadoTiendaBono(u, suc));
+  const turnos = leerTurnos();
+  const porId = new Map();
+  for (const m of mRes.data || []) {
+    const id = m.usuario_id != null ? String(m.usuario_id) : '';
+    if (!id) continue;
+    if (!porId.has(id)) porId.set(id, []);
+    porId.get(id).push(m);
+  }
+  let total = 0;
+  const porEmpleado = [];
+  for (const u of plantilla) {
+    const calc = calcularDiasDesdeAsistencias(u, porId.get(String(u.id)) || [], {
+      turnos,
+      graciaMin,
+      desde,
+      hasta,
+    });
+    const n = Math.max(0, Math.round(Number(calc.retardos) || 0));
+    total += n;
+    if (n > 0) porEmpleado.push({ id: u.id, nombre: u.nombre || 'Sin nombre', retardos: n });
+  }
+  porEmpleado.sort((a, b) => b.retardos - a.retardos || String(a.nombre).localeCompare(String(b.nombre), 'es'));
+  return { total, porEmpleado, error: mRes.error?.message || uRes.error?.message || null };
 }
 
 /** Faltante de efectivo en el periodo: solo gastos de corte con subcategoría/categoría FALTANTE. */
@@ -421,7 +477,7 @@ export async function calcularBonoSucursal(supabase, {
   const ventanaInv = cfgLive.reglas?.mermaMaxPct?.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO;
   const rangoInv = rangoVentanaInventarioBono(suc, { ventanaDias: ventanaInv, fecha });
 
-  const [reco, falt, merma, evalRes, check, bonosTurno] = await Promise.all([
+  const [reco, falt, merma, evalRes, check, bonosTurno, retardos] = await Promise.all([
     totalRecoleccionPeriodo(supabase, suc, rango.desde, rango.hasta),
     faltantePeriodo(supabase, suc, rango.desde, rango.hasta),
     mermaPctPeriodo(supabase, suc, rangoInv.desde, rangoInv.hasta, inventario),
@@ -440,6 +496,13 @@ export async function calcularBonoSucursal(supabase, {
       hasta: rango.hasta,
       config: cfgLive,
     }),
+    retardosPeriodo(
+      supabase,
+      suc,
+      rango.desde,
+      rango.hasta,
+      cfgLive.reglas?.retardosMax?.graciaMin ?? GRACIA_RETARDO_MINUTOS,
+    ),
   ]);
 
   const montoManual = montoRecoleccion != null && Number.isFinite(Number(montoRecoleccion))
@@ -463,6 +526,7 @@ export async function calcularBonoSucursal(supabase, {
       checklistDias: check.diasConChecklist,
       evaluacionPct: evalRes.pct,
       mermaPct: merma.pct,
+      retardos: retardos.total,
     }, cfgLive);
     pct = cfgLive.activo ? calc.pct : 0;
     detalleReglas = calc.detalle.map((r) => {
@@ -519,6 +583,20 @@ export async function calcularBonoSucursal(supabase, {
         ok,
         valor: ep == null ? 'Sin evaluación' : `${ep}%`,
         requerido: `≥ ${minPct}%`,
+      });
+    }
+    if (reglasCfg.retardosMax?.activo) {
+      activas += 1;
+      const max = Math.max(0, Math.round(Number(reglasCfg.retardosMax.max) || 0));
+      const n = Math.max(0, Math.round(Number(retardos.total) || 0));
+      const ok = n <= max;
+      if (ok) cumplidas += 1;
+      detalleReglas.push({
+        id: 'retardosMax',
+        label: reglasCfg.retardosMax.label,
+        ok,
+        valor: n === 1 ? '1 retardo' : `${n} retardos`,
+        requerido: max === 0 ? '0 retardos' : `≤ ${max}`,
       });
     }
     if (reglasCfg.checklistDiario.activo) {
@@ -585,6 +663,8 @@ export async function calcularBonoSucursal(supabase, {
       evaluacionDesde: evalRes.desdeVentana || null,
       evaluacionVencida: evalRes.vencida || false,
       checklist: check,
+      retardos: retardos.total,
+      retardosPorEmpleado: retardos.porEmpleado,
     },
     config: cfgLive,
   };

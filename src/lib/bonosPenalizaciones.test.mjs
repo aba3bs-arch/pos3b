@@ -26,6 +26,10 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 25)
   assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 25)
   assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
+  assert.equal(cfg.reglas.retardosMax.activo, true)
+  assert.equal(cfg.reglas.retardosMax.max, 0)
+  assert.equal(cfg.reglas.retardosMax.graciaMin, 5)
+  assert.equal(cfg.reglas.retardosMax.penalizacionPct, 25)
   assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, DIAS_VENTANA_EVALUACION_BONO)
   assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, DIAS_VENTANA_INVENTARIO_BONO)
   assert.equal(DIAS_VENTANA_EVALUACION_BONO, 15)
@@ -123,6 +127,28 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   })
   assert.equal(r.pct, 75)
   assert.equal(r.penalizacionTotal, 25)
+}
+
+{
+  // 5.º factor: un retardo resta 25%; cero retardos no resta
+  const conRetardo = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 1,
+    retardos: 1,
+  })
+  assert.equal(conRetardo.pct, 75)
+  assert.equal(conRetardo.detalle.find((d) => d.id === 'retardosMax').ok, false)
+  const sinRetardo = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 1,
+    retardos: 0,
+  })
+  assert.equal(sinRetardo.pct, 100)
+  assert.equal(sinRetardo.detalle.filter((d) => d.id).length, 5)
 }
 
 {

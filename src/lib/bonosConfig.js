@@ -42,11 +42,12 @@ export const DIAS_VENTANA_INVENTARIO_BONO = 8;
 
 /**
  * Modelo de pago justo (penalizaciones desde 100% del tabulador):
- * - 4 lineamientos: cero faltante, check list, evaluación, inventario (merma).
- * - Cada lineamiento fallido → −25% → 100% / 75% / 50% / 25% / 0%.
+ * - 5 factores: faltante de efectivo, check list, evaluación, inventario (merma) y retardos.
+ * - Cada factor fallido → −25% → 100% / 75% / 50% / 25% / 0% (no baja de 0).
  * - Faltante de efectivo en la recolección → 0% de golpe (requisito duro).
  * - Empleado de tienda con falta vigente → 0% por 8 días.
  * - Evaluación: vigencia 15 días. Checklist: semana (<4 días baja %). Inventario: 8 días / día de tienda.
+ * - Retardo: entrada después de la hora de inicio + gracia (5 min). Por defecto, cualquiera en el periodo resta 25%.
  * El checklist NO define un monto de bono; solo afecta ese %.
  */
 export const BONOS_CONFIG_DEFAULT = {
@@ -88,6 +89,15 @@ export const BONOS_CONFIG_DEFAULT = {
       penalizacionPct: 25,
       /** Días de vigencia del medidor según merma del último inventario (día de tienda). */
       ventanaDias: DIAS_VENTANA_INVENTARIO_BONO,
+    },
+    retardosMax: {
+      activo: true,
+      label: 'Retardos',
+      /** El medidor pasa si los retardos del periodo son menores o iguales a este número. */
+      max: 0,
+      /** Minutos de gracia después de la hora de inicio. */
+      graciaMin: 5,
+      penalizacionPct: 25,
     },
   },
   /**
@@ -232,6 +242,19 @@ export function normalizarBonosConfig(raw) {
           reglasIn.mermaMaxPct?.ventanaDias,
           base.reglas.mermaMaxPct.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO,
         ))),
+      },
+      retardosMax: {
+        activo: reglasIn.retardosMax?.activo !== false,
+        label: String(reglasIn.retardosMax?.label || base.reglas.retardosMax.label),
+        max: Math.max(0, Math.round(num(reglasIn.retardosMax?.max, base.reglas.retardosMax.max))),
+        graciaMin: Math.max(0, Math.round(num(
+          reglasIn.retardosMax?.graciaMin,
+          base.reglas.retardosMax.graciaMin,
+        ))),
+        penalizacionPct: Math.max(0, Math.min(100, round2(num(
+          reglasIn.retardosMax?.penalizacionPct,
+          base.reglas.retardosMax.penalizacionPct,
+        )))),
       },
     },
     bonosTurno: normalizarBonosTurno(r.bonosTurno),
@@ -393,6 +416,7 @@ export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
  *   checklistDias: number,
  *   evaluacionPct: number|null,
  *   mermaPct: number,
+ *   retardos?: number,
  * }} metricas
  * @param {object|null} config
  * @returns {{
@@ -494,6 +518,25 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
       penalizacionPct: ok ? 0 : pen,
       valor: Number.isFinite(mp) ? `${round2(mp)}%` : 'Sin dato',
       requerido: `≤ ${maxPct}%`,
+    });
+  }
+
+  if (reglas.retardosMax?.activo) {
+    const n = Math.max(0, Math.round(Number(metricas.retardos) || 0));
+    const max = Math.max(0, Math.round(Number(reglas.retardosMax.max) || 0));
+    const pen = Number(reglas.retardosMax.penalizacionPct) || 25;
+    const ok = n <= max;
+    if (!ok) {
+      pct = round2(pct - pen);
+      penalizacionTotal = round2(penalizacionTotal + pen);
+    }
+    detalle.push({
+      id: 'retardosMax',
+      label: reglas.retardosMax.label,
+      ok,
+      penalizacionPct: ok ? 0 : pen,
+      valor: n === 1 ? '1 retardo' : `${n} retardos`,
+      requerido: max === 0 ? '0 retardos' : `≤ ${max}`,
     });
   }
 

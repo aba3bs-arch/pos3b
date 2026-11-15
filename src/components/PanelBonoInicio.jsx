@@ -491,6 +491,7 @@ export default function PanelBonoInicio({
         {' · '}checklist semanal (&lt;4 días baja %)
         {' · '}inventario {invVentana ? `${invVentana.desde}→${invVentana.hasta}` : '8 días'}
         {invVentana?.etiquetaDia ? ` (${invVentana.etiquetaDia})` : ''}
+        {' · '}retardos {pack.metricas?.retardos ?? 0}
         {' · '}falta {DIAS_BLOQUEO_BONO_POR_FALTA} días.
       </p>
 
