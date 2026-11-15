@@ -65,6 +65,16 @@ export const GUIAS_MODULOS = [
     texto: 'Menú «Configuracion». «Turnos de caja»: elige tienda, ajusta horarios y tolerancia, «Empleados por turno» (solo el Administrador asigna) y «Guardar y sincronizar». «Métodos de pago»: activa o «Agregar método». «Periféricos»: lector y báscula. «Impresión de documentos»: ancho de papel y «Guardar impresión». «Catálogo de tiendas»: «Agregar tienda».',
   },
   {
+    id: 'bonos_recoleccion',
+    tema: 'bono por recolección, tabulador y alerta N/B',
+    modulos: ['Inicio', 'Configuracion', 'Tutorial'],
+    claves: [
+      ['bono por recoleccion', 8], ['sistema de bono', 8], ['tabulador', 6], ['alerta de bono', 8],
+      ['fecha de activacion', 7], ['significa n/b', 8], ['nb', 6], ['sin bono', 7], ['medidores del bono', 7],
+    ],
+    texto: 'El bono es por tienda y mide 5 factores: 1 faltante de efectivo, 2 check list, 3 evaluación, 4 inventario o merma y 5 retardos. El tabulador sale del monto recolectado (ej. $6,900 → $200) y se parte de 100%: cada factor fallido resta 25%. Faltante de efectivo deja esa recolección en 0%. Un retardo es entrar después de la hora de inicio más 5 minutos; por defecto cualquiera en la semana resta 25%. En Inicio la alerta muestra el monto de cada empleado, o «N/B» y la fecha en que se activa (8 días después de una falta; el descanso no es falta). Configuración → «Bonos por recolección»: ajusta rangos y factores y «Guardar parámetros» (solo administrador). El paso a paso con imágenes está en Tutorial y en «Ver tutorial».',
+  },
+  {
     id: 'multitienda',
     tema: 'inventario multitienda: entradas y traspasos desde el almacén central',
     modulos: ['Configuracion'],

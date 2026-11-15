@@ -42,11 +42,12 @@ export const DIAS_VENTANA_INVENTARIO_BONO = 8;
 
 /**
  * Modelo de pago justo (penalizaciones desde 100% del tabulador):
- * - 4 lineamientos: cero faltante, check list, evaluación, inventario (merma).
- * - Cada lineamiento fallido → −25% → 100% / 75% / 50% / 25% / 0%.
+ * - 5 factores: faltante de efectivo, check list, evaluación, inventario (merma) y retardos.
+ * - Cada factor fallido → −25% → 100% / 75% / 50% / 25% / 0% (no baja de 0).
  * - Faltante de efectivo en la recolección → 0% de golpe (requisito duro).
  * - Empleado de tienda con falta vigente → 0% por 8 días.
  * - Evaluación: vigencia 15 días. Checklist: semana (<4 días baja %). Inventario: 8 días / día de tienda.
+ * - Retardo: entrada después de la hora de inicio + gracia (5 min). Por defecto, cualquiera en el periodo resta 25%.
  * El checklist NO define un monto de bono; solo afecta ese %.
  */
 export const BONOS_CONFIG_DEFAULT = {
@@ -88,6 +89,15 @@ export const BONOS_CONFIG_DEFAULT = {
       penalizacionPct: 25,
       /** Días de vigencia del medidor según merma del último inventario (día de tienda). */
       ventanaDias: DIAS_VENTANA_INVENTARIO_BONO,
+    },
+    retardosMax: {
+      activo: true,
+      label: 'Retardos',
+      /** El medidor pasa si los retardos del periodo son menores o iguales a este número. */
+      max: 0,
+      /** Minutos de gracia después de la hora de inicio. */
+      graciaMin: 5,
+      penalizacionPct: 25,
     },
   },
   /**
@@ -233,6 +243,19 @@ export function normalizarBonosConfig(raw) {
           base.reglas.mermaMaxPct.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO,
         ))),
       },
+      retardosMax: {
+        activo: reglasIn.retardosMax?.activo !== false,
+        label: String(reglasIn.retardosMax?.label || base.reglas.retardosMax.label),
+        max: Math.max(0, Math.round(num(reglasIn.retardosMax?.max, base.reglas.retardosMax.max))),
+        graciaMin: Math.max(0, Math.round(num(
+          reglasIn.retardosMax?.graciaMin,
+          base.reglas.retardosMax.graciaMin,
+        ))),
+        penalizacionPct: Math.max(0, Math.min(100, round2(num(
+          reglasIn.retardosMax?.penalizacionPct,
+          base.reglas.retardosMax.penalizacionPct,
+        )))),
+      },
     },
     bonosTurno: normalizarBonosTurno(r.bonosTurno),
     topeSuperiorUsaUltimo: r.topeSuperiorUsaUltimo !== false,
@@ -350,6 +373,36 @@ export function bonoFinal(base, pct) {
   return round2((Number(base) || 0) * ((Number(pct) || 0) / 100));
 }
 
+/** Fecha de activación del bono en la alerta: MM/DD (ej. 2026-11-21 → 11/21). */
+export function fmtFechaActivacionBono(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '').slice(0, 10));
+  if (!m) return '';
+  return `${m[2]}/${m[3]}`;
+}
+
+function fmtMontoAlertaBono(n) {
+  const v = round2(n);
+  if (Number.isInteger(v)) return String(v);
+  return String(v);
+}
+
+/**
+ * Lado derecho de la alerta por empleado.
+ * Recibe → monto (200). No recibe → N/B y, si hay, la fecha en que se activa.
+ */
+export function etiquetaAlertaBonoEmpleado({ pago, fechaActivacion } = {}) {
+  const monto = round2(pago);
+  if (monto > 0) return fmtMontoAlertaBono(monto);
+  const fecha = fmtFechaActivacionBono(fechaActivacion);
+  return fecha ? `N/B ${fecha}` : 'N/B';
+}
+
+/** Línea de la alerta: `manuel ocejo = 200` o `mayra = N/B 11/21`. */
+export function lineaAlertaBonoEmpleado(p = {}) {
+  const nom = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+  return `${nom} = ${etiquetaAlertaBonoEmpleado(p)}`;
+}
+
 /** Bono de un turno = base configurada × % evaluación del compañero. */
 export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
   return bonoFinal(baseTurno, pctEvaluacion);
@@ -363,6 +416,7 @@ export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
  *   checklistDias: number,
  *   evaluacionPct: number|null,
  *   mermaPct: number,
+ *   retardos?: number,
  * }} metricas
  * @param {object|null} config
  * @returns {{
@@ -467,6 +521,25 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
     });
   }
 
+  if (reglas.retardosMax?.activo) {
+    const n = Math.max(0, Math.round(Number(metricas.retardos) || 0));
+    const max = Math.max(0, Math.round(Number(reglas.retardosMax.max) || 0));
+    const pen = Number(reglas.retardosMax.penalizacionPct) || 25;
+    const ok = n <= max;
+    if (!ok) {
+      pct = round2(pct - pen);
+      penalizacionTotal = round2(penalizacionTotal + pen);
+    }
+    detalle.push({
+      id: 'retardosMax',
+      label: reglas.retardosMax.label,
+      ok,
+      penalizacionPct: ok ? 0 : pen,
+      valor: n === 1 ? '1 retardo' : `${n} retardos`,
+      requerido: max === 0 ? '0 retardos' : `≤ ${max}`,
+    });
+  }
+
   const fallosLineamiento = detalle.filter((d) => !d.ok).length;
 
   return {
@@ -500,19 +573,23 @@ export function calcularPagosBonoPorEmpleado({
 } = {}) {
   const baseN = round2(Number(base) || 0);
   const pctT = Math.max(0, Math.min(100, Number(pctTienda) || 0));
-  const bloqueados = new Set(
-    (bloqueosFalta || [])
-      .map((b) => String(b?.clave || '').trim())
-      .filter(Boolean),
-  );
+  const bloqueoPorClave = new Map();
+  for (const b of bloqueosFalta || []) {
+    const c = String(b?.clave || '').trim();
+    if (c && !bloqueoPorClave.has(c)) bloqueoPorClave.set(c, b);
+  }
 
   return (plantilla || []).map((u) => {
     const id = u?.id != null ? String(u.id) : '';
     const clave = id ? `id:${id}` : '';
     const nombre = String(u?.nombre || 'Sin nombre').trim() || 'Sin nombre';
-    const conFalta = Boolean(clave && bloqueados.has(clave));
+    const bloq = clave ? bloqueoPorClave.get(clave) : null;
+    const conFalta = Boolean(bloq);
     const pct = conFalta ? 0 : pctT;
     const pago = bonoFinal(baseN, pct);
+    // Día en que vuelve el bono (8 días después de la última falta de la cadena).
+    const fechaActivacion = bloq?.vuelveBonoYmd || bloq?.fechaActivacion || null;
+    const etiquetaAlerta = etiquetaAlertaBonoEmpleado({ pago, fechaActivacion });
     const ecuacion = conFalta
       ? `${nombre} · $${baseN.toLocaleString('es-MX')} × 0% (falta) = $0`
       : `${nombre} · $${baseN.toLocaleString('es-MX')} × ${pct}% = $${pago.toLocaleString('es-MX')}`;
@@ -525,6 +602,9 @@ export function calcularPagosBonoPorEmpleado({
       pctTienda: pctT,
       pct,
       pago,
+      fechaActivacion,
+      etiquetaAlerta,
+      lineaAlerta: `${nombre} = ${etiquetaAlerta}`,
       ecuacion,
     };
   }).sort((a, b) => {

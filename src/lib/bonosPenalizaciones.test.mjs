@@ -7,6 +7,9 @@ import {
   bonoFinal,
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
+  etiquetaAlertaBonoEmpleado,
+  fmtFechaActivacionBono,
+  lineaAlertaBonoEmpleado,
   normalizarBonosConfig,
 } from './bonosConfig.js'
 import { DIAS_BLOQUEO_BONO_POR_FALTA } from './resumenDiasAsistencia.js'
@@ -23,6 +26,10 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 25)
   assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 25)
   assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
+  assert.equal(cfg.reglas.retardosMax.activo, true)
+  assert.equal(cfg.reglas.retardosMax.max, 0)
+  assert.equal(cfg.reglas.retardosMax.graciaMin, 5)
+  assert.equal(cfg.reglas.retardosMax.penalizacionPct, 25)
   assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, DIAS_VENTANA_EVALUACION_BONO)
   assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, DIAS_VENTANA_INVENTARIO_BONO)
   assert.equal(DIAS_VENTANA_EVALUACION_BONO, 15)
@@ -123,6 +130,28 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
+  // 5.º factor: un retardo resta 25%; cero retardos no resta
+  const conRetardo = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 1,
+    retardos: 1,
+  })
+  assert.equal(conRetardo.pct, 75)
+  assert.equal(conRetardo.detalle.find((d) => d.id === 'retardosMax').ok, false)
+  const sinRetardo = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 1,
+    retardos: 0,
+  })
+  assert.equal(sinRetardo.pct, 100)
+  assert.equal(sinRetardo.detalle.filter((d) => d.id).length, 5)
+}
+
+{
   // 2 fallos → 50%; 3 → 25%; 4 → 0% (sin faltante duro: solo lineamientos −25%)
   const soft = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
@@ -216,6 +245,32 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(pagos[1].pct, 0)
   assert.equal(pagos[1].pago, 0)
   assert.match(pagos[1].ecuacion, /0% \(falta\)/)
+  assert.equal(pagos[1].etiquetaAlerta, 'N/B')
+}
+
+{
+  // Alerta: quien cobra muestra el monto; quien no, N/B y la fecha de activación (MM/DD).
+  assert.equal(fmtFechaActivacionBono('2026-11-21'), '11/21')
+  assert.equal(fmtFechaActivacionBono(''), '')
+  const pagos = calcularPagosBonoPorEmpleado({
+    base: 200,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'manuel ocejo' },
+      { id: 2, nombre: 'mayra' },
+    ],
+    bloqueosFalta: [{ clave: 'id:2', nombre: 'mayra', vuelveBonoYmd: '2026-11-21' }],
+  })
+  assert.equal(pagos[0].lineaAlerta, 'manuel ocejo = 200')
+  assert.equal(pagos[0].etiquetaAlerta, '200')
+  assert.equal(pagos[1].conFalta, true)
+  assert.equal(pagos[1].pago, 0)
+  assert.equal(pagos[1].fechaActivacion, '2026-11-21')
+  assert.equal(pagos[1].etiquetaAlerta, 'N/B 11/21')
+  assert.equal(pagos[1].lineaAlerta, 'mayra = N/B 11/21')
+  assert.equal(lineaAlertaBonoEmpleado({ nombre: 'mayra', pago: 0, fechaActivacion: '2026-11-21' }), 'mayra = N/B 11/21')
+  assert.equal(etiquetaAlertaBonoEmpleado({ pago: 150 }), '150')
+  assert.equal(etiquetaAlertaBonoEmpleado({ pago: 0 }), 'N/B')
 }
 
 // Migración: castigos viejos 20/60 → 25 (umbrales solo migran si no había penalizacionPct)
