@@ -129,7 +129,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
         Con tabulador de $400 y dos personas, cada parte es $200; si una tiene falta, solo se paga la otra.
         Enciende los factores que quieras aplicar:
         faltantes, check list, evaluación, inventario y retardos. Si enciendes uno, vale el <strong>100%</strong>; si enciendes dos, cada uno vale el <strong>50%</strong>;
-        con los cinco, cada uno vale el <strong>20%</strong>. Una falta de asistencia quita el bono <strong>8 días</strong>; el nombre vuelve al cumplirlos sin falta.
+        con los cinco, cada uno vale el <strong>20%</strong>. Una falta de asistencia quita el bono <strong>7 días</strong> a partir de esa falta.
         El pago se entrega en la recolección.
       </p>
 

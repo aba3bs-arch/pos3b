@@ -45,7 +45,7 @@ export const DIAS_VENTANA_INVENTARIO_BONO = 8;
  * - 1 encendido = 100%, 2 = 50% cada uno, 3 ≈ 33.33%, 4 = 25%, 5 = 20%.
  * - Fallar un factor quita solo su parte. Apagado no cuenta.
  * - Ninguno encendido: se paga el 100% del tabulador.
- * - Falta de asistencia (no el faltante de efectivo) → 0% por 8 días; el nombre vuelve al cumplirlos.
+ * - Falta de asistencia (no el faltante de efectivo) → 0% por 7 días a partir de esa falta.
  * - Evaluación: vigencia 15 días. Checklist: semana. Inventario: 8 días / día de tienda.
  */
 export const BONOS_CONFIG_DEFAULT = {
@@ -621,8 +621,8 @@ export function resumenRepartoBono(pagos = []) {
 }
 
 /**
- * Línea de la tarjeta BONO: «Manuel $200» o «Mayra n/b 21/11».
- * La fecha es el día en que vuelve el bono (vuelveBonoYmd).
+ * Línea de la tarjeta BONO: «Manuel $200» o «Mayra n/b dd/mm».
+ * La fecha es el día en que vuelve el bono: 7 días después de la falta.
  */
 export function textoLineaEmpleadoBono(p) {
   const nombre = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';

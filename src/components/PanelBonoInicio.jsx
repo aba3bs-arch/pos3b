@@ -56,7 +56,7 @@ function plantillaTiendaBono(usuarios, sucursal) {
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
  * Ingresa el monto de la recolección → tabulador de la tienda → se divide entre la plantilla.
  * El tabulador es el bono de la tienda. Se divide entre la plantilla.
- * Falta → esa parte es $0 y no se suma a los demás (8 días).
+ * Falta → esa parte es $0 y no se suma a los demás (7 días a partir de la falta).
  */
 export default function PanelBonoInicio({
   supabase,
@@ -210,7 +210,7 @@ export default function PanelBonoInicio({
             y se divide en partes iguales. Con tabulador de $400 y dos empleados, cada parte es $200.
             Si uno tiene falta, cobra $0 y el otro se queda con sus $200. Los factores encendidos se reparten el 100%.
             Tres retardos del reloj (15 min) quitan la parte de ese factor.
-            Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días.
+            Una falta quita el nombre {DIAS_BLOQUEO_BONO_POR_FALTA} días a partir de esa falta.
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -335,7 +335,7 @@ export default function PanelBonoInicio({
         {pagosVisibles.length === 0 ? (
           <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
             {pagosEmpleado.length > 0
-              ? 'Nadie aparece: tienen falta vigente. El nombre vuelve a los 8 días sin falta.'
+              ? 'Nadie aparece: tienen falta vigente. El nombre vuelve a los 7 días de esa falta.'
               : 'Sin empleados de tienda en la plantilla de esta sucursal.'}
           </p>
         ) : (
@@ -383,7 +383,7 @@ export default function PanelBonoInicio({
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
           El nombre sale de la lista de bono. Descanso del plan horario
           (Checador → Plan) o descanso autorizado no es falta.
-          Vuelve a aparecer {DIAS_BLOQUEO_BONO_POR_FALTA} días después de la última falta, si no vuelve a faltar.
+          Vuelve a aparecer {DIAS_BLOQUEO_BONO_POR_FALTA} días después de la falta, si no vuelve a faltar.
         </p>
         {avisoDescansos ? (
           <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoDescansos}</p>

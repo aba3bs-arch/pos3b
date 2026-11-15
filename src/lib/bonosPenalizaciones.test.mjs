@@ -32,7 +32,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, DIAS_VENTANA_INVENTARIO_BONO)
   assert.equal(DIAS_VENTANA_EVALUACION_BONO, 15)
   assert.equal(DIAS_VENTANA_INVENTARIO_BONO, 8)
-  assert.equal(DIAS_BLOQUEO_BONO_POR_FALTA, 8)
+  assert.equal(DIAS_BLOQUEO_BONO_POR_FALTA, 7)
   assert.equal(cfg.reglas.retardos.toleranciaMinutos, 15)
   assert.equal(cfg.reglas.retardos.maxRetardos, 3)
   assert.equal(cfg.reglas.retardos.activo, true)

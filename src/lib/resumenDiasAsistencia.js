@@ -435,12 +435,12 @@ export function diasConAlgunaChecada(marcajes = []) {
 }
 
 /**
- * Una falta → sin bono desde ese día; se reactiva 8 días después
- * (ej. faltó lunes 14 → vuelve martes 22), si no volvió a faltar.
+ * Una falta → sin bono 7 días a partir de ese día. Vuelve al día siguiente
+ * de cumplirlos, si no volvió a faltar.
  * Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
- * (= se reactiva 8 días después de la última falta de la cadena).
+ * (= se reactiva 7 días después de la última falta de la cadena).
  */
-export const DIAS_BLOQUEO_BONO_POR_FALTA = 8
+export const DIAS_BLOQUEO_BONO_POR_FALTA = 7
 
 export function sumarDiasYmd(ymd, dias) {
   if (!ymd) return ''
@@ -669,9 +669,9 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
  * - Falta = día laboral sin ENTRADA ni SALIDA.
  * - Descanso (plan / patrón / autorizado) no cuenta como falta.
  * - Entrada sola o salida sola → SÍ tiene bono.
- * - 1 falta: sin bono desde ese día; se reactiva 8 días después.
+ * - 1 falta: sin bono 7 días a partir de ese día.
  * - Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
- *   (vuelve 8 días después de la última falta de la cadena).
+ *   (vuelve 7 días después de la última falta de la cadena).
  *
  * @param {{ plan?: object, descansosAutorizados?: Array|Set<string> }} [opts]
  */
