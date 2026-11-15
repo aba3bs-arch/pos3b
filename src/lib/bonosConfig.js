@@ -624,13 +624,23 @@ export function resumenRepartoBono(pagos = []) {
   return { partes, parte, totalTabulador, totalAPagar, cobran, sinCobro };
 }
 
+/** Fecha corta de reactivación: «react. 21/11». */
+export function etiquetaReactivaBono(ymd) {
+  const partes = String(ymd || '').slice(0, 10).split('-');
+  if (partes.length !== 3 || !partes[2] || !partes[1]) return '';
+  return `react. ${partes[2]}/${partes[1]}`;
+}
+
 /**
- * Línea de la tarjeta BONO: «Manuel $200» o «Mayra n/b».
- * La suspensión dura 7 días desde la falta; la tarjeta no escribe esa fecha.
+ * Línea de la tarjeta BONO: «Manuel $200» o «Mayra react. 21/11».
+ * La fecha es el día en que vuelve el bono.
  */
 export function textoLineaEmpleadoBono(p) {
   const nombre = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
-  if (p?.conFalta) return `${nombre} n/b`;
+  if (p?.conFalta) {
+    const react = etiquetaReactivaBono(p?.vuelveBonoYmd);
+    return react ? `${nombre} ${react}` : `${nombre} n/b`;
+  }
   const pago = round2(Number(p?.pago) || 0);
   const entero = Math.abs(pago - Math.round(pago)) < 0.001;
   const money = entero

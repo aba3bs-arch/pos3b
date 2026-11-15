@@ -6035,13 +6035,13 @@ table.data th {
   cursor: not-allowed;
 }
 
-.alerta-pagare-abierto.alerta-bono-corte {
-  width: 3.7in;
-  min-height: 1.4in;
+.alerta-bono-corte {
+  width: 3.85in;
+  min-height: 1.45in;
   height: auto;
   max-width: 100%;
   margin: 0;
-  padding: 0.16in 0.2in 0.14in 0.22in;
+  padding: 0.14in 0.16in 0.12in 0.18in;
   box-sizing: border-box;
   overflow: hidden;
   flex: 0 0 auto;
@@ -6049,13 +6049,18 @@ table.data th {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 0.05in;
+  gap: 0.07in;
   text-align: left;
-  border: 1px solid rgba(202, 138, 4, 0.45);
-  border-left: 5px solid #d97706;
-  border-radius: 12px;
-  background: linear-gradient(160deg, #5c6b7d 0%, #3f4d5f 100%);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  color: var(--text);
+  border: 1px solid rgba(196, 127, 21, 0.38);
+  border-left: 4px solid var(--brand-gold);
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(225, 153, 41, 0.22), transparent 58%),
+    linear-gradient(180deg, #fffefb 0%, #fff6e4 100%);
+  box-shadow:
+    0 12px 28px rgba(196, 127, 21, 0.14),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
   animation: none;
 }
 
@@ -6068,54 +6073,101 @@ table.data th {
 }
 
 .alerta-bono-corte__titulo {
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   font-weight: 800;
-  letter-spacing: 0.14em;
-  color: #fde68a;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #4a3208;
   flex: 0 0 auto;
-  padding: 0.08rem 0.45rem;
+  padding: 0.16rem 0.5rem;
   border-radius: 999px;
-  background: rgba(250, 204, 21, 0.14);
-  border: 1px solid rgba(250, 204, 21, 0.35);
+  background: linear-gradient(180deg, #f8d48a 0%, #e19929 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset, 0 1px 2px rgba(122, 74, 8, 0.18);
 }
 
 .alerta-bono-corte__monto {
-  font-size: 1.45rem;
+  font-size: 1.55rem;
   font-weight: 800;
   line-height: 1;
-  letter-spacing: -0.02em;
-  color: #facc15;
+  letter-spacing: -0.03em;
+  color: #9a6708;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.alerta-bono-corte__espera {
-  font-size: 0.92rem;
-  font-weight: 700;
-  line-height: 1.2;
-  color: #fde68a;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.alerta-bono-corte__monto.is-cero {
+  color: #8a8172;
 }
 
 .alerta-bono-corte__nombres {
-  font-size: 0.98rem;
-  font-weight: 700;
-  line-height: 1.25;
-  color: #f8fafc;
-  white-space: normal;
-  overflow: visible;
   display: flex;
   flex-direction: column;
-  gap: 0.03in;
+  gap: 0.04in;
+  min-width: 0;
+}
+
+.alerta-bono-corte__persona {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.04rem 0.02rem;
+}
+
+.alerta-bono-corte__nombre {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #1c1917;
+}
+
+.alerta-bono-corte__pago {
+  flex: 0 0 auto;
+  font-size: 0.86rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-green);
+}
+
+.alerta-bono-corte__pago.is-cero {
+  color: #a8a29e;
+}
+
+.alerta-bono-corte__persona.is-suspendido .alerta-bono-corte__nombre {
+  color: #78716c;
+  font-weight: 600;
+}
+
+.alerta-bono-corte__react {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  padding: 0.18rem 0.45rem;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+.alerta-bono-corte__vacio {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .alerta-bono-corte__pie {
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  line-height: 1.2;
-  color: #cbd5e1;
+  line-height: 1.25;
+  color: #78716c;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6123,19 +6175,23 @@ table.data th {
 
 .alerta-bono-corte__alertas {
   list-style: none;
-  margin: 0.02in 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.02in;
+  gap: 0.03in;
   min-width: 0;
 }
 
 .alerta-bono-corte__alertas li {
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   font-weight: 700;
   line-height: 1.25;
-  color: #fecaca;
+  color: #9f1239;
+  background: rgba(255, 241, 242, 0.85);
+  border: 1px solid rgba(251, 113, 133, 0.35);
+  border-radius: 8px;
+  padding: 0.12rem 0.4rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

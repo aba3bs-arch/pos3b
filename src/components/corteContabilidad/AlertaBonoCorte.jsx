@@ -4,7 +4,7 @@ import { resolverTipoEmpleado } from '../../lib/empleadosVisibles.js';
 import { normalizarRol } from '../../lib/roles.js';
 import { usuarioEstaActivo } from '../../lib/usuariosAuth.js';
 import { calcularBonoSucursal } from '../../lib/bonosData.js';
-import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, resumenRepartoBono, textoLineaEmpleadoBono } from '../../lib/bonosConfig.js';
+import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, etiquetaReactivaBono, resumenRepartoBono, textoLineaEmpleadoBono } from '../../lib/bonosConfig.js';
 import { ajusteRetardoBono, cargarRetardosBono } from '../../lib/bonosRetardos.js';
 import {
   cargarBloqueosBonoPorFalta,
@@ -13,6 +13,14 @@ import {
 
 function fmtMoney(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fmtPago(n) {
+  const pago = Math.round((Number(n) || 0) * 100) / 100;
+  const entero = Math.abs(pago - Math.round(pago)) < 0.001;
+  return entero
+    ? `$${Math.round(pago).toLocaleString('es-MX')}`
+    : fmtMoney(pago);
 }
 
 function plantillaTienda(usuarios, sucursal) {
@@ -171,25 +179,42 @@ export default function AlertaBonoCorte({
     ...alertas.map((a) => a.texto),
   ].filter(Boolean).join('\n');
 
+  const montoCero = montoCaja == null || Math.abs(Number(montoCaja) || 0) < 0.001;
+
   return (
     <div
-      className="alerta-pagare-abierto alerta-bono-corte"
+      className="alerta-bono-corte"
       role="status"
       aria-live="polite"
       title={detalle}
     >
       <div className="alerta-bono-corte__fila">
-        <span className="alerta-bono-corte__titulo">BONO</span>
+        <span className="alerta-bono-corte__titulo">Bono</span>
         {mostrarMonto && montoCaja != null ? (
-          <span className="alerta-bono-corte__monto">{fmtMoney(montoCaja)}</span>
+          <span className={`alerta-bono-corte__monto${montoCero ? ' is-cero' : ''}`}>{fmtMoney(montoCaja)}</span>
         ) : null}
       </div>
       <div className="alerta-bono-corte__nombres">
-        {lineasEmpleado.length
-          ? (pagos || []).map((p) => (
-            <div key={p.clave || p.id || p.nombre}>{textoLineaEmpleadoBono(p)}</div>
-          ))
-          : 'Sin empleados de tienda'}
+        {pagos.length
+          ? pagos.map((p) => {
+            const react = p.conFalta ? (etiquetaReactivaBono(p.vuelveBonoYmd) || 'n/b') : '';
+            return (
+              <div
+                key={p.clave || p.id || p.nombre}
+                className={`alerta-bono-corte__persona${p.conFalta ? ' is-suspendido' : ''}`}
+              >
+                <span className="alerta-bono-corte__nombre">{p.nombre}</span>
+                {p.conFalta
+                  ? <span className="alerta-bono-corte__react">{react}</span>
+                  : (
+                    <span className={`alerta-bono-corte__pago${Math.abs(Number(p.pago) || 0) < 0.001 ? ' is-cero' : ''}`}>
+                      {fmtPago(p.pago)}
+                    </span>
+                  )}
+              </div>
+            );
+          })
+          : <div className="alerta-bono-corte__vacio">Sin empleados de tienda</div>}
       </div>
       {alertas.length > 0 ? (
         <ul className="alerta-bono-corte__alertas">
