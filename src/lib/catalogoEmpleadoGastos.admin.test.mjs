@@ -6,12 +6,16 @@ const empleados = [
   { id: 'a1', nombre: 'Ana Admin', rol: 'Administrador', sucursal_id: 'MAIN', activo: true },
   { id: 'a2', nombre: 'Beto Socio', rol: 'Administrador', sucursal_id: 'MAIN', activo: true, socio_3b: true },
   { id: 'a3', nombre: 'Cora Baja', rol: 'Administrador', sucursal_id: 'MAIN', activo: false },
+  { id: 'amr', nombre: 'AMR', rol: 'Gerente', sucursal_id: 'MAIN', tipo_empleado: 'indirecto', activo: true },
+  { id: 'andres', nombre: 'Andres Marrero', rol: 'Gerente', sucursal_id: 'MAIN', tipo_empleado: 'indirecto', activo: true },
 ];
 
 const cat = empleadosParaCatalogoEmpleado(empleados, 'CEDIS');
 assert.ok(cat.main.some((e) => e.id === 'a1'), 'el administrador activo aparece en Empleados de Main');
 assert.equal(cat.main.some((e) => e.id === 'a2'), false, 'el socio no entra a nómina ni al catálogo');
 assert.equal(cat.main.some((e) => e.id === 'a3'), false, 'el administrador de baja no aparece');
+assert.equal(cat.main.some((e) => e.id === 'amr'), false, 'la ficha AMR no aparece');
+assert.ok(cat.main.some((e) => e.id === 'andres'), 'Andres Marrero sí aparece en Empleados de Main');
 assert.equal(
   cat.tiendaGrupos.some((g) => (g.empleados || []).some((e) => e.id === 'a1')),
   false,

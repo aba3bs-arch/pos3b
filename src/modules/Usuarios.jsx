@@ -6,6 +6,7 @@ import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUs
 import {
   agruparEmpleadosCatalogo,
   empleadosVisiblesParaTienda,
+  esFichaAmrAlias,
   filtrarEmpleadosAdmin,
   MAX_EMPLEADOS_POR_TIENDA,
   puedeAgregarEmpleadoTienda,
@@ -99,7 +100,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       setRows([]);
       return;
     }
-    setRows((data || []).filter((r) => r?.es_admin_principal !== true));
+    setRows((data || []).filter((r) => r?.es_admin_principal !== true && !esFichaAmrAlias(r)));
   }, [supabase]);
 
   useEffect(() => {

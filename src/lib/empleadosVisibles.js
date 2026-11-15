@@ -146,7 +146,7 @@ export function ordenarEmpleadosTiendaPorTurno(empleados, date = new Date()) {
  * - Administrador: todos (filtrar aparte si hace falta).
  */
 export function empleadosVisiblesParaTienda(empleados, sucursalActiva, actorRol = null) {
-  const lista = (empleados || []).filter((e) => e?.es_admin_principal !== true);
+  const lista = (empleados || []).filter((e) => e?.es_admin_principal !== true && !esFichaAmrAlias(e));
   if (puedeGestionarUsuarios(actorRol)) return lista;
 
   const suc = normalizarCodigoTienda(sucursalActiva);
@@ -176,7 +176,7 @@ export function empleadosParaPrestamosEmpleado(empleados, sucursalActiva, actorR
     if (!puedeGestionarUsuarios(actorRol)) return [];
     return (empleados || [])
       .filter((e) => {
-        if (!e || e.activo === false) return false;
+        if (!e || e.activo === false || esFichaAmrAlias(e)) return false;
         if (normalizarRol(e.rol) === 'Administrador') return false;
         const tipo = resolverTipoEmpleado(e);
         return tipo === 'tienda' || tipo === 'indirecto';
@@ -186,7 +186,7 @@ export function empleadosParaPrestamosEmpleado(empleados, sucursalActiva, actorR
 
   return (empleados || [])
     .filter((e) => {
-      if (!e || e.activo === false) return false;
+      if (!e || e.activo === false || esFichaAmrAlias(e)) return false;
       if (normalizarRol(e.rol) === 'Administrador') return false;
       if (resolverTipoEmpleado(e) !== 'tienda') return false;
       return normalizarCodigoTienda(e.sucursal_id) === suc;
@@ -306,6 +306,7 @@ export function agruparEmpleadosCatalogo(empleados, { incluirBajas = false } = {
 
   for (const e of empleados || []) {
     if (!incluirBajas && e?.activo === false) continue;
+    if (esFichaAmrAlias(e)) continue;
     if (normalizarRol(e?.rol) === 'Administrador') continue;
     if (esEmpleadoIndirectoOMain(e)) {
       indirectos.push(e);
@@ -605,6 +606,12 @@ export function normalizarNombrePersona(nombre) {
     .replace(/\s+/g, ' ');
 }
 
+/** La ficha corta «AMR» es el alias viejo. Andrés Marrero es la ficha que sí se muestra. */
+export function esFichaAmrAlias(empleado) {
+  const nombre = typeof empleado === 'string' ? empleado : empleado?.nombre;
+  return normalizarNombrePersona(nombre) === 'amr';
+}
+
 /** Distancia de edición simple (typos: Geovani ≈ giovani). */
 export function distanciaLevenshtein(a, b) {
   const s = String(a || '');
@@ -814,7 +821,7 @@ export function empleadosParaNominaGlobal(empleados, { bajasEnPeriodo = null } =
     if (e?.activo === false) return false;
     const rol = normalizarRol(e.rol);
     if (rol === 'Cliente') return false;
-    if (e?.es_admin_principal === true) return false;
+    if (e?.es_admin_principal === true || esFichaAmrAlias(e)) return false;
     if (e?.excluir_nomina || e?.socio_3b || e?.tipo_empleado === 'socio_3b') return false;
     return true;
   });
@@ -842,7 +849,7 @@ export function listarBeneficiariosVales(empleados = []) {
   }
 
   for (const e of empleados || []) {
-    if (!e || e.activo === false) continue;
+    if (!e || e.activo === false || esFichaAmrAlias(e)) continue;
     if (normalizarRol(e.rol) === 'Administrador') continue;
     if (!esEmpleadoIndirectoOMain(e)) continue;
     const areaRaw = String(e.nomina_pagador || '').toLowerCase();
@@ -881,7 +888,7 @@ export function listarBeneficiariosVales(empleados = []) {
 
 /** Pantalla Usuarios (solo admin): filtro opcional por tienda. */
 export function filtrarEmpleadosAdmin(empleados, filtroSucursal) {
-  const base = (empleados || []).filter((e) => e?.es_admin_principal !== true);
+  const base = (empleados || []).filter((e) => e?.es_admin_principal !== true && !esFichaAmrAlias(e));
   if (!filtroSucursal) return base;
   const f = normalizarCodigoTienda(filtroSucursal);
   return base.filter((e) => {

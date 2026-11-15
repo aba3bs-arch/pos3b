@@ -34,7 +34,9 @@ assert.ok(!empleadosParaNominaGlobal([socioAdmin]).some((e) => e.id === 'u7'), '
 
 const oculto = { id: 'oculto', nombre: 'Administrador principal', rol: 'Administrador', sucursal_id: 'MAIN', activo: true, es_admin_principal: true };
 const andres = { id: 'andres', nombre: 'Andrés Marrero', rol: 'Gerente', sucursal_id: 'MAIN', activo: true, es_admin_principal: false };
-const nominaAndres = empleadosParaNominaGlobal([oculto, andres]).filter((e) => !String(e.id).startsWith('indirect:'));
+const amr = { id: 'amr', nombre: 'AMR', rol: 'Gerente', sucursal_id: 'MAIN', tipo_empleado: 'indirecto', activo: true };
+const nominaAndres = empleadosParaNominaGlobal([oculto, andres, amr]).filter((e) => !String(e.id).startsWith('indirect:'));
 assert.deepEqual(nominaAndres.map((e) => e.id), ['andres']);
+assert.ok(!candidatosAgregarNomina([oculto, andres, amr], nominaAndres).some((e) => e.id === 'amr'));
 assert.ok(!candidatosAgregarNomina([oculto, andres], nominaAndres).some((e) => e.id === 'oculto'));
 console.log('nominaIncluirManual.test.mjs OK');
