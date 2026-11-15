@@ -6,7 +6,7 @@ import {
   etiquetaTipoNotificacion,
   TIPOS_NOTIF,
 } from '../lib/contabilidadNotificaciones.js';
-import { normalizarRol, puedeAbrirBandejaIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
+import { normalizarRol, puedeAbrirBandejaIncidencias, puedeGestionarUsuarios, puedeVerTodasIncidencias } from '../lib/roles.js';
 import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from './Icon.jsx';
@@ -17,7 +17,7 @@ function filtrarParaUsuario(notifs) {
 
 export default function PanelNotificacionesInicio({ supabase, sucursal, user, onNavigate, puedeModulo }) {
   const rol = normalizarRol(user?.rol);
-  const esAdmin = rol === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(rol);
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);

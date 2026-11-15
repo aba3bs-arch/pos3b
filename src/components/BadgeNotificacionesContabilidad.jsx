@@ -4,14 +4,14 @@ import {
   EVENTO_NOTIFICACIONES,
   TIPOS_NOTIF,
 } from '../lib/contabilidadNotificaciones.js';
-import { normalizarRol, puedeVerBandejaPendientesIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
+import { normalizarRol, puedeGestionarUsuarios, puedeVerBandejaPendientesIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
 import { esAprobadorRecoleccionIe } from '../lib/contabilidadConstants.js';
 import { esUsuarioMainNotificable, filtrarNotificacionesFormularioIncidencia } from '../lib/buzonUsuario.js';
 
 export default function BadgeNotificacionesContabilidad({ supabase, sucursal, user, onClick }) {
   const [count, setCount] = useState(0);
   const rol = normalizarRol(user?.rol);
-  const esAdmin = rol === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(rol);
   const esGerente = rol === 'Gerente';
   const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
   const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente || esAprobadorRecIe;

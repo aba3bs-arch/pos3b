@@ -32,7 +32,7 @@ import {
   EVENTO_CATALOGO_INCIDENCIAS,
   listarCatalogoIncidencias,
 } from '../lib/incidenciasCatalogo.js';
-import { normalizarRol, rolSoloPestanaIncidencias } from '../lib/roles.js';
+import { normalizarRol, puedeGestionarUsuarios, rolSoloPestanaIncidencias } from '../lib/roles.js';
 import {
   modoVistaIncidencias,
   puedeVerBandejaPendientesIncidencias,
@@ -85,7 +85,7 @@ export default function Buzon({
   onNavigate,
 }) {
   const rol = normalizarRol(user?.rol);
-  const esAdmin = rol === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(rol);
   const esGerente = rol === 'Gerente';
   const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
   const modoVista = modoVistaIncidencias(rol, user?.id);

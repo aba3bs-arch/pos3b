@@ -10,7 +10,7 @@ import {
   restaurarDesdeArchivo,
   ymdUmbralArchivo,
 } from '../lib/archivo.js';
-import { normalizarRol } from '../lib/roles.js';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
 
 const CARPETA_BTN = {
   display: 'flex',
@@ -76,7 +76,7 @@ function FilaCarpeta({ titulo, subtitulo, count, onOpen }) {
  * (o Tienda → Departamento → Evento).
  */
 export default function Archivo({ supabase, user }) {
-  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   const [diasRetencion, setDiasRetencion] = useState(() => leerDiasArchivoOperativo());
   const [modo, setModo] = useState('evento'); // evento | departamento
   const [ruta, setRuta] = useState([]); // crumbs: [{kind,id,label}]

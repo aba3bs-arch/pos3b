@@ -5,9 +5,10 @@
  */
 import { esAdministradorPrincipal } from './adminPrincipal.js';
 import { esAdministradorIeMovimientos } from './contabilidadConstants.js';
+import { esAndresMarrero } from './roles.js';
 
 export function puedeGestionarMovimientosIe(user) {
   if (!user) return false;
-  if (esAdministradorPrincipal(user)) return true;
+  if (esAdministradorPrincipal(user) || esAndresMarrero(user)) return true;
   return esAdministradorIeMovimientos(user.nombre);
 }

@@ -1,7 +1,7 @@
 import { listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda, urlGoogleMapsSucursal, nombreUbicacionSucursal } from '../constants/sucursales.js';
 import { esAdministradorPrincipal, nombreEsAdminPrincipal } from './adminPrincipal.js';
 import { crearNotificacion, TIPOS_NOTIF, marcarNotificacionAtendida } from './contabilidadNotificaciones.js';
-import { normalizarRol } from './roles.js';
+import { esAndresMarrero, normalizarRol } from './roles.js';
 
 export const AVISO_FALTA_CONTRATACION =
   'Falta la tabla de contratación. Ejecuta supabase/fix_contratacion.sql en Supabase.';
@@ -1089,7 +1089,7 @@ export async function enviarSolicitudContratacion(supabase, form, opts = {}) {
  */
 export function puedeVerSolicitudContratacion(row, user) {
   if (!row || !user) return false;
-  if (esAdministradorPrincipal(user)) return true;
+  if (esAdministradorPrincipal(user) || esAndresMarrero(user)) return true;
   if (normalizarRol(user.rol) !== 'Administrador') return false;
   const idUser = String(user.id || '');
   const nom = String(user.nombre || '');
@@ -1105,7 +1105,7 @@ export function puedeVerSolicitudContratacion(row, user) {
 
 export function puedeGestionarContratacion(user) {
   if (!user) return false;
-  if (esAdministradorPrincipal(user)) return true;
+  if (esAdministradorPrincipal(user) || esAndresMarrero(user)) return true;
   return normalizarRol(user.rol) === 'Administrador';
 }
 

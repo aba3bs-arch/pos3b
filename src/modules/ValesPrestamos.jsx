@@ -129,7 +129,7 @@ import {
   rifPuedeLiquidar,
   TIPOS_RIF,
 } from '../lib/rifs.js';
-import { normalizarRol } from '../lib/roles.js';
+import { normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
 import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
 import {
   agruparEmpleadosParaSelectPrestamo,
@@ -281,7 +281,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [filtroPagareSucursal, setFiltroPagareSucursal] = useState('');
 
   const rolNorm = normalizarRol(user?.rol);
-  const esAdmin = rolNorm === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(rolNorm);
   const esGerente = rolNorm === 'Gerente';
   const esRepartidor = rolNorm === 'Repartidor';
   const esCajero = rolNorm === 'Cajero';

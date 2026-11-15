@@ -346,8 +346,55 @@ function listaModulosEfectiva(rol, userId = null) {
   return permitidos;
 }
 
+function normalizarNombrePrivilegio(nombre) {
+  return String(nombre || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Andrés Marrero (o AMR), la ficha visible. No es la cuenta oculta del administrador principal. */
+export function esAndresMarrero(user) {
+  if (!user || user.es_admin_principal === true) return false;
+  const n = normalizarNombrePrivilegio(user.nombre);
+  if (!n) return false;
+  if (n === 'amr') return true;
+  return n.includes('andres') && n.includes('marrero');
+}
+
+let sesionPrivilegios = null;
+
+/** La sesión activa. Andrés Marrero hereda el acceso de Administrador sin cambiar su rol en nómina. */
+export function fijarSesionPrivilegios(user) {
+  if (!user) {
+    sesionPrivilegios = null;
+    return;
+  }
+  sesionPrivilegios = {
+    id: user.id ?? null,
+    nombre: user.nombre,
+    rol: user.rol,
+    es_admin_principal: user.es_admin_principal === true,
+  };
+}
+
+/** Andrés Marrero en sesión: mismos privilegios que Administrador, sin cambiar su rol en nómina. */
+export function sesionConPrivilegiosAdmin(rol, userId = null) {
+  return sesionAndresCubre(rol, userId);
+}
+
+function sesionAndresCubre(rol, userId = null) {
+  const u = sesionPrivilegios;
+  if (!u || !esAndresMarrero(u)) return false;
+  if (userId != null && u.id != null && String(u.id) !== String(userId)) return false;
+  if (userId == null && rol != null && normalizarRol(rol) !== normalizarRol(u.rol)) return false;
+  return true;
+}
+
 export function puedeVerModulo(rol, moduloId, userId = null) {
   const m = normalizarIdModulo(moduloId);
+  if (sesionAndresCubre(rol, userId)) return true;
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
   // Rastreo de uso: exclusivo Administrador (aunque se marque en Privilegios).
@@ -409,7 +456,7 @@ export function modulosParaSidebar(rol, userId = null) {
   const r = normalizarRol(rol);
   // Cliente: el hub Contabilidad aparece por subContabilidad; sin módulos sueltos.
   if (esRolCliente(rol)) return [];
-  if (r === 'Administrador') return filtrar(MODULOS_ORDEN);
+  if (r === 'Administrador' || sesionAndresCubre(rol, userId)) return filtrar(MODULOS_ORDEN);
 
   const permitidos = listaModulosEfectiva(rol, userId);
   const base = filtrar(
@@ -451,6 +498,7 @@ export function esRolContabilidadPorDefecto(rol) {
  */
 export function puedeVerSeccionContabilidad(rol, userId = null) {
   if (esRolCliente(rol)) return puedeVerModulo(rol, 'Socio 3B', userId);
+  if (sesionAndresCubre(rol, userId)) return true;
   if (!esRolContabilidadPorDefecto(rol)) return false;
   return submodulosContabilidadVisibles(rol, userId).length > 0;
 }
@@ -479,21 +527,25 @@ export function puedeGestionarPrivilegios(rol) {
 
 /** Alta, baja y edición de cuentas PIN: solo administrador. */
 export function puedeGestionarUsuarios(rol) {
+  if (sesionAndresCubre(rol)) return true;
   return normalizarRol(rol) === 'Administrador';
 }
 
 /** Solo administrador puede cambiar turno de empleados (anti-fraude). */
 export function puedeAsignarTurnos(rol) {
+  if (sesionAndresCubre(rol)) return true;
   return normalizarRol(rol) === 'Administrador';
 }
 
 /** Alta de proveedores en catálogo: solo administrador. */
 export function puedeCrearProveedor(rol) {
+  if (sesionAndresCubre(rol)) return true;
   return normalizarRol(rol) === 'Administrador';
 }
 
 /** Eliminar productos del catálogo global: administrador y repartidor. */
 export function puedeEliminarProductosCatalogo(rol) {
+  if (sesionAndresCubre(rol)) return true;
   const r = rolSistemaEfectivo(rol);
   return r === 'Administrador' || r === 'Repartidor';
 }
@@ -582,6 +634,7 @@ export function puedeAjustarInventario(rol) {
  * Las sucursales pueden verlo, no modificarlo.
  */
 export function puedeCapturarResultadoInventarioBono(rol) {
+  if (sesionAndresCubre(rol)) return true;
   const r = rolSistemaEfectivo(rol);
   return r === 'Administrador' || r === 'Auditor';
 }
@@ -620,6 +673,7 @@ export function puedeGestionarInventarioMultitienda(rol) {
  * El descuento real en BD sigue pudiendo ir a negativo.
  */
 export function puedeVerStockNegativo(rol, userId = null) {
+  if (sesionAndresCubre(rol, userId)) return true;
   const r = rolSistemaEfectivo(rol);
   if (r === 'Administrador') return true;
   const p = leerPrivilegios();
