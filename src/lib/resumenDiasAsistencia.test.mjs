@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { setClavesDescansosAutorizados } from './descansosAutorizados.js'
 import {
+  BONO_FALTAS_CUENTAN_DESDE,
   calcularSuspensionBonoPorFaltas,
   clasificarHuecosSinAsistencia,
   construirCalendarioAsistencia,
@@ -738,6 +739,57 @@ assert.equal(
   assert.equal(pedro.faltaYmd, '2026-09-16')
   assert.equal(pedro.diasAcumuladosExtra, 2)
   assert.equal(pedro.vuelveBonoYmd, '2026-09-23')
+}
+
+{
+  // Arranque: faltas anteriores no suspenden y el día en curso aún no es falta.
+  // Una falta ya cerrada suspende 7 días desde ese día.
+  assert.equal(BONO_FALTAS_CUENTAN_DESDE, '2026-11-15')
+  const horario = {
+    tipo: 'personalizado',
+    dias: { 1: 'diurno', 2: 'diurno', 3: 'diurno', 4: 'diurno', 5: 'diurno', 6: 'diurno' },
+  }
+  const user = {
+    id: 'z1',
+    nombre: 'Luis',
+    rol: 'Cajero',
+    sucursal_id: '3B5',
+    activo: true,
+    tipo_empleado: 'tienda',
+    turno_horario: horario,
+  }
+  const base = {
+    usuarios: [user],
+    sucursalId: '3B5',
+    diasBloqueo: 7,
+    faltasDesde: BONO_FALTAS_CUENTAN_DESDE,
+  }
+  assert.equal(
+    listarBloqueosBonoPorFalta({
+      ...base,
+      marcajes: [],
+      ahora: new Date(2026, 10, 15, 8, 0, 0),
+    }).length,
+    0,
+    'el día de arranque nadie tiene falta',
+  )
+  assert.equal(
+    listarBloqueosBonoPorFalta({
+      ...base,
+      marcajes: [],
+      ahora: new Date(2026, 10, 16, 12, 0, 0),
+    }).length,
+    0,
+    'la falta del sábado 14 queda fuera y el lunes 16 aún no cierra',
+  )
+  const luis = listarBloqueosBonoPorFalta({
+    ...base,
+    marcajes: [],
+    ahora: new Date(2026, 10, 17, 12, 0, 0),
+  }).find((b) => b.nombre === 'Luis')
+  assert.ok(luis, 'la falta del lunes 16 ya cerró')
+  assert.equal(luis.faltaYmd, '2026-11-16')
+  assert.equal(luis.vuelveBonoYmd, '2026-11-23')
 }
 
 // Nocturno: la SALIDA de las 07:00 del día 3 cierra la jornada del día 2; la entrada del día 3

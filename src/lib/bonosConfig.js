@@ -621,17 +621,12 @@ export function resumenRepartoBono(pagos = []) {
 }
 
 /**
- * Línea de la tarjeta BONO: «Manuel $200» o «Mayra n/b dd/mm».
- * La fecha es el día en que vuelve el bono: 7 días después de la falta.
+ * Línea de la tarjeta BONO: «Manuel $200» o «Mayra n/b».
+ * La suspensión dura 7 días desde la falta; la tarjeta no escribe esa fecha.
  */
 export function textoLineaEmpleadoBono(p) {
   const nombre = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
-  if (p?.conFalta) {
-    const ymd = String(p?.vuelveBonoYmd || '').slice(0, 10);
-    const partes = ymd.split('-');
-    const dia = partes.length === 3 && partes[2] && partes[1] ? `${partes[2]}/${partes[1]}` : '';
-    return dia ? `${nombre} n/b ${dia}` : `${nombre} n/b`;
-  }
+  if (p?.conFalta) return `${nombre} n/b`;
   const pago = round2(Number(p?.pago) || 0);
   const entero = Math.abs(pago - Math.round(pago)) < 0.001;
   const money = entero

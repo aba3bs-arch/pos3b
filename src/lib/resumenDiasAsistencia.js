@@ -439,8 +439,13 @@ export function diasConAlgunaChecada(marcajes = []) {
  * de cumplirlos, si no volvió a faltar.
  * Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
  * (= se reactiva 7 días después de la última falta de la cadena).
+ * Las faltas anteriores a BONO_FALTAS_CUENTAN_DESDE no cuentan: ese día todos
+ * parten con su parte. El día en curso tampoco es falta hasta que termina.
  */
 export const DIAS_BLOQUEO_BONO_POR_FALTA = 7
+
+/** Primera fecha que puede suspender el bono. Lo anterior queda en cero. */
+export const BONO_FALTAS_CUENTAN_DESDE = '2026-11-15'
 
 export function sumarDiasYmd(ymd, dias) {
   if (!ymd) return ''
@@ -672,8 +677,10 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
  * - 1 falta: sin bono 7 días a partir de ese día.
  * - Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
  *   (vuelve 7 días después de la última falta de la cadena).
+ * - `faltasDesde`: ignora faltas anteriores (arranque en cero).
+ * - El día de `ahora` no cierra falta: aún pueden checar.
  *
- * @param {{ plan?: object, descansosAutorizados?: Array|Set<string> }} [opts]
+ * @param {{ plan?: object, descansosAutorizados?: Array|Set<string>, faltasDesde?: string }} [opts]
  */
 export function listarBloqueosBonoPorFalta({
   usuarios = [],
@@ -683,6 +690,7 @@ export function listarBloqueosBonoPorFalta({
   diasBloqueo = DIAS_BLOQUEO_BONO_POR_FALTA,
   plan = null,
   descansosAutorizados = null,
+  faltasDesde = '',
 } = {}) {
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
@@ -725,7 +733,10 @@ export function listarBloqueosBonoPorFalta({
     const uid = String(u.id)
     const presentes = diasConAlgunaChecada(marcajesPorUsuario.get(uid) || [])
     const faltas = []
+    const corte = String(faltasDesde || '').slice(0, 10)
     for (const ymd of periodo) {
+      if (ymd >= hoy) continue
+      if (corte && ymd < corte) continue
       if (!diaLaborableParaBono(u, ymd, ctx)) continue
       if (presentes.has(ymd)) continue
       faltas.push(ymd)
@@ -987,12 +998,15 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
   sucursalId,
   ahora = new Date(),
   diasBloqueo = DIAS_BLOQUEO_BONO_POR_FALTA,
+  faltasDesde = BONO_FALTAS_CUENTAN_DESDE,
 } = {}) {
   if (!supabase || !sucursalId) return { ok: false, data: [], error: 'Sin sucursal.' }
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
   const lookback = Math.max(45, (Number(diasBloqueo) || DIAS_BLOQUEO_BONO_POR_FALTA) * 6)
-  const desdeYmd = sumarDiasYmd(hoy, -lookback)
+  const desdeLook = sumarDiasYmd(hoy, -lookback)
+  const corte = String(faltasDesde || '').slice(0, 10)
+  const desdeYmd = corte && corte > desdeLook ? corte : desdeLook
   const desdeIso = `${desdeYmd}T00:00:00`
   const hastaIso = new Date(ahora.getTime() + 24 * 3600 * 1000).toISOString()
 
@@ -1014,6 +1028,7 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
     diasBloqueo,
     plan,
     descansosAutorizados: autRes?.data || [],
+    faltasDesde: corte,
   })
   return {
     ok: true,
