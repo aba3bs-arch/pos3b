@@ -4,10 +4,13 @@ import {
   DIAS_VENTANA_EVALUACION_BONO,
   DIAS_VENTANA_INVENTARIO_BONO,
   bonoBasePorMonto,
+  rangoBonoPorMonto,
   bonoFinal,
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
+  alertasVisiblesBono,
   resumenRepartoBono,
+  textoLineaEmpleadoBono,
   resolverOrigenBonoCorte,
   ventaAcumuladaBonoVirtual,
   normalizarBonosConfig,
@@ -31,7 +34,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, DIAS_VENTANA_INVENTARIO_BONO)
   assert.equal(DIAS_VENTANA_EVALUACION_BONO, 15)
   assert.equal(DIAS_VENTANA_INVENTARIO_BONO, 8)
-  assert.equal(DIAS_BLOQUEO_BONO_POR_FALTA, 8)
+  assert.equal(DIAS_BLOQUEO_BONO_POR_FALTA, 7)
   assert.equal(cfg.reglas.retardos.toleranciaMinutos, 15)
   assert.equal(cfg.reglas.retardos.maxRetardos, 3)
   assert.equal(cfg.reglas.retardos.activo, true)
@@ -200,6 +203,40 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
+  // Venta $3,846 → rango $100. TD y TN cobran esa columna, no se parte entre los dos turnos.
+  const rango = rangoBonoPorMonto(3846)
+  assert.equal(rango.bono, 100)
+  assert.equal(rango.td, 100)
+  assert.equal(rango.tn, 100)
+  const pagos = calcularPagosBonoPorEmpleado({
+    base: rango.bono,
+    td: rango.td,
+    tn: rango.tn,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Ana', turno_id: 'diurno' },
+      { id: 2, nombre: 'Luis', turno_id: 'nocturno' },
+    ],
+  })
+  assert.equal(pagos.find((p) => p.nombre === 'Ana').turno, 'TD')
+  assert.equal(pagos.find((p) => p.nombre === 'Ana').pago, 100)
+  assert.equal(pagos.find((p) => p.nombre === 'Luis').turno, 'TN')
+  assert.equal(pagos.find((p) => p.nombre === 'Luis').pago, 100)
+
+  const mismoTurno = calcularPagosBonoPorEmpleado({
+    base: 100,
+    td: 100,
+    tn: 100,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Ana', turno_id: 'diurno' },
+      { id: 2, nombre: 'Luis', turno_id: 'diurno' },
+    ],
+  })
+  assert.equal(mismoTurno.every((p) => p.pago === 50), true)
+}
+
+{
   // Ecuación por empleado: falta → 0%; sin falta → pct tienda
   const pagos = calcularPagosBonoPorEmpleado({
     base: 300,
@@ -219,7 +256,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(pagos[1].conFalta, true)
   assert.equal(pagos[1].pct, 0)
   assert.equal(pagos[1].pago, 0)
-  assert.match(pagos[1].ecuacion, /0% \(falta, 8 días sin bono\)/)
+  assert.match(pagos[1].ecuacion, /0% \(falta, 7 días sin bono\)/)
 }
 
 // El porcentaje del factor se edita. 25 y 60 eran castigos viejos y vuelven a 20.
@@ -413,7 +450,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(ana.tabulador, 400)
   assert.equal(luis.pago, 0)
   assert.equal(luis.conFalta, true)
-  assert.match(luis.ecuacion, /8 días sin bono/)
+  assert.match(luis.ecuacion, /7 días sin bono/)
   assert.equal(reparto.partes, 2)
   assert.equal(reparto.parte, 400)
   assert.equal(reparto.totalTabulador, 400)
@@ -467,6 +504,28 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     monedaFinalEditada: true,
   }), 6000)
 
+  // Tope $10,000 e inicial $9,622: la venta es $378, no el tope.
+  // Aunque la moneda final quede en 0 marcada como editada, no es un conteo.
+  const delValle = resolverOrigenBonoCorte({
+    recoleccion: 0,
+    tope: 10000,
+    monedaInicial: 9622,
+    monedaFinal: 0,
+    monedaFinalEditada: true,
+  })
+  assert.equal(delValle.monto, 378)
+  assert.equal(bonoBasePorMonto(delValle.monto), 0)
+  assert.equal(bonoBasePorMonto(10000), 300)
+  const pagosDelValle = calcularPagosBonoPorEmpleado({
+    base: bonoBasePorMonto(delValle.monto),
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Frania' },
+      { id: 2, nombre: 'Leyver' },
+    ],
+  })
+  assert.equal(pagosDelValle.every((p) => p.pago === 0), true)
+
   // Al cerrar, la moneda final pasa a ser la inicial del siguiente corte y el bono sigue.
   const siguiente = resolverOrigenBonoCorte({
     tope: 10000,
@@ -488,6 +547,32 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   })
   assert.equal(conFalta.find((p) => p.nombre === 'Manuel').pago, 200)
   assert.equal(conFalta.find((p) => p.nombre === 'Mayra').pago, 0)
+}
+
+{
+  const alertas = alertasVisiblesBono(
+    {
+      reglas: [
+        { id: 'checklistDiario', label: 'Check list', ok: false, penalizacionPct: 20, valor: '2/6 días' },
+        { id: 'retardos', label: 'Retardos', ok: true, porEmpleado: true, pesoPct: 20 },
+        { id: 'mermaMaxPct', label: 'Merma o inventario', ok: true, pesoPct: 20, valor: '2%' },
+      ],
+    },
+    [
+      { clave: 'id:1', nombre: 'Manuel', conFalta: false, pierdeRetardo: true, retardos: 3 },
+      { clave: 'id:2', nombre: 'Mayra', conFalta: true, retardos: 0 },
+    ],
+  )
+  assert.deepEqual(alertas.map((a) => a.texto), [
+    'Check list · −20% · 2/6 días',
+    'Retardos · Manuel (3)',
+    'Falta · Mayra',
+  ])
+  assert.equal(textoLineaEmpleadoBono({ nombre: 'Manuel', pago: 200, conFalta: false }), 'Manuel $200')
+  assert.equal(
+    textoLineaEmpleadoBono({ nombre: 'Mayra', pago: 0, conFalta: true, vuelveBonoYmd: '2026-11-21' }),
+    'Mayra react. 21/11',
+  )
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')

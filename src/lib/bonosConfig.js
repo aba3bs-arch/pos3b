@@ -2,6 +2,7 @@
  * Configuración del bono por recolección (editable en Configuración → Bonos).
  * Persistencia: localStorage + nube pos_bonos_config.
  */
+import { turnoEmpleadoParaGastos } from './empleadosVisibles.js';
 
 export const LS_BONOS_CONFIG = 'pos3b_bonos_config';
 export const LS_BONOS_CONFIG_AT = 'pos3b_bonos_config_at';
@@ -45,7 +46,7 @@ export const DIAS_VENTANA_INVENTARIO_BONO = 8;
  * - 1 encendido = 100%, 2 = 50% cada uno, 3 ≈ 33.33%, 4 = 25%, 5 = 20%.
  * - Fallar un factor quita solo su parte. Apagado no cuenta.
  * - Ninguno encendido: se paga el 100% del tabulador.
- * - Falta de asistencia (no el faltante de efectivo) → 0% por 8 días; el nombre vuelve al cumplirlos.
+ * - Falta de asistencia (no el faltante de efectivo) → 0% por 7 días a partir de esa falta.
  * - Evaluación: vigencia 15 días. Checklist: semana. Inventario: 8 días / día de tienda.
  */
 export const BONOS_CONFIG_DEFAULT = {
@@ -133,11 +134,18 @@ export function normalizarRangos(rangos) {
     ? rangos
     : RANGOS_BONO_DEFAULT;
   return list
-    .map((r) => ({
-      min: round2(num(r.min)),
-      max: round2(num(r.max)),
-      bono: round2(num(r.bono)),
-    }))
+    .map((r) => {
+      const bono = round2(num(r.bono));
+      const tdDato = r.td == null || r.td === '' ? bono : round2(num(r.td));
+      const tnDato = r.tn == null || r.tn === '' ? bono : round2(num(r.tn));
+      return {
+        min: round2(num(r.min)),
+        max: round2(num(r.max)),
+        bono,
+        td: tdDato,
+        tn: tnDato,
+      };
+    })
     .filter((r) => r.max >= r.min && r.bono >= 0)
     .sort((a, b) => a.min - b.min);
 }
@@ -338,20 +346,33 @@ export async function persistirBonosConfig(config, supabase) {
   return { local: local.config, remoto };
 }
 
-/** Bono base según monto de recolección. */
-export function bonoBasePorMonto(monto, config = null) {
+/** Rango del tabulador: bono de referencia y lo que cobra cada turno. */
+export function rangoBonoPorMonto(monto, config = null) {
+  const vacio = { bono: 0, td: 0, tn: 0 };
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
   const m = round2(monto);
-  if (!(m > 0) || !cfg.activo) return 0;
+  if (!(m > 0) || !cfg.activo) return vacio;
   const rangos = cfg.rangos;
-  for (const r of rangos) {
-    if (m >= r.min && m <= r.max) return r.bono;
-  }
-  if (cfg.topeSuperiorUsaUltimo && rangos.length) {
-    const ultimo = rangos[rangos.length - 1];
-    if (m > ultimo.max) return ultimo.bono;
-  }
-  return 0;
+  const fila = rangos.find((r) => m >= r.min && m <= r.max)
+    || (cfg.topeSuperiorUsaUltimo && rangos.length && m > rangos[rangos.length - 1].max
+      ? rangos[rangos.length - 1]
+      : null);
+  if (!fila) return vacio;
+  return { bono: fila.bono, td: fila.td, tn: fila.tn };
+}
+
+/** Bono de referencia según monto de recolección (columna Bono del tabulador). */
+export function bonoBasePorMonto(monto, config = null) {
+  return rangoBonoPorMonto(monto, config).bono;
+}
+
+/** TD = turno día, TN = turno noche. Sin dato, cuenta como día. */
+export function turnoBonoEmpleado(user) {
+  const t = String(turnoEmpleadoParaGastos(user) || '').toLowerCase();
+  if (t === 'nocturno' || t === 'tn') return 'TN';
+  const id = String(user?.turno_id || user?.turno || '').toLowerCase();
+  if (!t && (id.includes('noct') || id === 'tn')) return 'TN';
+  return 'TD';
 }
 
 /** % según cuántas reglas se cumplieron (modo legacy). */
@@ -495,20 +516,20 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 /**
  * Pago de bono por empleado de tienda (turno diurno y turno nocturno).
  *
- * El tabulador sale de la venta de moneda virtual y se recalcula en cada cierre.
- * Cada empleado cobra el tabulador completo por el porcentaje que sumen los factores.
- * Tabulador $200 al 100% → $200 cada uno. Al 80% → $160 cada uno.
- * La falta pesa más que los factores: ese empleado cobra $0 por 8 días.
- * El otro sigue con su porcentaje del tabulador.
+ * Con columnas TD y TN, cada turno cobra la suya. Dos personas del mismo
+ * turno parten esa columna; la del otro turno no se toca.
+ * Sin columnas, cada empleado cobra el tabulador completo.
+ * Quien tiene falta cobra $0 y su parte no se suma a los demás.
  *
  * - pctTienda = suma de los factores encendidos que se cumplen.
- * - Falta vigente → pct = 0.
- * - pago = tabulador × pct_empleado / 100.
+ * - Falta vigente → pct = 0 durante 7 días desde esa falta.
  *
  * @param {{
  *   base: number,
+ *   td?: number,
+ *   tn?: number,
  *   pctTienda: number,
- *   plantilla?: Array<{ id: string|number, nombre?: string }>,
+ *   plantilla?: Array<{ id: string|number, nombre?: string, turno_id?: string }>,
  *   bloqueosFalta?: Array<{ clave?: string, nombre?: string }>,
  *   pesoRetardo?: number,
  *   umbralRetardos?: number,
@@ -517,6 +538,8 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
  */
 export function calcularPagosBonoPorEmpleado({
   base = 0,
+  td = null,
+  tn = null,
   pctTienda = 0,
   plantilla = [],
   bloqueosFalta = [],
@@ -525,38 +548,55 @@ export function calcularPagosBonoPorEmpleado({
   retardosPorClave = {},
 } = {}) {
   const baseN = round2(Number(base) || 0);
+  const porTurno = td != null || tn != null;
+  const tdN = round2(td != null ? td : baseN);
+  const tnN = round2(tn != null ? tn : baseN);
   const pctT = Math.max(0, Math.min(100, Number(pctTienda) || 0));
+  const lista = plantilla || [];
+  const turnos = lista.map((u) => (porTurno ? turnoBonoEmpleado(u) : ''));
+  const enTurno = { TD: 0, TN: 0 };
+  if (porTurno) {
+    for (const t of turnos) enTurno[t] += 1;
+  }
+  const partes = Math.max(1, lista.length);
+  const parteIgual = baseN;
   const bloqueados = new Set(
     (bloqueosFalta || [])
       .map((b) => String(b?.clave || '').trim())
       .filter(Boolean),
   );
 
-  return (plantilla || []).map((u) => {
+  return lista.map((u, i) => {
     const id = u?.id != null ? String(u.id) : '';
     const clave = id ? `id:${id}` : '';
     const nombre = String(u?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+    const turno = porTurno ? turnos[i] : '';
+    const montoTurno = turno === 'TN' ? tnN : tdN;
+    const compañeros = porTurno ? Math.max(1, enTurno[turno] || 1) : partes;
+    const parte = porTurno ? round2(montoTurno / compañeros) : parteIgual;
     const conFalta = Boolean(clave && bloqueados.has(clave));
     const nRet = Math.max(0, Math.round(Number(retardosPorClave?.[clave] ?? retardosPorClave?.[id]) || 0));
     const pesoR = Math.max(0, Number(pesoRetardo) || 0);
     const pierdeRetardo = !conFalta && pesoR > 0 && nRet >= Math.max(1, Number(umbralRetardos) || 3);
     const pct = conFalta ? 0 : round2(Math.max(0, Math.min(100, pctT - (pierdeRetardo ? pesoR : 0))));
-    const pago = bonoFinal(baseN, pct);
+    const pago = bonoFinal(parte, pct);
     const money = (n) => `$${n.toLocaleString('es-MX')}`;
+    const etiquetaParte = turno ? `${turno} ${money(parte)}` : money(parte);
     const ecuacion = conFalta
-      ? `${nombre} · ${money(baseN)} × 0% (falta, 8 días sin bono) = $0`
+      ? `${nombre} · ${etiquetaParte} × 0% (falta, 7 días sin bono) = $0`
       : pierdeRetardo
-        ? `${nombre} · ${money(baseN)} × ${pct}% (${nRet} retardos) = ${money(pago)}`
-        : `${nombre} · ${money(baseN)} × ${pct}% = ${money(pago)}`;
+        ? `${nombre} · ${etiquetaParte} × ${pct}% (${nRet} retardos) = ${money(pago)}`
+        : `${nombre} · ${etiquetaParte} × ${pct}% = ${money(pago)}`;
     return {
       id,
       clave,
       nombre,
+      turno,
       conFalta,
       retardos: nRet,
       pierdeRetardo,
       tabulador: baseN,
-      base: baseN,
+      base: parte,
       pctTienda: pctT,
       pct,
       pago,
@@ -570,10 +610,11 @@ export function calcularPagosBonoPorEmpleado({
 }
 
 /**
- * Venta acumulada del bono: tope menos el saldo conocido del corte.
- * Sin moneda final el saldo es la moneda inicial que dejaron los cierres.
- * Con moneda final capturada, la venta sube si esa moneda baja.
- * El cero de arranque de la moneda final no cuenta como conteo.
+ * Venta que entra al tabulador del bono. Es la misma cuenta en todas las sucursales:
+ * lo vendido, nunca el tope ni la moneda que sigue en caja.
+ * En virtual eso es tope − saldo. Sin moneda final mayor a cero, el saldo es la
+ * moneda inicial del corte. Un cero de arranque (aunque el campo esté marcado)
+ * no convierte el tope en venta.
  */
 export function ventaAcumuladaBonoVirtual({
   tope = 0,
@@ -585,7 +626,10 @@ export function ventaAcumuladaBonoVirtual({
   const mi = round2(monedaInicial);
   const vacio = monedaFinal === '' || monedaFinal == null;
   const mf = Number(monedaFinal);
-  const capturada = !vacio && (Boolean(monedaFinalEditada) || (Number.isFinite(mf) && mf > 0));
+  // Solo una moneda final mayor a cero sustituye el saldo. El parámetro
+  // monedaFinalEditada se conserva para los llamadores; el cero no cuenta.
+  void monedaFinalEditada;
+  const capturada = !vacio && Number.isFinite(mf) && mf > 0;
   const saldo = capturada ? round2(mf) : mi;
   return Math.max(0, round2(techo - saldo));
 }
@@ -607,7 +651,8 @@ export function resolverOrigenBonoCorte({
 
 /**
  * Cómo se paga el tabulador en la tienda.
- * `parte` es el tabulador completo: cada empleado de tienda lo cobra por su porcentaje.
+ * Con columnas TD y TN, `parte` es lo que cobra ese turno.
+ * Sin columnas, `parte` es el tabulador completo.
  * `totalAPagar` suma lo que sí se cobra. Quien tiene falta queda en cero.
  */
 export function resumenRepartoBono(pagos = []) {
@@ -621,4 +666,57 @@ export function resumenRepartoBono(pagos = []) {
   const cobran = lista.filter((p) => !p?.conFalta).length;
   const sinCobro = lista.filter((p) => p?.conFalta).length;
   return { partes, parte, totalTabulador, totalAPagar, cobran, sinCobro };
+}
+
+/** Fecha corta de reactivación: «react. 21/11». */
+export function etiquetaReactivaBono(ymd) {
+  const partes = String(ymd || '').slice(0, 10).split('-');
+  if (partes.length !== 3 || !partes[2] || !partes[1]) return '';
+  return `react. ${partes[2]}/${partes[1]}`;
+}
+
+/**
+ * Línea de la tarjeta BONO: «Manuel $200» o «Mayra react. 21/11».
+ * La fecha es el día en que vuelve el bono.
+ */
+export function textoLineaEmpleadoBono(p) {
+  const nombre = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+  if (p?.conFalta) {
+    const react = etiquetaReactivaBono(p?.vuelveBonoYmd);
+    return react ? `${nombre} ${react}` : `${nombre} n/b`;
+  }
+  const pago = round2(Number(p?.pago) || 0);
+  const entero = Math.abs(pago - Math.round(pago)) < 0.001;
+  const money = entero
+    ? `$${Math.round(pago).toLocaleString('es-MX')}`
+    : `$${pago.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${nombre} ${money}`;
+}
+
+/**
+ * Avisos que se leen en la tarjeta de Corte virtual.
+ * Las notificaciones del dispositivo no se usan: el cajero ve aquí el factor
+ * que falló, la falta y el retardo que baja el bono.
+ */
+export function alertasVisiblesBono(pack, pagos = []) {
+  const alertas = [];
+  for (const r of pack?.reglas || []) {
+    if (!r || r.ok || r.porEmpleado) continue;
+    const peso = Number(r.penalizacionPct) || Number(r.pesoPct) || 0;
+    const medida = String(r.valor || '').trim();
+    const nombre = String(r.label || 'Factor').trim() || 'Factor';
+    const texto = [nombre, peso ? `−${peso}%` : '', medida].filter(Boolean).join(' · ');
+    alertas.push({ id: String(r.id || nombre), tipo: 'factor', texto });
+  }
+  for (const p of pagos || []) {
+    const nombre = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+    const clave = String(p?.clave || p?.id || nombre);
+    if (p?.conFalta) {
+      alertas.push({ id: `falta:${clave}`, tipo: 'falta', texto: `Falta · ${nombre}` });
+    } else if (p?.pierdeRetardo) {
+      const n = Math.max(0, Math.round(Number(p.retardos) || 0));
+      alertas.push({ id: `retardo:${clave}`, tipo: 'retardo', texto: `Retardos · ${nombre} (${n})` });
+    }
+  }
+  return alertas;
 }

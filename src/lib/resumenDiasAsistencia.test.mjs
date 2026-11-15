@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { setClavesDescansosAutorizados } from './descansosAutorizados.js'
 import {
+  BONO_FALTAS_ARRANQUE,
+  BONO_FALTAS_CUENTAN_DESDE,
   calcularSuspensionBonoPorFaltas,
   clasificarHuecosSinAsistencia,
   construirCalendarioAsistencia,
@@ -738,6 +740,64 @@ assert.equal(
   assert.equal(pedro.faltaYmd, '2026-09-16')
   assert.equal(pedro.diasAcumuladosExtra, 2)
   assert.equal(pedro.vuelveBonoYmd, '2026-09-23')
+}
+
+{
+  // Se respetan las faltas de los 7 días anteriores al 15/11 (desde el 08/11).
+  // Las más viejas no. El día en curso aún no cierra.
+  assert.equal(BONO_FALTAS_ARRANQUE, '2026-11-15')
+  assert.equal(BONO_FALTAS_CUENTAN_DESDE, '2026-11-08')
+  const horario = {
+    tipo: 'personalizado',
+    dias: { 1: 'diurno', 2: 'diurno', 3: 'diurno', 4: 'diurno', 5: 'diurno', 6: 'diurno' },
+  }
+  const user = {
+    id: 'z1',
+    nombre: 'Luis',
+    rol: 'Cajero',
+    sucursal_id: '3B5',
+    activo: true,
+    tipo_empleado: 'tienda',
+    turno_horario: horario,
+  }
+  const base = {
+    usuarios: [user],
+    sucursalId: '3B5',
+    diasBloqueo: 7,
+    faltasDesde: BONO_FALTAS_CUENTAN_DESDE,
+  }
+  const checadas = (dias) => dias.flatMap((ymd) => parDia('z1', 'Luis', '3B5', ymd))
+  assert.equal(
+    listarBloqueosBonoPorFalta({
+      ...base,
+      marcajes: checadas([
+        '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14',
+      ]),
+      ahora: new Date(2026, 10, 15, 8, 0, 0),
+    }).length,
+    0,
+    'la falta del sábado 7 queda fuera: tiene más de 7 días',
+  )
+  const reciente = listarBloqueosBonoPorFalta({
+    ...base,
+    marcajes: checadas([
+      '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14',
+    ]),
+    ahora: new Date(2026, 10, 15, 12, 0, 0),
+  }).find((b) => b.nombre === 'Luis')
+  assert.ok(reciente, 'la falta del lunes 9 está dentro de los 7 días')
+  assert.equal(reciente.faltaYmd, '2026-11-09')
+  assert.equal(reciente.vuelveBonoYmd, '2026-11-16')
+  const luis = listarBloqueosBonoPorFalta({
+    ...base,
+    marcajes: checadas([
+      '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14',
+    ]),
+    ahora: new Date(2026, 10, 17, 12, 0, 0),
+  }).find((b) => b.nombre === 'Luis')
+  assert.ok(luis, 'la falta del lunes 16 ya cerró')
+  assert.equal(luis.faltaYmd, '2026-11-16')
+  assert.equal(luis.vuelveBonoYmd, '2026-11-23')
 }
 
 // Nocturno: la SALIDA de las 07:00 del día 3 cierra la jornada del día 2; la entrada del día 3

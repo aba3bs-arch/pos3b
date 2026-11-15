@@ -3,9 +3,9 @@ import { esAlmacenCentral, etiquetaTienda, normalizarCodigoTienda } from '../con
 import { normalizarRol } from '../lib/roles.js';
 import {
   EVENTO_BONOS_CONFIG,
-  bonoBasePorMonto,
   bonoFinal,
   calcularPagosBonoPorEmpleado,
+  rangoBonoPorMonto,
   resumenRepartoBono,
 } from '../lib/bonosConfig.js';
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
@@ -54,9 +54,8 @@ function plantillaTiendaBono(usuarios, sucursal) {
 
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
- * Ingresa el monto de la recolección → tabulador de la tienda → se divide entre la plantilla.
- * El tabulador es el bono de la tienda. Se divide entre la plantilla.
- * Falta → esa parte es $0 y no se suma a los demás (8 días).
+ * Ingresa el monto de la recolección → el tabulador da lo que cobra TD y lo que cobra TN.
+ * Falta → esa parte es $0 y no se suma a los demás (7 días a partir de la falta).
  */
 export default function PanelBonoInicio({
   supabase,
@@ -135,21 +134,25 @@ export default function PanelBonoInicio({
     return Number(pack?.recoleccionPeriodo ?? pack?.recoleccion) || 0;
   }, [montoInput, pack]);
 
-  const baseCalc = useMemo(() => {
-    if (!pack?.ok) return 0;
-    return bonoBasePorMonto(montoCalc, pack.config);
+  const rangoCalc = useMemo(() => {
+    if (!pack?.ok) return { bono: 0, td: 0, tn: 0 };
+    return rangoBonoPorMonto(montoCalc, pack.config);
   }, [pack, montoCalc]);
+
+  const baseCalc = rangoCalc.bono;
 
   const pagosEmpleado = useMemo(() => {
     if (!pack?.ok) return [];
     return calcularPagosBonoPorEmpleado({
-      base: baseCalc,
+      base: rangoCalc.bono,
+      td: rangoCalc.td,
+      tn: rangoCalc.tn,
       pctTienda: pack.pct,
       plantilla: plantillaTiendaBono(usuarios, sucursal),
       bloqueosFalta,
       ...ajusteRetardoBono(pack, retardosPorClave),
     });
-  }, [pack, baseCalc, usuarios, sucursal, bloqueosFalta, retardosPorClave]);
+  }, [pack, rangoCalc, usuarios, sucursal, bloqueosFalta, retardosPorClave]);
 
   const pagosVisibles = useMemo(
     () => pagosEmpleado.filter((p) => !p.conFalta),
@@ -204,9 +207,13 @@ export default function PanelBonoInicio({
             ) : null}
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
-            La venta del bono es tope menos moneda final y se recalcula en cada cierre.
-            Cada empleado de tienda, diurno y nocturno, cobra el tabulador por el porcentaje que sumen los factores encendidos.
-            Una falta deja a esa persona en $0 por {DIAS_BLOQUEO_BONO_POR_FALTA} días. Los demás siguen con su porcentaje.
+            Ingresa el monto de <strong>esta recolección</strong>. El tabulador marca el bono y lo que cobra
+            cada turno: TD y TN. Con venta de $3,846 el rango es $100, así que el día cobra $100 y la noche $100.
+            Si hay dos personas en el mismo turno, parten esa columna. Cada factor encendido aporta el porcentaje
+            que se edita. Si uno tiene falta, cobra $0 y el otro se queda con su parte.
+            Tres retardos del reloj (15 min) quitan la parte de ese factor.
+            Se respetan las faltas de los {DIAS_BLOQUEO_BONO_POR_FALTA} días anteriores al 15/11.
+            Las más viejas no cuentan. Quien falte queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde ese día.
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -294,7 +301,7 @@ export default function PanelBonoInicio({
         </div>
         {reparto.partes >= 1 && baseCalc > 0 ? (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Tabulador {fmtMoney(baseCalc)} para cada empleado de tienda × {pack.pct}%.
+            Tabulador {fmtMoney(baseCalc)} para TD y para TN × {pack.pct}%.
             {reparto.sinCobro > 0
               ? ` Quien tiene falta no cobra por ${DIAS_BLOQUEO_BONO_POR_FALTA} días. A pagar ${fmtMoney(reparto.totalAPagar)}.`
               : ` Se paga a ${reparto.cobran} empleado${reparto.cobran === 1 ? '' : 's'}.`}
@@ -306,7 +313,7 @@ export default function PanelBonoInicio({
         ) : (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
             Ejemplo: tabulador $200 al 100% → $200 al diurno y $200 al nocturno.
-            Si uno falta, ese queda en $0 por 8 días y el otro sigue con sus $200.
+            Si uno falta, ese queda en $0 por {DIAS_BLOQUEO_BONO_POR_FALTA} días y el otro sigue con sus $200.
           </p>
         )}
       </div>
@@ -331,7 +338,7 @@ export default function PanelBonoInicio({
         {pagosVisibles.length === 0 ? (
           <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
             {pagosEmpleado.length > 0
-              ? 'Nadie aparece: tienen falta vigente. El nombre vuelve a los 8 días sin falta.'
+              ? 'Nadie aparece: tienen falta vigente. El nombre vuelve a los 7 días de esa falta.'
               : 'Sin empleados de tienda en la plantilla de esta sucursal.'}
           </p>
         ) : (
@@ -379,7 +386,8 @@ export default function PanelBonoInicio({
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
           El nombre sale de la lista de bono. Descanso del plan horario
           (Checador → Plan) o descanso autorizado no es falta.
-          Vuelve a aparecer {DIAS_BLOQUEO_BONO_POR_FALTA} días después de la última falta, si no vuelve a faltar.
+          Se respetan las faltas de los {DIAS_BLOQUEO_BONO_POR_FALTA} días anteriores al 15/11. Las más viejas no cuentan.
+          Quien falte queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde ese día, si no vuelve a faltar.
         </p>
         {avisoDescansos ? (
           <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoDescansos}</p>
