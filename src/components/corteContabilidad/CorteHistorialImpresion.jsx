@@ -3,6 +3,7 @@ import PortalFlotante from '../PortalFlotante.jsx';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { datosImpresionDesdeHistorial, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
+import { esCierreGeneralAbarrotes } from '../../lib/corteContabilidad/calc.js';
 
 /**
  * Historial de cierres: imprimir, editar, papelera (quién borró) y restaurar.
@@ -19,8 +20,10 @@ export default function CorteHistorialImpresion({
   onRestaurar,
 }) {
   const [editando, setEditando] = useState(null);
-  const [form, setForm] = useState({ ventas: '', caja_actual: '', comentarios: '', folio: '' });
+  const [form, setForm] = useState({ ventas: '', caja_actual: '', comentarios: '', folio: '', descuento_nomina: '' });
   const [guardando, setGuardando] = useState(false);
+  const filas = (historial || []).filter((h) => !esCierreGeneralAbarrotes(h));
+  const papelera = (historialEliminados || []).filter((h) => !esCierreGeneralAbarrotes(h));
 
   const imprimirHistorial = (h) => {
     imprimirCorteContabilidad(datosImpresionDesdeHistorial(h, modulo));
@@ -33,25 +36,30 @@ export default function CorteHistorialImpresion({
       caja_actual: h.caja_actual != null ? String(h.caja_actual) : '',
       comentarios: String(h.detalle?.comentarios || h.comentarios || ''),
       folio: String(h.folio || ''),
+      descuento_nomina: '',
     });
   };
 
   const guardar = async () => {
     if (!editando || !onGuardarEdicion) return;
     setGuardando(true);
+    const descuento = Number(form.descuento_nomina) || 0;
     const r = await onGuardarEdicion(editando.id, {
       ventas: Number(form.ventas) || 0,
       caja_actual: Number(form.caja_actual) || 0,
       folio: String(form.folio || '').trim() || editando.folio,
       comentarios: String(form.comentarios || '').trim(),
+      ...(descuento > 0 ? { ajuste_nomina: descuento } : {}),
     });
     setGuardando(false);
     if (r && r.ok === false) return alert(r.error || 'No se pudo guardar.');
     setEditando(null);
   };
 
-  const vacioActivos = !historial?.length;
-  const vacioPapelera = !historialEliminados?.length;
+  const vacioActivos = !filas.length;
+  const vacioPapelera = !papelera.length;
+  const descuentoNomina = Number(form.descuento_nomina) || 0;
+  const cajaAlGuardar = Math.round(((Number(form.caja_actual) || 0) - (descuentoNomina > 0 ? descuentoNomina : 0)) * 100) / 100;
   if (vacioActivos && (!puedeEliminar || vacioPapelera)) return null;
 
   return (
@@ -61,6 +69,7 @@ export default function CorteHistorialImpresion({
           <h4 style={{ margin: '0 0 0.5rem' }}>Últimos cierres</h4>
           <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
             Historial operativo (aún no archivados). Tras el plazo de Archivo, el admin usa Archivar en el módulo Archivo.
+            {modulo === 'abarrotes' ? ' El corte general (CGA) no aparece aquí y no cambia la caja del siguiente cierre.' : ''}
             {(puedeEditar || puedeEliminar) ? ' ' : ''}
             {puedeEditar ? 'Puede editar montos de un cierre guardado. ' : ''}
             {puedeEliminar ? 'Al borrar, el cierre pasa a la papelera y se puede recuperar (solo administrador).' : ''}
@@ -80,7 +89,7 @@ export default function CorteHistorialImpresion({
                 </tr>
               </thead>
               <tbody>
-                {historial.map((h) => (
+                {filas.map((h) => (
                   <tr key={h.id}>
                     <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '—'}</td>
                     {columnasExtra.map((c) => (
@@ -184,6 +193,25 @@ export default function CorteHistorialImpresion({
                     onChange={(e) => setForm({ ...form, caja_actual: e.target.value })}
                   />
                 </label>
+                {modulo === 'abarrotes' && (
+                  <label className="muted" style={{ display: 'block', marginBottom: '0.65rem' }}>
+                    Nómina a descontar de esta caja
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={{ marginTop: '0.35rem' }}
+                      value={form.descuento_nomina}
+                      onChange={(e) => setForm({ ...form, descuento_nomina: e.target.value })}
+                      placeholder="0.00"
+                    />
+                    <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.78rem' }}>
+                      Caja que se guardará en {editando.folio || 'este folio'}: {fmtCorte(cajaAlGuardar)}.
+                      {' '}Solo cambia este cierre. El cierre siguiente y la caja abierta se quedan igual.
+                    </span>
+                  </label>
+                )}
                 <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
                   Comentarios
                   <textarea
@@ -192,6 +220,7 @@ export default function CorteHistorialImpresion({
                     style={{ marginTop: '0.35rem', resize: 'vertical' }}
                     value={form.comentarios}
                     onChange={(e) => setForm({ ...form, comentarios: e.target.value })}
+                    placeholder={modulo === 'abarrotes' ? 'Ej. Nómina de Esthela, no venía en este cierre' : ''}
                   />
                 </label>
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
@@ -230,7 +259,7 @@ export default function CorteHistorialImpresion({
                 </tr>
               </thead>
               <tbody>
-                {historialEliminados.map((h) => (
+                {papelera.map((h) => (
                   <tr key={h.id}>
                     <td>{h.deleted_at ? new Date(h.deleted_at).toLocaleString() : '—'}</td>
                     <td title={h.deleted_by || ''}>{h.deleted_by || '—'}</td>

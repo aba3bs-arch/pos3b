@@ -1,5 +1,6 @@
 import {
   estadoDefault,
+  esCierreGeneralAbarrotes,
   normalizarEstadoVirtual,
   detalleRecoleccionParaIe,
   prepararTrasCierreVirtual,
@@ -314,6 +315,8 @@ function montoPositivo(n) {
 export function cajaAnteriorDesdeFilasCierre(rows) {
   for (const h of rows || []) {
     if (h?.deleted_at) continue;
+    // El corte general (CGA) vive en la misma tabla, pero su caja no es la del cajero.
+    if (esCierreGeneralAbarrotes(h)) continue;
     const turno = String(h.turno || h.detalle?.tipo_cierre || '').toUpperCase();
     if (turno.includes('RECOLEC')) continue;
     const d = h.detalle || {};
@@ -1315,6 +1318,13 @@ function guardarHistorialLocal(sucursal, modulo, hist) {
   localStorage.setItem(lsKey(sucursal, modulo, 'historial'), JSON.stringify(hist || []));
 }
 
+/** Historial del cajero: en Abarrotes el corte general (CGA) no se lista ni arrastra caja. */
+export function filtrarHistorialCajero(modulo, rows) {
+  const lista = rows || [];
+  if (String(modulo || '') !== 'abarrotes') return lista;
+  return lista.filter((h) => !esCierreGeneralAbarrotes(h));
+}
+
 /** Lista cierres activos (no borrados). */
 export async function listarCierresCorte(supabase, sucursal, modulo, limit = null) {
   const sid = sucursalIdCorte(sucursal);
@@ -1322,10 +1332,13 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = nul
   const lim = Number.isFinite(Number(limit)) && Number(limit) > 0
     ? Math.min(500, Math.round(Number(limit)))
     : limiteHistorialCierresCorte(modulo);
+  // El corte general comparte la tabla. Se pide un margen y luego se quita, para no recortar cierres del cajero.
+  const limQuery = modulo === 'abarrotes' ? Math.min(500, lim + Math.ceil(lim / 2)) : lim;
   if (!supabase) {
-    const hist = leerHistorialLocal(sid, modulo)
-      .filter((h) => !h?.deleted_at)
-      .slice(0, lim);
+    const hist = filtrarHistorialCajero(
+      modulo,
+      leerHistorialLocal(sid, modulo).filter((h) => !h?.deleted_at),
+    ).slice(0, lim);
     return { data: hist };
   }
   let q = await supabase
@@ -1336,7 +1349,7 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = nul
     .is('deleted_at', null)
     .is('archived_at', null)
     .order('created_at', { ascending: false })
-    .limit(lim);
+    .limit(limQuery);
   if (q.error && String(q.error.message || '').toLowerCase().includes('archived_at')) {
     q = await supabase
       .from('cortes_contabilidad_cierres')
@@ -1345,7 +1358,7 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = nul
       .eq('modulo', modulo)
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
-      .limit(lim);
+      .limit(limQuery);
   }
   if (q.error && faltaColumnaDeletedAt(q.error)) {
     q = await supabase
@@ -1354,10 +1367,17 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = nul
       .in('sucursal_id', vars)
       .eq('modulo', modulo)
       .order('created_at', { ascending: false })
-      .limit(lim);
-    return { data: q.data || [], error: q.error?.message || null, aviso: AVISO_FALTA_SOFT_DELETE_CIERRES };
+      .limit(limQuery);
+    return {
+      data: filtrarHistorialCajero(modulo, q.data).slice(0, lim),
+      error: q.error?.message || null,
+      aviso: AVISO_FALTA_SOFT_DELETE_CIERRES,
+    };
   }
-  return { data: q.data || [], error: q.error?.message || null };
+  return {
+    data: filtrarHistorialCajero(modulo, q.data).slice(0, lim),
+    error: q.error?.message || null,
+  };
 }
 
 /** Lista cierres en papelera (soft-delete). */
@@ -1365,8 +1385,10 @@ export async function listarCierresCorteEliminados(supabase, sucursal, modulo, l
   const sid = sucursalIdCorte(sucursal);
   const vars = sucursalesIdCorteQuery(sid);
   if (!supabase) {
-    const hist = leerHistorialLocal(sid, modulo)
-      .filter((h) => !!h?.deleted_at)
+    const hist = filtrarHistorialCajero(
+      modulo,
+      leerHistorialLocal(sid, modulo).filter((h) => !!h?.deleted_at),
+    )
       .sort((a, b) => new Date(b.deleted_at || 0) - new Date(a.deleted_at || 0))
       .slice(0, limit);
     return { data: hist };
@@ -1382,7 +1404,7 @@ export async function listarCierresCorteEliminados(supabase, sucursal, modulo, l
   if (error && faltaColumnaDeletedAt(error)) {
     return { data: [], aviso: AVISO_FALTA_SOFT_DELETE_CIERRES };
   }
-  return { data: data || [], error: error?.message || null };
+  return { data: filtrarHistorialCajero(modulo, data).slice(0, limit), error: error?.message || null };
 }
 
 export async function actualizarDetalleCierre(supabase, id, patchDetalle, sucursal, modulo) {
@@ -1414,67 +1436,27 @@ export async function actualizarDetalleCierre(supabase, id, patchDetalle, sucurs
   return { ok: true, detalle };
 }
 
-/** Actualiza un cierre del historial (corrección admin/gerente). */
-export async function actualizarCierreCorte(supabase, id, patch, sucursal, modulo) {
-  if (!id) return { ok: false, error: 'Cierre inválido.' };
+/**
+ * Corrige un solo cierre. `ajuste_nomina` se resta de la caja escrita en el
+ * formulario y queda anotado en el detalle. No toca otros folios ni la caja abierta.
+ */
+export function patchCierreHistorial(row, patch = {}) {
+  const ajusteNomina = patch.ajuste_nomina != null && patch.ajuste_nomina !== ''
+    ? round2Store(patch.ajuste_nomina)
+    : 0;
+  if (ajusteNomina > 0 && esCierreGeneralAbarrotes(row)) {
+    return { error: 'El corte general no se corrige desde el historial del cajero.' };
+  }
+
   const ventas = patch.ventas != null ? Number(patch.ventas) : undefined;
-  const caja = patch.caja_actual != null ? Number(patch.caja_actual) : undefined;
+  const cajaEscrita = patch.caja_actual != null ? round2Store(patch.caja_actual) : undefined;
   const folio = patch.folio != null ? String(patch.folio).trim() : undefined;
   const comentarios = patch.comentarios != null ? String(patch.comentarios) : undefined;
   const recoleccion = patch.recoleccion != null ? Number(patch.recoleccion) : undefined;
   const gastosTotal = patch.gastos_total != null ? Number(patch.gastos_total) : undefined;
   const fechaNegocio = patch.fecha_negocio != null ? String(patch.fecha_negocio).slice(0, 10) : undefined;
 
-  if (!supabase) {
-    const key = lsKey(sucursal, modulo, 'historial');
-    let hist = [];
-    try {
-      hist = JSON.parse(localStorage.getItem(key) || '[]');
-    } catch {
-      hist = [];
-    }
-    const next = hist.map((h) => {
-      if (String(h.id) !== String(id)) return h;
-      let detalle = { ...(h.detalle || {}) };
-      if (comentarios !== undefined) detalle.comentarios = comentarios;
-      if (fechaNegocio !== undefined) detalle.fecha_negocio = fechaNegocio;
-      if (recoleccion !== undefined || gastosTotal !== undefined) {
-        const efectivo = recoleccion !== undefined
-          ? recoleccion
-          : Number(detalle.recoleccion ?? detalle.recoleccion_turno) || 0;
-        const gastos = gastosTotal !== undefined
-          ? gastosTotal
-          : Number(detalle.gastos_total) || 0;
-        detalle = {
-          ...detalle,
-          ...detalleRecoleccionParaIe({
-            efectivo,
-            gastosTotal: gastos,
-            extras: { fecha_negocio: detalle.fecha_negocio },
-          }),
-        };
-      }
-      return {
-        ...h,
-        ...(ventas !== undefined ? { ventas } : {}),
-        ...(caja !== undefined ? { caja_actual: caja } : {}),
-        ...(folio !== undefined ? { folio } : {}),
-        detalle,
-      };
-    });
-    localStorage.setItem(key, JSON.stringify(next));
-    return { ok: true, soloLocal: true, data: next.find((h) => String(h.id) === String(id)) };
-  }
-
-  const { data: row, error: errGet } = await supabase
-    .from('cortes_contabilidad_cierres')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-  if (errGet) return { ok: false, error: errGet.message };
-  if (!row) return { ok: false, error: 'Cierre no encontrado.' };
-
-  let detalle = { ...(row.detalle || {}) };
+  let detalle = { ...(row?.detalle || {}) };
   if (comentarios !== undefined) detalle.comentarios = comentarios;
   if (fechaNegocio !== undefined) detalle.fecha_negocio = fechaNegocio;
   if (recoleccion !== undefined || gastosTotal !== undefined) {
@@ -1494,14 +1476,72 @@ export async function actualizarCierreCorte(supabase, id, patch, sucursal, modul
     };
   }
 
-  const update = { detalle };
-  if (ventas !== undefined) update.ventas = ventas;
-  if (caja !== undefined) update.caja_actual = caja;
-  if (folio !== undefined) update.folio = folio;
+  let caja = cajaEscrita;
+  if (ajusteNomina > 0) {
+    const base = cajaEscrita != null ? cajaEscrita : round2Store(row?.caja_actual);
+    caja = round2Store(base - ajusteNomina);
+    const nota = `Nómina descontada en este cierre: $${ajusteNomina.toFixed(2)}. No cambia la caja del cierre siguiente.`;
+    const prevCom = String(detalle.comentarios || '');
+    detalle = {
+      ...detalle,
+      ajuste_nomina_monto: round2Store(round2Store(detalle.ajuste_nomina_monto) + ajusteNomina),
+      ajuste_nomina_en: new Date().toISOString(),
+      ajuste_nomina_sin_arrastre: true,
+      comentarios: prevCom.includes(nota) ? prevCom : [prevCom.trim(), nota].filter(Boolean).join('\n'),
+    };
+  }
+
+  return {
+    update: {
+      ...(ventas !== undefined ? { ventas } : {}),
+      ...(caja !== undefined ? { caja_actual: caja } : {}),
+      ...(folio !== undefined ? { folio } : {}),
+      detalle,
+    },
+  };
+}
+
+/** Actualiza un cierre del historial (corrección admin/gerente). Solo ese folio. */
+export async function actualizarCierreCorte(supabase, id, patch, sucursal, modulo) {
+  if (!id) return { ok: false, error: 'Cierre inválido.' };
+
+  if (!supabase) {
+    const key = lsKey(sucursal, modulo, 'historial');
+    let hist = [];
+    try {
+      hist = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {
+      hist = [];
+    }
+    let errorAjuste = null;
+    const next = hist.map((h) => {
+      if (String(h.id) !== String(id)) return h;
+      const built = patchCierreHistorial(h, patch);
+      if (built.error) {
+        errorAjuste = built.error;
+        return h;
+      }
+      return { ...h, ...built.update };
+    });
+    if (errorAjuste) return { ok: false, error: errorAjuste };
+    localStorage.setItem(key, JSON.stringify(next));
+    return { ok: true, soloLocal: true, data: next.find((h) => String(h.id) === String(id)) };
+  }
+
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Cierre no encontrado.' };
+
+  const built = patchCierreHistorial(row, patch);
+  if (built.error) return { ok: false, error: built.error };
 
   const { data, error } = await supabase
     .from('cortes_contabilidad_cierres')
-    .update(update)
+    .update(built.update)
     .eq('id', id)
     .select('*')
     .single();
