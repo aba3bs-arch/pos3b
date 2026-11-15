@@ -4,7 +4,7 @@ import { resolverTipoEmpleado } from '../../lib/empleadosVisibles.js';
 import { normalizarRol } from '../../lib/roles.js';
 import { usuarioEstaActivo } from '../../lib/usuariosAuth.js';
 import { calcularBonoSucursal } from '../../lib/bonosData.js';
-import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, resumenRepartoBono } from '../../lib/bonosConfig.js';
+import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, resumenRepartoBono, textoLineaEmpleadoBono } from '../../lib/bonosConfig.js';
 import { ajusteRetardoBono, cargarRetardosBono } from '../../lib/bonosRetardos.js';
 import {
   cargarBloqueosBonoPorFalta,
@@ -80,6 +80,9 @@ export function useAlertaBonoCorte({ supabase, sucursal, monto = null, enabled =
         }
       }
       if (!vivo) return;
+      const fechasFalta = new Map(
+        (bloq?.data || []).map((b) => [String(b?.clave || ''), b?.vuelveBonoYmd || '']),
+      );
       const pagos = res?.ok
         ? calcularPagosBonoPorEmpleado({
           base: res.base,
@@ -87,7 +90,11 @@ export function useAlertaBonoCorte({ supabase, sucursal, monto = null, enabled =
           plantilla,
           bloqueosFalta: bloq?.data || [],
           ...ajusteRetardoBono(res, retardos),
-        })
+        }).map((p) => (
+          p.conFalta
+            ? { ...p, vuelveBonoYmd: fechasFalta.get(p.clave) || '' }
+            : p
+        ))
         : [];
       setState({ cargando: false, pack: res, pagos });
     }, 350);
@@ -104,13 +111,14 @@ export function textoConfirmacionBono({ pack, pagos, origen }) {
   if (!pack?.ok || pack.activo === false) return '';
   const reciben = (pagos || []).filter((p) => !p.conFalta);
   const reparto = resumenRepartoBono(pagos);
-  const nombres = reciben.map((p) => p.nombre).filter(Boolean);
+  const lineasEmpleado = (pagos || []).map((p) => textoLineaEmpleadoBono(p));
   const factores = (pack.reglas || [])
     .map((r) => `${r.ok ? '✓' : '✗'} ${r.label} (${r.pesoPct}%)`)
     .join(', ');
   const lineas = ['', 'Bono (se paga en la recolección):'];
-  if (!nombres.length) {
-    lineas.push('Nadie recibe bono: falta vigente (vuelve a los 8 días sin falta).');
+  if (lineasEmpleado.length) lineas.push(...lineasEmpleado);
+  if (!reciben.length) {
+    lineas.push('Nadie cobra en esta recolección.');
   } else {
     lineas.push(`Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)}`);
     (pagos || []).forEach((p) => lineas.push(p.ecuacion));
@@ -144,20 +152,16 @@ export default function AlertaBonoCorte({
     ? `${reparto.cobran} de ${reparto.partes} partes`
     : '';
 
-  const alertas = alertasVisiblesBono(pack, pagos);
+  const alertas = alertasVisiblesBono(pack, pagos).filter((a) => a.tipo === 'factor');
+  const lineasEmpleado = (pagos || []).map((p) => textoLineaEmpleadoBono(p));
   let linea = cargando ? 'Calculando…' : 'Falta moneda final';
-  if (!reciben.length && alertas.some((a) => a.tipo === 'falta')) linea = 'Falta vigente · no se paga';
-  else if (!reciben.length && !(pagos || []).length) linea = 'Sin empleados de tienda';
+  if (!reciben.length && lineasEmpleado.length) linea = '';
+  else if (!reciben.length) linea = 'Sin empleados de tienda';
   else if (partesTxt && mostrarMonto) linea = partesTxt;
   else if (origen === 'moneda_final' || origen === 'acumulado') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
   else if (origen === 'recoleccion') linea = mismoPago ? 'c/u · esta recolección' : 'A pagar en esta recolección';
-  const nombres = !reciben.length
-    ? 'Nadie recibe bono'
-    : mismoPago
-      ? reciben.map((p) => p.nombre).join(' · ')
-      : reciben.map((p) => `${p.nombre} ${fmtMoney(p.pago)}`).join(' · ');
   const detalle = [
-    nombres,
+    lineasEmpleado.join('\n') || 'Sin empleados de tienda',
     mostrarMonto
       ? `Tabulador ${fmtMoney(reparto.totalTabulador || pack.base)} en ${reparto.partes} partes de ${fmtMoney(reparto.parte)} · a pagar ${fmtMoney(reparto.totalAPagar)}`
       : linea,
@@ -178,7 +182,13 @@ export default function AlertaBonoCorte({
           <span className="alerta-bono-corte__monto">{fmtMoney(montoCaja)}</span>
         ) : null}
       </div>
-      <div className="alerta-bono-corte__nombres">{nombres}</div>
+      <div className="alerta-bono-corte__nombres">
+        {lineasEmpleado.length
+          ? (pagos || []).map((p) => (
+            <div key={p.clave || p.id || p.nombre}>{textoLineaEmpleadoBono(p)}</div>
+          ))
+          : 'Sin empleados de tienda'}
+      </div>
       {alertas.length > 0 ? (
         <ul className="alerta-bono-corte__alertas">
           {alertas.map((a) => (
@@ -186,7 +196,7 @@ export default function AlertaBonoCorte({
           ))}
         </ul>
       ) : null}
-      <div className="alerta-bono-corte__pie">{linea}</div>
+      {linea ? <div className="alerta-bono-corte__pie">{linea}</div> : null}
     </div>
   );
 }

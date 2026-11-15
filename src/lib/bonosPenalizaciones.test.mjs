@@ -9,6 +9,7 @@ import {
   calcularPagosBonoPorEmpleado,
   alertasVisiblesBono,
   resumenRepartoBono,
+  textoLineaEmpleadoBono,
   resolverOrigenBonoCorte,
   ventaAcumuladaBonoVirtual,
   normalizarBonosConfig,
@@ -484,6 +485,11 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     'Retardos · Manuel (3)',
     'Falta · Mayra',
   ])
+  assert.equal(textoLineaEmpleadoBono({ nombre: 'Manuel', pago: 200, conFalta: false }), 'Manuel $200')
+  assert.equal(
+    textoLineaEmpleadoBono({ nombre: 'Mayra', pago: 0, conFalta: true, vuelveBonoYmd: '2026-11-21' }),
+    'Mayra n/b 21/11',
+  )
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')

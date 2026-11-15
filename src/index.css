@@ -6105,10 +6105,10 @@ table.data th {
   line-height: 1.25;
   color: #f8fafc;
   white-space: normal;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 0.03in;
 }
 
 .alerta-bono-corte__pie {

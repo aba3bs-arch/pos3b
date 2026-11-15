@@ -621,6 +621,26 @@ export function resumenRepartoBono(pagos = []) {
 }
 
 /**
+ * Línea de la tarjeta BONO: «Manuel $200» o «Mayra n/b 21/11».
+ * La fecha es el día en que vuelve el bono (vuelveBonoYmd).
+ */
+export function textoLineaEmpleadoBono(p) {
+  const nombre = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+  if (p?.conFalta) {
+    const ymd = String(p?.vuelveBonoYmd || '').slice(0, 10);
+    const partes = ymd.split('-');
+    const dia = partes.length === 3 && partes[2] && partes[1] ? `${partes[2]}/${partes[1]}` : '';
+    return dia ? `${nombre} n/b ${dia}` : `${nombre} n/b`;
+  }
+  const pago = round2(Number(p?.pago) || 0);
+  const entero = Math.abs(pago - Math.round(pago)) < 0.001;
+  const money = entero
+    ? `$${Math.round(pago).toLocaleString('es-MX')}`
+    : `$${pago.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${nombre} ${money}`;
+}
+
+/**
  * Avisos que se leen en la tarjeta de Corte virtual.
  * Las notificaciones del dispositivo no se usan: el cajero ve aquí el factor
  * que falló, la falta y el retardo que baja el bono.
