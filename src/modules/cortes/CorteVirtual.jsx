@@ -39,6 +39,8 @@ import {
   slugDesdeSucursalCliente,
 } from '../../lib/clientesMaquinas.js';
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
+import AlertaBonoCorte, { textoConfirmacionBono, useAlertaBonoCorte } from '../../components/corteContabilidad/AlertaBonoCorte.jsx';
+import { resolverOrigenBonoCorte } from '../../lib/bonosConfig.js';
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 
 const ACCENT = '#6c3483';
@@ -110,6 +112,22 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
   const monedaOperacion = round2(estado.moneda_inicial);
   const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const miInyectada = Boolean(calc.monedaInyectada);
+  const origenMontoBono = resolverOrigenBonoCorte({
+    recoleccion: montoRec,
+    tope: monedaOperacion,
+    monedaInicial: miCorte,
+    monedaFinal: estado.moneda_final,
+    monedaFinalEditada: estado.moneda_final_editada,
+  });
+  const origenBono = origenMontoBono.origen;
+  const montoBono = origenMontoBono.monto;
+  const bonoAlerta = useAlertaBonoCorte({
+    supabase,
+    sucursal,
+    monto: montoBono,
+    enabled: !sinAlertas,
+  });
+  const notaBono = textoConfirmacionBono({ ...bonoAlerta, origen: origenBono });
   const pendientesLocales = (gastos || []).filter((g) => (g.estado_aprobacion || 'aprobado') === 'pendiente_admin').length;
   const uiLock = useRef(createSubmitLock()).current;
 
@@ -127,7 +145,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
         `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
         `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n\n` +
         `Siguiente corte: MI = MF · caja chica = actual.\n` +
-        `Este cierre no va a IE. Gastos quedan en cero para el siguiente corte.`,
+        `Este cierre no va a IE. Gastos quedan en cero para el siguiente corte.` +
+        notaBono,
     )) return;
     const res = await cerrarCorte();
     if (!res?.ok) return;
@@ -172,7 +191,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
         `Próxima moneda inicial (MI = tope): ${fmtCorte(miSiguiente)}\n\n` +
         `Antonio: actualizar portal solo con la moneda a inyectar.\n` +
         `Después de la recolección, si cambia el tope, la MI del corte también cambia.\n` +
-        `Al cerrar el siguiente turno, la MI del corte siguiente será la MF de ese cierre.`,
+        `Al cerrar el siguiente turno, la MI del corte siguiente será la MF de ese cierre.` +
+        notaBono,
     )) return;
 
     const res = await registrarRecoleccion({ montoRecoleccion: montoRec });
@@ -385,6 +405,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
               </p>
             )}
           </div>
+          {!sinAlertas && (
+            <AlertaBonoCorte
+              cargando={bonoAlerta.cargando}
+              pack={bonoAlerta.pack}
+              pagos={bonoAlerta.pagos}
+              origen={origenBono}
+            />
+          )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', justifyContent: 'flex-end', maxWidth: 420 }}>
             <button
               type="button"
