@@ -43,7 +43,7 @@ export function validarTextoSinReservadoAdmin(texto, user) {
     requierePin: true,
     error:
       `No se puede usar «${hallado.toUpperCase()}» en comentarios ni categorías ` +
-      `sin ser administrador o sin autorización (PIN de AMR / Andrés).`,
+      `sin ser administrador o sin autorización (PUN del administrador principal).`,
   };
 }
 
@@ -57,7 +57,7 @@ export async function asegurarTextoSinReservadoOPin(supabase, texto, { user, suc
   if (!supabase) return { ok: false, error: v.error };
 
   const pin = promptFn(
-    `${v.error}\n\nPIN de AMR / Andrés para autorizar:`,
+    `${v.error}\n\nPUN del administrador principal para autorizar:`,
   );
   if (pin === null) return { ok: false, error: 'Autorización cancelada.', cancelado: true };
   const auth = await verificarAdminPrincipal(supabase, String(pin).trim(), sucursal);

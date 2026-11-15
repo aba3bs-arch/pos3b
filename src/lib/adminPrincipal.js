@@ -23,32 +23,47 @@ export function nombreEsAdminPrincipal(nombre) {
 }
 
 /**
- * Administrador principal (AMR / Andrés): herramientas sensibles y
- * autorización de comentarios/categorías con su nombre.
+ * Cuenta oculta del administrador principal.
+ * No aparece en Usuarios, nómina ni RH. Nadie más puede darla de baja o borrarla.
+ */
+export function esCuentaAdminPrincipalOculta(user) {
+  return user?.es_admin_principal === true;
+}
+
+/**
+ * Administrador principal: la cuenta marcada es_admin_principal.
+ * Antes de esa columna, seguía siendo el administrador cuyo nombre es AMR / Andrés.
  */
 export function esAdministradorPrincipal(user) {
   if (!user) return false;
   if (normalizarRol(user.rol) !== 'Administrador') return false;
+  if (user.es_admin_principal === true) return true;
+  if (user.es_admin_principal === false) return false;
   return nombreEsAdminPrincipal(user.nombre);
 }
 
+/** Quita la cuenta oculta de cualquier lista que vean los demás. */
+export function omitirAdminPrincipalOculto(lista) {
+  return (lista || []).filter((u) => !esCuentaAdminPrincipalOculta(u));
+}
+
 /**
- * Valida PIN del admin principal en cualquier sucursal
- * (AMR/Andrés no está anclado a una sola caja).
+ * Valida el PUN del administrador principal (también acepta el PIN legado
+ * solo mientras la cuenta siga identificándose por el nombre, sin la marca nueva).
  */
 export async function verificarAdminPrincipal(supabase, pin, _sucursal) {
-  const auth = await verificarPinAdministradorGlobal(supabase, pin);
-  if (!auth.ok) {
-    return {
-      ok: false,
-      error: auth.error || 'PIN incorrecto.',
-    };
+  const credencial = String(pin || '').trim();
+  const auth = await verificarPinAdministradorGlobal(supabase, credencial);
+  if (auth.ok && esAdministradorPrincipal(auth.user) && !esCuentaAdminPrincipalOculta(auth.user)) {
+    return auth;
   }
-  if (!esAdministradorPrincipal(auth.user)) {
-    return {
-      ok: false,
-      error: 'Solo el administrador principal (AMR / Andrés) puede realizar esta acción.',
-    };
+  const { entrarConPun } = await import('./punAdminPrincipal.js');
+  const porPun = await entrarConPun(supabase, credencial);
+  if (porPun.ok && esAdministradorPrincipal(porPun.user)) {
+    return { ok: true, user: porPun.user, nombre: porPun.user.nombre || 'Administrador principal' };
   }
-  return auth;
+  return {
+    ok: false,
+    error: 'Solo el administrador principal puede realizar esta acción. Usa su PUN.',
+  };
 }

@@ -3,7 +3,9 @@ import {
   esAdministradorPrincipal,
   nombreEsAdminPrincipal,
   normalizarNombrePersona,
+  omitirAdminPrincipalOculto,
 } from './adminPrincipal.js';
+import { filtrarEmpleadosAdmin } from './empleadosVisibles.js';
 import {
   encontrarReservadoAdmin,
   validarTextoSinReservadoAdmin,
@@ -19,6 +21,24 @@ assert.ok(esAdministradorPrincipal({ rol: 'Administrador', nombre: 'AMR' }));
 assert.ok(esAdministradorPrincipal({ rol: 'Administrador', nombre: 'Andrés' }));
 assert.equal(esAdministradorPrincipal({ rol: 'Gerente', nombre: 'AMR' }), false);
 assert.equal(esAdministradorPrincipal({ rol: 'Administrador', nombre: 'Francisco' }), false);
+assert.equal(
+  esAdministradorPrincipal({ rol: 'Administrador', nombre: 'Andrés Marrero', es_admin_principal: false }),
+  false,
+);
+assert.equal(
+  esAdministradorPrincipal({ rol: 'Gerente', nombre: 'Andrés Marrero', es_admin_principal: false }),
+  false,
+);
+assert.ok(esAdministradorPrincipal({
+  rol: 'Administrador',
+  nombre: 'Administrador principal',
+  es_admin_principal: true,
+}));
+
+const oculto = { id: 'p', nombre: 'Administrador principal', rol: 'Administrador', es_admin_principal: true };
+const andres = { id: 'a', nombre: 'Andrés Marrero', rol: 'Gerente', es_admin_principal: false };
+assert.deepEqual(omitirAdminPrincipalOculto([oculto, andres]).map((u) => u.id), ['a']);
+assert.deepEqual(filtrarEmpleadosAdmin([oculto, andres]).map((u) => u.id), ['a']);
 
 assert.equal(encontrarReservadoAdmin('pago a AMR'), 'amr');
 assert.equal(encontrarReservadoAdmin('gasto Andrés'), 'andres');

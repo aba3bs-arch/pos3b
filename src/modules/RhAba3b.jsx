@@ -406,7 +406,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
     if (!confirm(eraAdmin
       ? `¿Reingresar a ${nombreCompletoRh(emp)} como administrador?\n\nSu PIN vuelve a entrar. Sigue en la pestaña Administradores, no en nómina de tienda.`
       : necesitaPin
-        ? `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)} con PIN del administrador principal?`
+        ? `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)} con PUN del administrador principal?`
         : `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)}?\n\nVolverá a nómina, turnos y Usuarios en esa tienda.`)) return;
     setTrabajando(true);
     const res = await recontratarEmpleadoRh(
@@ -564,7 +564,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               <li>Elige a alguien en <strong>Inactivos / bajas</strong> (no crees un expediente nuevo).</li>
               <li>Elige la <strong>tienda destino</strong> (puede ser distinta a la última donde estuvo).</li>
               <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y Usuarios solo en esa tienda.</li>
-              <li>Si está <strong>no recontratable</strong>, captura el PIN del administrador principal.</li>
+              <li>Si está <strong>no recontratable</strong>, captura el PUN del administrador principal.</li>
             </ol>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
               <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
@@ -1067,7 +1067,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
               {!empleado.recontratable && (
                 <p style={{ margin: '0.5rem 0 0', color: 'var(--danger)', fontSize: '0.88rem' }}>
                   No recontratable: {empleado.motivo_no_recontratable || '—'}
-                  {' '}· Reingreso solo con PIN del administrador principal.
+                  {' '}· Reingreso solo con PUN del administrador principal.
                 </p>
               )}
             </div>
@@ -1122,14 +1122,14 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => setVista(reingresoOrigen === 'detalle' ? 'detalle' : 'lista')}>
             ← Volver
           </button>
-          <h3 style={{ margin: '0.5rem 0' }}>Reingreso con PIN del administrador principal</h3>
+          <h3 style={{ margin: '0.5rem 0' }}>Reingreso con PUN del administrador principal</h3>
           <p className="muted" style={{ fontSize: '0.88rem' }}>
             {nombreCompletoRh(empleado)} no es recontratable. Para volver a darlo de alta se necesita el PIN del{' '}
             <strong>administrador principal</strong>.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
             <div>
-              <label className="muted" style={{ fontSize: '0.78rem' }}>PIN del administrador principal</label>
+              <label className="muted" style={{ fontSize: '0.78rem' }}>PUN del administrador principal</label>
               <InputPin value={pinAdmin} onChange={(e) => setPinAdmin(e.target.value)} />
             </div>
             <button type="button" className="btn btn-primary" disabled={trabajando || !pinAdmin} onClick={() => recontratarDirecto()}>

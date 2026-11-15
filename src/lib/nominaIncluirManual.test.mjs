@@ -31,4 +31,10 @@ assert.ok(
 );
 const socioAdmin = { id: 'u7', nombre: 'Socio', rol: 'Administrador', sucursal_id: 'MAIN', activo: true, socio_3b: true };
 assert.ok(!empleadosParaNominaGlobal([socioAdmin]).some((e) => e.id === 'u7'), 'los socios 3B siguen fuera');
+
+const oculto = { id: 'oculto', nombre: 'Administrador principal', rol: 'Administrador', sucursal_id: 'MAIN', activo: true, es_admin_principal: true };
+const andres = { id: 'andres', nombre: 'Andrés Marrero', rol: 'Gerente', sucursal_id: 'MAIN', activo: true, es_admin_principal: false };
+const nominaAndres = empleadosParaNominaGlobal([oculto, andres]).filter((e) => !String(e.id).startsWith('indirect:'));
+assert.deepEqual(nominaAndres.map((e) => e.id), ['andres']);
+assert.ok(!candidatosAgregarNomina([oculto, andres], nominaAndres).some((e) => e.id === 'oculto'));
 console.log('nominaIncluirManual.test.mjs OK');

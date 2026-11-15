@@ -22,7 +22,7 @@ export const GUIAS_MODULOS = [
       ['dar de baja', 7], ['baja de empleado', 7], ['baja empleado', 7], ['confirmar baja', 7], ['reingresar', 5], ['reingreso', 5], ['reingresar alta', 7],
       ['cambiar de tienda', 7], ['cambio de tienda', 7], ['traslado', 4], ['dados de baja', 7], ['recontratable', 6], ['liberar equipo', 6],
     ],
-    texto: 'Baja: en «Usuarios» usa «Cómo dar de baja un empleado» o el botón «Dar de baja» de «Equipo registrado»; captura motivo, fecha y si «Puede reingresar», y «Confirmar baja». No borres el usuario: así conservas el historial. Reingreso: «Cómo reingresar un empleado» → «Reingresar alta» (si no es recontratable pide el PIN del administrador principal). Cambio de tienda: «Cambiar de tienda». El Gerente también lo hace en «RH ABA3B».',
+    texto: 'Baja: en «Usuarios» usa «Cómo dar de baja un empleado» o el botón «Dar de baja» de «Equipo registrado»; captura motivo, fecha y si «Puede reingresar», y «Confirmar baja». No borres el usuario: así conservas el historial. Reingreso: «Cómo reingresar un empleado» → «Reingresar alta» (si no es recontratable pide el PUN del administrador principal). Cambio de tienda: «Cambiar de tienda». El Gerente también lo hace en «RH ABA3B».',
   },
   {
     id: 'rh_aba3b',

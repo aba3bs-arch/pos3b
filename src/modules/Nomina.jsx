@@ -169,9 +169,9 @@ export default function Nomina({ supabase, sucursal, user }) {
       setErr('');
       let empleadosRes = await supabase
         .from('usuarios')
-        .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo')
+        .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo, es_admin_principal')
         .order('nombre');
-      if (empleadosRes.error && String(empleadosRes.error.message || '').includes('activo')) {
+      if (empleadosRes.error && /es_admin_principal|activo/i.test(String(empleadosRes.error.message || ''))) {
         empleadosRes = await supabase
           .from('usuarios')
           .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario')
