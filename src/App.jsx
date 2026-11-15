@@ -70,7 +70,7 @@ import {
   esCentralAdmin,
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente, esRolRepartidor } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente, esRolRepartidor, fijarSesionPrivilegios } from './lib/roles.js';
 import { inventarioParaSucursal, asegurarMapaStock } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -692,6 +692,11 @@ function App() {
     const id = setInterval(sync, 120_000);
     return () => clearInterval(id);
   }, [sesion, supabase, sucursal]);
+
+  useEffect(() => {
+    fijarSesionPrivilegios(sesion ? user : null);
+    return () => fijarSesionPrivilegios(null);
+  }, [sesion, user]);
 
   useEffect(() => {
     if (!sesion || !user) return;

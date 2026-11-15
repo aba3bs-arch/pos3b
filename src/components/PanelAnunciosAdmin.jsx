@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { normalizarRol } from '../lib/roles.js';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
 import {
   ANUNCIO_IMAGEN_MAX_BYTES,
@@ -19,7 +19,7 @@ function PuntoVerdeActivo() {
 
 /** Publicar anuncios flotantes: cualquier Administrador (antes solo Andrés). */
 export default function PanelAnunciosAdmin({ supabase, user, onCerrar }) {
-  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   const [activo, setActivo] = useState(false);
   const [lista, setLista] = useState([]);
   const [asunto, setAsunto] = useState('');

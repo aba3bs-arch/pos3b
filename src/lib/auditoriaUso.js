@@ -8,7 +8,7 @@ import {
   esTerminalTiendaFijada,
   obtenerIdDispositivoLocal,
 } from './dispositivoUsuario.js';
-import { normalizarRol, rolSistemaEfectivo } from './roles.js';
+import { normalizarRol, rolSistemaEfectivo, sesionConPrivilegiosAdmin } from './roles.js';
 
 export const LS_AUDITORIA_BUFFER = 'pos3b_auditoria_buffer';
 export const EVENTO_AUDITORIA = 'pos3b-auditoria-evento';
@@ -557,5 +557,6 @@ export function resumenEventoAuditoria(row) {
 }
 
 export function puedeVerModuloAuditoria(rol) {
+  if (sesionConPrivilegiosAdmin(rol)) return true;
   return rolSistemaEfectivo(rol) === 'Administrador';
 }

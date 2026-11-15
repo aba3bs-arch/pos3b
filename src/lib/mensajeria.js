@@ -11,7 +11,7 @@
  * así que el acceso se aplica al armar la consulta y al pintar la pantalla.
  */
 import { esAdministradorPrincipal, normalizarNombrePersona } from './adminPrincipal.js';
-import { normalizarRol } from './roles.js';
+import { esAndresMarrero, normalizarRol } from './roles.js';
 import { esUsuarioCubreTurno } from './cubreTurno.js';
 import { leerTurnos, turnoActual } from './turnos.js';
 import {
@@ -83,12 +83,12 @@ export function esAdministrador(user) {
 
 /** Ve el soporte de todas las sucursales y puede contestar. */
 export function atiendeSoporte(user) {
-  return esAdministrador(user) || esRolTecnico(user);
+  return esAdministrador(user) || esAndresMarrero(user) || esRolTecnico(user);
 }
 
 /** Cierra o reabre la solicitud. Solo administradores. */
 export function puedeResolverSoporte(user) {
-  return esAdministrador(user);
+  return esAdministrador(user) || esAndresMarrero(user);
 }
 
 export function esBotSoporte(user) {

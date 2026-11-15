@@ -30,7 +30,7 @@ import { cargarMapaSaldosArrastre } from '../lib/nominaSaldoArrastre.js';
 import { reabrirPeriodoNomina, eliminarPeriodoNomina } from '../lib/nominaReabrir.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
-import { normalizarRol } from '../lib/roles.js';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 function fmt(n) {
@@ -120,7 +120,7 @@ const COLS = [
 
 export default function Nomina({ supabase, sucursal, user }) {
   const semanaCalendario = periodoSemanaNomina();
-  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   /** Quien puede cerrar nómina también puede borrar duplicadas del historial. */
   const puedeEliminarNomina = Boolean(user);
   const [aviso, setAviso] = useState('');
