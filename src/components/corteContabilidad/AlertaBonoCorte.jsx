@@ -172,6 +172,10 @@ export default function AlertaBonoCorte({
   else if (origen === 'moneda_final' || origen === 'acumulado') linea = mismoPago ? 'c/u · se paga al recolectar' : 'Se paga al recolectar';
   else if (origen === 'recoleccion') linea = mismoPago ? 'c/u · esta recolección' : 'A pagar en esta recolección';
   const ventaTxt = `Venta ${fmtMoney(pack.recoleccion)}`;
+  const tabuladorN = Math.round((Number(pack.base) || 0) * 100) / 100;
+  const pctFactores = Math.round((Number(pack.pct) || 0) * 100) / 100;
+  const tabuladorTxt = tabuladorN > 0 ? `tabulador ${fmtMoney(tabuladorN)}` : '';
+  const factoresTxt = hayFactores && pctFactores < 100 ? `factores ${pctFactores}%` : '';
   const detalle = [
     ventaTxt,
     lineasEmpleado.join('\n') || 'Sin empleados de tienda',
@@ -229,7 +233,7 @@ export default function AlertaBonoCorte({
           ))}
         </ul>
       ) : null}
-      <div className="alerta-bono-corte__pie">{[ventaTxt, linea].filter(Boolean).join(' · ')}</div>
+      <div className="alerta-bono-corte__pie">{[ventaTxt, tabuladorTxt, factoresTxt, linea].filter(Boolean).join(' · ')}</div>
     </div>
   );
 }

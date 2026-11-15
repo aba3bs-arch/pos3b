@@ -203,6 +203,47 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
+  // Venta $4,453 → rango 4001–7000 = $200. Al 100% cada turno cobra $200. Al 20% cobra $40.
+  const base = bonoBasePorMonto(4453)
+  assert.equal(base, 200)
+  const completo = calcularPagosBonoPorEmpleado({
+    base,
+    td: 200,
+    tn: 200,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Manuel', turno_id: 'diurno' },
+      { id: 2, nombre: 'Mayra', turno_id: 'nocturno' },
+    ],
+  })
+  assert.equal(completo.find((p) => p.nombre === 'Manuel').pago, 200)
+  assert.equal(completo.find((p) => p.nombre === 'Mayra').pago, 200)
+  const soloUnFactor = calcularPagosBonoPorEmpleado({
+    base,
+    td: 200,
+    tn: 200,
+    pctTienda: 20,
+    plantilla: [
+      { id: 1, nombre: 'Manuel', turno_id: 'diurno' },
+      { id: 2, nombre: 'Mayra', turno_id: 'nocturno' },
+    ],
+  })
+  assert.equal(soloUnFactor.every((p) => p.pago === 40), true)
+}
+
+{
+  // La semana apenas empieza: si el checklist de los días ya transcurridos está hecho, no resta.
+  const semanaCorta = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 2,
+    checklistOk: true,
+    evaluacionPct: 80,
+    mermaPct: 2,
+  })
+  assert.equal(semanaCorta.pct, 100)
+}
+
+{
   // Venta $3,846 → rango $100. TD y TN cobran esa columna, no se parte entre los dos turnos.
   const rango = rangoBonoPorMonto(3846)
   assert.equal(rango.bono, 100)
@@ -294,7 +335,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Un solo factor encendido aporta su porcentaje (20% por defecto). Si falla, no suma.
+  // Un solo factor encendido vale el 100% del tabulador. Si falla, no suma.
   const soloCheck = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -310,7 +351,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     checklistDias: 6,
     evaluacionPct: 10,
     mermaPct: 20,
-  }, soloCheck).pct, 20)
+  }, soloCheck).pct, 100)
   assert.equal(calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
     checklistDias: 1,
@@ -318,7 +359,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     mermaPct: 1,
   }, soloCheck).pct, 0)
 
-  // Dos encendidos al 20%: fallar uno deja el 20% del que sí se cumple.
+  // Dos encendidos: cada uno vale 50%. Fallar uno deja el 50%.
   const dos = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -335,11 +376,11 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     evaluacionPct: 0,
     mermaPct: 99,
   }, dos)
-  assert.equal(mitad.pesoFactor, 20)
-  assert.equal(mitad.pct, 20)
+  assert.equal(mitad.pesoFactor, 50)
+  assert.equal(mitad.pct, 50)
   assert.equal(mitad.factoresActivos, 2)
 
-  // Tres encendidos al 20%: fallar uno deja 40%.
+  // Tres encendidos: fallar uno deja las dos partes que sí se cumplen.
   const tres = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -357,8 +398,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     mermaPct: 99,
   }, tres)
   assert.equal(tercio.factoresActivos, 3)
-  assert.equal(tercio.pesoFactor, 20)
-  assert.equal(tercio.pct, 40)
+  assert.equal(tercio.pesoFactor, 33.33)
+  assert.equal(tercio.pct, 66.67)
 
   // Ninguno encendido: tabulador al 100%, sin factores que restar.
   const ninguno = normalizarBonosConfig({
@@ -380,7 +421,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(libre.pct, 100)
   assert.equal(libre.factoresActivos, 0)
 
-  // Porcentajes editados: se paga la suma de los encendidos que se cumplen.
+  // El porcentaje guardado no parte el tabulador: los encendidos se reparten el 100%.
   const editados = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -404,7 +445,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     evaluacionPct: 90,
     mermaPct: 1,
   }, editados)
-  assert.equal(fallaUno.pct, 60)
+  assert.equal(fallaUno.pct, 66.67)
 }
 
 {

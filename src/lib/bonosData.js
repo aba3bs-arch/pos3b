@@ -463,6 +463,7 @@ export async function calcularBonoSucursal(supabase, {
     const calc = calcularPctBonoPorPenalizaciones({
       faltanteOk: falt.ok,
       checklistDias: check.diasConChecklist,
+      checklistOk: check.ok,
       evaluacionPct: evalRes.pct,
       mermaPct: merma.pct,
     }, cfgLive);

@@ -396,14 +396,30 @@ export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
 
 export const IDS_FACTORES_BONO = ['faltanteCero', 'checklistDiario', 'evaluacionMinPct', 'mermaMaxPct', 'retardos'];
 
-/** Porcentaje que aporta cada factor encendido. Lo edita el administrador. */
+/**
+ * Los factores encendidos se reparten el 100% del tabulador.
+ * 5 encendidos = 20% cada uno. 1 encendido = 100%. Apagado no deja hueco.
+ */
 export function pesosFactoresBono(config = null) {
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
   const activos = IDS_FACTORES_BONO.filter((id) => cfg.reglas[id]?.activo);
+  const n = activos.length;
   const pesos = {};
-  for (const id of activos) pesos[id] = round2(Number(cfg.reglas[id]?.penalizacionPct) || 0);
-  const suma = round2(activos.reduce((s, id) => s + pesos[id], 0));
-  return { activos, n: activos.length, pesos, suma };
+  let acumulado = 0;
+  activos.forEach((id, i) => {
+    const peso = i === n - 1
+      ? round2(100 - acumulado)
+      : round2(Math.floor((100 / n) * 100) / 100);
+    pesos[id] = peso;
+    acumulado = round2(acumulado + peso);
+  });
+  return {
+    activos,
+    n,
+    pesos,
+    suma: n ? 100 : 0,
+    peso: n ? round2(100 / n) : 0,
+  };
 }
 
 function juicioFactorBono(id, reglas, metricas) {
@@ -419,8 +435,13 @@ function juicioFactorBono(id, reglas, metricas) {
     const dias = Math.max(0, Math.round(Number(metricas.checklistDias) || 0));
     const minimo = Number(reglas.checklistDiario.diasPenalizaSiHasta) || 4;
     const esperados = Number(reglas.checklistDiario.diasEsperados) || 6;
+    // checklistOk ya cuenta solo los días transcurridos de la semana.
+    // Sin ese dato, se usa el mínimo fijo (4).
+    const ok = typeof metricas.checklistOk === 'boolean'
+      ? metricas.checklistOk
+      : dias >= minimo;
     return {
-      ok: dias >= minimo,
+      ok,
       valor: `${dias}/${esperados} días`,
       requerido: `≥${minimo} días (ideal ${esperados})`,
     };
@@ -455,8 +476,8 @@ function juicioFactorBono(id, reglas, metricas) {
 }
 
 /**
- * % del bono = suma de los porcentajes de los factores encendidos que sí se cumplen.
- * Cada porcentaje se edita en configuración. Si los cinco suman 100% y se cumplen, se paga el total.
+ * % del bono = parte de los factores encendidos que sí se cumplen.
+ * Se reparten el 100% del tabulador. Si uno falla, se pierde solo su parte.
  * Sin ninguno encendido, el tabulador se paga al 100% (solo decide la falta).
  *
  * @param {{
@@ -469,7 +490,7 @@ function juicioFactorBono(id, reglas, metricas) {
  */
 export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
-  const { activos, n, pesos } = pesosFactoresBono(cfg);
+  const { activos, n, pesos, peso } = pesosFactoresBono(cfg);
   if (!n) {
     return {
       pct: 100,
@@ -499,7 +520,6 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
   });
   const cumplidas = detalle.filter((d) => d.ok);
   const pct = round2(Math.min(100, cumplidas.reduce((s, d) => s + d.pesoPct, 0)));
-  const pesosUnicos = [...new Set(detalle.map((d) => d.pesoPct))];
 
   return {
     pct,
@@ -508,7 +528,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
     bloqueadoPorFaltante: false,
     fallosLineamiento: n - cumplidas.length,
     factoresActivos: n,
-    pesoFactor: pesosUnicos.length === 1 ? pesosUnicos[0] : 0,
+    pesoFactor: n ? peso : 0,
     sumaFactores: round2(detalle.reduce((s, d) => s + d.pesoPct, 0)),
   };
 }
