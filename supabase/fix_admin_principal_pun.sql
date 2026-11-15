@@ -176,11 +176,31 @@ begin
       null;
   end;
 
-  select id into uid
-  from public.usuarios
-  where es_admin_principal is true
-  order by created_at nulls last
-  limit 1;
+  -- La tabla real usa creado_at. Instalaciones viejas del script usan created_at.
+  begin
+    execute $q$
+      select id from public.usuarios
+      where es_admin_principal is true
+      order by creado_at nulls last
+      limit 1
+    $q$ into uid;
+  exception
+    when undefined_column then
+      begin
+        execute $q$
+          select id from public.usuarios
+          where es_admin_principal is true
+          order by created_at nulls last
+          limit 1
+        $q$ into uid;
+      exception
+        when undefined_column then
+          select id into uid
+          from public.usuarios
+          where es_admin_principal is true
+          limit 1;
+      end;
+  end;
 
   if uid is null then
     pin_interno := md5(random()::text || clock_timestamp()::text);
