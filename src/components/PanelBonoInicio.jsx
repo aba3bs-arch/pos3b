@@ -199,6 +199,53 @@ export default function PanelBonoInicio({
         </div>
       </div>
 
+      {nEmpleados > 0 && (
+        <div
+          style={{
+            marginTop: '0.85rem',
+            padding: '0.7rem 0.8rem',
+            borderRadius: 8,
+            border: '1px solid rgba(180,83,9,0.45)',
+            background: 'rgba(180,83,9,0.09)',
+          }}
+          aria-label="Alerta de bono por empleado"
+        >
+          <div style={{ fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.04em', color: '#b45309', marginBottom: 6 }}>
+            ALERTA
+          </div>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '0.28rem', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+            {pagosEmpleado.map((p) => {
+              const recibe = p.pago > 0;
+              return (
+                <li
+                  key={`alerta-${p.clave || p.id || p.nombre}`}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1fr) auto minmax(6.5rem, auto)',
+                    gap: '0.45rem',
+                    alignItems: 'baseline',
+                    fontSize: '0.98rem',
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nombre}</span>
+                  <span>=</span>
+                  <strong
+                    className={recibe ? 'bono-monto-parpadeo' : undefined}
+                    style={{ color: recibe ? '#b45309' : '#b91c1c', fontWeight: 800 }}
+                    title={!recibe && p.fechaActivacion ? `Se activa el ${fmtDia(p.fechaActivacion)}` : undefined}
+                  >
+                    {p.etiquetaAlerta || (recibe ? String(p.pago) : 'N/B')}
+                  </strong>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="muted" style={{ margin: '0.45rem 0 0', fontSize: '0.7rem' }}>
+            Quien cobra muestra el monto. N/B es sin bono; la fecha (mes/día) es cuando se activa de nuevo.
+          </p>
+        </div>
+      )}
+
       <div
         style={{
           marginTop: '0.85rem',
@@ -326,7 +373,7 @@ export default function PanelBonoInicio({
                   {p.ecuacion}
                 </span>
                 <strong style={{ color: p.pago > 0 ? '#b45309' : '#b91c1c' }}>
-                  {fmtMoney(p.pago)}
+                  {p.pago > 0 ? fmtMoney(p.pago) : (p.etiquetaAlerta || 'N/B')}
                 </strong>
               </li>
             ))}

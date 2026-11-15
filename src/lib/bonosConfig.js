@@ -350,6 +350,36 @@ export function bonoFinal(base, pct) {
   return round2((Number(base) || 0) * ((Number(pct) || 0) / 100));
 }
 
+/** Fecha de activación del bono en la alerta: MM/DD (ej. 2026-11-21 → 11/21). */
+export function fmtFechaActivacionBono(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '').slice(0, 10));
+  if (!m) return '';
+  return `${m[2]}/${m[3]}`;
+}
+
+function fmtMontoAlertaBono(n) {
+  const v = round2(n);
+  if (Number.isInteger(v)) return String(v);
+  return String(v);
+}
+
+/**
+ * Lado derecho de la alerta por empleado.
+ * Recibe → monto (200). No recibe → N/B y, si hay, la fecha en que se activa.
+ */
+export function etiquetaAlertaBonoEmpleado({ pago, fechaActivacion } = {}) {
+  const monto = round2(pago);
+  if (monto > 0) return fmtMontoAlertaBono(monto);
+  const fecha = fmtFechaActivacionBono(fechaActivacion);
+  return fecha ? `N/B ${fecha}` : 'N/B';
+}
+
+/** Línea de la alerta: `manuel ocejo = 200` o `mayra = N/B 11/21`. */
+export function lineaAlertaBonoEmpleado(p = {}) {
+  const nom = String(p?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+  return `${nom} = ${etiquetaAlertaBonoEmpleado(p)}`;
+}
+
 /** Bono de un turno = base configurada × % evaluación del compañero. */
 export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
   return bonoFinal(baseTurno, pctEvaluacion);
@@ -500,19 +530,23 @@ export function calcularPagosBonoPorEmpleado({
 } = {}) {
   const baseN = round2(Number(base) || 0);
   const pctT = Math.max(0, Math.min(100, Number(pctTienda) || 0));
-  const bloqueados = new Set(
-    (bloqueosFalta || [])
-      .map((b) => String(b?.clave || '').trim())
-      .filter(Boolean),
-  );
+  const bloqueoPorClave = new Map();
+  for (const b of bloqueosFalta || []) {
+    const c = String(b?.clave || '').trim();
+    if (c && !bloqueoPorClave.has(c)) bloqueoPorClave.set(c, b);
+  }
 
   return (plantilla || []).map((u) => {
     const id = u?.id != null ? String(u.id) : '';
     const clave = id ? `id:${id}` : '';
     const nombre = String(u?.nombre || 'Sin nombre').trim() || 'Sin nombre';
-    const conFalta = Boolean(clave && bloqueados.has(clave));
+    const bloq = clave ? bloqueoPorClave.get(clave) : null;
+    const conFalta = Boolean(bloq);
     const pct = conFalta ? 0 : pctT;
     const pago = bonoFinal(baseN, pct);
+    // Día en que vuelve el bono (8 días después de la última falta de la cadena).
+    const fechaActivacion = bloq?.vuelveBonoYmd || bloq?.fechaActivacion || null;
+    const etiquetaAlerta = etiquetaAlertaBonoEmpleado({ pago, fechaActivacion });
     const ecuacion = conFalta
       ? `${nombre} · $${baseN.toLocaleString('es-MX')} × 0% (falta) = $0`
       : `${nombre} · $${baseN.toLocaleString('es-MX')} × ${pct}% = $${pago.toLocaleString('es-MX')}`;
@@ -525,6 +559,9 @@ export function calcularPagosBonoPorEmpleado({
       pctTienda: pctT,
       pct,
       pago,
+      fechaActivacion,
+      etiquetaAlerta,
+      lineaAlerta: `${nombre} = ${etiquetaAlerta}`,
       ecuacion,
     };
   }).sort((a, b) => {
