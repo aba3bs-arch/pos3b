@@ -216,8 +216,8 @@ export function calcularVirtual(estado, gastos = []) {
   const mfRaw = estado.moneda_final;
   const mfVacio = mfRaw === '' || mfRaw == null;
   const mf = round2(mfRaw);
-  // Campo vacío no es un conteo en cero: si no, la venta sería toda la moneda inicial.
-  const capturada = !mfVacio && (Boolean(estado.moneda_final_editada) || mf > 0);
+  // Cero o vacío no es un conteo: si no, la venta sería toda la moneda inicial.
+  const capturada = !mfVacio && mf > 0;
   const ventaCalc = capturada ? round2(mi - mf) : 0;
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const fondo = round2(estado.fondo);

@@ -443,6 +443,28 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     monedaFinalEditada: true,
   }), 6000)
 
+  // Tope $10,000 e inicial $9,622: la venta es $378, no el tope.
+  // Aunque la moneda final quede en 0 marcada como editada, no es un conteo.
+  const delValle = resolverOrigenBonoCorte({
+    recoleccion: 0,
+    tope: 10000,
+    monedaInicial: 9622,
+    monedaFinal: 0,
+    monedaFinalEditada: true,
+  })
+  assert.equal(delValle.monto, 378)
+  assert.equal(bonoBasePorMonto(delValle.monto), 0)
+  assert.equal(bonoBasePorMonto(10000), 300)
+  const pagosDelValle = calcularPagosBonoPorEmpleado({
+    base: bonoBasePorMonto(delValle.monto),
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Frania' },
+      { id: 2, nombre: 'Leyver' },
+    ],
+  })
+  assert.equal(pagosDelValle.every((p) => p.pago === 0), true)
+
   // Al cerrar, la moneda final pasa a ser la inicial del siguiente corte y el bono sigue.
   const siguiente = resolverOrigenBonoCorte({
     tope: 10000,

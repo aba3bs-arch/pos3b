@@ -13,6 +13,15 @@ const abierto = calcularVirtual({
 assert.equal(abierto.venta, 0)
 assert.equal(bonoBasePorMonto(abierto.venta), 0)
 
+// Moneda final en 0, aunque el flag quede encendido, tampoco es un conteo.
+const cero = calcularVirtual({
+  moneda_inicial: 10000,
+  moneda_inicial_turno: 9622,
+  moneda_final: 0,
+  moneda_final_editada: true,
+})
+assert.equal(cero.venta, 0)
+
 // Conteo real: la venta del turno es MI − MF, no toda la moneda en caja.
 const contado = calcularVirtual({
   moneda_inicial: 15000,

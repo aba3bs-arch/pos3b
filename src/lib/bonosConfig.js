@@ -567,10 +567,11 @@ export function calcularPagosBonoPorEmpleado({
 }
 
 /**
- * Venta acumulada del bono: tope menos el saldo conocido del corte.
- * Sin moneda final el saldo es la moneda inicial que dejaron los cierres.
- * Con moneda final capturada, la venta sube si esa moneda baja.
- * El cero de arranque de la moneda final no cuenta como conteo.
+ * Venta que entra al tabulador del bono. Es la misma cuenta en todas las sucursales:
+ * lo vendido, nunca el tope ni la moneda que sigue en caja.
+ * En virtual eso es tope − saldo. Sin moneda final mayor a cero, el saldo es la
+ * moneda inicial del corte. Un cero de arranque (aunque el campo esté marcado)
+ * no convierte el tope en venta.
  */
 export function ventaAcumuladaBonoVirtual({
   tope = 0,
@@ -582,7 +583,10 @@ export function ventaAcumuladaBonoVirtual({
   const mi = round2(monedaInicial);
   const vacio = monedaFinal === '' || monedaFinal == null;
   const mf = Number(monedaFinal);
-  const capturada = !vacio && (Boolean(monedaFinalEditada) || (Number.isFinite(mf) && mf > 0));
+  // Solo una moneda final mayor a cero sustituye el saldo. El parámetro
+  // monedaFinalEditada se conserva para los llamadores; el cero no cuenta.
+  void monedaFinalEditada;
+  const capturada = !vacio && Number.isFinite(mf) && mf > 0;
   const saldo = capturada ? round2(mf) : mi;
   return Math.max(0, round2(techo - saldo));
 }
