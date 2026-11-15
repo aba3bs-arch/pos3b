@@ -40,13 +40,24 @@ export const BONOS_TURNO_DEFAULT = {
 export const DIAS_VENTANA_EVALUACION_BONO = 15;
 export const DIAS_VENTANA_INVENTARIO_BONO = 8;
 
+/** Orden fijo de los factores. El 100% se reparte en partes iguales entre los encendidos. */
+export const CLAVES_FACTORES_MEDIDA = [
+  'faltanteCero',
+  'checklistDiario',
+  'evaluacionMinPct',
+  'mermaMaxPct',
+  'retardos',
+];
+
 /**
  * Modelo de pago justo (penalizaciones desde 100% del tabulador):
- * - 4 lineamientos: cero faltante, check list, evaluación, inventario (merma).
- * - Cada lineamiento fallido → −25% → 100% / 75% / 50% / 25% / 0%.
- * - Faltante de efectivo en la recolección → 0% de golpe (requisito duro).
+ * - 5 factores: faltante efectivo, check list, evaluación operativa, merma o inventario, retardos.
+ * - Cada uno vale lo mismo. Con los 5 encendidos, −20% por factor fallido.
+ * - Si se apaga alguno, el 100% se divide entre los que quedan (4 → 25%, 3 → 33.33%, 2 → 50%, 1 → 100%).
+ * - Faltante de efectivo en la recolección → 0% de golpe si el requisito duro sigue activo.
  * - Empleado de tienda con falta vigente → 0% por 8 días.
  * - Evaluación: vigencia 15 días. Checklist: semana (<4 días baja %). Inventario: 8 días / día de tienda.
+ * - Retardos: entradas del checador después de la hora de inicio + gracia, en el periodo del bono.
  * El checklist NO define un monto de bono; solo afecta ese %.
  */
 export const BONOS_CONFIG_DEFAULT = {
@@ -60,34 +71,43 @@ export const BONOS_CONFIG_DEFAULT = {
   reglas: {
     faltanteCero: {
       activo: true,
-      label: 'Cero faltante de efectivo',
+      label: 'Faltante efectivo',
       /** Si true, faltante deja el % en 0 de golpe (turno con faltante en esa recolección). */
       esRequisito: true,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
     },
     checklistDiario: {
       activo: true,
-      label: 'Check list operativo (días laborales)',
+      label: 'Check list',
       diasEsperados: 6,
       /** Penaliza si días con checklist son estrictamente menores a este valor. */
       diasPenalizaSiHasta: 4,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
     },
     evaluacionMinPct: {
       activo: true,
       label: 'Evaluación operativa',
       minPct: 70,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
       /** Días que permanece vigente la evaluación para el medidor. */
       ventanaDias: DIAS_VENTANA_EVALUACION_BONO,
     },
     mermaMaxPct: {
       activo: true,
-      label: 'Inventario (merma)',
+      label: 'Merma o inventario',
       maxPct: 6,
-      penalizacionPct: 25,
+      penalizacionPct: 20,
       /** Días de vigencia del medidor según merma del último inventario (día de tienda). */
       ventanaDias: DIAS_VENTANA_INVENTARIO_BONO,
+    },
+    retardos: {
+      activo: true,
+      label: 'Retardos',
+      /** La tienda cumple si los retardos del periodo no pasan de este número. 0 = ninguno. */
+      maxRetardos: 0,
+      /** Minutos después de hora_inicio antes de contar retardo (checador). */
+      graciaMin: 5,
+      penalizacionPct: 20,
     },
   },
   /**
@@ -140,10 +160,36 @@ export function normalizarNivelesPct(niveles) {
     : NIVELES_PCT_DEFAULT;
   return list
     .map((n) => ({
-      reglasMin: Math.max(0, Math.min(4, Math.round(num(n.reglasMin)))),
+      reglasMin: Math.max(0, Math.min(CLAVES_FACTORES_MEDIDA.length, Math.round(num(n.reglasMin)))),
       pct: Math.max(0, Math.min(100, round2(num(n.pct)))),
     }))
     .sort((a, b) => b.reglasMin - a.reglasMin);
+}
+
+/**
+ * Peso de cada factor encendido. Los apagados quedan en 0.
+ * Las centésimas sobrantes (p. ej. 100/3) se asignan a los últimos encendidos para que sumen 100.
+ * @returns {Record<string, number>}
+ */
+export function pesosFactoresActivos(reglas) {
+  const activos = CLAVES_FACTORES_MEDIDA.filter((k) => reglas?.[k]?.activo !== false);
+  const pesos = {};
+  for (const k of CLAVES_FACTORES_MEDIDA) pesos[k] = 0;
+  const n = activos.length;
+  if (!n) return pesos;
+  const base = Math.floor(10000 / n);
+  const resto = 10000 - base * n;
+  const conExtra = new Set(activos.slice(n - resto));
+  for (const k of activos) {
+    pesos[k] = (base + (conExtra.has(k) ? 1 : 0)) / 100;
+  }
+  return pesos;
+}
+
+function labelFactor(actual, anterior, fallback) {
+  const txt = String(actual || '').trim();
+  if (!txt || txt === anterior) return fallback;
+  return txt;
 }
 
 export function normalizarBonosTurno(raw) {
@@ -161,79 +207,99 @@ export function normalizarBonosConfig(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const reglasIn = r.reglas && typeof r.reglas === 'object' ? r.reglas : {};
   const modo = r.modoCalculo === 'reglas' ? 'reglas' : 'penalizaciones';
-  // Primera vez / configs viejas: umbrales 2.5%/75% → 6%/70%; castigos 20/20/60 → 25.
+  // Configs antiguas sin penalizacionPct ni modo: umbrales 2.5%/75% → 6%/70%.
   const migrarUmbrales = r.modoCalculo == null
     && reglasIn.mermaMaxPct?.penalizacionPct == null
-    && reglasIn.evaluacionMinPct?.penalizacionPct == null;
+    && reglasIn.evaluacionMinPct?.penalizacionPct == null
+    && reglasIn.retardos == null;
   const mermaMaxDefault = migrarUmbrales && Number(reglasIn.mermaMaxPct?.maxPct) === 2.5
     ? base.reglas.mermaMaxPct.maxPct
     : num(reglasIn.mermaMaxPct?.maxPct, base.reglas.mermaMaxPct.maxPct);
   const evalMinDefault = migrarUmbrales && Number(reglasIn.evaluacionMinPct?.minPct) === 75
     ? base.reglas.evaluacionMinPct.minPct
     : num(reglasIn.evaluacionMinPct?.minPct, base.reglas.evaluacionMinPct.minPct);
-  const migrarPen25 = (val, viejo) => {
-    const n = Number(val);
-    if (!Number.isFinite(n)) return base.reglas.checklistDiario.penalizacionPct;
-    if (n === viejo) return 25;
-    return n;
+  const reglas = {
+    faltanteCero: {
+      activo: reglasIn.faltanteCero?.activo !== false,
+      label: labelFactor(
+        reglasIn.faltanteCero?.label,
+        'Cero faltante de efectivo',
+        base.reglas.faltanteCero.label,
+      ),
+      // Default true (requisito duro). Solo false si se guarda explícitamente.
+      esRequisito: reglasIn.faltanteCero?.esRequisito !== false,
+      penalizacionPct: 0,
+    },
+    checklistDiario: {
+      activo: reglasIn.checklistDiario?.activo !== false,
+      label: labelFactor(
+        reglasIn.checklistDiario?.label,
+        'Check list operativo (días laborales)',
+        base.reglas.checklistDiario.label,
+      ),
+      diasEsperados: Math.max(1, Math.round(num(
+        reglasIn.checklistDiario?.diasEsperados,
+        base.reglas.checklistDiario.diasEsperados,
+      ))),
+      diasPenalizaSiHasta: Math.max(0, Math.round(num(
+        reglasIn.checklistDiario?.diasPenalizaSiHasta,
+        base.reglas.checklistDiario.diasPenalizaSiHasta,
+      ))),
+      penalizacionPct: 0,
+    },
+    evaluacionMinPct: {
+      activo: reglasIn.evaluacionMinPct?.activo !== false,
+      label: labelFactor(
+        reglasIn.evaluacionMinPct?.label,
+        '',
+        base.reglas.evaluacionMinPct.label,
+      ),
+      minPct: round2(evalMinDefault),
+      penalizacionPct: 0,
+      ventanaDias: Math.max(1, Math.round(num(
+        reglasIn.evaluacionMinPct?.ventanaDias,
+        base.reglas.evaluacionMinPct.ventanaDias ?? DIAS_VENTANA_EVALUACION_BONO,
+      ))),
+    },
+    mermaMaxPct: {
+      activo: reglasIn.mermaMaxPct?.activo !== false,
+      label: labelFactor(
+        reglasIn.mermaMaxPct?.label,
+        'Inventario (merma)',
+        base.reglas.mermaMaxPct.label,
+      ),
+      maxPct: round2(mermaMaxDefault),
+      penalizacionPct: 0,
+      ventanaDias: Math.max(1, Math.round(num(
+        reglasIn.mermaMaxPct?.ventanaDias,
+        base.reglas.mermaMaxPct.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO,
+      ))),
+    },
+    retardos: {
+      activo: reglasIn.retardos?.activo !== false,
+      label: labelFactor(reglasIn.retardos?.label, '', base.reglas.retardos.label),
+      maxRetardos: Math.max(0, Math.round(num(
+        reglasIn.retardos?.maxRetardos,
+        base.reglas.retardos.maxRetardos,
+      ))),
+      graciaMin: Math.max(0, Math.round(num(
+        reglasIn.retardos?.graciaMin,
+        base.reglas.retardos.graciaMin,
+      ))),
+      penalizacionPct: 0,
+    },
   };
-  const penCheckIn = reglasIn.checklistDiario?.penalizacionPct;
-  const penEvalIn = reglasIn.evaluacionMinPct?.penalizacionPct;
-  const penMermaIn = reglasIn.mermaMaxPct?.penalizacionPct;
-  const penCheck = penCheckIn == null ? 25 : migrarPen25(penCheckIn, 20);
-  const penEval = penEvalIn == null ? 25 : migrarPen25(penEvalIn, 20);
-  const penMerma = penMermaIn == null ? 25 : migrarPen25(penMermaIn, 60);
+  const pesos = pesosFactoresActivos(reglas);
+  for (const k of CLAVES_FACTORES_MEDIDA) {
+    reglas[k].penalizacionPct = pesos[k];
+  }
   return {
     activo: r.activo !== false,
     periodo: r.periodo === 'dia' ? 'dia' : 'semana',
     modoCalculo: modo,
     rangos: normalizarRangos(r.rangos),
     nivelesPct: normalizarNivelesPct(r.nivelesPct),
-    reglas: {
-      faltanteCero: {
-        activo: reglasIn.faltanteCero?.activo !== false,
-        label: String(reglasIn.faltanteCero?.label || base.reglas.faltanteCero.label),
-        // Default true (requisito duro). Solo false si se guarda explícitamente.
-        esRequisito: reglasIn.faltanteCero?.esRequisito !== false,
-        penalizacionPct: Math.max(0, Math.min(100, round2(num(
-          reglasIn.faltanteCero?.penalizacionPct,
-          base.reglas.faltanteCero.penalizacionPct,
-        )))),
-      },
-      checklistDiario: {
-        activo: reglasIn.checklistDiario?.activo !== false,
-        label: String(reglasIn.checklistDiario?.label || base.reglas.checklistDiario.label),
-        diasEsperados: Math.max(1, Math.round(num(
-          reglasIn.checklistDiario?.diasEsperados,
-          base.reglas.checklistDiario.diasEsperados,
-        ))),
-        diasPenalizaSiHasta: Math.max(0, Math.round(num(
-          reglasIn.checklistDiario?.diasPenalizaSiHasta,
-          base.reglas.checklistDiario.diasPenalizaSiHasta,
-        ))),
-        penalizacionPct: Math.max(0, Math.min(100, round2(penCheck))),
-      },
-      evaluacionMinPct: {
-        activo: reglasIn.evaluacionMinPct?.activo !== false,
-        label: String(reglasIn.evaluacionMinPct?.label || base.reglas.evaluacionMinPct.label),
-        minPct: round2(evalMinDefault),
-        penalizacionPct: Math.max(0, Math.min(100, round2(penEval))),
-        ventanaDias: Math.max(1, Math.round(num(
-          reglasIn.evaluacionMinPct?.ventanaDias,
-          base.reglas.evaluacionMinPct.ventanaDias ?? DIAS_VENTANA_EVALUACION_BONO,
-        ))),
-      },
-      mermaMaxPct: {
-        activo: reglasIn.mermaMaxPct?.activo !== false,
-        label: String(reglasIn.mermaMaxPct?.label || base.reglas.mermaMaxPct.label),
-        maxPct: round2(mermaMaxDefault),
-        penalizacionPct: Math.max(0, Math.min(100, round2(penMerma))),
-        ventanaDias: Math.max(1, Math.round(num(
-          reglasIn.mermaMaxPct?.ventanaDias,
-          base.reglas.mermaMaxPct.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO,
-        ))),
-      },
-    },
+    reglas,
     bonosTurno: normalizarBonosTurno(r.bonosTurno),
     topeSuperiorUsaUltimo: r.topeSuperiorUsaUltimo !== false,
   };
@@ -357,12 +423,15 @@ export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
 
 /**
  * % del bono por penalizaciones (modelo operativo actual).
+ * El peso de cada factor es 100 / factores encendidos.
  *
  * @param {{
  *   faltanteOk: boolean,
  *   checklistDias: number,
  *   evaluacionPct: number|null,
  *   mermaPct: number,
+ *   retardos?: number,
+ *   retardosSinDato?: boolean,
  * }} metricas
  * @param {object|null} config
  * @returns {{
@@ -378,16 +447,19 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
   const detalle = [];
   let penalizacionTotal = 0;
 
+  const pesoDe = (regla) => round2(Number(regla?.penalizacionPct) || 0);
+
   const faltanteOk = metricas.faltanteOk !== false;
   if (reglas.faltanteCero.activo) {
     const ok = faltanteOk;
-    const pen = Number(reglas.faltanteCero.penalizacionPct) || 25;
+    const pen = pesoDe(reglas.faltanteCero);
     const esRequisito = reglas.faltanteCero.esRequisito === true;
     detalle.push({
       id: 'faltanteCero',
       label: reglas.faltanteCero.label,
       ok,
       esRequisito,
+      pesoPct: pen,
       penalizacionPct: ok ? 0 : (esRequisito ? 100 : pen),
       valor: ok ? 'Sin faltante' : 'Con faltante',
       requerido: '$0.00',
@@ -412,7 +484,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
     const dias = Math.max(0, Math.round(Number(metricas.checklistDias) || 0));
     const minimo = Number(reglas.checklistDiario.diasPenalizaSiHasta) || 4;
     const esperados = Number(reglas.checklistDiario.diasEsperados) || 6;
-    const pen = Number(reglas.checklistDiario.penalizacionPct) || 25;
+    const pen = pesoDe(reglas.checklistDiario);
     // De `minimo` a `esperados` días (ej. 4–6): OK. Menos de minimo → −pen%.
     const ok = dias >= minimo;
     if (!ok) {
@@ -423,6 +495,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
       id: 'checklistDiario',
       label: reglas.checklistDiario.label,
       ok,
+      pesoPct: pen,
       penalizacionPct: ok ? 0 : pen,
       valor: `${dias}/${esperados} días`,
       requerido: `≥${minimo} días (ideal ${esperados})`,
@@ -431,7 +504,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 
   if (reglas.evaluacionMinPct.activo) {
     const minPct = Number(reglas.evaluacionMinPct.minPct) || 70;
-    const pen = Number(reglas.evaluacionMinPct.penalizacionPct) || 25;
+    const pen = pesoDe(reglas.evaluacionMinPct);
     const ep = metricas.evaluacionPct;
     const ok = ep != null && Number.isFinite(Number(ep)) && Number(ep) >= minPct;
     if (!ok) {
@@ -442,6 +515,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
       id: 'evaluacionMinPct',
       label: reglas.evaluacionMinPct.label,
       ok,
+      pesoPct: pen,
       penalizacionPct: ok ? 0 : pen,
       valor: ep == null || !Number.isFinite(Number(ep)) ? 'Sin evaluación' : `${round2(Number(ep))}%`,
       requerido: `≥ ${minPct}%`,
@@ -450,7 +524,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 
   if (reglas.mermaMaxPct.activo) {
     const maxPct = Number(reglas.mermaMaxPct.maxPct) || 6;
-    const pen = Number(reglas.mermaMaxPct.penalizacionPct) || 25;
+    const pen = pesoDe(reglas.mermaMaxPct);
     const mp = Number(metricas.mermaPct);
     const ok = Number.isFinite(mp) && mp <= maxPct;
     if (!ok) {
@@ -461,18 +535,41 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
       id: 'mermaMaxPct',
       label: reglas.mermaMaxPct.label,
       ok,
+      pesoPct: pen,
       penalizacionPct: ok ? 0 : pen,
       valor: Number.isFinite(mp) ? `${round2(mp)}%` : 'Sin dato',
       requerido: `≤ ${maxPct}%`,
     });
   }
 
+  if (reglas.retardos?.activo) {
+    const max = Math.max(0, Math.round(Number(reglas.retardos.maxRetardos) || 0));
+    const pen = pesoDe(reglas.retardos);
+    const sinDato = metricas.retardosSinDato === true;
+    const nRaw = Number(metricas.retardos);
+    const n = Number.isFinite(nRaw) ? Math.max(0, Math.round(nRaw)) : 0;
+    const ok = sinDato || n <= max;
+    if (!ok) {
+      pct = round2(pct - pen);
+      penalizacionTotal = round2(penalizacionTotal + pen);
+    }
+    detalle.push({
+      id: 'retardos',
+      label: reglas.retardos.label,
+      ok,
+      pesoPct: pen,
+      penalizacionPct: ok ? 0 : pen,
+      valor: sinDato ? 'Sin dato de checador' : `${n} retardo${n === 1 ? '' : 's'}`,
+      requerido: max === 0 ? '0 retardos' : `≤ ${max} retardos`,
+    });
+  }
+
   const fallosLineamiento = detalle.filter((d) => !d.ok).length;
 
   return {
-    pct: Math.max(0, Math.min(100, pct)),
+    pct: Math.max(0, Math.min(100, round2(pct))),
     detalle,
-    penalizacionTotal: Math.min(100, penalizacionTotal),
+    penalizacionTotal: Math.min(100, round2(penalizacionTotal)),
     bloqueadoPorFaltante: false,
     fallosLineamiento,
   };
@@ -481,7 +578,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 /**
  * Pago de bono por empleado de tienda (ecuación justa).
  *
- * - pctTienda = % tras lineamientos (100 / 75 / 50 / 25 / 0).
+ * - pctTienda = % tras los factores encendidos (con 5 activos: 100 / 80 / 60 / 40 / 20 / 0).
  * - Si el empleado tiene falta vigente → pct = 0.
  * - pago = base_tabulador × pct_empleado / 100.
  *
