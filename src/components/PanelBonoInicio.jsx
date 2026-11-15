@@ -3,9 +3,9 @@ import { esAlmacenCentral, etiquetaTienda, normalizarCodigoTienda } from '../con
 import { normalizarRol } from '../lib/roles.js';
 import {
   EVENTO_BONOS_CONFIG,
-  bonoBasePorMonto,
   bonoFinal,
   calcularPagosBonoPorEmpleado,
+  rangoBonoPorMonto,
   resumenRepartoBono,
 } from '../lib/bonosConfig.js';
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
@@ -54,8 +54,7 @@ function plantillaTiendaBono(usuarios, sucursal) {
 
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
- * Ingresa el monto de la recolección → tabulador de la tienda → se divide entre la plantilla.
- * El tabulador es el bono de la tienda. Se divide entre la plantilla.
+ * Ingresa el monto de la recolección → el tabulador da lo que cobra TD y lo que cobra TN.
  * Falta → esa parte es $0 y no se suma a los demás (7 días a partir de la falta).
  */
 export default function PanelBonoInicio({
@@ -135,21 +134,25 @@ export default function PanelBonoInicio({
     return Number(pack?.recoleccionPeriodo ?? pack?.recoleccion) || 0;
   }, [montoInput, pack]);
 
-  const baseCalc = useMemo(() => {
-    if (!pack?.ok) return 0;
-    return bonoBasePorMonto(montoCalc, pack.config);
+  const rangoCalc = useMemo(() => {
+    if (!pack?.ok) return { bono: 0, td: 0, tn: 0 };
+    return rangoBonoPorMonto(montoCalc, pack.config);
   }, [pack, montoCalc]);
+
+  const baseCalc = rangoCalc.bono;
 
   const pagosEmpleado = useMemo(() => {
     if (!pack?.ok) return [];
     return calcularPagosBonoPorEmpleado({
-      base: baseCalc,
+      base: rangoCalc.bono,
+      td: rangoCalc.td,
+      tn: rangoCalc.tn,
       pctTienda: pack.pct,
       plantilla: plantillaTiendaBono(usuarios, sucursal),
       bloqueosFalta,
       ...ajusteRetardoBono(pack, retardosPorClave),
     });
-  }, [pack, baseCalc, usuarios, sucursal, bloqueosFalta, retardosPorClave]);
+  }, [pack, rangoCalc, usuarios, sucursal, bloqueosFalta, retardosPorClave]);
 
   const pagosVisibles = useMemo(
     () => pagosEmpleado.filter((p) => !p.conFalta),
@@ -206,9 +209,10 @@ export default function PanelBonoInicio({
             ) : null}
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
-            Ingresa el monto de <strong>esta recolección</strong>. El tabulador es el bono de la tienda
-            y se divide en partes iguales. Con tabulador de $400 y dos empleados, cada parte es $200.
-            Si uno tiene falta, cobra $0 y el otro se queda con sus $200. Los factores encendidos se reparten el 100%.
+            Ingresa el monto de <strong>esta recolección</strong>. El tabulador marca el bono y lo que cobra
+            cada turno: TD y TN. Con venta de $3,846 el rango es $100, así que el día cobra $100 y la noche $100.
+            Si hay dos personas en el mismo turno, parten esa columna. Si uno tiene falta, cobra $0 y el otro
+            se queda con su parte. Los factores encendidos se reparten el 100%.
             Tres retardos del reloj (15 min) quitan la parte de ese factor.
             Se respetan las faltas de los {DIAS_BLOQUEO_BONO_POR_FALTA} días anteriores al 15/11.
             Las más viejas no cuentan. Quien falte queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde ese día.

@@ -6126,6 +6126,24 @@ table.data th {
   color: #1c1917;
 }
 
+.alerta-bono-corte__lado {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex: 0 0 auto;
+}
+
+.alerta-bono-corte__turno {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #9a6708;
+  background: rgba(225, 153, 41, 0.16);
+  border-radius: 999px;
+  padding: 0.08rem 0.32rem;
+}
+
 .alerta-bono-corte__pago {
   flex: 0 0 auto;
   font-size: 0.86rem;

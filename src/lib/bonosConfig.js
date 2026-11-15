@@ -2,6 +2,7 @@
  * Configuración del bono por recolección (editable en Configuración → Bonos).
  * Persistencia: localStorage + nube pos_bonos_config.
  */
+import { turnoEmpleadoParaGastos } from './empleadosVisibles.js';
 
 export const LS_BONOS_CONFIG = 'pos3b_bonos_config';
 export const LS_BONOS_CONFIG_AT = 'pos3b_bonos_config_at';
@@ -132,11 +133,18 @@ export function normalizarRangos(rangos) {
     ? rangos
     : RANGOS_BONO_DEFAULT;
   return list
-    .map((r) => ({
-      min: round2(num(r.min)),
-      max: round2(num(r.max)),
-      bono: round2(num(r.bono)),
-    }))
+    .map((r) => {
+      const bono = round2(num(r.bono));
+      const tdDato = r.td == null || r.td === '' ? bono : round2(num(r.td));
+      const tnDato = r.tn == null || r.tn === '' ? bono : round2(num(r.tn));
+      return {
+        min: round2(num(r.min)),
+        max: round2(num(r.max)),
+        bono,
+        td: tdDato,
+        tn: tnDato,
+      };
+    })
     .filter((r) => r.max >= r.min && r.bono >= 0)
     .sort((a, b) => a.min - b.min);
 }
@@ -339,20 +347,33 @@ export async function persistirBonosConfig(config, supabase) {
   return { local: local.config, remoto };
 }
 
-/** Bono base según monto de recolección. */
-export function bonoBasePorMonto(monto, config = null) {
+/** Rango del tabulador: bono de referencia y lo que cobra cada turno. */
+export function rangoBonoPorMonto(monto, config = null) {
+  const vacio = { bono: 0, td: 0, tn: 0 };
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
   const m = round2(monto);
-  if (!(m > 0) || !cfg.activo) return 0;
+  if (!(m > 0) || !cfg.activo) return vacio;
   const rangos = cfg.rangos;
-  for (const r of rangos) {
-    if (m >= r.min && m <= r.max) return r.bono;
-  }
-  if (cfg.topeSuperiorUsaUltimo && rangos.length) {
-    const ultimo = rangos[rangos.length - 1];
-    if (m > ultimo.max) return ultimo.bono;
-  }
-  return 0;
+  const fila = rangos.find((r) => m >= r.min && m <= r.max)
+    || (cfg.topeSuperiorUsaUltimo && rangos.length && m > rangos[rangos.length - 1].max
+      ? rangos[rangos.length - 1]
+      : null);
+  if (!fila) return vacio;
+  return { bono: fila.bono, td: fila.td, tn: fila.tn };
+}
+
+/** Bono de referencia según monto de recolección (columna Bono del tabulador). */
+export function bonoBasePorMonto(monto, config = null) {
+  return rangoBonoPorMonto(monto, config).bono;
+}
+
+/** TD = turno día, TN = turno noche. Sin dato, cuenta como día. */
+export function turnoBonoEmpleado(user) {
+  const t = String(turnoEmpleadoParaGastos(user) || '').toLowerCase();
+  if (t === 'nocturno' || t === 'tn') return 'TN';
+  const id = String(user?.turno_id || user?.turno || '').toLowerCase();
+  if (!t && (id.includes('noct') || id === 'tn')) return 'TN';
+  return 'TD';
 }
 
 /** % según cuántas reglas se cumplieron (modo legacy). */
@@ -491,19 +512,20 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 /**
  * Pago de bono por empleado de tienda.
  *
- * El tabulador es el bono de la tienda y se parte entre la plantilla.
- * Tabulador $400 y 2 empleados → cada parte $200.
- * Quien tiene falta cobra $0 y su parte no se suma: la otra persona
- * se queda con sus $200, no con los $400.
+ * Con columnas TD y TN, cada turno cobra la suya. Dos personas del mismo
+ * turno parten esa columna; la del otro turno no se toca.
+ * Sin columnas, el tabulador se parte entre toda la plantilla.
+ * Quien tiene falta cobra $0 y su parte no se suma a los demás.
  *
  * - pctTienda = % tras lineamientos.
  * - Falta vigente → pct = 0.
- * - pago = (tabulador / empleados) × pct_empleado / 100.
  *
  * @param {{
  *   base: number,
+ *   td?: number,
+ *   tn?: number,
  *   pctTienda: number,
- *   plantilla?: Array<{ id: string|number, nombre?: string }>,
+ *   plantilla?: Array<{ id: string|number, nombre?: string, turno_id?: string }>,
  *   bloqueosFalta?: Array<{ clave?: string, nombre?: string }>,
  *   pesoRetardo?: number,
  *   umbralRetardos?: number,
@@ -512,6 +534,8 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
  */
 export function calcularPagosBonoPorEmpleado({
   base = 0,
+  td = null,
+  tn = null,
   pctTienda = 0,
   plantilla = [],
   bloqueosFalta = [],
@@ -520,19 +544,32 @@ export function calcularPagosBonoPorEmpleado({
   retardosPorClave = {},
 } = {}) {
   const baseN = round2(Number(base) || 0);
+  const porTurno = td != null || tn != null;
+  const tdN = round2(td != null ? td : baseN);
+  const tnN = round2(tn != null ? tn : baseN);
   const pctT = Math.max(0, Math.min(100, Number(pctTienda) || 0));
-  const partes = Math.max(1, (plantilla || []).length);
-  const parte = round2(baseN / partes);
+  const lista = plantilla || [];
+  const turnos = lista.map((u) => (porTurno ? turnoBonoEmpleado(u) : ''));
+  const enTurno = { TD: 0, TN: 0 };
+  if (porTurno) {
+    for (const t of turnos) enTurno[t] += 1;
+  }
+  const partes = Math.max(1, lista.length);
+  const parteIgual = round2(baseN / partes);
   const bloqueados = new Set(
     (bloqueosFalta || [])
       .map((b) => String(b?.clave || '').trim())
       .filter(Boolean),
   );
 
-  return (plantilla || []).map((u) => {
+  return lista.map((u, i) => {
     const id = u?.id != null ? String(u.id) : '';
     const clave = id ? `id:${id}` : '';
     const nombre = String(u?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+    const turno = porTurno ? turnos[i] : '';
+    const montoTurno = turno === 'TN' ? tnN : tdN;
+    const compañeros = porTurno ? Math.max(1, enTurno[turno] || 1) : partes;
+    const parte = porTurno ? round2(montoTurno / compañeros) : parteIgual;
     const conFalta = Boolean(clave && bloqueados.has(clave));
     const nRet = Math.max(0, Math.round(Number(retardosPorClave?.[clave] ?? retardosPorClave?.[id]) || 0));
     const pesoR = Math.max(0, Number(pesoRetardo) || 0);
@@ -540,15 +577,17 @@ export function calcularPagosBonoPorEmpleado({
     const pct = conFalta ? 0 : round2(Math.max(0, Math.min(100, pctT - (pierdeRetardo ? pesoR : 0))));
     const pago = bonoFinal(parte, pct);
     const money = (n) => `$${n.toLocaleString('es-MX')}`;
+    const etiquetaParte = turno ? `${turno} ${money(parte)}` : money(parte);
     const ecuacion = conFalta
-      ? `${nombre} · ${money(parte)} × 0% (falta, su parte no se suma) = $0`
+      ? `${nombre} · ${etiquetaParte} × 0% (falta, su parte no se suma) = $0`
       : pierdeRetardo
-        ? `${nombre} · ${money(parte)} × ${pct}% (${nRet} retardos) = ${money(pago)}`
-        : `${nombre} · ${money(parte)} × ${pct}% = ${money(pago)}`;
+        ? `${nombre} · ${etiquetaParte} × ${pct}% (${nRet} retardos) = ${money(pago)}`
+        : `${nombre} · ${etiquetaParte} × ${pct}% = ${money(pago)}`;
     return {
       id,
       clave,
       nombre,
+      turno,
       conFalta,
       retardos: nRet,
       pierdeRetardo,

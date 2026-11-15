@@ -4,7 +4,7 @@ import { resolverTipoEmpleado } from '../../lib/empleadosVisibles.js';
 import { normalizarRol } from '../../lib/roles.js';
 import { usuarioEstaActivo } from '../../lib/usuariosAuth.js';
 import { calcularBonoSucursal } from '../../lib/bonosData.js';
-import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, etiquetaReactivaBono, resumenRepartoBono, textoLineaEmpleadoBono } from '../../lib/bonosConfig.js';
+import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, etiquetaReactivaBono, rangoBonoPorMonto, resumenRepartoBono, textoLineaEmpleadoBono } from '../../lib/bonosConfig.js';
 import { ajusteRetardoBono, cargarRetardosBono } from '../../lib/bonosRetardos.js';
 import {
   cargarBloqueosBonoPorFalta,
@@ -91,9 +91,12 @@ export function useAlertaBonoCorte({ supabase, sucursal, monto = null, enabled =
       const fechasFalta = new Map(
         (bloq?.data || []).map((b) => [String(b?.clave || ''), b?.vuelveBonoYmd || '']),
       );
+      const rango = rangoBonoPorMonto(res?.recoleccion, res?.config);
       const pagos = res?.ok
         ? calcularPagosBonoPorEmpleado({
-          base: res.base,
+          base: rango.bono,
+          td: rango.td,
+          tn: rango.tn,
           pctTienda: res.pct,
           plantilla,
           bloqueosFalta: bloq?.data || [],
@@ -204,13 +207,16 @@ export default function AlertaBonoCorte({
                 className={`alerta-bono-corte__persona${p.conFalta ? ' is-suspendido' : ''}`}
               >
                 <span className="alerta-bono-corte__nombre">{p.nombre}</span>
-                {p.conFalta
-                  ? <span className="alerta-bono-corte__react">{react}</span>
-                  : (
-                    <span className={`alerta-bono-corte__pago${Math.abs(Number(p.pago) || 0) < 0.001 ? ' is-cero' : ''}`}>
-                      {fmtPago(p.pago)}
-                    </span>
-                  )}
+                <span className="alerta-bono-corte__lado">
+                  {p.turno ? <span className="alerta-bono-corte__turno">{p.turno}</span> : null}
+                  {p.conFalta
+                    ? <span className="alerta-bono-corte__react">{react}</span>
+                    : (
+                      <span className={`alerta-bono-corte__pago${Math.abs(Number(p.pago) || 0) < 0.001 ? ' is-cero' : ''}`}>
+                        {fmtPago(p.pago)}
+                      </span>
+                    )}
+                </span>
               </div>
             );
           })

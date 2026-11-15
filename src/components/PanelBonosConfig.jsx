@@ -125,8 +125,8 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
     <div className="card" style={{ maxWidth: 900 }}>
       <h3 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Bonos por recolección</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        El tabulador marca el bono <strong>de la tienda</strong>. Se divide en partes iguales entre los empleados.
-        Con tabulador de $400 y dos personas, cada parte es $200; si una tiene falta, solo se paga la otra.
+        El tabulador marca el bono y, en las columnas <strong>TD</strong> y <strong>TN</strong>, lo que cobra cada turno.
+        De $3,000 a $4,000 el bono es $100: el día cobra $100 y la noche $100. Si dos personas comparten turno, parten esa columna.
         Enciende los factores que quieras aplicar:
         faltantes, check list, evaluación, inventario y retardos. Si enciendes uno, vale el <strong>100%</strong>; si enciendes dos, cada uno vale el <strong>50%</strong>;
         con los cinco, cada uno vale el <strong>20%</strong>. Una falta de asistencia quita el bono <strong>7 días</strong> a partir de esa falta.
@@ -176,7 +176,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
           <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Rangos de recolección → bono base</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
             {(cfg.rangos || []).map((r, idx) => (
-              <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '0.35rem', alignItems: 'end' }}>
+              <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 0.8fr 0.7fr 0.7fr auto', gap: '0.35rem', alignItems: 'end' }}>
                 <label className="muted" style={{ fontSize: '0.75rem' }}>
                   Desde $
                   <input className="input" type="number" value={r.min} onChange={(e) => setRango(idx, { min: Number(e.target.value) })} />
@@ -187,7 +187,26 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 </label>
                 <label className="muted" style={{ fontSize: '0.75rem' }}>
                   Bono $
-                  <input className="input" type="number" value={r.bono} onChange={(e) => setRango(idx, { bono: Number(e.target.value) })} />
+                  <input
+                    className="input"
+                    type="number"
+                    value={r.bono}
+                    onChange={(e) => {
+                      const bono = Number(e.target.value);
+                      const patch = { bono };
+                      if (r.td == null || Number(r.td) === Number(r.bono)) patch.td = bono;
+                      if (r.tn == null || Number(r.tn) === Number(r.bono)) patch.tn = bono;
+                      setRango(idx, patch);
+                    }}
+                  />
+                </label>
+                <label className="muted" style={{ fontSize: '0.75rem' }}>
+                  TD $
+                  <input className="input" type="number" value={r.td ?? r.bono} onChange={(e) => setRango(idx, { td: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.75rem' }}>
+                  TN $
+                  <input className="input" type="number" value={r.tn ?? r.bono} onChange={(e) => setRango(idx, { tn: Number(e.target.value) })} />
                 </label>
                 <button type="button" className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => delRango(idx)}>✕</button>
               </div>

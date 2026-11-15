@@ -4,6 +4,7 @@ import {
   DIAS_VENTANA_EVALUACION_BONO,
   DIAS_VENTANA_INVENTARIO_BONO,
   bonoBasePorMonto,
+  rangoBonoPorMonto,
   bonoFinal,
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
@@ -200,6 +201,40 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   })
   assert.equal(pagos75.every((p) => p.pago === 75), true)
   assert.equal(pagos75[0].pago + pagos75[1].pago, 150)
+}
+
+{
+  // Venta $3,846 → rango $100. TD y TN cobran esa columna, no se parte entre los dos turnos.
+  const rango = rangoBonoPorMonto(3846)
+  assert.equal(rango.bono, 100)
+  assert.equal(rango.td, 100)
+  assert.equal(rango.tn, 100)
+  const pagos = calcularPagosBonoPorEmpleado({
+    base: rango.bono,
+    td: rango.td,
+    tn: rango.tn,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Ana', turno_id: 'diurno' },
+      { id: 2, nombre: 'Luis', turno_id: 'nocturno' },
+    ],
+  })
+  assert.equal(pagos.find((p) => p.nombre === 'Ana').turno, 'TD')
+  assert.equal(pagos.find((p) => p.nombre === 'Ana').pago, 100)
+  assert.equal(pagos.find((p) => p.nombre === 'Luis').turno, 'TN')
+  assert.equal(pagos.find((p) => p.nombre === 'Luis').pago, 100)
+
+  const mismoTurno = calcularPagosBonoPorEmpleado({
+    base: 100,
+    td: 100,
+    tn: 100,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Ana', turno_id: 'diurno' },
+      { id: 2, nombre: 'Luis', turno_id: 'diurno' },
+    ],
+  })
+  assert.equal(mismoTurno.every((p) => p.pago === 50), true)
 }
 
 {
