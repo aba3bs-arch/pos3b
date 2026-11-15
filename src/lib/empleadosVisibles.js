@@ -146,7 +146,7 @@ export function ordenarEmpleadosTiendaPorTurno(empleados, date = new Date()) {
  * - Administrador: todos (filtrar aparte si hace falta).
  */
 export function empleadosVisiblesParaTienda(empleados, sucursalActiva, actorRol = null) {
-  const lista = empleados || [];
+  const lista = (empleados || []).filter((e) => e?.es_admin_principal !== true);
   if (puedeGestionarUsuarios(actorRol)) return lista;
 
   const suc = normalizarCodigoTienda(sucursalActiva);
@@ -814,6 +814,7 @@ export function empleadosParaNominaGlobal(empleados, { bajasEnPeriodo = null } =
     if (e?.activo === false) return false;
     const rol = normalizarRol(e.rol);
     if (rol === 'Cliente') return false;
+    if (e?.es_admin_principal === true) return false;
     if (e?.excluir_nomina || e?.socio_3b || e?.tipo_empleado === 'socio_3b') return false;
     return true;
   });
@@ -880,9 +881,10 @@ export function listarBeneficiariosVales(empleados = []) {
 
 /** Pantalla Usuarios (solo admin): filtro opcional por tienda. */
 export function filtrarEmpleadosAdmin(empleados, filtroSucursal) {
-  if (!filtroSucursal) return empleados || [];
+  const base = (empleados || []).filter((e) => e?.es_admin_principal !== true);
+  if (!filtroSucursal) return base;
   const f = normalizarCodigoTienda(filtroSucursal);
-  return (empleados || []).filter((e) => {
+  return base.filter((e) => {
     if (esEmpleadoIndirectoOMain(e) && f !== 'MAIN') {
       // Indirectos visibles también al filtrar cualquier tienda (están en todas)
       return true;

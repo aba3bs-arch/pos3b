@@ -68,6 +68,7 @@ export function guardarSesionPersistenteMovil({ user, sucursal, vista } = {}) {
     telefono: user.telefono || null,
     // Flags útiles al restaurar (sin secretos)
     esCtMovil: false,
+    es_admin_principal: user.es_admin_principal === true,
   };
   try {
     localStorage.setItem(

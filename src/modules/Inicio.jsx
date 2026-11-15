@@ -12,6 +12,7 @@ import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 import PanelAppMovilInicio from '../components/PanelAppMovilInicio.jsx';
 import PanelProyeccionFaltante from '../components/PanelProyeccionFaltante.jsx';
 import PanelBonoInicio from '../components/PanelBonoInicio.jsx';
+import PanelPunAdminPrincipal from '../components/PanelPunAdminPrincipal.jsx';
 
 function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
@@ -196,6 +197,8 @@ export default function Inicio({
       </div>
 
       <PanelAppMovilInicio sucursal={sucursal} />
+
+      {esAdminPrincipal && <PanelPunAdminPrincipal supabase={supabase} />}
 
       {esAdmin && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>

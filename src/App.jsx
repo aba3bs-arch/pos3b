@@ -88,6 +88,7 @@ import {
   sucursalDePinCubreTurno,
 } from './lib/cubreTurnoSync.js';
 import { buscarUsuarioPorPinYSucursal, buscarUsuarioPorId, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
+import { entrarConPun, olvidarPunSesion, recordarPunSesion } from './lib/punAdminPrincipal.js';
 import {
   buscarSocioPorPinAcceso,
   esUsuarioSocio3B,
@@ -1045,8 +1046,16 @@ function App() {
       return;
     }
 
-    const { user: data, error, avisoSucursal, sinColumnaSucursal, ajustarSucursal, sucursalReal } =
+    let { user: data, error, avisoSucursal, sinColumnaSucursal, ajustarSucursal, sucursalReal } =
       await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
+    olvidarPunSesion();
+    if (!data && !error) {
+      const porPun = await entrarConPun(supabase, p);
+      if (porPun.ok) {
+        recordarPunSesion(p);
+        data = porPun.user;
+      }
+    }
     if (error) {
       alert(error);
       setPin('');
@@ -1216,6 +1225,7 @@ function App() {
 
   const forzarCierreSesionPorTurno = useCallback(() => {
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
+    olvidarPunSesion();
     setAvisoExtensionTurno(null);
     setEsperandoAprobacionSesion(false);
     setSolicitandoMasTiempo(false);
@@ -1364,6 +1374,7 @@ function App() {
     limpiarAnunciosVistos();
     limpiarNotificacionesDispositivoMostradas();
     limpiarSesionPersistenteMovil();
+    olvidarPunSesion();
     setAvisoExtensionTurno(null);
     setOfertaBiometria(null);
     setSesion(false);

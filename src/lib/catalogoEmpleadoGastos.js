@@ -63,6 +63,7 @@ export function plantillaDetallesEmpleado(cat) {
 /** Administrador activo que ya entra en nómina: va al grupo Main del catálogo Empleado. */
 function administradorEnCatalogoEmpleado(e) {
   if (!e || e.activo === false) return false;
+  if (e.es_admin_principal === true) return false;
   if (normalizarRol(e.rol) !== 'Administrador') return false;
   if (e.excluir_nomina || e.socio_3b || e.tipo_empleado === 'socio_3b') return false;
   return true;

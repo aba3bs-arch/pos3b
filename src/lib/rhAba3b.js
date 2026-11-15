@@ -1,5 +1,5 @@
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { nombreEsAdminPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
+import { esAdministradorPrincipal, nombreEsAdminPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
 import { verificarPinAdministradorGlobal } from './autorizacionTurnoFueraHorario.js';
 import { nombresMismaPersona, resolverTipoEmpleado, puedeAgregarEmpleadoTienda } from './empleadosVisibles.js';
 import { detectarConflictoAltaUsuario } from './usuariosDuplicados.js';
@@ -98,7 +98,7 @@ export function nombreCompletoRh(row) {
   return [row?.nombre, row?.apellidos].filter(Boolean).join(' ').trim() || 'Sin nombre';
 }
 
-/** Baja no recontratable: el reingreso exige PIN del administrador principal (AMR). */
+/** Baja no recontratable: el reingreso exige PUN del administrador principal (AMR). */
 export function requierePinAdminPrincipalParaAlta(emp) {
   if (!emp) return false;
   return emp.estado === 'baja' && emp.recontratable === false;
@@ -659,31 +659,40 @@ export async function listarHistorialRh(supabase, empleadoId, limit = 100) {
  */
 export async function listarAdminsParaRecontratacion(supabase) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', admins: [] };
-  const { data, error } = await supabase
+  let consulta = await supabase
     .from('usuarios')
-    .select('id, nombre, pin, rol, activo, sucursal_id')
+    .select('id, nombre, rol, activo, sucursal_id, es_admin_principal')
     .order('nombre', { ascending: true });
+  if (consulta.error && String(consulta.error.message || '').toLowerCase().includes('es_admin_principal')) {
+    consulta = await supabase
+      .from('usuarios')
+      .select('id, nombre, rol, activo, sucursal_id')
+      .order('nombre', { ascending: true });
+  }
+  const { data, error } = consulta;
   if (error) return { ok: false, error: error.message, admins: [] };
 
+  const hayCuentaOculta = (data || []).some((u) => u.es_admin_principal === true);
   const admins = (data || [])
-    .filter((u) => normalizarRol(u.rol) === 'Administrador')
+    .filter((u) => normalizarRol(u.rol) === 'Administrador' && u.es_admin_principal !== true)
     .map((u) => ({
       id: u.id,
       nombre: u.nombre,
       activo: u.activo !== false,
-      esPrincipal: nombreEsAdminPrincipal(u.nombre),
+      esPrincipal: !hayCuentaOculta && nombreEsAdminPrincipal(u.nombre),
       sucursal_id: u.sucursal_id,
     }));
 
-  // Garantizar que el admin principal exista en la lista aunque no haya fila.
-  if (!admins.some((a) => a.esPrincipal)) {
+  // La cuenta oculta no se lista con nombre. Solo queda el espacio para su PUN.
+  if (hayCuentaOculta || !admins.some((a) => a.esPrincipal)) {
     admins.unshift({
       id: null,
-      nombre: 'AMR / Andrés (admin principal)',
-      activo: false,
+      nombre: 'Administrador principal',
+      activo: true,
       esPrincipal: true,
       sucursal_id: 'MAIN',
       virtual: true,
+      oculto: true,
     });
   }
 
@@ -1421,7 +1430,7 @@ export async function darDeBajaEmpleadoRh(supabase, empleadoId, opts = {}, { use
     avisoPos: sync.aviso || null,
     mensaje: (recontratable
       ? 'Baja registrada. Queda como ex-empleado recontratable.'
-      : 'Baja registrada. NO recontratable: reingreso solo con PIN del administrador principal.')
+      : 'Baja registrada. NO recontratable: reingreso solo con PUN del administrador principal.')
       + extraPos,
   };
 }
@@ -1446,6 +1455,9 @@ export async function agregarNotaRh(supabase, empleadoId, texto, { user } = {}) 
  */
 export async function darDeBajaUsuarioPosYRh(supabase, usuario, opts = {}, { user } = {}) {
   if (!supabase || !usuario?.id) return { ok: false, error: 'Usuario inválido.' };
+  if (usuario.es_admin_principal === true || esAdministradorPrincipal(usuario)) {
+    return { ok: false, error: 'El administrador principal no se puede dar de baja.' };
+  }
   const motivo = String(opts.motivo_baja || '').trim();
   if (!motivo) return { ok: false, error: 'Indica el motivo de baja.' };
   const recontratable = opts.recontratable !== false;
@@ -1515,7 +1527,7 @@ export async function darDeBajaUsuarioPosYRh(supabase, usuario, opts = {}, { use
       empleado: { ...ens.empleado, ...upd },
       mensaje: recontratable
         ? `${usuario.nombre} dado de baja. Expediente en RH ABA3B (recontratable).`
-        : `${usuario.nombre} dado de baja y marcado NO recontratable. Reingreso solo con PIN del administrador principal.`,
+        : `${usuario.nombre} dado de baja y marcado NO recontratable. Reingreso solo con PUN del administrador principal.`,
     };
   }
 
@@ -1583,7 +1595,7 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
       if (!pin) {
         return {
           ok: false,
-          error: 'Este empleado no es recontratable. Se necesita el PIN del administrador principal.',
+          error: 'Este empleado no es recontratable. Se necesita el PUN del administrador principal.',
           requierePinPrincipal: true,
           empleado: emp,
         };
@@ -1686,7 +1698,7 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
 }
 
 /**
- * Recontratación. Si no es recontratable, exige PIN del administrador principal.
+ * Recontratación. Si no es recontratable, exige PUN del administrador principal.
  */
 export async function recontratarEmpleadoRh(supabase, empleadoId, form = {}, { user, pinAdminPrincipal } = {}) {
   if (!puedeGestionarRh(user)) {
@@ -1701,7 +1713,7 @@ export async function recontratarEmpleadoRh(supabase, empleadoId, form = {}, { u
     if (!pin) {
       return {
         ok: false,
-        error: 'No es recontratable. Captura el PIN del administrador principal para dar de alta.',
+        error: 'No es recontratable. Captura el PUN del administrador principal para dar de alta.',
         requierePinPrincipal: true,
       };
     }
@@ -2014,7 +2026,7 @@ export async function aprobarPinRecontratacionRh(supabase, solicitudId, pin, { u
   let adminAuth = await verificarPinAdministradorGlobal(supabase, p);
   let esPrincipal = false;
   if (adminAuth.ok) {
-    esPrincipal = nombreEsAdminPrincipal(adminAuth.user?.nombre);
+    esPrincipal = esAdministradorPrincipal(adminAuth.user);
   } else {
     // Reintento estricto como admin principal (por si el nombre virtual no está en usuarios)
     const principal = await verificarAdminPrincipal(supabase, p);

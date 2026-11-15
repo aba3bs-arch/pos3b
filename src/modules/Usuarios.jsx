@@ -99,7 +99,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       setRows([]);
       return;
     }
-    setRows(data || []);
+    setRows((data || []).filter((r) => r?.es_admin_principal !== true));
   }, [supabase]);
 
   useEffect(() => {
@@ -473,6 +473,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const actualizarRol = async (id, rol) => {
     if (!supabase || !esAdmin) return;
+    if (rows.some((r) => String(r.id) === String(id) && r.es_admin_principal === true)) {
+      return alert('El administrador principal no se puede modificar.');
+    }
     const rolNorm = normalizarRol(rol);
     const { error } = await supabase.from('usuarios').update({ rol: rolNorm }).eq('id', id);
     if (error) return alert(error.message);
@@ -498,6 +501,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const abrirBaja = (r) => {
     if (!supabase || !esAdmin || !r?.id) return;
+    if (r.es_admin_principal === true) return alert('El administrador principal no se puede dar de baja.');
     if (actor?.id === r.id) return alert('No puedes darte de baja a ti mismo.');
     setBajaTarget(r);
     setBajaPickId(String(r.id));
@@ -613,6 +617,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const borrar = async (id) => {
     if (!supabase || !esAdmin || !confirm('¿Eliminar usuario de forma permanente?\n\nPreferible: usa «Dar de baja» para conservar historial.')) return;
+    if (rows.some((r) => String(r.id) === String(id) && r.es_admin_principal === true)) {
+      return alert('El administrador principal no se puede eliminar.');
+    }
     const { error } = await supabase.from('usuarios').delete().eq('id', id);
     if (error) return alert(error.message);
     load();
@@ -620,6 +627,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const guardarNuevoPin = async (row, nuevoRaw) => {
     if (!supabase || !esAdmin) return;
+    if (row?.es_admin_principal === true) return alert('El PUN del administrador principal no se cambia aquí.');
     const nuevo = String(nuevoRaw || '').trim();
     if (!nuevo) return alert('Escribe el nuevo PIN');
     const cubre = await pinEsCubreTurnoDeSucursal(supabase, nuevo, row.sucursal_id);
@@ -849,7 +857,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
             <div>
-              <label className="muted" style={{ fontSize: '0.78rem' }}>PIN del administrador principal</label>
+              <label className="muted" style={{ fontSize: '0.78rem' }}>PUN del administrador principal</label>
               <InputPin value={pinReingreso} onChange={(e) => setPinReingreso(e.target.value)} />
             </div>
             <button type="button" className="btn btn-primary" disabled={trabajandoBaja || !pinReingreso} onClick={confirmarReingresoConPin}>
@@ -976,7 +984,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           <li>Elige a alguien ya dado de baja (no crees un usuario nuevo).</li>
           <li>Elige la <strong>tienda destino</strong> (puede ser distinta a la última donde estuvo).</li>
           <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y esta lista solo en esa tienda.</li>
-          <li>Si está marcado <strong>no recontratable</strong>, pide el PIN del administrador principal.</li>
+          <li>Si está marcado <strong>no recontratable</strong>, pide el PUN del administrador principal.</li>
         </ol>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
           <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
