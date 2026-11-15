@@ -8,6 +8,7 @@ import {
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
   normalizarBonosConfig,
+  pesosFactoresActivos,
 } from './bonosConfig.js'
 import { DIAS_BLOQUEO_BONO_POR_FALTA } from './resumenDiasAsistencia.js'
 import { rangoVentanaInventarioBono } from './bonosData.js'
@@ -18,11 +19,19 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.equal(cfg.reglas.mermaMaxPct.maxPct, 6)
   assert.equal(cfg.reglas.evaluacionMinPct.minPct, 70)
   assert.equal(cfg.reglas.checklistDiario.diasPenalizaSiHasta, 4)
-  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 25)
-  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 25)
+  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 20)
+  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 20)
+  assert.equal(cfg.reglas.retardos.activo, true)
+  assert.equal(cfg.reglas.retardos.penalizacionPct, 20)
+  assert.equal(cfg.reglas.retardos.maxRetardos, 0)
+  assert.equal(cfg.reglas.retardos.graciaMin, 5)
+  assert.equal(cfg.reglas.faltanteCero.label, 'Faltante efectivo')
+  assert.equal(cfg.reglas.mermaMaxPct.label, 'Merma o inventario')
   assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
+  const suma = Object.values(pesosFactoresActivos(cfg.reglas)).reduce((s, n) => s + n, 0)
+  assert.equal(Math.round(suma * 100) / 100, 100)
   assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, DIAS_VENTANA_EVALUACION_BONO)
   assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, DIAS_VENTANA_INVENTARIO_BONO)
   assert.equal(DIAS_VENTANA_EVALUACION_BONO, 15)
@@ -58,7 +67,7 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Si se desactiva requisito duro → −25% como lineamiento
+  // Si se desactiva requisito duro → −20% como un factor de cinco
   const cfg = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -72,20 +81,21 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     evaluacionPct: 90,
     mermaPct: 1,
   }, cfg)
-  assert.equal(r.pct, 75)
+  assert.equal(r.pct, 80)
   assert.equal(r.bloqueadoPorFaltante, false)
+  assert.equal(r.penalizacionTotal, 20)
 }
 
 {
-  // Check list < 4 días → −25%; 4–6 OK
+  // Check list < 4 días → −20%; 4–6 OK
   const r = calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
     checklistDias: 3,
     evaluacionPct: 80,
     mermaPct: 3,
   })
-  assert.equal(r.pct, 75)
-  assert.equal(r.penalizacionTotal, 25)
+  assert.equal(r.pct, 80)
+  assert.equal(r.penalizacionTotal, 20)
 }
 
 {
@@ -100,30 +110,43 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
 }
 
 {
-  // Evaluación < 70 → −25%
+  // Evaluación < 70 → −20%
   const r = calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
     checklistDias: 6,
     evaluacionPct: 65,
     mermaPct: 2,
   })
-  assert.equal(r.pct, 75)
+  assert.equal(r.pct, 80)
 }
 
 {
-  // Inventario merma > 6% → −25%
+  // Inventario merma > 6% → −20%
   const r = calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
     checklistDias: 6,
     evaluacionPct: 80,
     mermaPct: 6.1,
   })
-  assert.equal(r.pct, 75)
-  assert.equal(r.penalizacionTotal, 25)
+  assert.equal(r.pct, 80)
+  assert.equal(r.penalizacionTotal, 20)
 }
 
 {
-  // 2 fallos → 50%; 3 → 25%; 4 → 0% (sin faltante duro: solo lineamientos −25%)
+  // Retardo en la tienda → −20%
+  const r = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 6,
+    evaluacionPct: 80,
+    mermaPct: 2,
+    retardos: 1,
+  })
+  assert.equal(r.pct, 80)
+  assert.equal(r.detalle.find((d) => d.id === 'retardos').ok, false)
+}
+
+{
+  // 2 fallos → 60%; 3 → 40%; 4 → 20%; 5 → 0% (sin faltante duro: −20% c/u)
   const soft = normalizarBonosConfig({
     ...BONOS_CONFIG_DEFAULT,
     reglas: {
@@ -136,23 +159,79 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     checklistDias: 3,
     evaluacionPct: 80,
     mermaPct: 2,
-  }, soft).pct, 50)
+  }, soft).pct, 60)
   assert.equal(calcularPctBonoPorPenalizaciones({
     faltanteOk: false,
     checklistDias: 3,
     evaluacionPct: 60,
     mermaPct: 2,
-  }, soft).pct, 25)
+  }, soft).pct, 40)
   assert.equal(calcularPctBonoPorPenalizaciones({
     faltanteOk: false,
     checklistDias: 3,
     evaluacionPct: 60,
     mermaPct: 7,
+  }, soft).pct, 20)
+  assert.equal(calcularPctBonoPorPenalizaciones({
+    faltanteOk: false,
+    checklistDias: 3,
+    evaluacionPct: 60,
+    mermaPct: 7,
+    retardos: 2,
   }, soft).pct, 0)
 }
 
 {
-  // Bono final con tabulador (1 fallo checklist → 75%)
+  // Apagar dos factores: el 100% se divide entre los 3 que quedan (33.33 / 33.33 / 33.34)
+  const cfg = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      ...BONOS_CONFIG_DEFAULT.reglas,
+      mermaMaxPct: { ...BONOS_CONFIG_DEFAULT.reglas.mermaMaxPct, activo: false },
+      retardos: { ...BONOS_CONFIG_DEFAULT.reglas.retardos, activo: false },
+    },
+  })
+  assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 33.33)
+  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 33.33)
+  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 33.34)
+  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 0)
+  assert.equal(cfg.reglas.retardos.penalizacionPct, 0)
+  const uno = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 2,
+    evaluacionPct: 90,
+    mermaPct: 20,
+    retardos: 4,
+  }, cfg)
+  assert.equal(uno.pct, 66.67)
+  assert.equal(uno.detalle.length, 3)
+  assert.equal(uno.detalle.some((d) => d.id === 'retardos'), false)
+}
+
+{
+  // Un solo factor encendido se lleva el 100%
+  const cfg = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      ...BONOS_CONFIG_DEFAULT.reglas,
+      faltanteCero: { ...BONOS_CONFIG_DEFAULT.reglas.faltanteCero, activo: false },
+      evaluacionMinPct: { ...BONOS_CONFIG_DEFAULT.reglas.evaluacionMinPct, activo: false },
+      mermaMaxPct: { ...BONOS_CONFIG_DEFAULT.reglas.mermaMaxPct, activo: false },
+      retardos: { ...BONOS_CONFIG_DEFAULT.reglas.retardos, activo: false },
+    },
+  })
+  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 100)
+  assert.equal(calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 1,
+    evaluacionPct: 10,
+    mermaPct: 20,
+    retardos: 3,
+  }, cfg).pct, 0)
+}
+
+{
+  // Bono final con tabulador (1 fallo checklist → 80%)
   const base = bonoBasePorMonto(8500) // rango 7001–10000 → 300
   assert.equal(base, 300)
   const pct = calcularPctBonoPorPenalizaciones({
@@ -161,8 +240,8 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
     evaluacionPct: 80,
     mermaPct: 2,
   }).pct
-  assert.equal(pct, 75)
-  assert.equal(bonoFinal(base, pct), 225)
+  assert.equal(pct, 80)
+  assert.equal(bonoFinal(base, pct), 240)
 }
 
 {
@@ -218,20 +297,25 @@ import { rangoVentanaInventarioBono } from './bonosData.js'
   assert.match(pagos[1].ecuacion, /0% \(falta\)/)
 }
 
-// Migración: castigos viejos 20/60 → 25 (umbrales solo migran si no había penalizacionPct)
+// El peso guardado a mano (20/25/60) no se respeta: se reparte 20% entre los 5.
 {
   const cfg = normalizarBonosConfig({
     activo: true,
     reglas: {
-      faltanteCero: { activo: true },
-      mermaMaxPct: { activo: true, maxPct: 6, penalizacionPct: 60 },
+      faltanteCero: { activo: true, label: 'Cero faltante de efectivo' },
+      mermaMaxPct: { activo: true, maxPct: 6, penalizacionPct: 60, label: 'Inventario (merma)' },
       evaluacionMinPct: { activo: true, minPct: 70, penalizacionPct: 20 },
-      checklistDiario: { activo: true, penalizacionPct: 20 },
+      checklistDiario: { activo: true, penalizacionPct: 20, label: 'Check list operativo (días laborales)' },
     },
   })
-  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 25)
-  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 25)
+  assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 20)
+  assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 20)
+  assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 20)
+  assert.equal(cfg.reglas.retardos.penalizacionPct, 20)
+  assert.equal(cfg.reglas.faltanteCero.label, 'Faltante efectivo')
+  assert.equal(cfg.reglas.checklistDiario.label, 'Check list')
+  assert.equal(cfg.reglas.mermaMaxPct.label, 'Merma o inventario')
   assert.equal(cfg.modoCalculo, 'penalizaciones')
   assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
   assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, 15)

@@ -3,15 +3,21 @@ import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursa
 import {
   AVISO_FALTA_BONOS_SQL,
   BONOS_CONFIG_DEFAULT,
+  CLAVES_FACTORES_MEDIDA,
   leerBonosConfig,
   normalizarBonosConfig,
   persistirBonosConfig,
+  pesosFactoresActivos,
   sincronizarBonosConfigDesdeNube,
 } from '../lib/bonosConfig.js';
 import { calcularBonosVariasSucursales } from '../lib/bonosData.js';
 
 function fmtMoney(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fmtPeso(n) {
+  return (Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 /**
@@ -27,6 +33,8 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
   const [cargandoMon, setCargandoMon] = useState(false);
 
   const tiendas = useMemo(() => listarSucursalesOperativas(), []);
+  const pesos = useMemo(() => pesosFactoresActivos(cfg.reglas), [cfg.reglas]);
+  const encendidos = CLAVES_FACTORES_MEDIDA.filter((k) => cfg.reglas?.[k]?.activo !== false).length;
 
   useEffect(() => {
     let ok = true;
@@ -124,8 +132,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
     <div className="card" style={{ maxWidth: 900 }}>
       <h3 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Bonos por recolección</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        El bono base sale del <strong>tabulador</strong> de recolección. Se parte del <strong>100%</strong> y cada lineamiento fallido
-        (cero faltante, check list, evaluación, inventario) descuenta <strong>−25%</strong> → 100 · 75 · 50 · 25 · 0%.
+        El bono base sale del <strong>tabulador</strong> de recolección. Hay <strong>5 factores</strong>:
+        faltante efectivo, check list, evaluación operativa, merma o inventario y retardos.
+        Con los cinco encendidos cada uno vale <strong>20%</strong>. Si apagas alguno, ese 100% se divide
+        entre los que quedan.
         En Inicio, cada tienda muestra la ecuación por empleado; quien tiene falta queda en <strong>0%</strong>.
       </p>
 
@@ -211,7 +221,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
               value={cfg.modoCalculo || 'penalizaciones'}
               onChange={(e) => setCfg({ ...cfg, modoCalculo: e.target.value })}
             >
-              <option value="penalizaciones">Penalizaciones (faltante + check + eval + inventario)</option>
+              <option value="penalizaciones">Penalizaciones (faltante + check + eval + merma + retardos)</option>
               <option value="reglas">Legacy: conteo de reglas → niveles %</option>
             </select>
           </label>
@@ -219,12 +229,12 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
           {(cfg.modoCalculo || 'penalizaciones') === 'reglas' && (
             <>
               <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Niveles de cumplimiento → % (legacy)</h4>
-              <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>Según cuántas reglas se cumplen (de 0 a 4).</p>
+              <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>Según cuántas reglas se cumplen (de 0 a 5).</p>
               {(cfg.nivelesPct || []).map((n, idx) => (
                 <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.35rem' }}>
                   <label className="muted" style={{ fontSize: '0.75rem' }}>
                     Mín. reglas cumplidas
-                    <input className="input" type="number" min={0} max={4} value={n.reglasMin} onChange={(e) => setNivel(idx, { reglasMin: Number(e.target.value) })} />
+                    <input className="input" type="number" min={0} max={5} value={n.reglasMin} onChange={(e) => setNivel(idx, { reglasMin: Number(e.target.value) })} />
                   </label>
                   <label className="muted" style={{ fontSize: '0.75rem' }}>
                     % del bono
@@ -235,41 +245,42 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
             </>
           )}
 
-          <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Medidores y penalizaciones</h4>
+          <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Factores de medida</h4>
+          <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+            El porcentaje no se captura a mano: se reparte el 100% entre los factores encendidos.
+            Ahora hay {encendidos} encendido{encendidos === 1 ? '' : 's'}.
+          </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input type="checkbox" checked={cfg.reglas.faltanteCero.activo !== false} onChange={(e) => setRegla('faltanteCero', { activo: e.target.checked })} />
-                <strong>Cero faltante de efectivo</strong>
+                <strong>1. Faltante efectivo</strong>
+                <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.78rem' }}>{fmtPeso(pesos.faltanteCero)}%</span>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
                 Se toma de gastos del corte (Virtual u otros) con subcategoría/categoría FALTANTE.
-                Por defecto el turno con faltante recibe <strong>0%</strong> de bono en esa recolección.
+                Si el requisito duro está activo, el turno con faltante recibe <strong>0%</strong> en esa recolección.
+                Si no, solo se descuenta este peso.
               </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
-                <label className="muted" style={{ fontSize: '0.72rem' }}>
-                  Penalización %
-                  <input className="input" type="number" min={0} max={100} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.faltanteCero.penalizacionPct ?? 25} onChange={(e) => setRegla('faltanteCero', { penalizacionPct: Number(e.target.value) })} disabled={cfg.reglas.faltanteCero.esRequisito !== false} />
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.72rem', color: 'var(--muted, #78716c)' }}>
-                  <input
-                    type="checkbox"
-                    checked={cfg.reglas.faltanteCero.esRequisito !== false}
-                    onChange={(e) => setRegla('faltanteCero', { esRequisito: e.target.checked })}
-                  />
-                  Requisito duro (faltante → 0% de golpe)
-                </label>
-              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.72rem', color: 'var(--muted, #78716c)' }}>
+                <input
+                  type="checkbox"
+                  checked={cfg.reglas.faltanteCero.esRequisito !== false}
+                  onChange={(e) => setRegla('faltanteCero', { esRequisito: e.target.checked })}
+                />
+                Requisito duro (faltante → 0% de golpe)
+              </label>
             </div>
 
             <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input type="checkbox" checked={cfg.reglas.checklistDiario.activo !== false} onChange={(e) => setRegla('checklistDiario', { activo: e.target.checked })} />
-                <strong>Check list operativo</strong>
+                <strong>2. Check list</strong>
+                <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.78rem' }}>{fmtPeso(pesos.checklistDiario)}%</span>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
                 Ideal: llenar de {cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} a {cfg.reglas.checklistDiario.diasEsperados ?? 6} días laborales.
-                Si llenas <strong>menos de {cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4}</strong> → −{cfg.reglas.checklistDiario.penalizacionPct ?? 25}%.
+                Si llenas <strong>menos de {cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4}</strong> → −{fmtPeso(pesos.checklistDiario)}%.
                 El checklist no define un monto de bono; solo ese %.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -281,30 +292,23 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                   Mínimo (sin castigo)
                   <input className="input" type="number" min={0} max={7} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} onChange={(e) => setRegla('checklistDiario', { diasPenalizaSiHasta: Number(e.target.value) })} />
                 </label>
-                <label className="muted" style={{ fontSize: '0.72rem' }}>
-                  Penalización %
-                  <input className="input" type="number" min={0} max={100} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.penalizacionPct ?? 25} onChange={(e) => setRegla('checklistDiario', { penalizacionPct: Number(e.target.value) })} />
-                </label>
               </div>
             </div>
 
             <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input type="checkbox" checked={cfg.reglas.evaluacionMinPct.activo !== false} onChange={(e) => setRegla('evaluacionMinPct', { activo: e.target.checked })} />
-                <strong>Evaluación operativa</strong>
+                <strong>3. Evaluación operativa</strong>
+                <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.78rem' }}>{fmtPeso(pesos.evaluacionMinPct)}%</span>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-                Si está por debajo del mínimo → −{cfg.reglas.evaluacionMinPct.penalizacionPct ?? 25}%.
+                Si está por debajo del mínimo → −{fmtPeso(pesos.evaluacionMinPct)}%.
                 El medidor permanece vigente {cfg.reglas.evaluacionMinPct.ventanaDias ?? 15} días.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Mínimo %
                   <input className="input" type="number" style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.minPct} onChange={(e) => setRegla('evaluacionMinPct', { minPct: Number(e.target.value) })} />
-                </label>
-                <label className="muted" style={{ fontSize: '0.72rem' }}>
-                  Penalización %
-                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.penalizacionPct ?? 25} onChange={(e) => setRegla('evaluacionMinPct', { penalizacionPct: Number(e.target.value) })} />
                 </label>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Ventana (días)
@@ -316,10 +320,11 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
             <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input type="checkbox" checked={cfg.reglas.mermaMaxPct.activo !== false} onChange={(e) => setRegla('mermaMaxPct', { activo: e.target.checked })} />
-                <strong>Inventario (merma)</strong>
+                <strong>4. Merma o inventario</strong>
+                <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.78rem' }}>{fmtPeso(pesos.mermaMaxPct)}%</span>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-                Si la merma del último inventario supera el máximo → −{cfg.reglas.mermaMaxPct.penalizacionPct ?? 25}%.
+                Si la merma del último inventario supera el máximo → −{fmtPeso(pesos.mermaMaxPct)}%.
                 Vigencia {cfg.reglas.mermaMaxPct.ventanaDias ?? 8} días según el día de inventario de cada tienda.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -328,12 +333,31 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                   <input className="input" type="number" step="0.1" style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.maxPct} onChange={(e) => setRegla('mermaMaxPct', { maxPct: Number(e.target.value) })} />
                 </label>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
-                  Penalización %
-                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.penalizacionPct ?? 25} onChange={(e) => setRegla('mermaMaxPct', { penalizacionPct: Number(e.target.value) })} />
-                </label>
-                <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Ventana (días)
                   <input className="input" type="number" min={1} max={30} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.ventanaDias ?? 8} onChange={(e) => setRegla('mermaMaxPct', { ventanaDias: Number(e.target.value) })} />
+                </label>
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input type="checkbox" checked={cfg.reglas.retardos?.activo !== false} onChange={(e) => setRegla('retardos', { activo: e.target.checked })} />
+                <strong>5. Retardos</strong>
+                <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.78rem' }}>{fmtPeso(pesos.retardos)}%</span>
+              </label>
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
+                Entradas del checador de la plantilla de tienda, después de la hora de inicio más la gracia.
+                Si en el periodo hay más retardos que el máximo → −{fmtPeso(pesos.retardos)}%.
+                Con máximo 0, un solo retardo descuenta este peso.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Máx. retardos
+                  <input className="input" type="number" min={0} max={30} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.retardos?.maxRetardos ?? 0} onChange={(e) => setRegla('retardos', { maxRetardos: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Gracia (min)
+                  <input className="input" type="number" min={0} max={60} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.retardos?.graciaMin ?? 5} onChange={(e) => setRegla('retardos', { graciaMin: Number(e.target.value) })} />
                 </label>
               </div>
             </div>
@@ -401,7 +425,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
             <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-              Bonos estimados con datos de la app (recolecciones, faltantes, merma, evaluación, check list).
+              Bonos estimados con datos de la app (recolecciones, faltantes, merma, evaluación, check list, retardos).
             </p>
             <button type="button" className="btn btn-ghost" onClick={cargarMonitor} disabled={cargandoMon}>
               {cargandoMon ? '…' : 'Actualizar'}

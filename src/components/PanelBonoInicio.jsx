@@ -53,7 +53,7 @@ function plantillaTiendaBono(usuarios, sucursal) {
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
  * Ingresa el monto de la recolección → tabulador → % medidores → pago por empleado.
- * Ej.: $6,900 → base $200 c/u; al 75% → $150; al 100% → $200.
+ * Ej.: $6,900 → base $200 c/u; al 80% (un factor de cinco) → $160; al 100% → $200.
  * Falta → 0% (8 días). Faltante de efectivo → 0% en esa recolección.
  */
 export default function PanelBonoInicio({
@@ -182,8 +182,9 @@ export default function PanelBonoInicio({
             ) : null}
           </p>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
-            Ingresa el monto de <strong>esta recolección</strong>. El tabulador da el bono base por empleado;
-            el % de medidores (100 · 75 · 50 · 25 · 0) es lo que se paga.
+            Ingresa el monto de <strong>esta recolección</strong>. El tabulador da el bono base por empleado.
+            El % se reparte en partes iguales entre los factores encendidos (faltante, check list,
+            evaluación, merma y retardos; 20% cada uno si están los cinco).
             Falta → 0% por {DIAS_BLOQUEO_BONO_POR_FALTA} días. Faltante de efectivo → 0% en esa recolección.
           </p>
         </div>
@@ -257,7 +258,7 @@ export default function PanelBonoInicio({
             <div className="muted" style={{ fontSize: '0.7rem' }}>% medidores</div>
             <strong>{pack.pct}%</strong>
             <span className="muted" style={{ marginLeft: 4 }}>
-              ({fallos === 0 ? '100%' : `${fallos}× −25%`})
+              ({fallos === 0 ? '100%' : `−${pack.penalizacionTotal}%`})
             </span>
           </div>
           <div>
@@ -278,7 +279,7 @@ export default function PanelBonoInicio({
           </p>
         ) : (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
-            Ejemplo: $6,900 → tabulador $200 c/u; al 75% pagan $150; al 100% pagan $200 (total $400 entre 2).
+            Ejemplo: $6,900 → tabulador $200 c/u; al 80% (falla un factor) pagan $160; al 100% pagan $200 (total $400 entre 2).
           </p>
         )}
       </div>
@@ -430,7 +431,9 @@ export default function PanelBonoInicio({
                 <span style={{ color: '#b91c1c', marginLeft: 4 }}>−{r.penalizacionPct}%</span>
               ) : null}
               {r.ok ? (
-                <span style={{ color: '#15803d', marginLeft: 4 }}>OK</span>
+                <span style={{ color: '#15803d', marginLeft: 4 }}>
+                  OK{r.pesoPct > 0 ? ` · ${r.pesoPct}%` : ''}
+                </span>
               ) : null}
             </span>
             <span className="muted">{r.valor} <span style={{ opacity: 0.75 }}>({r.requerido})</span></span>
@@ -444,6 +447,8 @@ export default function PanelBonoInicio({
         {' · '}checklist semanal (&lt;4 días baja %)
         {' · '}inventario {invVentana ? `${invVentana.desde}→${invVentana.hasta}` : '8 días'}
         {invVentana?.etiquetaDia ? ` (${invVentana.etiquetaDia})` : ''}
+        {' · '}retardos {pack.metricas?.retardos ?? 0}
+        {pack.metricas?.retardosGraciaMin != null ? ` (gracia ${pack.metricas.retardosGraciaMin} min)` : ''}
         {' · '}falta {DIAS_BLOQUEO_BONO_POR_FALTA} días.
       </p>
 
