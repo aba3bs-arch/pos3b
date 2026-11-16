@@ -17,7 +17,7 @@ import {
 } from './descansosAutorizados.js'
 import { resolverTipoEmpleado } from './empleadosVisibles.js'
 import { normalizarNombreEmpleado } from './nominaMatch.js'
-import { celdaPlanEmpleadoDia, tieneOverrideSemana } from './planHorario.js'
+import { celdaPlanEmpleadoDia } from './planHorario.js'
 import { leerPlanHorarioLocal, sincronizarPlanHorarioDesdeNube } from './planHorarioSync.js'
 import { normalizarRol } from './roles.js'
 import { ymdLocal } from './semanaNomina.js'
@@ -422,12 +422,27 @@ function claveNombreSucursal(nombre, sucursalId) {
 
 /**
  * Días con al menos una checada (ENTRADA o SALIDA).
- * Para bono: entrada sin salida O salida sin entrada → SÍ tiene bono (no es falta).
+ * No decide el bono: la salida de la mañana cierra el turno anterior.
  */
 export function diasConAlgunaChecada(marcajes = []) {
   const dias = new Set()
   for (const m of marcajes || []) {
     if (!normalizarTipoMarcaje(m?.tipo)) continue
+    const ymd = ymdLocalDesdeIso(m.created_at)
+    if (ymd) dias.add(ymd)
+  }
+  return dias
+}
+
+/**
+ * Días con ENTRADA. Para el bono eso es presencia.
+ * Salida sola (p. ej. 07:00 del turno que empezó anoche) no cuenta:
+ * si no hay entrada ese día, es falta.
+ */
+export function diasConEntrada(marcajes = []) {
+  const dias = new Set()
+  for (const m of marcajes || []) {
+    if (normalizarTipoMarcaje(m?.tipo) !== 'ENTRADA') continue
     const ymd = ymdLocalDesdeIso(m.created_at)
     if (ymd) dias.add(ymd)
   }
@@ -545,22 +560,6 @@ function dateLocalDesdeYmd(ymd) {
   return new Date(y, m - 1, d, 12, 0, 0)
 }
 
-/** Lunes de la semana laboral (Lun–Dom) para un YMD. */
-export function ymdLunesDeSemana(ymd) {
-  const date = dateLocalDesdeYmd(ymd)
-  if (!date) return ''
-  const day = date.getDay() // 0=dom
-  const diff = day === 0 ? -6 : 1 - day
-  date.setDate(date.getDate() + diff)
-  return ymdLocal(date)
-}
-
-export function mismaSemanaLaboral(ymdA, ymdB) {
-  const a = ymdLunesDeSemana(ymdA)
-  const b = ymdLunesDeSemana(ymdB)
-  return Boolean(a && b && a === b)
-}
-
 /**
  * Día de descanso habitual (0=dom … 6=sáb).
  * Patrón / días personalizados → el único día sin turno; si no, domingo (6+1 tienda).
@@ -612,12 +611,12 @@ export function sugerirFechaDescansoHabitual(user, fechaNuevaYmd) {
  *
  * Orden (si alguno dice descanso → NO es falta):
  * 1) Descanso autorizado ese día (Panel Autorizar / cambio de descanso)
- * 2) Semana actual u override de semana (Checador → Plan horario): la celda manda
- *    (permite que el domingo deje de ser descanso si lo movieron a miércoles)
- * 3) Cualquier semana: si el plan marca DESCANSO → no es falta (plantilla L–D)
- * 4) Descanso habitual (domingo 6+1 / patrón turno_horario)
- * 5) Patrón de días del empleado
- * 6) Sin info: laboral
+ * 2) Celda del plan horario (plantilla u override de esa semana). Turno = laboral,
+ *    descanso = no es falta. Aplica a la semana en curso y a las anteriores:
+ *    el domingo de turno nocturno sin entrada de las 19:00 es falta.
+ * 3) Sin celda: descanso habitual (domingo 6+1 / patrón turno_horario)
+ * 4) Patrón de días del empleado
+ * 5) Sin info: laboral
  *
  * @param {object} user
  * @param {string} ymd
@@ -628,38 +627,25 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
   const date = dateLocalDesdeYmd(ymd)
   if (!date) return false
   const uid = user.id != null ? String(user.id) : ''
-  const hoy = ctx.hoy || null
-  const enSemanaActual = hoy ? mismaSemanaLaboral(ymd, hoy) : false
-  const hayOverride = Boolean(ctx.plan && tieneOverrideSemana(ctx.plan, date))
 
   // 1) Autorización puntual (cambio de descanso / permiso)
   if (uid && ctx.descansosAutSet?.has(claveDescansoAutorizado(uid, ymd))) {
     return false
   }
 
+  // 2) Plan horario: la celda manda en cualquier semana.
   const celdaPlan = uid && ctx.plan ? celdaPlanEmpleadoDia(ctx.plan, uid, date) : null
-  const habitual = diaDescansoHabitualEmpleado(user)
-
-  // 2) Semana actual, override de semana, o sin “hoy” (tests): la celda efectiva manda.
-  //    Así un domingo deja de ser descanso si en el plan lo movieron a otro día.
-  const usaCeldaCompleta = Boolean(celdaPlan && (enSemanaActual || hayOverride || !hoy))
-  if (usaCeldaCompleta) {
+  if (celdaPlan) {
     return celdaPlan.tipo !== 'descanso'
   }
 
-  // 3) Otras semanas: el DESCANSO del plan horario nunca es falta
-  //    (referencia Checador → Plan horario). No forzamos turnos de plantilla
-  //    nueva sobre el pasado; el habitual cubre el domingo típico.
-  if (celdaPlan && celdaPlan.tipo === 'descanso') {
-    return false
-  }
-
-  // 4) Descanso habitual (domingo típico / patrón)
+  // 3) Descanso habitual (domingo típico / patrón) cuando no hay plan
+  const habitual = diaDescansoHabitualEmpleado(user)
   if (date.getDay() === habitual) {
     return false
   }
 
-  // 5) Patrón de días del empleado
+  // 4) Patrón de días del empleado
   const horario = parseTurnoHorario(user?.turno_horario)
   const hasDias = Boolean(
     horario?.patron
@@ -667,16 +653,17 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
   )
   if (hasDias) return Boolean(turnoIdParaUsuario(user, date))
 
-  // 6) Sin patrón: laboral
+  // 5) Sin patrón: laboral
   return true
 }
 
 /**
  * Empleados de tienda (dados de alta) con falta vigente para bono.
  * - Solo tipo tienda, activos, de la sucursal (no CT, no indirectos, no bajas).
- * - Falta = día laboral sin ENTRADA ni SALIDA.
+ * - Falta = día laboral sin ENTRADA.
  * - Descanso (plan / patrón / autorizado) no cuenta como falta.
- * - Entrada sola o salida sola → SÍ tiene bono.
+ * - Entrada sola (sin salida) → SÍ tiene bono.
+ * - Salida sola no cuenta: cierra el turno anterior. Sin entrada ese día → falta.
  * - 1 falta: sin bono 7 días a partir de ese día.
  * - Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
  *   (vuelve 7 días después de la última falta de la cadena).
@@ -734,7 +721,7 @@ export function listarBloqueosBonoPorFalta({
 
   for (const u of plantilla) {
     const uid = String(u.id)
-    const presentes = diasConAlgunaChecada(marcajesPorUsuario.get(uid) || [])
+    const presentes = diasConEntrada(marcajesPorUsuario.get(uid) || [])
     const faltas = []
     const corte = String(faltasDesde || '').slice(0, 10)
     for (const ymd of periodo) {
@@ -773,7 +760,7 @@ export function listarBloqueosBonoPorFalta({
  *
  * @param {'par'|'cualquier_marcaje'} [opts.modoPresencia]
  *   - par: ENTRADA+SALIDA (nómina / resumen clásico)
- *   - cualquier_marcaje: basta ENTRADA o SALIDA (bono: entrada/salida sola ≠ falta)
+ *   - cualquier_marcaje: basta ENTRADA (la salida sola no evita la falta)
  */
 export function construirResumenEmpleados({
   usuarios = [],
@@ -869,7 +856,7 @@ export function construirResumenEmpleados({
   const sucMostrar = (row) => filtro || row.sucursalId || '—'
   const diasPresente = (marcajesEmp) => (
     modoPresencia === 'cualquier_marcaje'
-      ? diasConAlgunaChecada(marcajesEmp)
+      ? diasConEntrada(marcajesEmp)
       : diasCompletosPorEntradaSalida(marcajesEmp)
   )
 
