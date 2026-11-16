@@ -7,7 +7,11 @@
  *   (tipo_cierre = cierre_operativo) y ya no entran a contabilidad.
  */
 
-import { listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
+import {
+  equivalentesCodigoTienda,
+  listarSucursalesOperativas,
+  normalizarCodigoTienda,
+} from '../constants/sucursales.js';
 import {
   addDaysYmd,
   finDia,
@@ -30,6 +34,9 @@ export const TIPO_CIERRE_OPERATIVO = 'cierre_operativo';
  * Los cierres de cajero anteriores siguen contando como histórico.
  */
 export const CUTOVER_CIERRE_DIARIO = '2026-11-13';
+
+/** La ventana de búsqueda abarca 4 días y hay un corte general por día; el margen cubre duplicados viejos. */
+const LIMITE_BUSQUEDA_CORTE_GENERAL = 50;
 
 export function fechaNegocioCierre(row) {
   const d = row?.detalle && typeof row.detalle === 'object' ? row.detalle : {};
@@ -196,15 +203,19 @@ export async function buscarCierreDiarioExistente(supabase, { sucursal, fecha } 
   if (!supabase || !suc || !fecha) return { data: null, error: null };
   const desdeIso = inicioDia(addDaysYmd(fecha, -1)).toISOString();
   const hastaIso = finDia(addDaysYmd(fecha, 2)).toISOString();
+  const vars = equivalentesCodigoTienda(suc);
+  // Solo cortes generales: en la misma ventana caben los cierres del cajero y las recolecciones,
+  // y con un tope corto el corte general del día quedaba fuera y se volvía a generar.
   const { data, error } = await supabase
     .from('cortes_contabilidad_cierres')
     .select('*')
     .eq('modulo', 'abarrotes')
-    .eq('sucursal_id', suc)
+    .in('sucursal_id', vars.length ? vars : [suc])
+    .eq('detalle->>tipo_cierre', TIPO_CIERRE_DIARIO)
     .gte('created_at', desdeIso)
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(LIMITE_BUSQUEDA_CORTE_GENERAL);
   if (error) return { data: null, error: error.message };
   const hit = (data || []).find((c) => {
     if (c.deleted_at) return false;

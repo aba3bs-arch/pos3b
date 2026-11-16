@@ -9,6 +9,7 @@ import {
   TIPO_CIERRE_DIARIO,
   TIPO_CIERRE_OPERATIVO,
   armarEstadoCorteDiario,
+  buscarCierreDiarioExistente,
   esCierreContableAbarrotes,
   folioCorteDiario,
 } from './corteAbarrotesDiario.js';
@@ -81,6 +82,68 @@ test('folio de corte general CGA-00001 consecutivo', async () => {
   assert.equal(await siguienteFolioCorteGeneral(fake([]), { sucursal: '3B5' }), 'CGA-00001');
   assert.equal(await siguienteFolioCorteGeneral(fake(['CGA-00001', 'CGA-00007', 'CGA-00003']), { sucursal: '3B5' }), 'CGA-00008');
   assert.equal(await siguienteFolioCorteGeneral(fake([], { message: 'x' }), { sucursal: '3B5' }), 'CGA-00001');
+});
+
+/** Supabase mínimo que aplica filtros, orden y tope como la base real. */
+function fakeCierres(filas) {
+  return {
+    from: () => {
+      let rows = [...filas];
+      const q = {
+        select: () => q,
+        eq: (col, val) => {
+          rows = rows.filter((r) => (col === 'detalle->>tipo_cierre' ? r.detalle?.tipo_cierre : r[col]) === val);
+          return q;
+        },
+        in: (col, vals) => {
+          rows = rows.filter((r) => vals.includes(r[col]));
+          return q;
+        },
+        gte: (col, val) => {
+          rows = rows.filter((r) => r[col] >= val);
+          return q;
+        },
+        lte: (col, val) => {
+          rows = rows.filter((r) => r[col] <= val);
+          return q;
+        },
+        order: (col) => {
+          rows = rows.sort((a, b) => (a[col] < b[col] ? 1 : -1));
+          return q;
+        },
+        limit: (n) => Promise.resolve({ data: rows.slice(0, n), error: null }),
+      };
+      return q;
+    },
+  };
+}
+
+test('encuentra el corte general aunque haya muchos cierres del cajero después', async () => {
+  const fila = (folio, createdAt, detalle) => ({
+    folio, modulo: 'abarrotes', sucursal_id: '3B5', created_at: createdAt, deleted_at: null, detalle,
+  });
+  const cga = (n, fecha, createdAt) => fila(`CGA-0000${n}`, createdAt, { tipo_cierre: TIPO_CIERRE_DIARIO, fecha_negocio: fecha });
+  const cajero = (n, createdAt) => fila(`AB-${n}`, createdAt, { tipo_cierre: TIPO_CIERRE_OPERATIVO });
+  // Caso real de 3B5 el 16/11: tres cortes generales y los cierres del cajero de esos días.
+  const supabase = fakeCierres([
+    cajero(212, '2026-11-13T14:41:58.000Z'),
+    cajero(213, '2026-11-14T02:40:18.000Z'),
+    cga(1, '2026-11-13', '2026-11-14T06:59:59.999Z'),
+    cajero(214, '2026-11-14T14:22:57.000Z'),
+    cajero(215, '2026-11-15T02:29:41.000Z'),
+    cga(2, '2026-11-14', '2026-11-15T06:59:59.999Z'),
+    cajero(216, '2026-11-15T15:33:54.000Z'),
+    cga(3, '2026-11-15', '2026-11-16T06:59:59.999Z'),
+    { ...cga(9, '2026-11-13', '2026-11-14T06:59:59.999Z'), sucursal_id: '3B6' },
+  ]);
+
+  const d13 = await buscarCierreDiarioExistente(supabase, { sucursal: '3B5', fecha: '2026-11-13' });
+  assert.equal(d13.data?.folio, 'CGA-00001');
+  assert.equal(d13.data?.sucursal_id, '3B5');
+  const d15 = await buscarCierreDiarioExistente(supabase, { sucursal: '3B5', fecha: '2026-11-15' });
+  assert.equal(d15.data?.folio, 'CGA-00003');
+  const d16 = await buscarCierreDiarioExistente(supabase, { sucursal: '3B5', fecha: '2026-11-16' });
+  assert.equal(d16.data, null);
 });
 
 test('armar con folio CGA y resumen de egresos del día', () => {

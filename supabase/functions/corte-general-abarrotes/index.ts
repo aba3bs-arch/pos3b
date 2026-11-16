@@ -2091,7 +2091,8 @@ var corteGeneral = (() => {
     if (!supabase || !suc || !fecha) return { data: null, error: null };
     const desdeIso = inicioDia(addDaysYmd(fecha, -1)).toISOString();
     const hastaIso = finDia(addDaysYmd(fecha, 2)).toISOString();
-    const { data, error } = await supabase.from("cortes_contabilidad_cierres").select("*").eq("modulo", "abarrotes").eq("sucursal_id", suc).gte("created_at", desdeIso).lte("created_at", hastaIso).order("created_at", { ascending: false }).limit(5);
+    const vars = equivalentesCodigoTienda(suc);
+    const { data, error } = await supabase.from("cortes_contabilidad_cierres").select("*").eq("modulo", "abarrotes").in("sucursal_id", vars.length ? vars : [suc]).eq("detalle->>tipo_cierre", TIPO_CIERRE_DIARIO).gte("created_at", desdeIso).lte("created_at", hastaIso).order("created_at", { ascending: false }).limit(LIMITE_BUSQUEDA_CORTE_GENERAL);
     if (error) return { data: null, error: error.message };
     const hit = (data || []).find((c) => {
       if (c.deleted_at) return false;
@@ -2214,7 +2215,7 @@ var corteGeneral = (() => {
     }
     return { ok: true, creados, revisados, resultados };
   }
-  var TIPO_CIERRE_DIARIO, TIPO_CIERRE_OPERATIVO, CUTOVER_CIERRE_DIARIO, PREFIJO_CORTE_GENERAL;
+  var TIPO_CIERRE_DIARIO, TIPO_CIERRE_OPERATIVO, CUTOVER_CIERRE_DIARIO, LIMITE_BUSQUEDA_CORTE_GENERAL, PREFIJO_CORTE_GENERAL;
   var init_corteAbarrotesDiario = __esm({
     "src/lib/corteAbarrotesDiario.js"() {
       init_define_import_meta_env();
@@ -2228,6 +2229,7 @@ var corteGeneral = (() => {
       TIPO_CIERRE_DIARIO = "cierre_diario";
       TIPO_CIERRE_OPERATIVO = "cierre_operativo";
       CUTOVER_CIERRE_DIARIO = "2026-11-13";
+      LIMITE_BUSQUEDA_CORTE_GENERAL = 50;
       PREFIJO_CORTE_GENERAL = "CGA";
     }
   });
