@@ -1058,6 +1058,25 @@ export async function limpiarGastosTurno(supabase, sucursal, modulo, idsOpcional
  * (persisten hasta máquinas en cero). Solo una recolección definitiva (`tipo_cierre === 'recoleccion'`)
  * debe poder marcarlos como huérfanos.
  */
+export function idsGastosYaCerradosEnCierres(modulo, cierres = []) {
+  const ids = new Set();
+  for (const c of cierres || []) {
+    if (modulo === 'garage') {
+      const tipo = String(c?.detalle?.tipo_cierre || '').toLowerCase();
+      // Solo recolección definitiva cierra el periodo; cierre / temporal dejan gastos abiertos.
+      if (tipo !== 'recoleccion') continue;
+    }
+    // El corte general copia todos los gastos del día, también los que el cajero aún no cierra.
+    if (modulo === 'abarrotes' && esCierreGeneralAbarrotes(c)) continue;
+    const lista = c?.detalle?.gastos;
+    if (!Array.isArray(lista)) continue;
+    for (const g of lista) {
+      if (g?.id) ids.add(String(g.id));
+    }
+  }
+  return ids;
+}
+
 export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo) {
   const sid = sucursalIdCorte(sucursal);
   const vars = sucursalesIdCorteQuery(sid);
@@ -1071,7 +1090,7 @@ export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo
       .eq('modulo', modulo),
     supabase
       .from('cortes_contabilidad_cierres')
-      .select('id, detalle, created_at')
+      .select('id, folio, turno, detalle, created_at')
       .in('sucursal_id', vars)
       .eq('modulo', modulo)
       .order('created_at', { ascending: false })
@@ -1080,19 +1099,7 @@ export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo
 
   if (eAb || eCi) return { ok: false, error: (eAb || eCi).message, count: 0 };
 
-  const idsEnCierres = new Set();
-  for (const c of cierres || []) {
-    if (modulo === 'garage') {
-      const tipo = String(c?.detalle?.tipo_cierre || '').toLowerCase();
-      // Solo recolección definitiva cierra el periodo; cierre / temporal dejan gastos abiertos.
-      if (tipo !== 'recoleccion') continue;
-    }
-    const lista = c?.detalle?.gastos;
-    if (!Array.isArray(lista)) continue;
-    for (const g of lista) {
-      if (g?.id) idsEnCierres.add(String(g.id));
-    }
-  }
+  const idsEnCierres = idsGastosYaCerradosEnCierres(modulo, cierres);
 
   const huerfanos = (abiertos || []).filter(
     (g) => g.cerrado !== true && idsEnCierres.has(String(g.id)),

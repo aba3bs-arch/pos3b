@@ -7,6 +7,7 @@ import {
 import {
   cajaAnteriorDesdeFilasCierre,
   filtrarHistorialCajero,
+  idsGastosYaCerradosEnCierres,
   patchCierreHistorial,
 } from './store.js';
 
@@ -68,6 +69,24 @@ assert.equal(cajaAnteriorDesdeFilasCierre([angel, cga, esthela]), 2808);
 assert.equal(gastosPeriodoDesdeUltimaRecoleccion([angel, cga, esthela], 0), 150);
 const ids = gastosListaDesdeUltimaRecoleccion([cga, esthela], []).map((g) => g.id);
 assert.deepEqual(ids, ['g1']);
+
+// El corte general copia los gastos de todo el día: no debe cerrarle al cajero
+// los que todavía están en su corte abierto (solo los que ya pasaron por un cierre suyo).
+const cerrados = idsGastosYaCerradosEnCierres('abarrotes', [cga, esthela]);
+assert.equal(cerrados.has('g-dia'), false);
+assert.equal(cerrados.has('g1'), true);
+assert.equal(
+  idsGastosYaCerradosEnCierres('abarrotes', [{ folio: 'CGA-00003', detalle: { gastos: [{ id: 'g-noche' }] } }]).size,
+  0,
+);
+// Garage sigue igual: solo la recolección definitiva cierra gastos.
+assert.deepEqual(
+  [...idsGastosYaCerradosEnCierres('garage', [
+    { detalle: { tipo_cierre: 'cierre', gastos: [{ id: 'a' }] } },
+    { detalle: { tipo_cierre: 'recoleccion', gastos: [{ id: 'b' }] } },
+  ])],
+  ['b'],
+);
 
 const built = patchCierreHistorial(esthela, {
   caja_actual: 1582,
