@@ -164,6 +164,66 @@ export function gastosListaDesdeUltimaRecoleccion(historial = [], gastosAbiertos
   return [...porId.values()];
 }
 
+function tsCierre(h) {
+  const t = h?.created_at ? new Date(h.created_at).getTime() : 0;
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Recolección que reinicia el periodo. La temporal de Garage no cuenta. */
+function esRecoleccionDefinitiva(h) {
+  return String(h?.detalle?.tipo_cierre || '') === 'recoleccion';
+}
+
+function claveGastoEstable(g) {
+  if (g?.id != null && g.id !== '') return `id:${g.id}`;
+  return [
+    'tmp',
+    g?.created_at || '',
+    g?.monto ?? '',
+    g?.categoria || '',
+    g?.subcategoria || '',
+    g?.comentario || '',
+    g?.usuario_nombre || g?.solicitado_por || '',
+  ].join('|');
+}
+
+/**
+ * Garage guarda en cada cierre la lista completa de gastos que siguen abiertos.
+ * Reparte cada gasto al primer turno del periodo (desde la última recolección
+ * definitiva) donde apareció, para no sumarlo otra vez en los turnos siguientes.
+ */
+export function partirGastosAcumuladosPorTurno(historial = [], gastosAbiertos = []) {
+  const lista = [...(historial || [])].sort((a, b) => tsCierre(b) - tsCierre(a));
+  const rec = lista.find(esRecoleccionDefinitiva) || null;
+  const desde = rec ? tsCierre(rec) : 0;
+  const periodo = lista
+    .filter((h) => !esRecoleccionDefinitiva(h) && (!rec || tsCierre(h) > desde))
+    .sort((a, b) => tsCierre(a) - tsCierre(b));
+
+  const vistos = new Set();
+  const porCierre = {};
+  for (const h of periodo) {
+    const embebidos = Array.isArray(h?.detalle?.gastos) ? h.detalle.gastos : [];
+    const nuevos = [];
+    for (const g of embebidos) {
+      const k = claveGastoEstable(g);
+      if (vistos.has(k)) continue;
+      vistos.add(k);
+      nuevos.push(g);
+    }
+    porCierre[String(h.id)] = nuevos;
+  }
+
+  const abiertosNuevos = [];
+  for (const g of gastosAbiertos || []) {
+    const k = claveGastoEstable(g);
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    abiertosNuevos.push(g);
+  }
+  return { porCierre, abiertosNuevos };
+}
+
 /** Referencia del recolector (morado): fija hasta la próxima recolección; no cambia con los cierres de cajero. */
 export function monedaRecolectorRef(estado) {
   return round2(estado?.moneda_inicial);

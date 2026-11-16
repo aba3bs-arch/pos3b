@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import PortalFlotante from '../PortalFlotante.jsx';
 import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
-import { round2 } from '../../lib/corteContabilidad/calc.js';
+import { partirGastosAcumuladosPorTurno, round2 } from '../../lib/corteContabilidad/calc.js';
 
-const ACCENT = '#6c3483';
+const ACCENT_VIRTUAL = '#6c3483';
 const btnSm = { padding: '0.15rem 0.4rem', fontSize: '0.72rem' };
 
 function esRecoleccion(h) {
@@ -32,6 +32,8 @@ export default function CorteVirtualDesgloseModal({
   onEliminarGastoActual,
   onEditarGastoCierre,
   onEliminarGastoCierre,
+  acumulado = false,
+  accent = ACCENT_VIRTUAL,
 }) {
   const [expandidoId, setExpandidoId] = useState(null);
 
@@ -48,13 +50,33 @@ export default function CorteVirtualDesgloseModal({
     return { recAnterior: rec, cierresPeriodo: cierres };
   }, [historial]);
 
+  const gastosPartidos = useMemo(() => {
+    if (!acumulado) return null;
+    return partirGastosAcumuladosPorTurno(historial, corteActual?.listaGastos || []);
+  }, [acumulado, historial, corteActual?.listaGastos]);
+
   if (!abierto) return null;
 
   const totVentas = round2(
     cierresPeriodo.reduce((a, h) => a + (Number(h.ventas) || Number(h.detalle?.venta) || 0), 0),
   );
+  const gastosDeCierre = (h) => {
+    if (!acumulado) return Array.isArray(h?.detalle?.gastos) ? h.detalle.gastos : [];
+    return gastosPartidos?.porCierre?.[String(h?.id)] || [];
+  };
+  const montoGastosDeCierre = (h) => {
+    if (!acumulado) return Number(h?.detalle?.gastos_total) || 0;
+    return round2(gastosDeCierre(h).reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  };
+  const listaGastosAbiertos = acumulado
+    ? (gastosPartidos?.abiertosNuevos || [])
+    : (corteActual?.listaGastos || []);
+  const montoGastosAbiertos = acumulado
+    ? round2(listaGastosAbiertos.reduce((a, g) => a + (Number(g.monto) || 0), 0))
+    : corteActual?.gastos;
+
   const totGastos = round2(
-    cierresPeriodo.reduce((a, h) => a + (Number(h.detalle?.gastos_total) || 0), 0),
+    cierresPeriodo.reduce((a, h) => a + montoGastosDeCierre(h), 0),
   );
   const montoRecAnt = round2(
     Number(recAnterior?.detalle?.recoleccion ?? recAnterior?.detalle?.recoleccion_turno) || 0,
@@ -89,16 +111,19 @@ export default function CorteVirtualDesgloseModal({
           marginTop: '1.5rem',
           maxHeight: 'calc(100vh - 3rem)',
           overflow: 'auto',
-          borderTop: `3px solid ${ACCENT}`,
+          borderTop: `3px solid ${accent}`,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <h3 style={{ margin: 0, color: ACCENT }}>Desglose desde recolección anterior</h3>
+            <h3 style={{ margin: 0, color: accent }}>Desglose desde recolección anterior</h3>
             <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.82rem' }}>
               Solo el periodo actual · toca <strong>Gastos</strong> para ver el detalle del turno
               {puedeEditarGastos ? ' · puedes editar o eliminar montos' : ''}
+              {acumulado
+                ? ' · cada turno muestra solo los gastos nuevos; los que siguen abiertos no se vuelven a sumar. La recolección temporal no reinicia el periodo.'
+                : ''}
             </p>
           </div>
           <button type="button" className="btn btn-ghost" onClick={onCerrar}>
@@ -111,14 +136,14 @@ export default function CorteVirtualDesgloseModal({
             margin: '1rem 0',
             padding: '0.85rem',
             borderRadius: 8,
-            background: 'rgba(108,52,131,0.1)',
-            border: `1px solid rgba(108,52,131,0.25)`,
+            background: acumulado ? 'rgba(127,140,141,0.12)' : 'rgba(108,52,131,0.1)',
+            border: acumulado ? '1px solid rgba(127,140,141,0.35)' : '1px solid rgba(108,52,131,0.25)',
           }}
         >
-          <div style={{ fontWeight: 800, color: ACCENT, marginBottom: '0.35rem' }}>Recolección anterior</div>
+          <div style={{ fontWeight: 800, color: accent, marginBottom: '0.35rem' }}>Recolección anterior</div>
           {recAnterior ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
-              <Kpi label="Monto" value={fmtCorte(montoRecAnt)} accent />
+              <Kpi label="Monto" value={fmtCorte(montoRecAnt)} accent tono={accent} />
               <Kpi
                 label="Fecha"
                 value={
@@ -155,12 +180,12 @@ export default function CorteVirtualDesgloseModal({
             style={{
               marginBottom: '1rem',
               padding: '0.75rem',
-              background: 'rgba(108,52,131,0.06)',
+              background: acumulado ? 'rgba(127,140,141,0.08)' : 'rgba(108,52,131,0.06)',
               borderRadius: 8,
-              border: '1px solid rgba(108,52,131,0.18)',
+              border: acumulado ? '1px solid rgba(127,140,141,0.28)' : '1px solid rgba(108,52,131,0.18)',
             }}
           >
-            <strong style={{ color: ACCENT }}>Corte abierto (actual)</strong>
+            <strong style={{ color: accent }}>Corte abierto (actual)</strong>
             <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
               <table className="data">
                 <thead>
@@ -180,9 +205,10 @@ export default function CorteVirtualDesgloseModal({
                     <td style={{ fontWeight: 700 }}>{fmtCorte(corteActual.venta)}</td>
                     <td>
                       <BotonGastos
-                        monto={corteActual.gastos}
+                        monto={montoGastosAbiertos}
                         activo={expandidoId === 'actual'}
                         onClick={() => toggle('actual')}
+                        tono={accent}
                       />
                     </td>
                     <td>{fmtCorte(corteActual.subtotal)}</td>
@@ -192,12 +218,13 @@ export default function CorteVirtualDesgloseModal({
                     <tr>
                       <td colSpan={6} style={{ padding: '0.5rem 0.75rem 0.85rem', background: 'rgba(108,52,131,0.04)' }}>
                         <DetalleGastosTurno
-                          gastos={corteActual.listaGastos || []}
+                          gastos={listaGastosAbiertos}
                           cajeroFallback={corteActual.usuario || ''}
                           titulo={`Gastos del corte abierto · ${corteActual.folio || ''}`}
                           puedeEditar={puedeEditarGastos}
                           onEditar={onEditarGastoActual}
                           onEliminar={onEliminarGastoActual}
+                          tono={accent}
                         />
                       </td>
                     </tr>
@@ -208,7 +235,7 @@ export default function CorteVirtualDesgloseModal({
           </div>
         )}
 
-        <h4 style={{ margin: '0 0 0.5rem', color: ACCENT }}>Cierres desde la recolección anterior</h4>
+        <h4 style={{ margin: '0 0 0.5rem', color: accent }}>Cierres desde la recolección anterior</h4>
         <div className="table-wrap">
           <table className="data">
             <thead>
@@ -228,8 +255,8 @@ export default function CorteVirtualDesgloseModal({
                 const d = h.detalle || {};
                 const tipo = etiquetaTipoCierre(d);
                 const venta = Number(h.ventas) || Number(d.venta) || 0;
-                const gastosMonto = Number(d.gastos_total) || 0;
-                const listaGastos = Array.isArray(d.gastos) ? d.gastos : [];
+                const listaGastos = gastosDeCierre(h);
+                const gastosMonto = montoGastosDeCierre(h);
                 const sub = Number(d.subtotal);
                 const caja = Number(h.caja_actual) || 0;
                 const abiertoFila = expandidoId === h.id;
@@ -249,6 +276,7 @@ export default function CorteVirtualDesgloseModal({
                           activo={abiertoFila}
                           onClick={() => toggle(h.id)}
                           disabled={!(gastosMonto > 0) && !listaGastos.length}
+                          tono={accent}
                         />
                       </td>
                       <td>{Number.isFinite(sub) ? fmtCorte(sub) : '—'}</td>
@@ -264,6 +292,7 @@ export default function CorteVirtualDesgloseModal({
                             puedeEditar={puedeEditarGastos}
                             onEditar={(gastoKey, patch) => onEditarGastoCierre?.(h.id, gastoKey, patch)}
                             onEliminar={(gastoKey) => onEliminarGastoCierre?.(h.id, gastoKey)}
+                            tono={accent}
                           />
                         </td>
                       </tr>
@@ -287,7 +316,7 @@ export default function CorteVirtualDesgloseModal({
   );
 }
 
-function BotonGastos({ monto, activo, onClick, disabled }) {
+function BotonGastos({ monto, activo, onClick, disabled, tono = ACCENT_VIRTUAL }) {
   const tiene = Number(monto) > 0;
   return (
     <button
@@ -298,7 +327,7 @@ function BotonGastos({ monto, activo, onClick, disabled }) {
       style={{
         border: 'none',
         background: activo ? 'rgba(108,52,131,0.15)' : 'transparent',
-        color: tiene ? ACCENT : 'inherit',
+        color: tiene ? tono : 'inherit',
         fontWeight: 800,
         cursor: disabled ? 'default' : 'pointer',
         padding: '0.15rem 0.35rem',
@@ -320,6 +349,7 @@ function DetalleGastosTurno({
   puedeEditar = false,
   onEditar,
   onEliminar,
+  tono = ACCENT_VIRTUAL,
 }) {
   const [editando, setEditando] = useState(null); // gasto key
   const [draft, setDraft] = useState({ monto: '', comentario: '' });
@@ -353,7 +383,7 @@ function DetalleGastosTurno({
 
   return (
     <div>
-      <div style={{ fontWeight: 700, color: ACCENT, marginBottom: '0.4rem', fontSize: '0.85rem' }}>{titulo}</div>
+      <div style={{ fontWeight: 700, color: tono, marginBottom: '0.4rem', fontSize: '0.85rem' }}>{titulo}</div>
       <table className="data" style={{ fontSize: '0.82rem' }}>
         <thead>
           <tr>
@@ -442,7 +472,7 @@ function DetalleGastosTurno({
           })}
           <tr>
             <td colSpan={5} style={{ textAlign: 'right', fontWeight: 800 }}>Total</td>
-            <td style={{ textAlign: 'right', fontWeight: 800, color: ACCENT }}>{fmtCorte(total)}</td>
+            <td style={{ textAlign: 'right', fontWeight: 800, color: tono }}>{fmtCorte(total)}</td>
             {puedeEditar && <td />}
           </tr>
         </tbody>
@@ -451,7 +481,7 @@ function DetalleGastosTurno({
   );
 }
 
-function Kpi({ label, value, accent }) {
+function Kpi({ label, value, accent, tono = ACCENT_VIRTUAL }) {
   return (
     <div
       style={{
@@ -462,7 +492,7 @@ function Kpi({ label, value, accent }) {
       }}
     >
       <div className="muted" style={{ fontSize: '0.72rem' }}>{label}</div>
-      <div style={{ fontWeight: 800, fontSize: '1.05rem', color: accent ? ACCENT : undefined }}>{value}</div>
+      <div style={{ fontWeight: 800, fontSize: '1.05rem', color: accent ? tono : undefined }}>{value}</div>
     </div>
   );
 }
