@@ -73,4 +73,32 @@ assert.equal(res.map[sandraId].total, 500);
 assert.equal(res.map[sandraId].detalle[0].estado, 'pendiente_socio');
 assert.ok(res.avisos.some((a) => /Sandra/i.test(a) && /socio/i.test(a)));
 
+const arrendatario = await prestamosDeduccionPorEmpleado(
+  mockSupabase([
+    {
+      id: 'p-arr',
+      usuario_id: null,
+      nombre_empleado: 'Sandra Lourdes Martinez Galindo',
+      saldo: 800,
+      estado: 'activo',
+      sucursal_id: '3B6',
+      notas: '[ARRENDATARIO] Fiado',
+    },
+    {
+      id: '06639193-40e5-4af6-816b-1619094153c3',
+      usuario_id: sandraId,
+      nombre_empleado: 'Sandra Lourdes Martinez Galindo',
+      saldo: 1500,
+      estado: 'pendiente_socio',
+      sucursal_id: '3B6',
+    },
+  ]),
+  {
+    empleados: [{ id: sandraId, nombre: 'Sandra Lourdes Martinez Galindo', sucursal_id: '3B6' }],
+    todasSucursales: true,
+  },
+);
+assert.equal(arrendatario.map[sandraId].total, 500, 'el fiado del arrendatario no suma a nómina');
+assert.equal(arrendatario.map[sandraId].detalle.length, 1);
+
 console.log('nominaPrestamos.test.mjs ok');

@@ -46,6 +46,7 @@ export function tipoValeLogico(categoriaOrVale, subcategoria, detalle) {
   ) {
     return 'consumo';
   }
+  if (c === 'fiado' || c === 'anticipo-renta') return c;
   if (c === 'anticipos' || s.includes('anticipo') || blob.includes('anticipo')) return 'anticipo';
   return c || 'otro';
 }

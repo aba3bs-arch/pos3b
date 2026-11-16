@@ -242,6 +242,8 @@ export function valeDescuentaNomina(categoria, subcategoria) {
     if (c === 'herramienta' || s === 'vales-herramienta' || blob.includes('herramienta')) return false;
     if (c === 'accesorios' || s === 'vales-accesorios' || blob.includes('accesorio')) return false;
     if (c === 'consumo' || s === 'vales-consumo' || s === 'empleado-consumo' || s.includes('consumo')) return true;
+    // Fiado y anticipo de renta son de arrendatarios: egreso, no nómina.
+    if (c === 'fiado' || c === 'anticipo-renta') return false;
     if (c === 'anticipos' || s.includes('anticipo')) return true;
     // Padre IE «vales» sin sub: no asumir consumo (rompe la ventana horaria).
     if (c === 'vales') return false;
@@ -265,6 +267,8 @@ export function etiquetaCategoriaVale(categoria) {
     consumo: 'Consumo',
     recargas: 'Recargas',
     anticipos: 'Anticipos',
+    fiado: 'Fiado',
+    'anticipo-renta': 'Anticipo de renta',
     faltante: 'Faltante',
     operativos: 'Gastos operativos',
     'cubre-turno': 'Cubre turno',
