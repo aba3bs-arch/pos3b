@@ -146,7 +146,7 @@ export async function listarVales(supabase, opts = {}) {
   if (sucursal) q = q.eq('sucursal_id', sucursal);
   if (area) q = q.eq('area', area);
   if (tipo === 'indirecto') {
-    q = q.or('tipo.eq.indirecto,tipo.is.null');
+    q = q.or('tipo.eq.indirecto,tipo.eq.arrendatario,tipo.is.null');
   } else if (tipo) {
     q = q.eq('tipo', tipo);
   }
@@ -163,7 +163,7 @@ export async function listarVales(supabase, opts = {}) {
     q = supabase.from('vales').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(limit);
     if (sucursal) q = q.eq('sucursal_id', sucursal);
     if (area) q = q.eq('area', area);
-    if (tipo === 'indirecto') q = q.or('tipo.eq.indirecto,tipo.is.null');
+    if (tipo === 'indirecto') q = q.or('tipo.eq.indirecto,tipo.eq.arrendatario,tipo.is.null');
     else if (tipo) q = q.eq('tipo', tipo);
     if (categoria) q = q.eq('categoria', categoria);
     if (estadoAprobacion === 'aprobado') q = q.or('estado_aprobacion.eq.aprobado,estado_aprobacion.is.null');

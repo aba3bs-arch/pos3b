@@ -57,4 +57,13 @@ assert.equal(
   true,
 );
 
+assert.equal(
+  valeRequiereAutorizacionAdmin(new Date('2026-09-24T08:00:00-07:00'), 'fiado'),
+  true,
+);
+assert.equal(
+  valeRequiereAutorizacionAdmin(new Date('2026-09-24T08:00:00-07:00'), 'anticipo-renta'),
+  true,
+);
+
 console.log('valeRequiereAutorizacionAdmin.test.mjs OK');

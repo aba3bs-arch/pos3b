@@ -3,6 +3,7 @@ import { indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { abonarPrestamo } from './valesPrestamos.js';
 import { CUOTA_SEMANAL_MINIMA, cuotaSemanalPrestamo } from './contabilidadConstants.js';
 import { cronogramaPrestamo, cuotaEnPeriodo } from './prestamoCuotas.js';
+import { esPrestamoArrendatario } from './beneficiariosExternos.js';
 
 /**
  * Estados que generan cuota en nómina:
@@ -69,6 +70,7 @@ export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, emplea
   const sinMatch = [];
 
   for (const p of data || []) {
+    if (esPrestamoArrendatario(p)) continue;
     if (!prestamoDeducibleEnNomina(p)) continue;
     const ded = cuotaDeducibleNomina(p, periodo);
     if (ded <= 0) {
@@ -134,7 +136,9 @@ export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, emple
     if (ded <= 0) continue;
     const clave = l.usuario_id ? String(l.usuario_id) : null;
     if (!clave) continue;
-    const prestamos = (todos || []).filter((p) => resolverClaveEmpleado(p, indice) === clave);
+    const prestamos = (todos || []).filter(
+      (p) => !esPrestamoArrendatario(p) && resolverClaveEmpleado(p, indice) === clave,
+    );
     let restante = ded;
     for (const p of prestamos) {
       if (restante <= 0) break;
