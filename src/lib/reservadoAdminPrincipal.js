@@ -1,12 +1,12 @@
 import { normalizarNombrePersona, verificarAdminPrincipal } from './adminPrincipal.js';
-import { normalizarRol } from './roles.js';
+import { esAndresMarrero, tienePrivilegiosCompletos } from './roles.js';
 
 /** Nombres/iniciales reservados: AMR = Andrés = Marrero (misma persona). */
 export const RESERVADOS_ADMIN_PRINCIPAL = ['amr', 'andres', 'marrero'];
 
-/** Cualquier Administrador puede usar Andrés / AMR / Marrero sin PIN. */
+/** Andrés Marrero, el administrador principal y cualquier Administrador usan esos nombres sin PUN. */
 export function esAdminPuedeUsarReservado(user) {
-  return Boolean(user) && normalizarRol(user.rol) === 'Administrador';
+  return tienePrivilegiosCompletos(user) || esAndresMarrero(user);
 }
 
 export function textoContieneReservadoAdmin(texto) {

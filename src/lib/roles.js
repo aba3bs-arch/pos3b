@@ -534,6 +534,21 @@ export function puedeGestionarUsuarios(rol) {
   return normalizarRol(rol) === 'Administrador';
 }
 
+/**
+ * Andrés Marrero y el administrador principal tienen el mismo alcance que un Administrador
+ * en vales, préstamos y autorizaciones con PIN.
+ */
+export function tienePrivilegiosCompletos(userOrRol) {
+  if (userOrRol && typeof userOrRol === 'object') {
+    if (userOrRol.es_admin_principal === true) return true;
+    if (esAndresMarrero(userOrRol)) return true;
+    if (normalizarRol(userOrRol.rol) === 'Administrador') return true;
+    return sesionAndresCubre(userOrRol.rol, userOrRol.id);
+  }
+  if (normalizarRol(userOrRol) === 'Administrador') return true;
+  return sesionAndresCubre(userOrRol);
+}
+
 /** Solo administrador puede cambiar turno de empleados (anti-fraude). */
 export function puedeAsignarTurnos(rol) {
   if (sesionAndresCubre(rol)) return true;
