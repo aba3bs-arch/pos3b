@@ -134,10 +134,17 @@ export async function listarMovimientosFondo(supabase) {
 }
 
 async function actualizarPrestamo(supabase, id, patch) {
-  let { data, error } = await supabase.from('prestamos').update(patch).eq('id', id).select('*').single();
-  if (error && /omitir_corte|schema cache|column/i.test(String(error.message || ''))) {
-    const { omitir_corte: _o, ...sin } = patch;
-    ({ data, error } = await supabase.from('prestamos').update(sin).eq('id', id).select('*').single());
+  let actual = { ...patch };
+  let data = null;
+  let error = null;
+  for (let i = 0; i < 4; i += 1) {
+    ({ data, error } = await supabase.from('prestamos').update(actual).eq('id', id).select('*').single());
+    if (!error) return { data, error: null };
+    const msg = String(error.message || '');
+    const col = msg.match(/'([^']+)'/)?.[1];
+    if (!col || !(col in actual) || !/schema cache|column/i.test(msg)) break;
+    const { [col]: _quitada, ...resto } = actual;
+    actual = resto;
   }
   return { data, error };
 }
@@ -266,6 +273,8 @@ export async function desembolsarPrestamo(supabase, prestamoId, { user, nombre }
     estado: 'activo',
     omitir_corte: true,
     cargado_corte: false,
+    desembolsado_por: quien,
+    desembolsado_at: new Date().toISOString(),
   });
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, quien);

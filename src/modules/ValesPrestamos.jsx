@@ -3315,15 +3315,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Abonado</th>
                     <th>Saldo</th>
                     <th>Cuota→Nómina</th>
-                    <th>Área cargo</th>
-                    <th>En corte</th>
+                    <th>Visto bueno</th>
+                    <th>Autorizó</th>
+                    <th>Desembolso</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
                   {prestamosEmp.length === 0 ? (
                     <tr>
-                      <td colSpan={vePendientesTodasTiendas ? 10 : 9} className="muted">
+                      <td colSpan={vePendientesTodasTiendas ? 11 : 10} className="muted">
                         No hay préstamos registrados{vePendientesTodasTiendas ? '' : ' en esta sucursal'}.
                         {prestamosPendientesAdmin.length > 0 && (
                           <> Hay {prestamosPendientesAdmin.length} pendiente(s) en la pestaña Pendientes.</>
@@ -3363,14 +3364,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               <div className="muted" style={{ fontSize: '0.7rem' }}>{textoCuotaPrestamo(p)}</div>
                             )}
                           </td>
-                          <td className="muted">
-                            {esPrestamoArrendatario(p)
-                              ? (ETIQUETA_AREA[p.area_corte] || p.area_corte || '—')
-                              : 'Fondo de préstamos'}
-                          </td>
-                          <td className="muted">
-                            {esPrestamoArrendatario(p) ? (p.cargado_corte ? 'Sí' : 'No') : 'No'}
-                          </td>
+                          <td className="muted">{p.aprobado_admin_por || '—'}</td>
+                          <td className="muted">{p.aprobado_socio_por || '—'}</td>
+                          <td className="muted">{p.desembolsado_por || '—'}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             {!esPrestamoArrendatario(p) && puedeVistoBueno && (p.estado === 'pendiente_visto_bueno' || p.estado === 'pendiente_admin') && (
                               <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => vistoBuenoPrestamo(p.id)}>Visto bueno</button>

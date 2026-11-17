@@ -17,6 +17,9 @@ create table if not exists public.fondo_prestamos_mov (
 create index if not exists idx_fondo_prestamos_mov_fecha
   on public.fondo_prestamos_mov (created_at desc);
 
+alter table public.prestamos add column if not exists desembolsado_por text;
+alter table public.prestamos add column if not exists desembolsado_at timestamptz;
+
 alter table public.fondo_prestamos_mov enable row level security;
 drop policy if exists "fondo_prestamos_mov_anon_rw" on public.fondo_prestamos_mov;
 create policy "fondo_prestamos_mov_anon_rw" on public.fondo_prestamos_mov
