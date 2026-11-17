@@ -42,6 +42,13 @@ import {
   registrarVale,
 } from '../lib/valesPrestamos.js';
 import {
+  autorizarPrestamoAbbFjbb,
+  darVistoBuenoPrestamo,
+  puedeAutorizarPrestamoAbbFjbb,
+  puedeDarVistoBuenoPrestamo,
+} from '../lib/fondoPrestamos.js';
+import { esPrestamoArrendatario } from '../lib/beneficiariosExternos.js';
+import {
   AREAS_CONTABILIDAD,
   CUOTA_SEMANAL_MINIMA,
   ETIQUETA_AREA,
@@ -322,7 +329,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   /** Eliminar / editar vales: solo administrador. El cajero solo imprime. */
   const puedeEditarVales = esAdmin;
   const puedeEliminarVales = esAdmin;
-  const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
+  const puedeVistoBueno = puedeDarVistoBuenoPrestamo(user);
+  const puedeAbbFjbb = puedeAutorizarPrestamoAbbFjbb(user);
+  const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio || puedeVistoBueno || puedeAbbFjbb;
   const vePendientesTodasTiendas = puedeAprobarVales;
   const valeFormOptsAuth = {
     origenMain: esMain,
@@ -439,7 +448,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   }, [vales, valesPendAll, vePendientesTodasTiendas]);
   const prestamosPendientesAdmin = useMemo(() => {
     const fuente = vePendientesTodasTiendas ? prestamosPendAll : prestamosEmp;
-    return (fuente || []).filter((p) => p.estado === 'pendiente_admin');
+    return (fuente || []).filter((p) => p.estado === 'pendiente_admin' || p.estado === 'pendiente_visto_bueno');
   }, [prestamosEmp, prestamosPendAll, vePendientesTodasTiendas]);
   const prestamosMovPendientes = useMemo(() => {
     const fuente = vePendientesTodasTiendas ? prestamosPendAll : prestamosEmp;
@@ -447,13 +456,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   }, [prestamosEmp, prestamosPendAll, vePendientesTodasTiendas]);
   const prestamosPendientesSocio = useMemo(() => {
     const fuente = esSocio ? (prestamosPendAll.length ? prestamosPendAll : prestamosEmp) : prestamosEmp;
-    return (fuente || []).filter((p) => p.estado === 'pendiente_socio');
+    return (fuente || []).filter((p) => p.estado === 'pendiente_socio' || p.estado === 'pendiente_abb_fjbb');
   }, [prestamosEmp, prestamosPendAll, esSocio]);
   const notifsBandeja = useMemo(() => {
     const esValeOPrestamo = (n) =>
       n.tipo === TIPOS_NOTIF.VALE_PENDIENTE ||
       n.tipo === TIPOS_NOTIF.PRESTAMO_ADMIN ||
-      n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO;
+      n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO ||
+      n.tipo === TIPOS_NOTIF.PRESTAMO_VISTO_BUENO ||
+      n.tipo === TIPOS_NOTIF.PRESTAMO_ABB_FJBB ||
+      n.tipo === TIPOS_NOTIF.PRESTAMO_TESORERO;
     if (puedeAprobarVales) return notifs.filter(esValeOPrestamo);
     if (esSocio) return notifs.filter((n) => n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
     return [];
@@ -807,7 +819,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     }
     const monto = Number(prestEmpForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
-    if (!omitirCorte && !prestEmpForm.areaCorte) {
+    if (arr && !prestEmpForm.areaCorte) {
       return alert('Selecciona el área de corte (Virtual, Abarrotes o Garage).');
     }
     const authTxt = await asegurarCamposSinReservadoOPin(supabase, [prestEmpForm.notas], { user, sucursal });
@@ -835,6 +847,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         user,
         areaCorte: omitirCorte ? null : prestEmpForm.areaCorte,
         omitirCorte,
+        cadenaFondo: !arr,
       },
     );
     if (!res.ok) return alert(res.error);
@@ -966,6 +979,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (!res.ok) return alert(res.error);
     alert('Vale aprobado y cargado al corte.');
     if (confirm('¿Imprimir vale?')) imprimirVale(res.vale, { mostrarFirma: true });
+    recargarTodo();
+  };
+
+  const vistoBuenoPrestamo = async (id) => {
+    const res = await darVistoBuenoPrestamo(supabase, id, { user, nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    recargarTodo();
+  };
+
+  const autorizarPrestamoFondo = async (id) => {
+    const res = await autorizarPrestamoAbbFjbb(supabase, id, { user, nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    if (res.prestamo && confirm('¿Imprimir recibo de préstamo?')) imprimirPrestamo(res.prestamo);
     recargarTodo();
   };
 
@@ -1581,8 +1609,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <br />
         <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir (tras aprobación si aplica).
         <br />
-        <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
-        Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
+        <strong>Préstamos</strong> — No van a corte ni a contabilidad. Visto bueno del gerente o del administrador principal, luego ABB o FJBB, y aviso a JLBB (fondo de préstamos).
+        Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina; ese descuento reingresa al fondo.
         {requiereAuthAhora && !esAdmin && (
           <span style={{ color: 'var(--danger)' }}> · Este vale irá a bandeja de aprobación del administrador.</span>
         )}
@@ -2124,18 +2152,22 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               ))}
             </>
           )}
-          {puedeAprobarVales && prestamosPendientesAdmin.length > 0 && (
+          {(puedeVistoBueno || puedeAprobarVales) && prestamosPendientesAdmin.length > 0 && (
             <>
-              <h4 style={{ margin: '0.75rem 0 0.5rem' }}>Préstamos — admin</h4>
+              <h4 style={{ margin: '0.75rem 0 0.5rem' }}>Préstamos — visto bueno</h4>
               {prestamosPendientesAdmin.map((p) => (
                 <div key={p.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
                   <span>
                     {vePendientesTodasTiendas && (
                       <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(p.sucursal_id)}</strong>
                     )}
-                    {p.nombre_empleado} · {fmt(p.monto_original)}{Number(p.monto_original) > MONTO_PRESTAMO_REQUIERE_SOCIO ? ' · +socio' : ''}
+                    {p.nombre_empleado} · {fmt(p.monto_original)} · sin corte
                   </span>
-                  <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarPAdmin(p.id)}>Aprobar</button>
+                  {esPrestamoArrendatario(p) ? (
+                    <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarPAdmin(p.id)}>Aprobar</button>
+                  ) : puedeVistoBueno ? (
+                    <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => vistoBuenoPrestamo(p.id)}>Visto bueno</button>
+                  ) : null}
                   {esAdmin && (
                     <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => rechazarPrestamo(supabase, p.id, { nombre: user?.nombre }).then(recargarTodo)}>Rechazar</button>
                   )}
@@ -2143,24 +2175,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               ))}
             </>
           )}
-          {esSocio && prestamosPendientesSocio.length > 0 && (
+          {puedeAbbFjbb && prestamosPendientesSocio.length > 0 && (
             <>
-              <h4 style={{ margin: '0.75rem 0 0.5rem' }}>Préstamos +$1,000 — socio</h4>
-              <InputPin
-                value={pinSocio}
-                onChange={(e) => setPinSocio(e.target.value)}
-                placeholder="PIN socio"
-                autoComplete="off"
-                name="vale-pin-socio"
-                style={{ maxWidth: 200, marginBottom: '0.5rem', fontSize: '1.05rem' }}
-              />
+              <h4 style={{ margin: '0.75rem 0 0.5rem' }}>Préstamos — autorización ABB / FJBB</h4>
               {prestamosPendientesSocio.map((p) => (
                 <div key={p.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
                   <span>
                     <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(p.sucursal_id)}</strong>
-                    {p.nombre_empleado} · {fmt(p.monto_original)}
+                    {p.nombre_empleado} · {fmt(p.monto_original)} · sin corte
                   </span>
-                  <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarPSocio(p.id)}>Autorizar</button>
+                  <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => autorizarPrestamoFondo(p.id)}>Autorizar</button>
                 </div>
               ))}
             </>
@@ -2198,7 +2222,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           )}
           {valesPendientes.length === 0
             && prestamosPendientesAdmin.length === 0
-            && (!esSocio || prestamosPendientesSocio.length === 0)
+            && (!(puedeAbbFjbb || esSocio) || prestamosPendientesSocio.length === 0)
             && (((!esAdmin && !puedeAprobarVales) || prestamosMovPendientes.length === 0)) && (
             <div>
               <p className="muted" style={{ marginBottom: '0.5rem' }}>No hay vales ni préstamos pendientes de aprobación.</p>
@@ -3075,23 +3099,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   Arrendatario <strong>{arrendatarioPrestamoSel.nombre}</strong>: el monto es un{' '}
                   <strong>egreso del corte</strong> (fiado o anticipo de renta). No se descuenta en nómina.
                 </>
-              ) : prestamoSelOmiteCorte ? (
-                <>
-                  Usuario <strong>MAIN</strong>: el administrador registra el préstamo.
-                  <strong> No va a corte</strong>; en <strong>nómina</strong> se descuenta automáticamente{' '}
-                  <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana hasta liquidar.
-                </>
               ) : (
                 <>
-                  El monto se carga al <strong>corte</strong> del área elegida al aprobarse.
-                  En <strong>nómina</strong> se descuenta automáticamente <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana;
-                  si el saldo es menor, se deduce el remanente hasta liquidar.
+                  El formato es el mismo. El monto <strong>no va a corte ni a contabilidad</strong>.
+                  En <strong>nómina</strong> se descuenta <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana
+                  y ese dinero reingresa a <strong>Tesorería → Fondo de préstamos</strong>.
                 </>
               )}
             </p>
             {esMain && (
               <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
-                En MAIN también aparecen usuarios MAIN/indirectos (solo aquí). Sus préstamos no afectan el corte.
+                En MAIN también aparecen usuarios MAIN/indirectos. El préstamo sigue el mismo fondo, sin corte.
               </p>
             )}
             <div className="grid-2">
@@ -3100,14 +3118,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 {esMain ? (
                   <>
                     {empleadosPrestamoGrupos.main.length > 0 && (
-                      <optgroup label="Usuarios MAIN (sin corte · nómina $500/sem)">
+                      <optgroup label="Usuarios MAIN (fondo de préstamos · nómina $500/sem)">
                         {empleadosPrestamoGrupos.main.map((e) => (
                           <option key={e.id} value={e.id}>{e.nombre}</option>
                         ))}
                       </optgroup>
                     )}
                     {empleadosPrestamoGrupos.tienda.length > 0 && (
-                      <optgroup label="Empleados de tienda (van a corte)">
+                      <optgroup label="Empleados de tienda (fondo de préstamos)">
                         {empleadosPrestamoGrupos.tienda.map((e) => (
                           <option key={e.id} value={e.id}>{e.nombre} · {etiquetaTienda(e.sucursal_id)}</option>
                         ))}
@@ -3135,15 +3153,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 </select>
               )}
               <input className="input" type="number" placeholder="Monto" value={prestEmpForm.monto} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, monto: e.target.value })} />
-              {!prestamoSelOmiteCorte && (
+              {arrendatarioPrestamoSel ? (
                 <select className="select" value={prestEmpForm.areaCorte} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, areaCorte: e.target.value })}>
                   {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>Cargo a corte: {ETIQUETA_AREA[a]}</option>)}
                 </select>
-              )}
-              {prestamoSelOmiteCorte && (
-                <div className="muted" style={{ fontSize: '0.85rem', alignSelf: 'center' }}>
-                  Sin cargo a corte · solo nómina
-                </div>
+              ) : (
+                <input className="input" value="Fondo de préstamos" disabled title="No se carga a corte ni a contabilidad" />
               )}
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
                 Número de cuotas (semanas)
@@ -3177,9 +3192,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
               {arrendatarioPrestamoSel
                 ? 'Solicitar fiado / anticipo (egreso)'
-                : prestamoSelOmiteCorte
-                ? 'Registrar préstamo MAIN (solo nómina)'
-                : 'Solicitar préstamo (requiere autorización)'}
+                : 'Solicitar préstamo (visto bueno)'}
             </button>
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
               {arrendatarioPrestamoSel ? (
@@ -3187,16 +3200,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   Pendiente de autorización admin. Corte: <strong>{ETIQUETA_AREA[prestEmpForm.areaCorte]}</strong>.
                   {' '}No se descuenta en nómina.
                 </>
-              ) : prestamoSelOmiteCorte ? (
-                <>
-                  Lo registra el administrador. No va a corte.
-                  Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina
-                  {Number(prestEmpForm.monto) > MONTO_PRESTAMO_REQUIERE_SOCIO ? ' · montos +$1,000 requieren socio' : ''}.
-                </>
               ) : (
                 <>
-                  Pendiente de autorización admin{!esAdmin ? ' (y socio si supera $1,000)' : ''}.
-                  Corte: <strong>{ETIQUETA_AREA[prestEmpForm.areaCorte]}</strong>. Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina.
+                  Visto bueno del gerente o del administrador principal. Después autorizan ABB o FJBB y se avisa a JLBB.
+                  Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina. No va a corte.
                 </>
               )}
             </p>
@@ -3287,8 +3294,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos</h3>
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
-              Acciones: <strong>Editar</strong>, <strong>Eliminar</strong>, <strong>Abonar</strong> y <strong>Liquidar</strong>.
-              La cuota semanal va a <strong>Contabilidad → Nómina</strong> ({fmt(CUOTA_SEMANAL_MINIMA)} o el resto si no alcanza).
+              Acciones: <strong>Visto bueno</strong>, <strong>Autorizar</strong>, <strong>Editar</strong>, <strong>Eliminar</strong>, <strong>Abonar</strong> y <strong>Liquidar</strong>.
+              La cuota semanal va a <strong>Nómina</strong> y reingresa a <strong>Tesorería → Fondo de préstamos</strong>.
             </p>
             <div className="table-wrap">
               <table className="data">
@@ -3350,15 +3357,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             )}
                           </td>
                           <td className="muted">
-                            {prestamoOmiteCorte(p)
-                              ? 'Solo nómina'
-                              : (ETIQUETA_AREA[p.area_corte] || p.area_corte || '—')}
+                            {esPrestamoArrendatario(p)
+                              ? (ETIQUETA_AREA[p.area_corte] || p.area_corte || '—')
+                              : 'Fondo de préstamos'}
                           </td>
                           <td className="muted">
-                            {prestamoOmiteCorte(p) ? 'No (MAIN)' : (p.cargado_corte ? 'Sí' : 'No')}
+                            {esPrestamoArrendatario(p) ? (p.cargado_corte ? 'Sí' : 'No') : 'No'}
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
-                            {puedeAprobarVales && p.estado === 'pendiente_admin' && (
+                            {!esPrestamoArrendatario(p) && puedeVistoBueno && (p.estado === 'pendiente_visto_bueno' || p.estado === 'pendiente_admin') && (
+                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => vistoBuenoPrestamo(p.id)}>Visto bueno</button>
+                            )}
+                            {!esPrestamoArrendatario(p) && puedeAbbFjbb && (p.estado === 'pendiente_abb_fjbb' || p.estado === 'pendiente_socio') && (
+                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => autorizarPrestamoFondo(p.id)}>Autorizar</button>
+                            )}
+                            {esPrestamoArrendatario(p) && puedeAprobarVales && p.estado === 'pendiente_admin' && (
                               <>
                                 <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => aprobarPAdmin(p.id)}>Aprobar</button>
                                 {esAdmin && (
@@ -3382,7 +3395,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             {prestamoPuedeImprimir(p) && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir (firma)</button>
                             )}
-                            {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && !prestamoOmiteCorte(p) && (
+                            {esAdmin && esPrestamoArrendatario(p) && prestamoPuedeImprimir(p) && !p.cargado_corte && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarPrestamoManual(p)}>→ Corte</button>
                             )}
                             {activo && !movPend && (

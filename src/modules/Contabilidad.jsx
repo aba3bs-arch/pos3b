@@ -5,8 +5,8 @@ import { SUBMODULOS_CONTABILIDAD } from '../lib/roles.js';
 
 const DESCRIPCIONES = {
   Tesorería: {
-    desc: 'Fondos de servicios, saldo y egresos de Cheche',
-    ayuda: 'Transfiere fondos de la cuenta Servicios a Tesorería (Cheche), registra egresos y consulta sus movimientos.',
+    desc: 'Servicios y fondo de préstamos',
+    ayuda: 'Abre dos módulos: Servicios (fondo de Cheche) y Fondo de préstamos (JLBB). El descuento de nómina reingresa al fondo de préstamos.',
   },
   Nómina: {
     desc: 'Periodos, sueldos, asistencia y recibos',

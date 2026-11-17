@@ -23,6 +23,16 @@ import {
 import { finDia, inicioDia, hoyYmdNogales, ymdNogalesFromDate, ymdNegocioDesdeIso } from './corteCaja.js';
 import { CUTOVER_CIERRE_DIARIO, esCierreContableAbarrotes } from './corteAbarrotesDiario.js';
 
+/** Préstamo a empleado del fondo: no es egreso de IE ni de corte. */
+function prestamoFueraDeContabilidad(p) {
+  if (!p) return true;
+  if (p.omitir_corte === true) return true;
+  const estado = String(p.estado || '');
+  if (estado === 'pendiente_visto_bueno' || estado === 'pendiente_abb_fjbb') return true;
+  if (!String(p.area_corte || '').trim()) return true;
+  return false;
+}
+
 function toYmd(d) {
   return ymdNogalesFromDate(d) || hoyYmdNogales();
 }
@@ -498,6 +508,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
 
   const prestamosAll = prestamosRes.error ? [] : prestamosRes.data || [];
   const prestamosPeriodo = prestamosAll.filter((p) => {
+    if (prestamoFueraDeContabilidad(p)) return false;
     if (['rechazado', 'pendiente_admin'].includes(String(p.estado))) return false;
     const area = String(p.area_corte || 'virtual').toLowerCase();
     if (area !== 'virtual' && area !== 'garage') return false;
@@ -557,7 +568,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     egresosPorCat[nombre] = total;
   }
 
-  const prestamosActivos = prestamosAll.filter((p) => p.estado === 'activo' && (Number(p.saldo) || 0) > 0);
+  const prestamosActivos = prestamosAll.filter((p) => !prestamoFueraDeContabilidad(p) && p.estado === 'activo' && (Number(p.saldo) || 0) > 0);
   const cuotasNomina = prestamosActivos.map((p) => {
     const saldo = Number(p.saldo) || 0;
     const cuotaCfg = Number(p.cuota_semanal) || 0;
@@ -1091,6 +1102,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   const ingresosPorDia = ingresosItems.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
 
   const prestamosPeriodo = prestamosAll.filter((p) => {
+    if (prestamoFueraDeContabilidad(p)) return false;
     if (['rechazado', 'pendiente_admin'].includes(String(p.estado))) return false;
     const area = String(p.area_corte || '').toLowerCase();
     if (area !== 'abarrotes') return false;
