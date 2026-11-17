@@ -98,6 +98,23 @@ export function inventarioDeMovimientos(movimientos) {
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
 
+/** Inventario que sigue en las cuentas de cada sucursal (clave en mayúsculas). */
+export function inventarioPorSucursal(cuentas, movimientos) {
+  const idsPorSuc = new Map();
+  for (const c of cuentas || []) {
+    if (!vivo(c)) continue;
+    const sid = String(c.sucursal_id || '').toUpperCase();
+    if (!idsPorSuc.has(sid)) idsPorSuc.set(sid, new Set());
+    idsPorSuc.get(sid).add(String(c.id));
+  }
+  const out = new Map();
+  for (const [sid, ids] of idsPorSuc) {
+    const movs = (movimientos || []).filter((m) => ids.has(String(m.cuenta_id || '')));
+    out.set(sid, inventarioDeMovimientos(movs));
+  }
+  return out;
+}
+
 export function resumenCuenta(movimientos, abonos) {
   let dejado = 0;
   let retirado = 0;

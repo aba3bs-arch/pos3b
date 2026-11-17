@@ -14,6 +14,7 @@ import {
   editarMovimientoFinAnio,
   codigoVisibleProducto,
   inventarioDeMovimientos,
+  inventarioPorSucursal,
   listarAbonosFinAnio,
   listarCuentasFinAnio,
   listarMovimientosFinAnio,
@@ -61,6 +62,22 @@ function Campo({ label, children }) {
   );
 }
 
+function LineasInventario({ lineas }) {
+  if (!lineas.length) {
+    return <p className="muted" style={{ margin: '0.45rem 0 0', fontSize: '0.8rem' }}>Sin mercancía.</p>;
+  }
+  return (
+    <ul style={{ listStyle: 'none', margin: '0.45rem 0 0', padding: 0, display: 'grid', gap: '0.2rem', maxHeight: 180, overflow: 'auto' }}>
+      {lineas.map((l) => (
+        <li key={l.clave} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', fontSize: '0.8rem' }}>
+          <span>{l.nombre}{l.codigo ? ` · ${l.codigo}` : ''}</span>
+          <span style={{ whiteSpace: 'nowrap' }}>{fmtQty(l.cantidad)} · {fmtMonto(l.valor)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function CreditoFinAnioRuta({ supabase, user, inventario = [], onVolver }) {
   const [cuentas, setCuentas] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
@@ -79,6 +96,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [editCuenta, setEditCuenta] = useState(null);
   const [editMov, setEditMov] = useState(null);
   const [editAbono, setEditAbono] = useState(null);
+  const [pestana, setPestana] = useState('cuentas');
 
   const tiendas = useMemo(
     () => listarSucursalesOperativas().filter((s) => !esSucursalRuta(s)),
@@ -106,6 +124,27 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     () => resumenPorSucursal(cuentas, movimientos, abonos),
     [cuentas, movimientos, abonos],
   );
+  const inventarioTienda = useMemo(
+    () => inventarioPorSucursal(cuentas, movimientos),
+    [cuentas, movimientos],
+  );
+  const totalesLiquidacion = useMemo(() => {
+    let mercancia = 0;
+    let abonado = 0;
+    let saldo = 0;
+    for (const id of tiendas) {
+      const r = porSucursal.get(id);
+      if (!r) continue;
+      mercancia += r.saldoMercancia;
+      abonado += r.abonado;
+      saldo += r.saldo;
+    }
+    return {
+      mercancia: Math.round(mercancia * 100) / 100,
+      abonado: Math.round(abonado * 100) / 100,
+      saldo: Math.round(saldo * 100) / 100,
+    };
+  }, [tiendas, porSucursal]);
   const cuentasTienda = useMemo(
     () => cuentas.filter((c) => String(c.sucursal_id || '').toUpperCase() === sucursalId),
     [cuentas, sucursalId],
@@ -242,28 +281,64 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         </div>
       )}
 
+      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className={`btn ${pestana === 'cuentas' && !sucursalId ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => { setPestana('cuentas'); setSucursalId(''); setCuentaId(''); }}
+        >
+          Cuentas
+        </button>
+        <button
+          type="button"
+          className={`btn ${pestana === 'liquidacion' && !sucursalId ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => { setPestana('liquidacion'); setSucursalId(''); setCuentaId(''); }}
+        >
+          Liquidación
+        </button>
+      </div>
+
       {!sucursalId && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' }}>
-          {tiendas.map((id) => {
-            const r = porSucursal.get(id) || { cuentas: 0, abiertas: 0, saldoMercancia: 0, saldo: 0 };
-            return (
-              <button
-                key={id}
-                type="button"
-                className="card"
-                onClick={() => { setSucursalId(id); setCuentaId(''); }}
-                style={{ textAlign: 'left', cursor: 'pointer', borderTop: `4px solid ${COLOR}` }}
-              >
-                <strong style={{ color: COLOR }}>{etiquetaTienda(id)}</strong>
-                <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
-                  {r.cuentas} cuenta{r.cuentas === 1 ? '' : 's'} · {r.abiertas} abierta{r.abiertas === 1 ? '' : 's'}
-                </p>
-                <p style={{ margin: '0.35rem 0 0' }}>Mercancía {fmtMonto(r.saldoMercancia)}</p>
-                <p style={{ margin: '0.15rem 0 0' }}>Saldo {fmtMonto(r.saldo)}</p>
-              </button>
-            );
-          })}
-        </div>
+        <>
+          {pestana === 'liquidacion' && (
+            <div className="card" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <span>Mercancía {fmtMonto(totalesLiquidacion.mercancia)}</span>
+              <span>Abonos {fmtMonto(totalesLiquidacion.abonado)}</span>
+              <strong>Saldo {fmtMonto(totalesLiquidacion.saldo)}</strong>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
+            {tiendas.map((id) => {
+              const r = porSucursal.get(id) || { cuentas: 0, abiertas: 0, saldoMercancia: 0, abonado: 0, saldo: 0 };
+              const lineas = inventarioTienda.get(id) || [];
+              return (
+                <div
+                  key={id}
+                  className="card"
+                  style={{ textAlign: 'left', borderTop: `4px solid ${COLOR}` }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { setSucursalId(id); setCuentaId(''); }}
+                    style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit' }}
+                  >
+                    <strong style={{ color: COLOR }}>{etiquetaTienda(id)}</strong>
+                  </button>
+                  <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+                    {r.cuentas} cuenta{r.cuentas === 1 ? '' : 's'} · {r.abiertas} abierta{r.abiertas === 1 ? '' : 's'}
+                  </p>
+                  <p style={{ margin: '0.35rem 0 0' }}>Mercancía {fmtMonto(r.saldoMercancia)}</p>
+                  {pestana === 'liquidacion' && (
+                    <p style={{ margin: '0.15rem 0 0' }}>Abonos {fmtMonto(r.abonado)}</p>
+                  )}
+                  <p style={{ margin: '0.15rem 0 0' }}>Saldo {fmtMonto(r.saldo)}</p>
+                  <LineasInventario lineas={lineas} />
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {sucursalId && !cuenta && (

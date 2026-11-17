@@ -4,6 +4,7 @@ import {
   TIPO_DEJAR,
   TIPO_RETIRAR,
   inventarioDeMovimientos,
+  inventarioPorSucursal,
   nombreCuentaFinAnio,
   resumenCuenta,
   resumenPorSucursal,
@@ -51,6 +52,19 @@ assert.equal(s3.cuentas, 2);
 assert.equal(s3.abiertas, 1);
 assert.equal(s3.saldoMercancia, 230);
 assert.equal(s3.saldo, 180);
+
+const invSuc = inventarioPorSucursal(
+  [
+    { id: 'c1', sucursal_id: '3b2' },
+    { id: 'c2', sucursal_id: '3B2' },
+  ],
+  [...movs, { tipo: TIPO_DEJAR, codigo: 'S1', nombre: 'Sal', cantidad: 1, importe: 10, cuenta_id: 'c2' }],
+);
+const lineas3 = invSuc.get('3B2');
+assert.equal(lineas3.length, 2);
+assert.equal(lineas3.find((l) => l.nombre === 'Coca').cantidad, 11);
+assert.equal(lineas3.find((l) => l.nombre === 'Sal').cantidad, 1);
+assert.equal(invSuc.has('FUSION'), false);
 
 assert.equal(validarDejar({ nombre: '', cantidad: 1, precio: 1 }), 'Escribe el producto.');
 assert.equal(validarDejar({ nombre: 'Sal', cantidad: 0, precio: 1 }), 'La cantidad debe ser mayor a cero.');
