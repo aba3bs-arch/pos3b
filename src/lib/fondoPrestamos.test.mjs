@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import {
+  prestamoEstaRecordado,
   puedeAutorizarPrestamoAbbFjbb,
   puedeDarVistoBuenoPrestamo,
   puedeDesembolsarPrestamo,
+  recordarPrestamo,
   resumenFondoPrestamos,
 } from './fondoPrestamos.js';
 
@@ -37,5 +39,16 @@ assert.equal(fondo.reingresado, 500);
 assert.equal(fondo.capital, 8500);
 
 assert.equal(resumenFondoPrestamos([]).capital, 0);
+
+const mem = {
+  valor: '',
+  getItem() { return this.valor; },
+  setItem(_k, v) { this.valor = v; },
+};
+const ahora = 1_700_000_000_000;
+recordarPrestamo('u1', 'p1', 15, ahora, mem);
+assert.equal(prestamoEstaRecordado('u1', 'p1', ahora + 14 * 60 * 1000, mem), true);
+assert.equal(prestamoEstaRecordado('u1', 'p1', ahora + 16 * 60 * 1000, mem), false);
+assert.equal(prestamoEstaRecordado('u2', 'p1', ahora + 1000, mem), false);
 
 console.log('fondoPrestamos.test.mjs ok');

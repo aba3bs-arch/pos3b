@@ -15,6 +15,8 @@ import {
   puedeAutorizarPrestamoAbbFjbb,
   puedeDarVistoBuenoPrestamo,
   puedeDesembolsarPrestamo,
+  prestamoEstaRecordado,
+  recordarPrestamo,
   resumenFondoPrestamos,
 } from '../lib/fondoPrestamos.js';
 import { fmtMonto } from '../lib/consultasUi.js';
@@ -47,7 +49,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
   const [capital, setCapital] = useState(0);
   const [procesando, setProcesando] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const pospuestasRef = useRef(new Set());
+  const timerRef = useRef(null);
   const puede = puedeDarVistoBuenoPrestamo(user)
     || puedeAutorizarPrestamoAbbFjbb(user)
     || puedeDesembolsarPrestamo(user);
@@ -75,7 +77,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
     const sucSesion = String(sucursal || '').toUpperCase();
     const veTodas = user?.es_admin_principal === true || esAndresMarrero(user) || sucSesion === 'MAIN' || !sucSesion;
     const lista = (data || []).filter((p) => {
-      if (!p || esPrestamoArrendatario(p) || pospuestasRef.current.has(String(p.id))) return false;
+      if (!p || esPrestamoArrendatario(p) || prestamoEstaRecordado(user?.id, p.id)) return false;
       const paso = pasoDe(p, user);
       if (!paso) return false;
       if (paso === 'visto' && !veTodas && String(p.sucursal_id || '').toUpperCase() !== sucSesion) return false;
@@ -101,6 +103,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
     window.addEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onEvt);
     return () => {
       clearInterval(t);
+      if (timerRef.current) clearTimeout(timerRef.current);
       window.removeEventListener(EVENTO_NOTIFICACIONES, onEvt);
       window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onEvt);
     };
@@ -112,10 +115,13 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
   const monto = Number(prestamo.monto_original) || 0;
   const alcanza = capital + 0.001 >= monto;
 
-  const cerrar = () => {
-    pospuestasRef.current.add(String(prestamo.id));
+  const recordar = (minutos) => {
+    const hasta = recordarPrestamo(user?.id, prestamo.id, minutos);
     setErrorMsg('');
     setPrestamo(null);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    const espera = Math.max(1000, hasta - Date.now());
+    timerRef.current = setTimeout(() => { void cargar(); }, espera);
   };
 
   const confirmar = async () => {
@@ -141,7 +147,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
     <PortalFlotante>
       <div className="anuncio-pos-backdrop" role="dialog" aria-modal="true" aria-labelledby="alerta-prestamo-titulo" style={{ zIndex: 12020 }}>
         <div className="card" style={{ maxWidth: 460, width: '100%', borderTop: '5px solid #b45309', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', position: 'relative' }}>
-          <button type="button" className="btn btn-ghost" aria-label="Cerrar" onClick={cerrar} style={{ position: 'absolute', top: 8, right: 8, minWidth: 36, padding: '0.25rem 0.5rem' }}>
+          <button type="button" className="btn btn-ghost" aria-label="Recuérdame en 15 min" onClick={() => recordar(15)} style={{ position: 'absolute', top: 8, right: 8, minWidth: 36, padding: '0.25rem 0.5rem' }}>
             ×
           </button>
           <p className="muted" style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, paddingRight: 36 }}>
@@ -184,7 +190,11 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
             >
               {paso === 'visto' ? 'Dar visto bueno' : paso === 'autorizar' ? 'Autorizar' : 'Desembolsar'}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={cerrar}>Ahora no</button>
+          </div>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.65rem' }}>
+            <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => recordar(15)}>Recuérdame en 15 min</button>
+            <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => recordar(30)}>Recuérdame en 30 min</button>
+            <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => recordar(60)}>Recuérdame en 1 hora</button>
           </div>
         </div>
       </div>

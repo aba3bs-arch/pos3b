@@ -310,6 +310,55 @@ export async function registrarReingresoNomina(supabase, { prestamo, monto, crea
   });
 }
 
+const CLAVE_RECORDATORIO = 'pos3b_prestamo_recordar';
+
+export const RECORDATORIOS_PRESTAMO_MIN = [15, 30, 60];
+
+function claveRecordatorio(userId, prestamoId) {
+  return `${userId || 'sesion'}:${prestamoId}`;
+}
+
+export function leerRecordatoriosPrestamo(ahora = Date.now(), storage = null) {
+  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!store) return {};
+  let raw = {};
+  try {
+    raw = JSON.parse(store.getItem(CLAVE_RECORDATORIO) || '{}') || {};
+  } catch {
+    raw = {};
+  }
+  const vivos = {};
+  for (const [id, hasta] of Object.entries(raw)) {
+    if (Number(hasta) > ahora) vivos[id] = Number(hasta);
+  }
+  try {
+    store.setItem(CLAVE_RECORDATORIO, JSON.stringify(vivos));
+  } catch {
+    /* el navegador puede bloquear el almacenamiento */
+  }
+  return vivos;
+}
+
+export function recordarPrestamo(userId, prestamoId, minutos, ahora = Date.now(), storage = null) {
+  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  const vivos = leerRecordatoriosPrestamo(ahora, store);
+  const hasta = ahora + Math.max(1, Number(minutos) || 15) * 60 * 1000;
+  vivos[claveRecordatorio(userId, prestamoId)] = hasta;
+  if (store) {
+    try {
+      store.setItem(CLAVE_RECORDATORIO, JSON.stringify(vivos));
+    } catch {
+      /* sigue en memoria de esta llamada */
+    }
+  }
+  return hasta;
+}
+
+export function prestamoEstaRecordado(userId, prestamoId, ahora = Date.now(), storage = null) {
+  const vivos = leerRecordatoriosPrestamo(ahora, storage);
+  return Number(vivos[claveRecordatorio(userId, prestamoId)] || 0) > ahora;
+}
+
 export function etiquetaMovimientoFondo(tipo) {
   if (tipo === 'capital') return 'Capital';
   if (tipo === 'desembolso') return 'Desembolso';
