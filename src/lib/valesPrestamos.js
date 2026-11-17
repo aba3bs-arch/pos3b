@@ -33,7 +33,7 @@ import {
   TOKEN_PRESTAMO_SUC,
 } from './cargosContabilidad.js';
 import { asegurarCamposSinReservadoOPin } from './reservadoAdminPrincipal.js';
-import { ESTADOS_PRESTAMO_EMPLEADO_LISTA, ESTADO_VISTO_BUENO } from './fondoPrestamos.js';
+import { ESTADOS_PRESTAMO_EMPLEADO_LISTA, ESTADO_VISTO_BUENO, registrarReingresoNomina } from './fondoPrestamos.js';
 import { esPrestamoArrendatario } from './beneficiariosExternos.js';
 
 /**
@@ -1022,6 +1022,13 @@ export async function abonarPrestamo(supabase, prestamo, montoAbono) {
     })
     .eq('id', prestamo.id);
   if (error) return { ok: false, error: error.message };
+  const reingreso = await registrarReingresoNomina(supabase, {
+    prestamo,
+    monto: abono,
+    createdBy: 'Nómina',
+    notas: 'Reingreso de nómina. La cuota se restó del préstamo y se sumó al capital.',
+  });
+  if (reingreso && reingreso.ok === false) return reingreso;
   return { ok: true, saldo, liquidado: saldo <= 0 };
 }
 

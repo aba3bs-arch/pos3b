@@ -286,7 +286,7 @@ export async function desembolsarPrestamo(supabase, prestamoId, { user, nombre }
   };
 }
 
-export async function registrarReingresoNomina(supabase, { prestamo, monto, createdBy } = {}) {
+export async function registrarReingresoNomina(supabase, { prestamo, monto, createdBy, notas } = {}) {
   if (!supabase || !prestamo?.id || !(Number(monto) > 0)) return { ok: true };
   const { data, error } = await supabase
     .from('fondo_prestamos_mov')
@@ -305,7 +305,103 @@ export async function registrarReingresoNomina(supabase, { prestamo, monto, crea
     tipo: 'reingreso_nomina',
     monto,
     nombreEmpleado: prestamo.nombre_empleado,
-    notas: 'Cuota de nómina. Resta el saldo del préstamo y suma al capital.',
+    notas: notas || 'Cuota de nómina. Resta el saldo del préstamo y suma al capital.',
     createdBy: createdBy || 'Nómina',
   });
+}
+
+export function etiquetaMovimientoFondo(tipo) {
+  if (tipo === 'capital') return 'Capital';
+  if (tipo === 'desembolso') return 'Desembolso';
+  if (tipo === 'reingreso_nomina') return 'Reingreso de nómina';
+  return tipo || 'Registro';
+}
+
+async function leerMovimientoFondo(supabase, id) {
+  const { data, error } = await supabase.from('fondo_prestamos_mov').select('*').eq('id', id).maybeSingle();
+  if (error) return { data: null, error };
+  return { data, error: null };
+}
+
+async function ajustarSaldoPorReingreso(supabase, prestamoId, delta) {
+  if (!prestamoId || !delta) return;
+  const { data: p } = await supabase.from('prestamos').select('id,saldo,abono').eq('id', prestamoId).maybeSingle();
+  if (!p) return;
+  const saldo = Math.max(0, round2((Number(p.saldo) || 0) + delta));
+  const abono = Math.max(0, round2((Number(p.abono) || 0) - delta));
+  await actualizarPrestamo(supabase, prestamoId, {
+    saldo,
+    abono,
+    estado: saldo <= 0.001 ? 'liquidado' : 'activo',
+  });
+}
+
+export async function editarMovimientoFondo(supabase, id, patch = {}, { user } = {}) {
+  if (!puedeDesembolsarPrestamo(user)) return { ok: false, error: 'JLBB puede editar estos registros.' };
+  const actual = await leerMovimientoFondo(supabase, id);
+  if (actual.error) return { ok: false, error: actual.error.message };
+  if (!actual.data) return { ok: false, error: 'Registro no encontrado.' };
+  const antes = Number(actual.data.monto) || 0;
+  const monto = patch.monto != null ? round2(patch.monto) : antes;
+  if (!(monto > 0)) return { ok: false, error: 'El monto debe ser mayor a cero.' };
+  const upd = {
+    monto,
+    notas: patch.notas != null ? patch.notas : actual.data.notas,
+    nombre_empleado: patch.nombreEmpleado != null ? patch.nombreEmpleado : actual.data.nombre_empleado,
+  };
+  const { error } = await supabase.from('fondo_prestamos_mov').update(upd).eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  if (actual.data.tipo === 'reingreso_nomina') {
+    await ajustarSaldoPorReingreso(supabase, actual.data.prestamo_id, round2(antes - monto));
+  }
+  return { ok: true };
+}
+
+export async function eliminarMovimientoFondo(supabase, id, { user } = {}) {
+  if (!puedeDesembolsarPrestamo(user)) return { ok: false, error: 'JLBB puede eliminar estos registros.' };
+  const actual = await leerMovimientoFondo(supabase, id);
+  if (actual.error) return { ok: false, error: actual.error.message };
+  if (!actual.data) return { ok: false, error: 'Registro no encontrado.' };
+  const mov = actual.data;
+  const { error } = await supabase.from('fondo_prestamos_mov').delete().eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  if (mov.tipo === 'reingreso_nomina') {
+    await ajustarSaldoPorReingreso(supabase, mov.prestamo_id, Number(mov.monto) || 0);
+  }
+  if (mov.tipo === 'desembolso' && mov.prestamo_id) {
+    await actualizarPrestamo(supabase, mov.prestamo_id, {
+      estado: ESTADO_DESEMBOLSO,
+      desembolsado_por: null,
+      desembolsado_at: null,
+    });
+  }
+  return { ok: true };
+}
+
+export async function editarPrestamoEnFondo(supabase, prestamoId, { saldo, numCuotas } = {}, { user } = {}) {
+  if (!puedeDesembolsarPrestamo(user)) return { ok: false, error: 'JLBB puede editar estos préstamos.' };
+  const saldoN = round2(saldo);
+  if (saldoN < 0) return { ok: false, error: 'El saldo no puede ser negativo.' };
+  const patch = {
+    saldo: saldoN,
+    estado: saldoN <= 0.001 ? 'liquidado' : 'activo',
+  };
+  const cuotas = Math.floor(Number(numCuotas));
+  if (cuotas > 0) patch.num_cuotas = cuotas;
+  const { error } = await actualizarPrestamo(supabase, prestamoId, patch);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export async function quitarPrestamoDelFondo(supabase, prestamoId, { user } = {}) {
+  if (!puedeDesembolsarPrestamo(user)) return { ok: false, error: 'JLBB puede eliminar estos préstamos.' };
+  if (!prestamoId) return { ok: false, error: 'Préstamo inválido.' };
+  const { error: eMov } = await supabase.from('fondo_prestamos_mov').delete().eq('prestamo_id', prestamoId);
+  if (eMov) {
+    const msg = String(eMov.message || '').toLowerCase();
+    if (!(eMov.code === '42P01' || msg.includes('fondo_prestamos_mov'))) return { ok: false, error: eMov.message };
+  }
+  const { error } = await actualizarPrestamo(supabase, prestamoId, { estado: 'cancelado', saldo: 0 });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }

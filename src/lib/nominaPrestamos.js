@@ -1,7 +1,6 @@
 import { round2 } from './nominaGastos.js';
 import { indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { abonarPrestamo } from './valesPrestamos.js';
-import { registrarReingresoNomina } from './fondoPrestamos.js';
 import { CUOTA_SEMANAL_MINIMA, cuotaSemanalPrestamo } from './contabilidadConstants.js';
 import { cronogramaPrestamo, cuotaEnPeriodo } from './prestamoCuotas.js';
 import { esPrestamoArrendatario } from './beneficiariosExternos.js';
@@ -151,7 +150,6 @@ export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, emple
       if (!(abono > 0)) continue;
       const res = await abonarPrestamo(supabase, p, abono);
       if (!res.ok) return res;
-      await registrarReingresoNomina(supabase, { prestamo: p, monto: abono, createdBy: 'Nómina' });
       p.saldo = res.saldo;
       p.estado = res.saldo <= 0 ? 'liquidado' : 'activo';
       restante = round2(restante - abono);
