@@ -7,6 +7,9 @@ import {
   nombreCuentaFinAnio,
   resumenCuenta,
   resumenPorSucursal,
+  codigoVisibleProducto,
+  productoParaCargarFinAnio,
+  sugerenciasCatalogoFinAnio,
   validarAbono,
   validarDejar,
   validarRetiro,
@@ -57,6 +60,23 @@ assert.match(validarRetiro({ cantidad: 5, disponible: 4 }), /No hay tanta/);
 assert.equal(validarRetiro({ cantidad: 4, disponible: 4 }), '');
 assert.match(validarAbono(0), /mayor a cero/);
 assert.equal(nombreCuentaFinAnio(new Date('2026-11-18T03:00:00Z')), 'Fin de año 2026');
+
+const catalogo = [
+  { id: '93', nombre: 'Escupidor de batalla', precio: 25 },
+  { id: '7501', nombre: 'Emperador Zenzo Chocotella 93g', precio: 18 },
+  { id: '7502', nombre: 'MADALENAS BIMBO 93G', precio: 20 },
+  { id: '7503', nombre: 'Paloma', precio: 10, codigos_alt: ['93A'] },
+];
+const por93 = sugerenciasCatalogoFinAnio(catalogo, '93');
+assert.equal(por93.length, 1);
+assert.equal(por93[0].id, '93');
+assert.equal(productoParaCargarFinAnio(catalogo, '93')?.nombre, 'Escupidor de batalla');
+assert.equal(codigoVisibleProducto(por93[0]), '93');
+assert.equal(productoParaCargarFinAnio(catalogo, 'emperador'), null);
+const porNombre = sugerenciasCatalogoFinAnio(catalogo, 'bimbo');
+assert.equal(porNombre.length, 1);
+assert.equal(porNombre[0].id, '7502');
+assert.equal(productoParaCargarFinAnio(catalogo, '93A')?.id, '7503');
 
 assert.equal(puedeAccionVentaRuta('Administrador', '1', 'ruta_fin_anio'), true);
 assert.equal(puedeAccionVentaRuta('Gerente', '2', 'ruta_fin_anio'), true);

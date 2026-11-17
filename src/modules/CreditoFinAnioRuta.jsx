@@ -12,15 +12,18 @@ import {
   editarAbonoFinAnio,
   editarCuentaFinAnio,
   editarMovimientoFinAnio,
+  codigoVisibleProducto,
   inventarioDeMovimientos,
   listarAbonosFinAnio,
   listarCuentasFinAnio,
   listarMovimientosFinAnio,
   nombreCuentaFinAnio,
+  productoParaCargarFinAnio,
   registrarAbonoFinAnio,
   resumenCuenta,
   resumenPorSucursal,
   retirarMercanciaFinAnio,
+  sugerenciasCatalogoFinAnio,
 } from '../lib/creditoFinAnio.js';
 
 const COLOR = '#3730a3';
@@ -121,14 +124,21 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const cerrada = cuenta?.estado === ESTADO_CERRADA;
   const lineaRetiro = inventarioCuenta.find((l) => l.clave === retiroClave) || null;
 
-  const sugerencias = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    if (q.length < 2) return [];
-    return (inventario || []).filter((p) => {
-      const nom = String(p.nombre || '').toLowerCase();
-      const cod = String(p.codigo || p.codigo_barras || '').toLowerCase();
-      return nom.includes(q) || cod.includes(q);
-    }).slice(0, 8);
+  const sugerencias = useMemo(
+    () => sugerenciasCatalogoFinAnio(inventario, busca),
+    [busca, inventario],
+  );
+
+  useEffect(() => {
+    const p = productoParaCargarFinAnio(inventario, busca);
+    if (!p) return;
+    const codigo = codigoVisibleProducto(p);
+    const nombre = p.nombre || '';
+    const precio = String(precioDeProducto(p) || '');
+    setDeja((d) => {
+      if (d.codigo === codigo && d.nombre === nombre && d.precio === precio) return d;
+      return { ...d, codigo, nombre, precio };
+    });
   }, [busca, inventario]);
 
   const correr = async (fn) => {
@@ -194,7 +204,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const elegirProducto = (p) => {
     setDeja((d) => ({
       ...d,
-      codigo: p.codigo || p.codigo_barras || '',
+      codigo: codigoVisibleProducto(p),
       nombre: p.nombre || '',
       precio: String(precioDeProducto(p) || ''),
     }));
@@ -358,14 +368,14 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
           {!cerrada && (
             <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
               <h4 style={{ margin: 0 }}>Dejar mercancía a crédito</h4>
-              <Campo label="Buscar en el catálogo (solo copia el nombre; no mueve el inventario)">
-                <input className="input" value={busca} placeholder="Nombre o código" onChange={(e) => setBusca(e.target.value)} />
+              <Campo label="Buscar en el catálogo (un código carga ese artículo; no mueve el inventario)">
+                <input className="input" value={busca} placeholder="Código o nombre" onChange={(e) => setBusca(e.target.value)} />
               </Campo>
               {sugerencias.length > 0 && (
                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                   {sugerencias.map((p) => (
                     <button key={p.id || p.codigo} type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => elegirProducto(p)}>
-                      {p.nombre}
+                      {codigoVisibleProducto(p) ? `${codigoVisibleProducto(p)} · ` : ''}{p.nombre}
                     </button>
                   ))}
                 </div>

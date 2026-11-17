@@ -3,6 +3,8 @@
  * Tablas propias. No escribe ventas, CxC de ruta, recolección ni stock del camión.
  */
 
+import { filtrarProductosPorTexto, pareceCodigoProducto, productoPorCodigoExacto } from './buscarProductoTexto.js';
+
 export const TIPO_DEJAR = 'dejar';
 export const TIPO_RETIRAR = 'retirar';
 export const ESTADO_ABIERTA = 'abierta';
@@ -41,6 +43,32 @@ export function anioFinAnio(ahora = new Date()) {
 
 export function nombreCuentaFinAnio(ahora = new Date()) {
   return `Fin de año ${anioFinAnio(ahora)}`;
+}
+
+/** Código que se copia a la cuenta: la clave del catálogo (id), no un texto del nombre. */
+export function codigoVisibleProducto(p) {
+  const id = String(p?.id || '').trim();
+  if (id) return id;
+  return String(p?.codigo || p?.codigo_barras || '').trim();
+}
+
+/**
+ * Sugerencias del catálogo al dejar mercancía.
+ * Un código (solo dígitos, o clave sin espacios) coincide exacto con id o código alterno.
+ * Un nombre busca dentro del nombre y no arrastra artículos que solo traen esos dígitos en el texto.
+ */
+export function sugerenciasCatalogoFinAnio(inventario, query, limite = 8) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  if (!pareceCodigoProducto(q) && q.length < 2) return [];
+  return filtrarProductosPorTexto(inventario, q).slice(0, limite);
+}
+
+/** Si el texto es un código y hay un artículo con esa clave, lo devuelve para cargarlo en el formulario. */
+export function productoParaCargarFinAnio(inventario, query) {
+  const q = String(query || '').trim();
+  if (!pareceCodigoProducto(q)) return null;
+  return productoPorCodigoExacto(inventario, q);
 }
 
 function vivo(row) {
