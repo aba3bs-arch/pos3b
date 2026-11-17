@@ -6,12 +6,16 @@ import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './co
 export const ESTADO_VISTO_BUENO = 'pendiente_visto_bueno';
 /** Visto bueno dado. Esperando a ABB o FJBB. */
 export const ESTADO_ABB_FJBB = 'pendiente_abb_fjbb';
+/** ABB o FJBB ya autorizaron. JLBB desembolsa desde el capital. */
+export const ESTADO_DESEMBOLSO = 'pendiente_desembolso';
+export const METODO_PAGO_NOMINA = 'Descuento en nómina';
 
 export const ESTADOS_PRESTAMO_EMPLEADO_LISTA = [
   'pendiente_admin',
   'pendiente_socio',
   ESTADO_VISTO_BUENO,
   ESTADO_ABB_FJBB,
+  ESTADO_DESEMBOLSO,
   'activo',
   'liquidado',
 ];
@@ -47,41 +51,38 @@ export function esJlbb(nombre) {
   return nombreCoincidePatrones(nombre, PATRONES_JLBB);
 }
 
+/** JLBB desembolsa. Andrés y el administrador principal también pueden. */
+export function puedeDesembolsarPrestamo(user) {
+  if (!user) return false;
+  if (user.es_admin_principal === true) return true;
+  if (esAndresMarrero(user)) return true;
+  return esJlbb(user.nombre || user.name || '');
+}
+
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
 /**
- * Saldo del fondo: lo que volvió por nómina menos lo desembolsado.
- * Si aún no hay movimientos, se calcula con los préstamos activos y liquidados.
+ * Capital disponible = capital aportado − desembolsos + cuotas que ya reingresaron.
+ * El historial viejo de préstamos no entra en esta cuenta.
  */
-export function resumenFondoPrestamos(movimientos, prestamos) {
+export function resumenFondoPrestamos(movimientos) {
   const movs = Array.isArray(movimientos) ? movimientos : [];
-  const lista = (prestamos || []).filter((p) => p && p.estado !== 'rechazado' && p.estado !== 'cancelado');
+  let capitalAportado = 0;
   let desembolsado = 0;
   let reingresado = 0;
-  if (movs.length) {
-    for (const m of movs) {
-      const monto = Number(m.monto) || 0;
-      if (m.tipo === 'desembolso') desembolsado += monto;
-      if (m.tipo === 'reingreso_nomina') reingresado += monto;
-    }
-  } else {
-    for (const p of lista) {
-      if (p.estado === 'activo' || p.estado === 'liquidado') {
-        desembolsado += Number(p.monto_original) || 0;
-        reingresado += Number(p.abono) || 0;
-      }
-    }
+  for (const m of movs) {
+    const monto = Number(m.monto) || 0;
+    if (m.tipo === 'capital') capitalAportado += monto;
+    if (m.tipo === 'desembolso') desembolsado += monto;
+    if (m.tipo === 'reingreso_nomina') reingresado += monto;
   }
-  const porRecuperar = lista
-    .filter((p) => p.estado === 'activo')
-    .reduce((s, p) => s + (Number(p.saldo) || 0), 0);
   return {
+    capitalAportado: round2(capitalAportado),
     desembolsado: round2(desembolsado),
     reingresado: round2(reingresado),
-    saldo: round2(reingresado - desembolsado),
-    porRecuperar: round2(porRecuperar),
+    capital: round2(capitalAportado - desembolsado + reingresado),
   };
 }
 
@@ -190,7 +191,7 @@ export async function autorizarPrestamoAbbFjbb(supabase, prestamoId, { user, nom
   }
   const quien = nombre || user?.nombre || 'ABB';
   const { data, error } = await actualizarPrestamo(supabase, prestamoId, {
-    estado: 'activo',
+    estado: ESTADO_DESEMBOLSO,
     aprobado_socio_por: quien,
     aprobado_socio_at: new Date().toISOString(),
     omitir_corte: true,
@@ -199,37 +200,103 @@ export async function autorizarPrestamoAbbFjbb(supabase, prestamoId, { user, nom
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, quien);
   const monto = Number(p.monto_original) || 0;
-  await registrarMovimientoFondo(supabase, {
-    prestamoId: p.id,
-    tipo: 'desembolso',
-    monto,
-    nombreEmpleado: p.nombre_empleado,
-    notas: `Autorizado por ${quien}`,
-    createdBy: quien,
-  });
   const usuarioIds = await idsUsuarios(supabase, PATRONES_JLBB);
   await crearNotificacion(supabase, {
     sucursal_id: p.sucursal_id,
     tipo: TIPOS_NOTIF.PRESTAMO_TESORERO,
     ref_tabla: 'prestamos',
     ref_id: p.id,
-    titulo: `Fondo de préstamos · ${p.nombre_empleado}`,
-    mensaje: `$${monto.toFixed(2)} autorizado por ${quien}. JLBB: quedó en Tesorería → Fondo de préstamos. El descuento de nómina reingresa a este fondo.`,
+    titulo: `Desembolso de préstamo · ${p.nombre_empleado}`,
+    mensaje: `$${monto.toFixed(2)} · ${p.num_cuotas || ''} cuotas · descuento en nómina. Autorizó ${quien}. JLBB: desembolsar desde el capital del fondo.`,
   }, { usuarioIds });
   return {
     ok: true,
     prestamo: data,
-    mensaje: 'Préstamo autorizado. Se avisó a JLBB. Quedó en el fondo de préstamos y se descuenta en nómina. No va a corte ni a contabilidad.',
+    mensaje: 'Autorizado. Se avisó a JLBB para el desembolso. El dinero sale del capital del fondo, no del corte.',
+  };
+}
+
+export async function aportarCapitalFondo(supabase, monto, { user, nombre } = {}) {
+  if (!puedeDesembolsarPrestamo(user)) {
+    return { ok: false, error: 'El capital del fondo lo registra JLBB.' };
+  }
+  const cantidad = round2(monto);
+  if (!(cantidad > 0)) return { ok: false, error: 'Indica el capital a registrar.' };
+  const quien = nombre || user?.nombre || 'JLBB';
+  return registrarMovimientoFondo(supabase, {
+    tipo: 'capital',
+    monto: cantidad,
+    notas: 'Capital del fondo',
+    createdBy: quien,
+  });
+}
+
+export async function desembolsarPrestamo(supabase, prestamoId, { user, nombre } = {}) {
+  if (!puedeDesembolsarPrestamo(user)) {
+    return { ok: false, error: 'El desembolso lo hace JLBB.' };
+  }
+  if (!supabase || !prestamoId) return { ok: false, error: 'Préstamo inválido.' };
+  const { data: p, error: e0 } = await supabase.from('prestamos').select('*').eq('id', prestamoId).single();
+  if (e0 || !p) return { ok: false, error: 'Préstamo no encontrado.' };
+  if (p.estado !== ESTADO_DESEMBOLSO) {
+    return { ok: false, error: 'Este préstamo no está listo para desembolso.' };
+  }
+  const monto = Number(p.monto_original) || 0;
+  if (!(monto > 0)) return { ok: false, error: 'El monto del préstamo no es válido.' };
+  const movs = await listarMovimientosFondo(supabase);
+  if (movs.error) return { ok: false, error: movs.error };
+  const capital = resumenFondoPrestamos(movs.data).capital;
+  if (capital + 0.001 < monto) {
+    return {
+      ok: false,
+      error: `El capital del fondo ($${capital.toFixed(2)}) no alcanza para desembolsar $${monto.toFixed(2)}.`,
+    };
+  }
+  const quien = nombre || user?.nombre || 'JLBB';
+  const mov = await registrarMovimientoFondo(supabase, {
+    prestamoId: p.id,
+    tipo: 'desembolso',
+    monto,
+    nombreEmpleado: p.nombre_empleado,
+    notas: `${METODO_PAGO_NOMINA} · ${p.num_cuotas || ''} cuotas`,
+    createdBy: quien,
+  });
+  if (!mov.ok) return mov;
+  const { data, error } = await actualizarPrestamo(supabase, prestamoId, {
+    estado: 'activo',
+    omitir_corte: true,
+    cargado_corte: false,
+  });
+  if (error) return { ok: false, error: error.message };
+  await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, quien);
+  return {
+    ok: true,
+    prestamo: data,
+    capital: round2(capital - monto),
+    mensaje: `Desembolso de $${monto.toFixed(2)} a ${p.nombre_empleado}. Salió del capital del fondo. Las cuotas de nómina regresan a ese capital.`,
   };
 }
 
 export async function registrarReingresoNomina(supabase, { prestamo, monto, createdBy } = {}) {
+  if (!supabase || !prestamo?.id || !(Number(monto) > 0)) return { ok: true };
+  const { data, error } = await supabase
+    .from('fondo_prestamos_mov')
+    .select('id')
+    .eq('prestamo_id', prestamo.id)
+    .eq('tipo', 'desembolso')
+    .limit(1);
+  if (error) {
+    const msg = String(error.message || '').toLowerCase();
+    if (error.code === '42P01' || msg.includes('fondo_prestamos_mov') || msg.includes('schema cache')) return { ok: true };
+    return { ok: false, error: error.message };
+  }
+  if (!data?.length) return { ok: true };
   return registrarMovimientoFondo(supabase, {
-    prestamoId: prestamo?.id,
+    prestamoId: prestamo.id,
     tipo: 'reingreso_nomina',
     monto,
-    nombreEmpleado: prestamo?.nombre_empleado,
-    notas: 'Descuento de nómina',
+    nombreEmpleado: prestamo.nombre_empleado,
+    notas: 'Cuota de nómina. Resta el saldo del préstamo y suma al capital.',
     createdBy: createdBy || 'Nómina',
   });
 }

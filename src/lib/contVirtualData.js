@@ -28,7 +28,7 @@ function prestamoFueraDeContabilidad(p) {
   if (!p) return true;
   if (p.omitir_corte === true) return true;
   const estado = String(p.estado || '');
-  if (estado === 'pendiente_visto_bueno' || estado === 'pendiente_abb_fjbb') return true;
+  if (estado === 'pendiente_visto_bueno' || estado === 'pendiente_abb_fjbb' || estado === 'pendiente_desembolso') return true;
   if (!String(p.area_corte || '').trim()) return true;
   return false;
 }

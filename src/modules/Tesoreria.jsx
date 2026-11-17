@@ -17,8 +17,8 @@ const VISTAS = [
   {
     id: 'fondo',
     label: 'Fondo de préstamos',
-    desc: 'Control de préstamos y reingreso de nómina',
-    ayuda: 'JLBB lleva el fondo. Lo descontado en nómina reingresa aquí. No pasa por corte ni por contabilidad.',
+    desc: 'Capital, desembolso y cuotas que regresan',
+    ayuda: 'JLBB lleva el capital. De ahí desembolsa el préstamo. Cada cuota de nómina resta el saldo y vuelve al capital.',
     icon: 'dollar',
     color: '#b45309',
   },
@@ -50,7 +50,7 @@ export default function Tesoreria({ supabase, user }) {
           ← Tesorería
         </button>
         <h2 style={{ margin: 0, color: '#b45309' }}>Fondo de préstamos</h2>
-        <PanelFondoPrestamos supabase={supabase} />
+        <PanelFondoPrestamos supabase={supabase} user={user} />
       </div>
     );
   }

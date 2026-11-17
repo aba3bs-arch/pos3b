@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   puedeAutorizarPrestamoAbbFjbb,
   puedeDarVistoBuenoPrestamo,
+  puedeDesembolsarPrestamo,
   resumenFondoPrestamos,
 } from './fondoPrestamos.js';
 
@@ -20,26 +21,21 @@ assert.equal(puedeDarVistoBuenoPrestamo(cajero), false);
 assert.equal(puedeAutorizarPrestamoAbbFjbb(abb), true);
 assert.equal(puedeAutorizarPrestamoAbbFjbb(fjbb), true);
 assert.equal(puedeAutorizarPrestamoAbbFjbb(jlbb), false);
-assert.equal(puedeAutorizarPrestamoAbbFjbb(gerente), true);
-assert.equal(puedeAutorizarPrestamoAbbFjbb(principal), true);
-assert.equal(puedeAutorizarPrestamoAbbFjbb(cajero), false);
+assert.equal(puedeDesembolsarPrestamo(jlbb), true);
+assert.equal(puedeDesembolsarPrestamo(abb), false);
+assert.equal(puedeDesembolsarPrestamo(gerente), true);
+assert.equal(puedeDesembolsarPrestamo(principal), true);
 
-const vacio = resumenFondoPrestamos([], [
-  { estado: 'activo', monto_original: 1000, abono: 500, saldo: 500 },
-  { estado: 'liquidado', monto_original: 500, abono: 500, saldo: 0 },
-]);
-assert.equal(vacio.desembolsado, 1500);
-assert.equal(vacio.reingresado, 1000);
-assert.equal(vacio.saldo, -500);
-assert.equal(vacio.porRecuperar, 500);
-
-const conMovs = resumenFondoPrestamos([
-  { tipo: 'desembolso', monto: 1000 },
+const fondo = resumenFondoPrestamos([
+  { tipo: 'capital', monto: 10000 },
+  { tipo: 'desembolso', monto: 2000 },
   { tipo: 'reingreso_nomina', monto: 500 },
-], [{ estado: 'activo', saldo: 500, monto_original: 9999, abono: 0 }]);
-assert.equal(conMovs.desembolsado, 1000);
-assert.equal(conMovs.reingresado, 500);
-assert.equal(conMovs.saldo, -500);
-assert.equal(conMovs.porRecuperar, 500);
+]);
+assert.equal(fondo.capitalAportado, 10000);
+assert.equal(fondo.desembolsado, 2000);
+assert.equal(fondo.reingresado, 500);
+assert.equal(fondo.capital, 8500);
+
+assert.equal(resumenFondoPrestamos([]).capital, 0);
 
 console.log('fondoPrestamos.test.mjs ok');

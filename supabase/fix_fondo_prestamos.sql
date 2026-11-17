@@ -1,4 +1,6 @@
--- Fondo de préstamos (Tesorería). Reingreso de lo descontado en nómina.
+-- Fondo de préstamos (Tesorería).
+-- tipo: capital | desembolso | reingreso_nomina
+-- Capital disponible = capital − desembolsos + cuotas reingresadas.
 -- Ejecutar en Supabase → SQL Editor. Se puede volver a correr.
 
 create table if not exists public.fondo_prestamos_mov (

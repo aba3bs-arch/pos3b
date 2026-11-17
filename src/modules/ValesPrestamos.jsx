@@ -47,6 +47,7 @@ import {
   puedeAutorizarPrestamoAbbFjbb,
   puedeDarVistoBuenoPrestamo,
 } from '../lib/fondoPrestamos.js';
+import { DesembolsosPrestamo } from '../components/FormularioDesembolsoPrestamo.jsx';
 import { esPrestamoArrendatario } from '../lib/beneficiariosExternos.js';
 import {
   AREAS_CONTABILIDAD,
@@ -3093,6 +3094,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a empleado</h3>
+            <DesembolsosPrestamo
+              supabase={supabase}
+              user={user}
+              prestamos={prestamosEmp}
+              onHecho={recargarTodo}
+            />
             <p className="muted" style={{ fontSize: '0.85rem' }}>
               {arrendatarioPrestamoSel ? (
                 <>
