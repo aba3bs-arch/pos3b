@@ -852,6 +852,7 @@ function App() {
         }
       }
 
+      fijarSesionPrivilegios(data);
       setUser(data);
       setSesion(true);
       setPin('');
@@ -1493,6 +1494,10 @@ function App() {
   useEffect(() => {
     if (modoOffline && vista !== 'Ventas') setVista('Ventas');
   }, [modoOffline, vista]);
+
+  // La sesión de privilegios se lee al armar el menú. Tiene que estar puesta
+  // en este render: si solo se fija en un efecto, Contabilidad no aparece.
+  fijarSesionPrivilegios(sesion && user ? user : null);
 
   const modulosNav = useMemo(() => {
     if (!user) return [];
