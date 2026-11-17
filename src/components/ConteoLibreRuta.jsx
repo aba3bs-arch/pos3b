@@ -25,6 +25,7 @@ function colorDiferencia(l) {
  * se escanean o buscan productos, se captura la cantidad contada y se cierra.
  */
 export default function ConteoLibreRuta({
+  listaCompleta = false,
   lineas,
   inventarioCamion,
   inventario,
@@ -79,7 +80,7 @@ export default function ConteoLibreRuta({
     const hit = buscarProductoInventario(inventarioCamion, code)?.producto
       || buscarProductoInventario(inventario, code)?.producto
       || inventarioCamion.find((p) => String(p.id) === code);
-    if (!hit || !inventarioCamion.some((p) => String(p.id) === String(hit.id))) return false;
+    if (!hit || !porId.has(String(hit.id))) return false;
     return porId.get(String(hit.id)) || false;
   };
 
@@ -99,7 +100,10 @@ export default function ConteoLibreRuta({
   const aceptarCantidad = () => {
     if (!pendiente) return;
     const n = String(cantidad).trim();
-    const final = n === '' ? String(pendiente.teorico) : String(Math.max(0, Math.floor(Number(n) || 0)));
+    if (n === '' || !Number.isSafeInteger(Number(n)) || Number(n) < 0) {
+      return alert('Captura una cantidad entera válida, incluido 0 cuando no haya existencias.');
+    }
+    const final = String(Number(n));
     setConteo(pendiente.id, final);
     setLibreIds((prev) => (prev.includes(pendiente.id) ? prev : [...prev, pendiente.id]));
     setPendiente(null);
@@ -138,11 +142,12 @@ export default function ConteoLibreRuta({
           <button type="button" className="btn btn-ghost" onClick={onVolver}>
             ← Departamentos
           </button>
-          <h4 style={{ margin: 0, color: 'var(--brand-blue)', flex: 1 }}>Inventario libre</h4>
+          <h4 style={{ margin: 0, color: 'var(--brand-blue)', flex: 1 }}>{listaCompleta ? 'Conteo por departamentos · lista única' : 'Inventario libre'}</h4>
         </div>
         <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-          Escanea o busca productos del camión, indica cuántas piezas contaste y ciérralo. Útil para revisar
-          productos sueltos sin recorrer todo un departamento.
+          {listaCompleta
+            ? 'Todos los artículos de los departamentos seleccionados están en esta lista. Captura cada cantidad, incluido 0, y termina todo en un solo evento.'
+            : 'Escanea o busca productos del camión, indica cuántas piezas contaste y cierra el conteo.'}
         </p>
 
         <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
@@ -293,7 +298,7 @@ export default function ConteoLibreRuta({
                   <th>Camión</th>
                   <th>Contada</th>
                   <th>Diferencia</th>
-                  <th />
+                  {!listaCompleta && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -320,11 +325,11 @@ export default function ConteoLibreRuta({
                         <div className="muted" style={{ fontSize: '0.72rem', fontWeight: 400 }}>{fmtMonto(l.perdidaPublico)}</div>
                       ) : null}
                     </td>
-                    <td>
+                    {!listaCompleta && <td>
                       <button type="button" className="btn btn-ghost btn-sm" title="Quitar de la lista" onClick={() => quitar(l.id)}>
                         <Icon name="trash" size={14} />
                       </button>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>
@@ -335,7 +340,8 @@ export default function ConteoLibreRuta({
 
       {lineasLibre.length > 0 && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
-          <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Resumen del inventario libre</h4>
+          <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Resumen del conteo</h4>
+          <p className="muted">{resumen.contados}/{resumen.productos} artículos contados · {resumen.pendientes} pendientes</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.65rem' }}>
             <div style={{ padding: '0.65rem', borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)' }}>
               <div className="muted" style={{ fontSize: '0.68rem', textTransform: 'uppercase' }}>Productos</div>
@@ -355,7 +361,7 @@ export default function ConteoLibreRuta({
             </div>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-success" disabled={guardando} onClick={onTerminar}>
+            <button type="button" className="btn btn-success" disabled={guardando || (listaCompleta && !resumen.listoParaCerrar)} onClick={onTerminar}>
               {guardando ? 'Guardando…' : 'Terminar y generar ticket'}
             </button>
           </div>
