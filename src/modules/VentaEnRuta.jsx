@@ -89,6 +89,7 @@ import AlertaAprobacionCobroRutaOverlay from '../components/AlertaAprobacionCobr
 import PreinventarioRuta from './PreinventarioRuta.jsx';
 import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
+import CreditoFinAnioRuta from './CreditoFinAnioRuta.jsx';
 import CobroServiciosRuta from './CobroServiciosRuta.jsx';
 import GastosRuta from './GastosRuta.jsx';
 import './VentaEnRuta.css';
@@ -417,6 +418,14 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           sucursal={sucursal || user?.sucursal_id}
           embedded
           titulo="Créditos por pagar"
+        />
+      )}
+      {vista === 'finanio' && puede('ruta_fin_anio') && (
+        <CreditoFinAnioRuta
+          supabase={supabase}
+          user={user}
+          inventario={inventario}
+          onVolver={() => ir('hub')}
         />
       )}
       {vista === 'servicios' && puede('ruta_servicios') && (
