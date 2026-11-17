@@ -17,14 +17,12 @@ export default function PanelArrendatarios({ lista = [], puedeEditar = false, on
     }
   };
 
-  if (!puedeEditar && !lista.length) return null;
-
   return (
     <div className="card">
       <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Arrendatarios</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        No son empleados de las 3B. El fiado y el anticipo de renta se registran como egreso
-        en el corte y no se descuentan en nómina.
+        No son empleados de las 3B. Aquí se da de alta el nombre. En Vales y préstamos
+        se elige para fiado o anticipo de renta: sale como egreso del corte y no se descuenta en nómina.
       </p>
       {puedeEditar && (
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>

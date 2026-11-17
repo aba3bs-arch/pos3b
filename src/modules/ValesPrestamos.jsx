@@ -83,16 +83,12 @@ import {
   CONCEPTOS_ARRENDATARIO,
   EVENTO_BENEFICIARIOS_EXTERNOS,
   arrendatarioDesdeSelect,
-  crearArrendatario,
-  desactivarArrendatario,
   esConceptoArrendatario,
   idSelectArrendatario,
   listarArrendatariosActivos,
   notasPrestamoArrendatario,
-  persistirArrendatario,
   sincronizarBeneficiariosExternos,
 } from '../lib/beneficiariosExternos.js';
-import PanelArrendatarios from '../components/PanelArrendatarios.jsx';
 import {
   resolverBeneficiarioConsumoPin,
   valeConsumoRequierePinBeneficiario,
@@ -794,23 +790,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       ),
     });
     recargarTodo();
-  };
-
-  const agregarArrendatarioUi = ({ nombre, nota }) => {
-    const res = crearArrendatario({ nombre, nota });
-    if (!res.ok) return res;
-    setArrendatarios(listarArrendatariosActivos(res.lista));
-    persistirArrendatario(supabase, res.beneficiario, user?.nombre);
-    return res;
-  };
-
-  const quitarArrendatarioUi = async (row) => {
-    if (!confirm(`¿Quitar a ${row.nombre} de los arrendatarios? Los vales y préstamos ya hechos se conservan.`)) return;
-    const res = desactivarArrendatario(row.id);
-    if (!res.ok) return alert(res.error);
-    setArrendatarios(listarArrendatariosActivos(res.lista));
-    const apagado = (res.lista || []).find((b) => b.id === row.id);
-    if (apagado) await persistirArrendatario(supabase, apagado, user?.nombre);
   };
 
   const guardarPrestamoEmpleado = async () => {
@@ -1593,7 +1572,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <br />
         <strong>Desde MAIN</strong> — Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN y arrendatarios.
         <br />
-        <strong>Arrendatarios</strong> — No son empleados. Fiado y anticipo de renta son egreso del corte; no van a nómina.
+        <strong>Arrendatarios</strong> — No son empleados. Se dan de alta en <strong>IE VIRTUAL → Más → Arrendatarios</strong>.
+        Fiado y anticipo de renta son egreso del corte; no van a nómina.
         <br />
         <strong>Corte</strong> — El admin elige el corte (Virtual / Abarrotes / Garage) al generar el vale. Al aprobarse, se carga ahí.
         <br />
@@ -1626,15 +1606,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           </button>
         ))}
       </div>
-
-      {(pestana === 'vales' || pestana === 'prestamos_emp') && (
-        <PanelArrendatarios
-          lista={arrendatarios}
-          puedeEditar={esAdmin || esGerente}
-          onAgregar={agregarArrendatarioUi}
-          onQuitar={quitarArrendatarioUi}
-        />
-      )}
 
       {pestana === 'pagare' && (
         <>
