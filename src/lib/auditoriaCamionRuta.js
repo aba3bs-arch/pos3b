@@ -48,8 +48,9 @@ export function construirLineasAuditoriaCamion(inventarioCamion, conteos = {}) {
     const raw = conteos[id];
     const contado =
       raw === null || raw === undefined || String(raw).trim() === ''
+        || !Number.isSafeInteger(Number(raw)) || Number(raw) < 0
         ? null
-        : Math.max(0, Math.floor(Number(raw)));
+        : Number(raw);
     const diferencia = contado == null ? null : contado - teorico;
     const faltante = diferencia != null && diferencia < 0 ? -diferencia : 0;
     const sobrante = diferencia != null && diferencia > 0 ? diferencia : 0;
@@ -142,6 +143,17 @@ export function lineasAuditoriaPorDepartamento(lineas = [], departamento) {
   return (lineas || []).filter(
     (l) => (normalizarDepartamento(l.cat || 'GENERAL') || 'GENERAL') === dept,
   );
+}
+
+/** Una sola lista para todos los departamentos elegidos, sin duplicar artículos. */
+export function lineasAuditoriaDeDepartamentos(lineas = [], departamentos = []) {
+  const seleccion = new Set(departamentos.map((d) => normalizarDepartamento(d) || 'GENERAL'));
+  const vistos = new Set();
+  return lineas.filter((l) => {
+    if (!seleccion.has(normalizarDepartamento(l.cat || 'GENERAL') || 'GENERAL') || vistos.has(String(l.id))) return false;
+    vistos.add(String(l.id));
+    return true;
+  });
 }
 
 /**

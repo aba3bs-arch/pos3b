@@ -3,6 +3,7 @@ import {
   construirLineasAuditoriaCamion,
   departamentosAuditoriaCamion,
   lineasAuditoriaPorDepartamento,
+  lineasAuditoriaDeDepartamentos,
   precioVentaPublico,
   progresoDepartamentosAuditoria,
   resolverCamionDeRecolector,
@@ -19,6 +20,27 @@ import {
   listarBorradoresAuditoria,
   borrarBorradorAuditoria,
 } from './auditoriaCamionRuta.js';
+
+{
+  const inventario = [
+    { id: 'a', cat: 'BEBIDAS', _disp_camion: 7 },
+    { id: 'b', cat: 'ABARROTES', _disp_camion: 2 },
+    { id: 'c', cat: 'BEBIDAS', _disp_camion: 0 },
+  ];
+  const lineas = construirLineasAuditoriaCamion(inventario, { a: '0', b: '3' });
+  const lista = lineasAuditoriaDeDepartamentos([...lineas, lineas[0]], ['BEBIDAS', 'ABARROTES', 'BEBIDAS']);
+  assert.deepEqual(lista.map((l) => l.id), ['a', 'b', 'c']);
+  assert.equal(resumirDepartamentoAuditoria(lista).listoParaCerrar, false, 'un pendiente no se convierte en cero');
+  const completas = construirLineasAuditoriaCamion(inventario, { a: '0', b: '3', c: '0' });
+  assert.equal(resumirDepartamentoAuditoria(completas).listoParaCerrar, true);
+  const cierre = armarCierreAuditoria(completas, ['BEBIDAS', 'ABARROTES']);
+  assert.equal(cierre.lineas.length, 3);
+  assert.equal(cierre.deptos.length, 2);
+  for (const valor of ['NaN', '-1', '1.5', 'Infinity']) {
+    assert.equal(construirLineasAuditoriaCamion(inventario, { a: valor })[0].contado, null);
+  }
+  assert.deepEqual(lineasAuditoriaDeDepartamentos(lineas, []), []);
+}
 
 {
   const p = { precio: 25, precio_ruta: 18, precio_compra_sin: 10 };

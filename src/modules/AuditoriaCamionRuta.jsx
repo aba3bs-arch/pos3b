@@ -15,6 +15,7 @@ import {
   leerBorradorAuditoria,
   listarBorradoresAuditoria,
   lineasAuditoriaPorDepartamento,
+  lineasAuditoriaDeDepartamentos,
   listarAuditoriasCamionLocal,
   progresoDepartamentosAuditoria,
   resolverCamionDeRecolector,
@@ -482,6 +483,11 @@ export default function AuditoriaCamionRuta({
   );
 
   const progresoDeptos = useMemo(() => progresoDepartamentosAuditoria(lineas), [lineas]);
+  const listaPorDepartamentos = paso === 'libre' && deptosSel.length > 0;
+  const lineasSeleccionadas = useMemo(
+    () => lineasAuditoriaDeDepartamentos(lineas, deptosSel),
+    [lineas, deptosSel],
+  );
   const valorCamion = useMemo(() => resumirValorCamion(lineas), [lineas]);
 
   const lineasDepto = useMemo(
@@ -604,11 +610,10 @@ export default function AuditoriaCamionRuta({
   };
 
   const confirmarDeptos = () => {
-    const cola = progresoDeptos
-      .map((d) => d.departamento)
-      .filter((d) => deptosSel.includes(d) && !cerrados[d]);
-    if (!cola.length) return;
-    entrarDepto(cola[0]);
+    if (!lineasSeleccionadas.length) return;
+    setLibreIds(lineasSeleccionadas.map((l) => String(l.id)));
+    setDeptoActivo('');
+    setPaso('libre');
   };
 
   const siguienteArticulo = () => {
@@ -696,13 +701,17 @@ export default function AuditoriaCamionRuta({
   };
 
   const terminarInventario = () => {
+    if (guardando) return;
     if (!camionId) return alert('Selecciona un recolector con camión asignado.');
-    const cerradosIds = Object.keys(cerrados);
-    const libresContados = libreIds.filter((id) => conteos[id] != null && String(conteos[id]).trim() !== '');
+    if (listaPorDepartamentos && !resumirDepartamentoAuditoria(lineasSeleccionadas).listoParaCerrar) {
+      return alert('Captura la cantidad de todos los artículos seleccionados. Usa 0 cuando no haya existencias físicas.');
+    }
+    const cerradosIds = [...new Set([...Object.keys(cerrados), ...(listaPorDepartamentos ? deptosSel : [])])];
+    const libresContados = listaPorDepartamentos ? [] : libreIds.filter((id) => conteos[id] != null && String(conteos[id]).trim() !== '');
     if (!cerradosIds.length && !libresContados.length) {
       return alert('Cierra al menos un departamento (o agrega productos al inventario libre) para generar el ticket.');
     }
-    const abiertosConConteo = progresoDeptos.filter((d) => !cerrados[d.departamento] && d.contados > 0);
+    const abiertosConConteo = progresoDeptos.filter((d) => !cerradosIds.includes(d.departamento) && d.contados > 0);
     const avisoAbiertos = abiertosConConteo.length
       ? `\n\nOJO: ${abiertosConConteo.map((d) => d.etiqueta).join(', ')} tiene conteo sin cerrar y NO entra al ticket.`
       : '';
@@ -795,8 +804,8 @@ export default function AuditoriaCamionRuta({
           <p className="ruta-invop-kicker">Inv-op · Venta en ruta</p>
           <h3>Inventario operativo por departamento</h3>
           <p className="ruta-invop-lead">
-            Igual que el inventario de sucursales, pero independiente: cuenta artículo por artículo,
-            cierra cada departamento y al final obtén tu ticket. No modifica el stock.
+            Selecciona departamentos o todo el camión, captura las cantidades en una sola lista
+            y genera un ticket para todo el conteo. Por ahora, este reporte no modifica el stock.
             Si sales de la app, el conteo sigue en este equipo.
           </p>
         </div>
@@ -976,8 +985,8 @@ export default function AuditoriaCamionRuta({
               </button>
             </div>
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-              Marca los departamentos que vas a contar y pulsa Siguiente. Cuentas pieza por pieza, cierras
-              cada departamento y al final se genera el ticket. Si sales de la app, el conteo queda en este equipo.
+              Selecciona uno o varios departamentos, o todos, para cargar una sola lista y registrar
+              el conteo en un único evento. Si sales de la app, el conteo queda en este equipo.
             </p>
 
             {cargando ? (
@@ -991,14 +1000,20 @@ export default function AuditoriaCamionRuta({
                   <input className="input" value={qDepto} onChange={(e) => setQDepto(e.target.value)} placeholder="Buscar" />
                 </div>
                 <div className="prod-modal-deptos-list">
+                  <label className="prod-modal-depto-item">
+                    <input type="checkbox"
+                      checked={progresoDeptos.length > 0 && progresoDeptos.every((d) => deptosSel.includes(d.departamento))}
+                      onChange={(e) => setDeptosSel(e.target.checked ? progresoDeptos.map((d) => d.departamento) : [])}
+                    />
+                    <strong>Todos los departamentos · una sola lista</strong>
+                  </label>
                   {deptosFiltrados.map((d) => {
                     const cerrado = cerrados[d.departamento];
                     return (
                       <label key={d.departamento} className="prod-modal-depto-item" style={{ alignItems: 'center' }}>
                         <input
                           type="checkbox"
-                          checked={cerrado ? true : deptosSel.includes(d.departamento)}
-                          disabled={Boolean(cerrado)}
+                          checked={deptosSel.includes(d.departamento)}
                           onChange={() => toggleDepto(d.departamento)}
                         />
                         <span style={{ flex: 1 }}>
@@ -1028,7 +1043,7 @@ export default function AuditoriaCamionRuta({
                   type="button"
                   className="btn btn-ghost"
                   style={{ width: '100%', marginTop: '0.75rem' }}
-                  onClick={() => setPaso('libre')}
+                  onClick={() => { setDeptosSel([]); setPaso('libre'); }}
                 >
                   Inventario libre (escanear productos sueltos)
                   {libreIds.length ? ` · ${libreIds.length} en lista` : ''}
@@ -1037,10 +1052,10 @@ export default function AuditoriaCamionRuta({
                   type="button"
                   className="btn btn-primary"
                   style={{ width: '100%', marginTop: '0.5rem' }}
-                  disabled={!deptosSel.filter((d) => !cerrados[d]).length}
+                  disabled={!lineasSeleccionadas.length}
                   onClick={confirmarDeptos}
                 >
-                  SIGUIENTE{deptosSel.filter((d) => !cerrados[d]).length ? ` (${deptosSel.filter((d) => !cerrados[d]).length})` : ''}
+                  Contar en una sola lista ({lineasSeleccionadas.length} artículos)
                 </button>
               </>
             )}
@@ -1289,10 +1304,11 @@ export default function AuditoriaCamionRuta({
 
       {paso === 'libre' && camionId && (
         <ConteoLibreRuta
-          lineas={lineas}
+          listaCompleta={listaPorDepartamentos}
+          lineas={listaPorDepartamentos ? lineasSeleccionadas : lineas}
           inventarioCamion={inventarioCamion}
           inventario={inventario}
-          libreIds={libreIds}
+          libreIds={listaPorDepartamentos ? lineasSeleccionadas.map((l) => String(l.id)) : libreIds}
           setLibreIds={setLibreIds}
           conteos={conteos}
           setConteo={setConteoLibre}
