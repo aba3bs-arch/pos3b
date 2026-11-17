@@ -80,6 +80,16 @@ import {
   VALE_FORM_DEFAULTS_IE,
 } from '../lib/valesCatalogoIe.js';
 import {
+  CONCEPTOS_ARRENDATARIO,
+  EVENTO_BENEFICIARIOS_EXTERNOS,
+  arrendatarioDesdeSelect,
+  esConceptoArrendatario,
+  idSelectArrendatario,
+  listarArrendatariosActivos,
+  notasPrestamoArrendatario,
+  sincronizarBeneficiariosExternos,
+} from '../lib/beneficiariosExternos.js';
+import {
   resolverBeneficiarioConsumoPin,
   valeConsumoRequierePinBeneficiario,
 } from '../lib/pinBeneficiarioConsumo.js';
@@ -266,6 +276,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     primer_cobro: '',
   });
   const [categoriasTick, setCategoriasTick] = useState(0);
+  const [arrendatarios, setArrendatarios] = useState(() => listarArrendatariosActivos());
+  const [conceptoArrPrest, setConceptoArrPrest] = useState('fiado');
   const [valesPendAll, setValesPendAll] = useState([]);
   const [prestamosPendAll, setPrestamosPendAll] = useState([]);
   const [horaLimiteVale, setHoraLimiteVale] = useState(() => etiquetaHoraLimiteVale());
@@ -335,11 +347,34 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const sub = (cat?.subcategorias || []).find((s) => s.id === valeForm.subcategoria);
     return sub?.detalles || [];
   }, [categoriasValeDisponibles, valeForm.categoria, valeForm.subcategoria]);
-  const beneficiariosVales = useMemo(() => listarBeneficiariosVales(empleadosAll), [empleadosAll]);
+  const beneficiariosVales = useMemo(() => {
+    const base = listarBeneficiariosVales(empleadosAll);
+    const extras = (arrendatarios || []).map((a) => ({
+      id: a.id,
+      nombre: a.nombre,
+      area: null,
+      usuario_id: null,
+      fijo: false,
+      esArrendatario: true,
+      nota: a.nota || '',
+    }));
+    return [...base, ...extras];
+  }, [empleadosAll, arrendatarios]);
   const benValeSel = useMemo(
     () => beneficiarioValePorId(valeForm.beneficiarioId, beneficiariosVales),
     [valeForm.beneficiarioId, beneficiariosVales],
   );
+  const categoriasValeForm = useMemo(() => {
+    if (!benValeSel?.esArrendatario) return categoriasValeDisponibles;
+    const extras = CONCEPTOS_ARRENDATARIO.map((c) => ({
+      id: c.id,
+      label: c.label,
+      descuentaNomina: false,
+      subcategorias: [],
+    }));
+    const rest = categoriasValeDisponibles.filter((c) => !extras.some((e) => e.id === c.id));
+    return [...extras, ...rest];
+  }, [benValeSel?.esArrendatario, categoriasValeDisponibles]);
   const requierePinConsumoBenef = useMemo(
     () => valeConsumoRequierePinBeneficiario({
       nombreEmpleado: benValeSel?.nombre,
@@ -387,6 +422,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const empPrestamoSel = useMemo(
     () => empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId)) || null,
     [empleadosPrestamo, prestEmpForm.usuarioId],
+  );
+  const arrendatarioPrestamoSel = useMemo(
+    () => arrendatarioDesdeSelect(prestEmpForm.usuarioId, arrendatarios),
+    [prestEmpForm.usuarioId, arrendatarios],
   );
   const prestamoSelOmiteCorte = prestamoEmpleadoOmiteCorte(empPrestamoSel);
   const empleadosPrestamoGrupos = useMemo(
@@ -502,6 +541,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       if (r.aviso) setAviso((prev) => prev || r.aviso);
       if (r.cambio) setCategoriasTick((n) => n + 1);
     });
+    sincronizarBeneficiariosExternos(supabase).then((r) => {
+      if (r?.data) setArrendatarios(listarArrendatariosActivos(r.data));
+      if (r?.aviso) setAviso((prev) => prev || r.aviso);
+    });
+    const alCambiarArr = () => setArrendatarios(listarArrendatariosActivos());
+    window.addEventListener(EVENTO_BENEFICIARIOS_EXTERNOS, alCambiarArr);
     import('../lib/horaLimiteValeSync.js').then(({ sincronizarHoraLimiteValeDesdeNube }) => {
       sincronizarHoraLimiteValeDesdeNube(supabase).then((r) => {
         setHoraLimiteVale(etiquetaHoraLimiteVale());
@@ -518,7 +563,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         setEmpleados(empleadosVisiblesParaTienda(raw, sucursal, user?.rol));
         setEmpleadosPrestamo(empleadosParaPrestamosEmpleado(raw, sucursal, user?.rol));
       });
-    return undefined;
+    return () => window.removeEventListener(EVENTO_BENEFICIARIOS_EXTERNOS, alCambiarArr);
   }, [recargarTodo, supabase, sucursal, user?.rol]);
 
   useEffect(() => {
@@ -668,7 +713,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         sucursal_id: sucursalVale,
         usuario_id: ben.usuario_id || null,
         nombre_empleado: ben.nombre,
-        tipo: 'indirecto',
+        tipo: ben.esArrendatario ? 'arrendatario' : 'indirecto',
         area: areaVale,
         categoria: valeForm.categoria,
         subcategoria: valeForm.subcategoria || null,
@@ -679,6 +724,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         fecha: valeForm.fecha || hoyISO(),
         created_by: user?.nombre || null,
         descuenta_nomina: (() => {
+          if (ben.esArrendatario) return false;
           if (esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return false;
           if (
             valeConsumoRequierePinBeneficiario({
@@ -701,6 +747,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         usarCatalogoIe: true,
         minutosLimite: leerHoraLimiteVale(),
         descuentaNomina: (() => {
+          if (ben.esArrendatario) return false;
           if (esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return false;
           if (
             valeConsumoRequierePinBeneficiario({
@@ -747,9 +794,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const guardarPrestamoEmpleado = async () => {
     if (!supabase) return alert('Sin conexión.');
-    const emp = empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
-    if (!emp) return alert(esMain ? 'Selecciona un empleado o usuario MAIN.' : 'Selecciona un empleado de esta tienda.');
-    const omitirCorte = prestamoEmpleadoOmiteCorte(emp);
+    const arr = arrendatarioDesdeSelect(prestEmpForm.usuarioId, arrendatarios);
+    const emp = arr ? null : empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
+    if (!emp && !arr) return alert(esMain ? 'Selecciona un empleado, usuario MAIN o arrendatario.' : 'Selecciona un empleado de esta tienda o un arrendatario.');
+    const omitirCorte = arr ? false : prestamoEmpleadoOmiteCorte(emp);
     if (omitirCorte && !esMain) {
       return alert('Los usuarios MAIN solo pueden recibir préstamo desde MAIN.');
     }
@@ -767,13 +815,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       supabase,
       {
         sucursal_id: sucursal || 'MAIN',
-        usuario_id: emp.id,
-        nombre_empleado: emp.nombre,
+        usuario_id: arr ? null : emp.id,
+        nombre_empleado: arr ? arr.nombre : emp.nombre,
         monto_original: monto,
         fecha: prestEmpForm.fecha || hoyISO(),
         num_cuotas: Number(prestEmpForm.numCuotas) > 0 ? Number(prestEmpForm.numCuotas) : numCuotasPorDefecto(monto),
         primer_cobro: prestEmpForm.primerCobro || primerCobroPorDefecto(prestEmpForm.fecha || hoyISO()),
-        notas: prestEmpForm.notas.trim() || null,
+        notas: arr
+          ? notasPrestamoArrendatario(conceptoArrPrest, prestEmpForm.notas)
+          : (prestEmpForm.notas.trim() || null),
         created_by: user?.nombre || null,
         area_corte: omitirCorte ? null : prestEmpForm.areaCorte,
         omitir_corte: omitirCorte,
@@ -1520,7 +1570,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <strong>Categorías, subcategorías y detalles</strong> — Mismo catálogo que <strong>IE VIRTUAL</strong> (Contabilidad).
         {' '}Las categorías se administran y envían desde IE VIRTUAL (Cuentas y subcuentas). Gasolina solo desde tienda (no desde MAIN).
         <br />
-        <strong>Desde MAIN</strong> — Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN.
+        <strong>Desde MAIN</strong> — Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN y arrendatarios.
+        <br />
+        <strong>Arrendatarios</strong> — No son empleados. Se dan de alta en <strong>IE VIRTUAL → Más → Arrendatarios</strong>.
+        Fiado y anticipo de renta son egreso del corte; no van a nómina.
         <br />
         <strong>Corte</strong> — El admin elige el corte (Virtual / Abarrotes / Garage) al generar el vale. Al aprobarse, se carga ahí.
         <br />
@@ -2178,14 +2231,48 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 className="select"
                 value={valeForm.beneficiarioId}
                 onChange={(e) => {
+                  const id = e.target.value;
+                  const ben = beneficiarioValePorId(id, beneficiariosVales);
                   setPinBeneficiarioConsumo('');
-                  setValeForm({ ...valeForm, beneficiarioId: e.target.value });
+                  if (ben?.esArrendatario) {
+                    setValeForm({
+                      ...valeForm,
+                      beneficiarioId: id,
+                      categoria: esConceptoArrendatario(valeForm.categoria) ? valeForm.categoria : 'fiado',
+                      subcategoria: '',
+                      detalle: '',
+                      descuentaNomina: false,
+                    });
+                    return;
+                  }
+                  const veniaDeArr = esConceptoArrendatario(valeForm.categoria);
+                  setValeForm({
+                    ...valeForm,
+                    beneficiarioId: id,
+                    categoria: veniaDeArr ? VALE_FORM_DEFAULTS_IE.categoria : valeForm.categoria,
+                    subcategoria: veniaDeArr ? VALE_FORM_DEFAULTS_IE.subcategoria : valeForm.subcategoria,
+                    detalle: veniaDeArr ? '' : valeForm.detalle,
+                    descuentaNomina: veniaDeArr
+                      ? resolverDescuentaNominaVale(VALE_FORM_DEFAULTS_IE.categoria, VALE_FORM_DEFAULTS_IE.subcategoria)
+                      : valeForm.descuentaNomina,
+                  });
                 }}
               >
                 <option value="">— Beneficiario —</option>
-                {beneficiariosVales.map((b) => (
-                  <option key={b.id} value={b.id}>{b.nombre}</option>
-                ))}
+                <optgroup label="Personal">
+                  {beneficiariosVales.filter((b) => !b.esArrendatario).map((b) => (
+                    <option key={b.id} value={b.id}>{b.nombre}</option>
+                  ))}
+                </optgroup>
+                {beneficiariosVales.some((b) => b.esArrendatario) && (
+                  <optgroup label="Arrendatarios (no son empleados)">
+                    {beneficiariosVales.filter((b) => b.esArrendatario).map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.nombre}{b.nota ? ` · ${b.nota}` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <select
                 className="select"
@@ -2202,7 +2289,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   });
                 }}
               >
-                {categoriasValeDisponibles.map((c) => (
+                {categoriasValeForm.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}</option>
                 ))}
               </select>
@@ -2252,11 +2339,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <input
                   type="checkbox"
                   checked={
-                    (Boolean(valeForm.descuentaNomina) || requierePinConsumoBenef)
+                    !benValeSel?.esArrendatario
+                    && (Boolean(valeForm.descuentaNomina) || requierePinConsumoBenef)
                     && !esValeGasolina(valeForm.categoria, valeForm.subcategoria)
                   }
                   disabled={
-                    esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+                    Boolean(benValeSel?.esArrendatario)
+                    || esValeGasolina(valeForm.categoria, valeForm.subcategoria)
                     || requierePinConsumoBenef
                   }
                   onChange={(e) => setValeForm({ ...valeForm, descuentaNomina: e.target.checked })}
@@ -2264,7 +2353,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 />
                 <span>
                   <strong>Descontar en nómina</strong>
-                  {esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+                  {benValeSel?.esArrendatario
+                    ? ' — Arrendatario: el vale es egreso del corte (fiado o anticipo de renta) y no va a nómina.'
+                    : esValeGasolina(valeForm.categoria, valeForm.subcategoria)
                     ? ' — Los vales de gasolina no van a nómina (sin importar el corte).'
                     : requierePinConsumoBenef
                       ? ` — Consumo de ${benConsumoPinMeta?.etiqueta || 'beneficiario'}: siempre va a nómina.`
@@ -2974,7 +3065,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a empleado</h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              {prestamoSelOmiteCorte ? (
+              {arrendatarioPrestamoSel ? (
+                <>
+                  Arrendatario <strong>{arrendatarioPrestamoSel.nombre}</strong>: el monto es un{' '}
+                  <strong>egreso del corte</strong> (fiado o anticipo de renta). No se descuenta en nómina.
+                </>
+              ) : prestamoSelOmiteCorte ? (
                 <>
                   Usuario <strong>MAIN</strong>: el administrador registra el préstamo.
                   <strong> No va a corte</strong>; en <strong>nómina</strong> se descuenta automáticamente{' '}
@@ -3016,7 +3112,23 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 ) : (
                   empleadosPrestamo.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)
                 )}
+                {arrendatarios.length > 0 && (
+                  <optgroup label="Arrendatarios (egreso, sin nómina)">
+                    {arrendatarios.map((a) => (
+                      <option key={a.id} value={idSelectArrendatario(a.id)}>
+                        {a.nombre}{a.nota ? ` · ${a.nota}` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
+              {arrendatarioPrestamoSel && (
+                <select className="select" value={conceptoArrPrest} onChange={(e) => setConceptoArrPrest(e.target.value)}>
+                  {CONCEPTOS_ARRENDATARIO.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              )}
               <input className="input" type="number" placeholder="Monto" value={prestEmpForm.monto} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, monto: e.target.value })} />
               {!prestamoSelOmiteCorte && (
                 <select className="select" value={prestEmpForm.areaCorte} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, areaCorte: e.target.value })}>
@@ -3041,7 +3153,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
-                Primer cobro (nómina)
+                {arrendatarioPrestamoSel ? 'Primer cobro (abono, no nómina)' : 'Primer cobro (nómina)'}
                 <input
                   className="input"
                   type="date"
@@ -3053,16 +3165,24 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <input className="input" placeholder="Notas" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
             </div>
             <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>
-              Se descuenta en nómina desde el primer cobro, una cuota por semana, y se detiene después de la última cuota
-              (la última liquida el saldo). Puedes cambiar las cuotas y la fecha.
+              {arrendatarioPrestamoSel
+                ? 'El desembolso carga al corte como egreso. El cobro se registra aquí con abonos; no entra a la nómina.'
+                : 'Se descuenta en nómina desde el primer cobro, una cuota por semana, y se detiene después de la última cuota (la última liquida el saldo). Puedes cambiar las cuotas y la fecha.'}
             </p>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
-              {prestamoSelOmiteCorte
+              {arrendatarioPrestamoSel
+                ? 'Solicitar fiado / anticipo (egreso)'
+                : prestamoSelOmiteCorte
                 ? 'Registrar préstamo MAIN (solo nómina)'
                 : 'Solicitar préstamo (requiere autorización)'}
             </button>
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-              {prestamoSelOmiteCorte ? (
+              {arrendatarioPrestamoSel ? (
+                <>
+                  Pendiente de autorización admin. Corte: <strong>{ETIQUETA_AREA[prestEmpForm.areaCorte]}</strong>.
+                  {' '}No se descuenta en nómina.
+                </>
+              ) : prestamoSelOmiteCorte ? (
                 <>
                   Lo registra el administrador. No va a corte.
                   Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina

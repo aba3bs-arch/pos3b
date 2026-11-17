@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import { createSubmitLock } from '../../lib/submitLock.js';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
@@ -15,7 +15,8 @@ import {
   prepararTrasRecoleccionGarage,
   round2,
 } from '../../lib/corteContabilidad/calc.js';
-import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
+import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
+import CorteVirtualDesgloseModal from '../../components/corteContabilidad/CorteVirtualDesgloseModal.jsx';
 import {
   datosImpresionCorteActual,
   datosImpresionRecoleccionGarage,
@@ -66,6 +67,8 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
     eliminarCierreHistorial,
     editarCierreHistorial,
     restaurarCierreHistorial,
+    editarGastoEnCierre,
+    eliminarGastoEnCierre,
     recargar,
   } = useCorteContabilidad({
     supabase,
@@ -84,6 +87,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
   const montoRec = round2(estado.recoleccion);
   const montoAnt = round2(estado.recoleccion_anterior);
   const uiLock = useRef(createSubmitLock()).current;
+  const [mostrarDesglose, setMostrarDesglose] = useState(false);
 
   const setMaquina = (key, val) => {
     const next = { ...maquinasBase };
@@ -307,18 +311,55 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
               {etiquetaCliente ? `Socio 3B · ${etiquetaCliente}` : 'Lectura de máquinas'} · Folio {folio} · {turno}
             </p>
           </div>
-          {perm.guardar && (
-            <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
-              Cerrar corte
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setMostrarDesglose(true)}
+              disabled={cargando}
+              title="Ventas y gastos por turno desde la última recolección definitiva"
+            >
+              Desglose de cortes
             </button>
-          )}
-          <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
-            Imprimir corte
-          </button>
+            {perm.guardar && (
+              <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
+                Cerrar corte
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
+              Imprimir corte
+            </button>
+          </div>
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
         <CorteSucursalAviso sucursal={sucursal} user={user} />
       </div>
+
+      <CorteVirtualDesgloseModal
+        abierto={mostrarDesglose}
+        onCerrar={() => setMostrarDesglose(false)}
+        historial={historial}
+        acumulado
+        accent={COLOR}
+        puedeEditarGastos={puedeEditarCorteCampo(perm, 'gastos')}
+        onEditarGastoActual={(id, patch) => editarGasto(id, patch)}
+        onEliminarGastoActual={(id) => {
+          if (!confirm('¿Eliminar este gasto del corte abierto?')) return;
+          quitarGasto(id);
+        }}
+        onEditarGastoCierre={editarGastoEnCierre}
+        onEliminarGastoCierre={eliminarGastoEnCierre}
+        corteActual={{
+          folio,
+          turno,
+          venta: calc.venta,
+          gastos: calc.gastosTotal,
+          subtotal: calc.subtotal,
+          caja: calc.cajaActual,
+          listaGastos: gastos,
+          usuario: user?.nombre || '',
+        }}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
         <div className="card">

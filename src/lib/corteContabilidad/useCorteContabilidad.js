@@ -1099,6 +1099,58 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const claveGastoDetalle = (g, i) =>
     g?.id != null && g.id !== '' ? String(g.id) : `idx-${i}`;
 
+  /**
+   * En Garage cada cierre guarda la lista completa de gastos abiertos.
+   * Un cambio en un turno tiene que quedar igual en las copias del mismo periodo,
+   * si no el gasto reaparece en el turno siguiente.
+   */
+  const propagarCopiaGastoGarage = async (gastoId, cierreYaActualizado, { quitar = false, patch = null } = {}) => {
+    if (modulo !== 'garage' || gastoId == null || gastoId === '') return;
+    const id = String(gastoId);
+    const lista = [...(historial || [])].sort((a, b) => {
+      const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
+    });
+    const rec = lista.find((h) => h?.detalle?.tipo_cierre === 'recoleccion') || null;
+    const desde = rec?.created_at ? new Date(rec.created_at).getTime() : 0;
+    const periodo = lista.filter((h) => {
+      if (String(h?.id) === String(cierreYaActualizado)) return false;
+      if (h?.detalle?.tipo_cierre === 'recoleccion') return false;
+      const t = h?.created_at ? new Date(h.created_at).getTime() : 0;
+      return !rec || (Number.isFinite(t) && t > desde);
+    });
+    for (const h of periodo) {
+      const d = h.detalle || {};
+      const src = Array.isArray(d.gastos) ? d.gastos : [];
+      if (!src.some((g) => String(g?.id) === id)) continue;
+      const next = quitar
+        ? src.filter((g) => String(g?.id) !== id)
+        : src.map((g) => {
+          if (String(g?.id) !== id) return g;
+          const actual = { ...g };
+          if (patch?.monto != null) actual.monto = Number(patch.monto) || 0;
+          if (patch?.comentario != null) actual.comentario = String(patch.comentario).trim().toUpperCase();
+          if (patch?.categoria != null) actual.categoria = String(patch.categoria).trim().toUpperCase();
+          if (patch?.subcategoria != null) actual.subcategoria = String(patch.subcategoria).trim().toUpperCase();
+          return actual;
+        });
+      const gastosTotal = round2(next.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+      const venta = Number(h.ventas) || Number(d.venta) || 0;
+      const subtotal = d.subtotal_manual !== '' && d.subtotal_manual != null
+        ? Number(d.subtotal_manual) || 0
+        : round2(venta - gastosTotal);
+      const res = await actualizarDetalleCierre(
+        supabase,
+        h.id,
+        { gastos: next, gastos_total: gastosTotal, subtotal },
+        sucursal,
+        modulo,
+      );
+      if (!res.ok) return alert(res.error || 'No se pudo actualizar el gasto en los turnos siguientes.');
+    }
+  };
+
   /** Edita un gasto ya guardado en el detalle de un cierre (desglose / historial). */
   const editarGastoEnCierre = async (cierreId, gastoKey, patch) => {
     if (!puedeEditarCorteCampo(perm, 'gastos')) return;
@@ -1136,6 +1188,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       modulo,
     );
     if (!res.ok) return alert(res.error || 'No se pudo actualizar el cierre.');
+    await propagarCopiaGastoGarage(actual.id, cierreId, { patch });
+    if (modulo === 'garage') {
+      const gas = await listarGastosTurno(supabase, sucursal, modulo);
+      setGastos(gas.data || []);
+    }
     await refrescarHistorial();
   };
 
@@ -1172,6 +1229,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       modulo,
     );
     if (!res.ok) return alert(res.error || 'No se pudo actualizar el cierre.');
+    await propagarCopiaGastoGarage(quitado?.id, cierreId, { quitar: true });
+    if (modulo === 'garage') {
+      const gas = await listarGastosTurno(supabase, sucursal, modulo);
+      setGastos(gas.data || []);
+    }
     await refrescarHistorial();
   };
 

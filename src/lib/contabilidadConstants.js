@@ -250,6 +250,9 @@ function minutosLocalSonora(fecha = new Date()) {
  */
 export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo', opts = {}) {
   const sub = opts.subcategoria;
+  const c = String(categoria || '').toLowerCase();
+  // Fiado y anticipo de renta (arrendatario) siempre los aprueba el admin.
+  if (c === 'fiado' || c === 'anticipo-renta') return true;
   // Solo consumo / anticipos fuerzan admin; gasolina/herramienta/accesorios usan ventana.
   if (valeDescuentaNomina(categoria, sub)) return true;
   if (opts.omitirVentana || opts.origenMain) return false;

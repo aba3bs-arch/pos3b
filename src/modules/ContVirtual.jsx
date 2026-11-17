@@ -1,8 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import PortalFlotante from '../components/PortalFlotante.jsx';
 import FabIeMovible from '../components/FabIeMovible.jsx';
+import PanelArrendatarios from '../components/PanelArrendatarios.jsx';
 import { listarSucursales, listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios, normalizarRol, listarTodosLosRoles } from '../lib/roles.js';
+import {
+  EVENTO_BENEFICIARIOS_EXTERNOS,
+  crearArrendatario,
+  desactivarArrendatario,
+  listarArrendatariosActivos,
+  persistirArrendatario,
+  sincronizarBeneficiariosExternos,
+} from '../lib/beneficiariosExternos.js';
 import { puedeGestionarMovimientosIe } from '../lib/ieVirtualPermisos.js';
 import {
   listarClientesMaquinas,
@@ -1204,6 +1213,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [usuariosCat, setUsuariosCat] = useState([]);
   const [catEmpSucursal, setCatEmpSucursal] = useState(() => normalizarCodigoTienda(sucursalProp) || '');
   const [avisoSql, setAvisoSql] = useState('');
+  const [arrendatarios, setArrendatarios] = useState(() => listarArrendatariosActivos());
   const [notas, setNotas] = useState(() => leerNotas());
   const [notaDraft, setNotaDraft] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -1327,6 +1337,39 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   useEffect(() => {
     if (sucursalActiva) setCatEmpSucursal(sucursalActiva);
   }, [sucursalActiva]);
+
+  useEffect(() => {
+    if (esFrancisco) return undefined;
+    let cancel = false;
+    sincronizarBeneficiariosExternos(supabase).then((r) => {
+      if (cancel) return;
+      if (r?.data) setArrendatarios(listarArrendatariosActivos(r.data));
+      if (r?.aviso) setAvisoSql((prev) => prev || r.aviso);
+    });
+    const alCambiar = () => setArrendatarios(listarArrendatariosActivos());
+    window.addEventListener(EVENTO_BENEFICIARIOS_EXTERNOS, alCambiar);
+    return () => {
+      cancel = true;
+      window.removeEventListener(EVENTO_BENEFICIARIOS_EXTERNOS, alCambiar);
+    };
+  }, [supabase, esFrancisco]);
+
+  const agregarArrendatarioUi = ({ nombre, nota }) => {
+    const res = crearArrendatario({ nombre, nota });
+    if (!res.ok) return res;
+    setArrendatarios(listarArrendatariosActivos(res.lista));
+    persistirArrendatario(supabase, res.beneficiario, user?.nombre);
+    return res;
+  };
+
+  const quitarArrendatarioUi = async (row) => {
+    if (!confirm(`¿Quitar a ${row.nombre} de los arrendatarios? Los vales y préstamos ya hechos se conservan.`)) return;
+    const res = desactivarArrendatario(row.id);
+    if (!res.ok) return alert(res.error);
+    setArrendatarios(listarArrendatariosActivos(res.lista));
+    const apagado = (res.lista || []).find((b) => b.id === row.id);
+    if (apagado) await persistirArrendatario(supabase, apagado, user?.nombre);
+  };
 
   const catalogoVista = useMemo(
     () => enriquecerCatalogoConEmpleados(catalogo, usuariosCat, catEmpSucursal || sucursalActiva),
@@ -3130,6 +3173,24 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         </div>
       );
     }
+    if (masVista === 'arrendatarios') {
+      const puedeEditarArr = esAdmin || normalizarRol(user?.rol) === 'Gerente';
+      return (
+        <div className="cv-catalogo">
+          <div className="cv-top">
+            <button type="button" className="cv-btn ghost" style={{ padding: '0.35rem 0.7rem' }} onClick={() => setMasVista('menu')}>‹ Volver</button>
+            <strong>Arrendatarios</strong>
+            <span />
+          </div>
+          <PanelArrendatarios
+            lista={arrendatarios}
+            puedeEditar={puedeEditarArr}
+            onAgregar={agregarArrendatarioUi}
+            onQuitar={quitarArrendatarioUi}
+          />
+        </div>
+      );
+    }
     if (masVista === 'catalogo') {
       const catEmpVista = (catalogoVista || []).find((c) => esCategoriaEmpleado(c));
       const empMain = catEmpVista?.grupos_empleado?.main || [];
@@ -3561,6 +3622,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <span className="ico">⚙</span>
             Cuentas / subcuentas
           </button>
+          {!esFrancisco && (
+            <button type="button" className="cv-mas-item" onClick={() => setMasVista('arrendatarios')}>
+              <span className="ico">⌂</span>
+              Arrendatarios
+            </button>
+          )}
           <button type="button" className="cv-mas-item" onClick={() => { setNav('trans'); setShowFiltro(true); setShowBuscar(true); }}>
             <span className="ico">🖥</span>
             Sucursal / búsqueda
@@ -3575,7 +3642,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </button>
           <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
             ? 'IE ABARROTES (Francisco): ingresos = ventas de los cierres.\n\nEstad. → Negocio: 1) ventas − mercancía = ganancia del producto · 2) en qué se gasta esa ganancia (sin proveedores) · 3) ganancia neta.\n\nEstad. → Proveedores: detalle por proveedor (pagos = inversión, no gasto).\n\nAdmin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas.'
-            : 'IE VIRTUAL (Antonio): ingresos = recolecciones aprobadas (Virtual y Garage).\n\nEstad. → Negocio: panorama recolecciones → efectivo vs gastos en tienda → egresos → neto.\n\nVales y gastos CUBRE TURNO/TAXIS se registran solos. Admin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas. Abarrotes va en IE ABARROTES.')}>
+            : 'IE VIRTUAL (Antonio): ingresos = recolecciones aprobadas (Virtual y Garage).\n\nEstad. → Negocio: panorama recolecciones → efectivo vs gastos en tienda → egresos → neto.\n\nVales y gastos CUBRE TURNO/TAXIS se registran solos. Admin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas. Arrendatarios (fiado y anticipo de renta) se dan de alta en Más → Arrendatarios. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda
           </button>

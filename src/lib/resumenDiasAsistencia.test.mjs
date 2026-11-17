@@ -11,6 +11,7 @@ import {
   diasCompletosPorEntradaSalida,
   detalleChecadasEmpleado,
   diasConAlgunaChecada,
+  diasConEntrada,
   emparejarJornadas,
   explicarDiaSinJornada,
   listarBloqueosBonoPorFalta,
@@ -339,14 +340,20 @@ assert.equal(
 
 {
   // Bono: solo empleados de tienda dados de alta.
-  // Entrada sola o salida sola → SÍ bono. Sin ambas en día laboral → falta.
+  // Entrada sola → SÍ bono. Salida sola → falta. Sin entrada en día laboral → falta.
   // Faltó lunes → sin bono N días (aquí diasBloqueo: 7); vuelve el próximo lunes.
-  const dias = diasConAlgunaChecada([
+  const cualquiera = diasConAlgunaChecada([
+    { tipo: 'ENTRADA', created_at: '2026-09-10T08:00:00' },
+    { tipo: 'SALIDA', created_at: '2026-09-11T20:00:00' },
+  ])
+  assert.equal(cualquiera.has('2026-09-10'), true)
+  assert.equal(cualquiera.has('2026-09-11'), true)
+  const dias = diasConEntrada([
     { tipo: 'ENTRADA', created_at: '2026-09-10T08:00:00' },
     { tipo: 'SALIDA', created_at: '2026-09-11T20:00:00' },
   ])
   assert.equal(dias.has('2026-09-10'), true)
-  assert.equal(dias.has('2026-09-11'), true)
+  assert.equal(dias.has('2026-09-11'), false)
 
   const ahora = new Date(2026, 8, 16, 12, 0, 0) // miércoles 16 sep
   // Lun=1 Mar=2 Mié=3 — solo esos días laborales en el patrón de prueba
@@ -403,7 +410,7 @@ assert.equal(
   })
   assert.equal(mariaOk.find((b) => b.nombre === 'Maria'), undefined)
 
-  // Solo salida el lunes (olvidó entrada) → también tiene bono
+  // Solo salida el lunes (no hubo entrada) → falta
   const soloSalida = listarBloqueosBonoPorFalta({
     usuarios: [{
       id: 's1',
@@ -423,7 +430,10 @@ assert.equal(
     ahora,
     diasBloqueo: 7,
   })
-  assert.equal(soloSalida.find((b) => b.nombre === 'Sara'), undefined)
+  const sara = soloSalida.find((b) => b.nombre === 'Sara')
+  assert.ok(sara, 'Sara sin entrada debe estar bloqueada')
+  assert.equal(sara.faltaYmd, '2026-09-14')
+  assert.equal(sara.vuelveBonoYmd, '2026-09-21')
 
   // Indirecto / baja no aparecen aunque no chequen
   const noPlantilla = listarBloqueosBonoPorFalta({
@@ -552,8 +562,8 @@ assert.equal(
   const ctx = { plan: planMie, hoy: '2026-09-16' }
   // Miércoles (nuevo descanso en plan) → no laboral
   assert.equal(diaLaborableParaBono(user, '2026-09-16', ctx), false)
-  // Domingo previo (habitual) → no laboral (no ban falso)
-  assert.equal(diaLaborableParaBono(user, '2026-09-13', ctx), false)
+  // Domingo en la plantilla es turno, también en la semana pasada
+  assert.equal(diaLaborableParaBono(user, '2026-09-13', ctx), true)
   // Martes → sí laboral
   assert.equal(diaLaborableParaBono(user, '2026-09-15', ctx), true)
 
@@ -563,11 +573,10 @@ assert.equal(
     ...parDia('e1', 'Ana 3B2', '3B2', '2026-09-14'),
     ...parDia('e1', 'Ana 3B2', '3B2', '2026-09-15'),
   ]
-  // Rellenar lookback Lun–Sáb (domingo = habitual)
+  // Rellenar lookback, domingo incluido: en esta plantilla el domingo es turno
   for (let i = 1; i <= 50; i += 1) {
     const dt = new Date(2026, 8, 16)
     dt.setDate(dt.getDate() - i)
-    if (dt.getDay() === 0) continue
     const y = dt.getFullYear()
     const m = String(dt.getMonth() + 1).padStart(2, '0')
     const d = String(dt.getDate()).padStart(2, '0')
@@ -623,7 +632,7 @@ assert.equal(
   // Hoy = miércoles 23 sep; miércoles 16 es semana pasada sin override
   const ctxPasado = { plan: planMie, hoy: '2026-09-23' }
   assert.equal(diaLaborableParaBono(user, '2026-09-16', ctxPasado), false, 'mié plan pasado ≠ falta')
-  assert.equal(diaLaborableParaBono(user, '2026-09-13', ctxPasado), false, 'dom habitual ≠ falta')
+  assert.equal(diaLaborableParaBono(user, '2026-09-13', ctxPasado), true, 'dom plan turno es laboral')
   assert.equal(diaLaborableParaBono(user, '2026-09-15', ctxPasado), true, 'mar laboral')
 
   // Override semana: descanso movido a jueves solo esa semana
@@ -826,6 +835,85 @@ assert.equal(
 
   const completo = [...mar, { id: 'd', tipo: 'SALIDA', created_at: L(4, 7) }]
   assert.deepEqual([...diasCompletosPorEntradaSalida(completo)].sort(), ['2026-11-02', '2026-11-03'])
+}
+
+{
+  // Nocturno 3B10: salida 07:00 cierra el turno de anoche.
+  // Sin entrada a las 19:00 el domingo (día de turno en el plan) es falta,
+  // aunque hoy ya sea lunes y el domingo haya quedado en la semana pasada.
+  const planDom = {
+    version: 1,
+    filas: [{
+      id: 'emp:3B10:mj',
+      sucursal_id: '3B10',
+      tipo: 'empleado',
+      usuario_id: 'mj',
+      nombre: 'Maria Jesus',
+      turno_id: 'nocturno',
+      celdas: {
+        0: { tipo: 'turno' },
+        1: { tipo: 'turno' },
+        2: { tipo: 'turno' },
+        3: { tipo: 'turno' },
+        4: { tipo: 'turno' },
+        5: { tipo: 'descanso' },
+        6: { tipo: 'turno' },
+      },
+    }],
+  }
+  const user = {
+    id: 'mj',
+    nombre: 'Maria Jesus',
+    rol: 'Cajero',
+    sucursal_id: '3B10',
+    activo: true,
+    tipo_empleado: 'tienda',
+    turno_id: 'nocturno',
+  }
+  const ahora = new Date(2026, 10, 16, 15, 0, 0)
+  assert.equal(
+    diaLaborableParaBono(user, '2026-11-15', { plan: planDom, hoy: '2026-11-16' }),
+    true,
+    'domingo de turno sigue siendo laboral el lunes',
+  )
+  assert.equal(
+    diaLaborableParaBono(user, '2026-11-13', { plan: planDom, hoy: '2026-11-16' }),
+    false,
+    'viernes de descanso no es falta',
+  )
+  const marcajes = []
+  for (const ymd of listarYmdInclusive('2026-10-01', '2026-11-14')) {
+    const [y, m, d] = ymd.split('-').map(Number)
+    const dt = new Date(y, m - 1, d)
+    if (dt.getDay() === 5) continue
+    marcajes.push({
+      usuario_id: 'mj',
+      nombre: 'Maria Jesus',
+      sucursal_id: '3B10',
+      tipo: 'ENTRADA',
+      created_at: `${ymd}T19:00:00`,
+    })
+    const sig = new Date(y, m - 1, d + 1)
+    const sigYmd = `${sig.getFullYear()}-${String(sig.getMonth() + 1).padStart(2, '0')}-${String(sig.getDate()).padStart(2, '0')}`
+    marcajes.push({
+      usuario_id: 'mj',
+      nombre: 'Maria Jesus',
+      sucursal_id: '3B10',
+      tipo: 'SALIDA',
+      created_at: `${sigYmd}T07:00:00`,
+    })
+  }
+  const bloq = listarBloqueosBonoPorFalta({
+    usuarios: [user],
+    marcajes,
+    sucursalId: '3B10',
+    ahora,
+    plan: planDom,
+    faltasDesde: '2026-11-08',
+  }).find((b) => b.nombre === 'Maria Jesus')
+  assert.ok(bloq, 'sin entrada del domingo se pierde el bono')
+  assert.equal(bloq.faltaYmd, '2026-11-15')
+  assert.equal(bloq.vuelveBonoYmd, '2026-11-22')
 }
 
 console.log('resumenDiasAsistencia.test.mjs ok')
