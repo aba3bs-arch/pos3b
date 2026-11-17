@@ -5,10 +5,12 @@ import {
   TIPOS_ALERTA_CANCELACION_RUTA,
   etiquetaTipoNotificacion,
   listarNotificacionesPendientes,
+  marcarNotificacionAtendida,
 } from '../lib/contabilidadNotificaciones.js';
 import {
   aprobarCancelacionVentaConPin,
   obtenerCancelacionRuta,
+  partirAlertasCancelacionRuta,
   rechazarCancelacionVentaConPin,
 } from '../lib/rutaCancelaciones.js';
 import { fmtMonto } from '../lib/consultasUi.js';
@@ -49,12 +51,37 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
     const lista = (res.data || []).filter(
       (n) => !pospuestasRef.current.has(String(n.ref_id || n.id || '')),
     );
-    setAlertas(lista);
-    if (!lista.length) {
+    const ids = [...new Set(lista.map((n) => n.ref_id).filter(Boolean).map(String))];
+    let vigentes = lista;
+    let sols = [];
+    if (ids.length) {
+      const consulta = await supabase
+        .from('ruta_cancelaciones')
+        .select('id,estado,folio_venta,total,metodo_pago,cliente_nombre,cliente_id,vendedor_nombre,motivo')
+        .in('id', ids);
+      if (!consulta.error) {
+        sols = consulta.data || [];
+        const partes = partirAlertasCancelacionRuta(lista, sols);
+        vigentes = partes.vigentes;
+        await Promise.all(partes.obsoletas.map((n) => marcarNotificacionAtendida(
+          supabase,
+          n.ref_tabla || 'ruta_cancelaciones',
+          n.ref_id,
+          'sistema',
+        )));
+      }
+    }
+    setAlertas(vigentes);
+    if (!vigentes.length) {
       setSolicitud(null);
       return;
     }
-    const refId = lista[0].ref_id;
+    const refId = vigentes[0].ref_id;
+    const ya = sols.find((s) => String(s.id) === String(refId));
+    if (ya) {
+      setSolicitud(ya);
+      return;
+    }
     if (refId) {
       const s = await obtenerCancelacionRuta(supabase, refId);
       setSolicitud(s.data || null);

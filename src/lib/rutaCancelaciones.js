@@ -1536,6 +1536,22 @@ export async function listarCancelacionesPendientes(supabase, { limit = 40 } = {
   return listarCancelacionesRuta(supabase, { estado: 'pendiente', limit });
 }
 
+/**
+ * La alerta solo debe salir si la solicitud sigue pendiente.
+ * Si ya se aprobó, se rechazó o ya no existe, el aviso quedó viejo.
+ */
+export function partirAlertasCancelacionRuta(notificaciones, cancelaciones) {
+  const porId = new Map((cancelaciones || []).map((c) => [String(c.id), c]));
+  const vigentes = [];
+  const obsoletas = [];
+  for (const n of notificaciones || []) {
+    const sol = porId.get(String(n?.ref_id || ''));
+    if (sol && sol.estado === 'pendiente') vigentes.push(n);
+    else obsoletas.push(n);
+  }
+  return { vigentes, obsoletas };
+}
+
 export async function obtenerCancelacionRuta(supabase, id) {
   if (!supabase || !id) return { data: null };
   const { data, error } = await supabase
@@ -1573,8 +1589,19 @@ export async function aprobarCancelacionVentaConPin(supabase, {
     return { ok: false, error: AVISO_FALTA_CANCELACIONES, aviso: AVISO_FALTA_CANCELACIONES };
   }
   if (eSol) return { ok: false, error: eSol.message };
-  if (!sol) return { ok: false, error: 'Solicitud no encontrada.' };
-  if (sol.estado !== 'pendiente') return { ok: false, error: `La solicitud ya está ${sol.estado}.` };
+  if (!sol) {
+    await marcarNotificacionAtendida(supabase, 'ruta_cancelaciones', cancelacionId, 'sistema');
+    return { ok: false, error: 'Solicitud no encontrada.', yaResuelta: true };
+  }
+  if (sol.estado !== 'pendiente') {
+    await marcarNotificacionAtendida(
+      supabase,
+      'ruta_cancelaciones',
+      sol.id,
+      auth.user?.nombre || auth.nombre || 'Admin',
+    );
+    return { ok: false, error: `La solicitud ya está ${sol.estado}.`, yaResuelta: true };
+  }
 
   const { data: ventaDb, error: eV } = await supabase
     .from('ruta_ventas')
@@ -1756,8 +1783,19 @@ export async function rechazarCancelacionVentaConPin(supabase, {
     return { ok: false, error: AVISO_FALTA_CANCELACIONES, aviso: AVISO_FALTA_CANCELACIONES };
   }
   if (error) return { ok: false, error: error.message };
-  if (!sol) return { ok: false, error: 'Solicitud no encontrada.' };
-  if (sol.estado !== 'pendiente') return { ok: false, error: `La solicitud ya está ${sol.estado}.` };
+  if (!sol) {
+    await marcarNotificacionAtendida(supabase, 'ruta_cancelaciones', cancelacionId, 'sistema');
+    return { ok: false, error: 'Solicitud no encontrada.', yaResuelta: true };
+  }
+  if (sol.estado !== 'pendiente') {
+    await marcarNotificacionAtendida(
+      supabase,
+      'ruta_cancelaciones',
+      sol.id,
+      auth.user?.nombre || auth.nombre || 'Admin',
+    );
+    return { ok: false, error: `La solicitud ya está ${sol.estado}.`, yaResuelta: true };
+  }
 
   const ahora = new Date().toISOString();
   const { error: eUp } = await supabase
