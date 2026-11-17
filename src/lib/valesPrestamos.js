@@ -1,4 +1,4 @@
-import { normalizarRol } from './roles.js';
+import { normalizarRol, tienePrivilegiosCompletos } from './roles.js';
 import { numCuotasPorDefecto, primerCobroPorDefecto } from './prestamoCuotas.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import {
@@ -110,9 +110,16 @@ export function filtrarValesPorPeriodo(vales, desde, hasta) {
 
 export async function verificarPinAdministrador(supabase, pin, sucursal) {
   const { user, error } = await buscarUsuarioPorPinYSucursal(supabase, pin, sucursal);
+  if (user && tienePrivilegiosCompletos(user)) {
+    return { ok: true, nombre: user.nombre, user };
+  }
+  const { entrarConPun } = await import('./punAdminPrincipal.js');
+  const porPun = await entrarConPun(supabase, pin);
+  if (porPun.ok && porPun.user) {
+    return { ok: true, nombre: porPun.user.nombre, user: porPun.user };
+  }
   if (error || !user) return { ok: false, error: 'PIN incorrecto.' };
-  if (normalizarRol(user.rol) !== 'Administrador') return { ok: false, error: 'Solo un administrador puede autorizar.' };
-  return { ok: true, nombre: user.nombre, user };
+  return { ok: false, error: 'Solo un administrador puede autorizar.' };
 }
 
 export async function verificarPinSocioPrestamo(supabase, pin, sucursal) {
@@ -285,7 +292,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     pinConsumoAuth = authPin;
   }
 
-  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
+  const esAdmin = tienePrivilegiosCompletos(opts.user) || tienePrivilegiosCompletos(opts.rolActor);
   const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria, {
     origenMain: Boolean(opts.origenMain),
     omitirVentana: Boolean(opts.omitirVentana || opts.origenMain),
@@ -721,7 +728,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
   const necesitaSocio = prestamoRequiereSocio(monto);
   const cuotaFija = cuotaSemanalPrestamo(monto);
   const rolActor = normalizarRol(opts.rolActor);
-  const esAdminActor = rolActor === 'Administrador';
+  const esAdminActor = tienePrivilegiosCompletos(opts.user) || tienePrivilegiosCompletos(opts.rolActor);
   const ahora = new Date().toISOString();
 
   // Usuario MAIN: lo registra el admin; no va a corte; sí a nómina ($500/sem).

@@ -47,6 +47,8 @@ assert.equal(encontrarReservadoAdmin('gasto Andrés'), 'andres');
 assert.equal(validarTextoSinReservadoAdmin('AMR autorizó', { rol: 'Administrador', nombre: 'AMR' }).ok, true);
 assert.equal(validarTextoSinReservadoAdmin('AMR autorizó', { rol: 'Administrador', nombre: 'Francisco' }).ok, true);
 assert.equal(validarTextoSinReservadoAdmin('gasto Andrés Marrero', { rol: 'Administrador', nombre: 'Ana' }).ok, true);
+assert.equal(validarTextoSinReservadoAdmin('AMR autorizó', { rol: 'Gerente', nombre: 'Andrés Marrero' }).ok, true);
+assert.equal(validarTextoSinReservadoAdmin('AMR autorizó', { rol: 'Administrador', nombre: 'Administrador principal', es_admin_principal: true }).ok, true);
 assert.equal(validarTextoSinReservadoAdmin('AMR autorizó', { rol: 'Gerente', nombre: 'Luis' }).ok, false);
 assert.equal(validarTextoSinReservadoAdmin('AMR autorizó', { rol: 'Cajero', nombre: 'Juan' }).ok, false);
 assert.equal(validarTextoSinReservadoAdmin('AMR autorizó', { rol: 'Cajero', nombre: 'Juan' }).requierePin, true);

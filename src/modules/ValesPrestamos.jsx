@@ -139,7 +139,7 @@ import {
   rifPuedeLiquidar,
   TIPOS_RIF,
 } from '../lib/rifs.js';
-import { normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
+import { normalizarRol, puedeGestionarUsuarios, tienePrivilegiosCompletos } from '../lib/roles.js';
 import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
 import {
   agruparEmpleadosParaSelectPrestamo,
@@ -293,7 +293,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [filtroPagareSucursal, setFiltroPagareSucursal] = useState('');
 
   const rolNorm = normalizarRol(user?.rol);
-  const esAdmin = puedeGestionarUsuarios(rolNorm);
+  const esAdmin = puedeGestionarUsuarios(rolNorm) || tienePrivilegiosCompletos(user);
   const esGerente = rolNorm === 'Gerente';
   const esRepartidor = rolNorm === 'Repartidor';
   const esCajero = rolNorm === 'Cajero';
@@ -742,6 +742,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       {
         rolActor: user?.rol,
         nombreActor: user?.nombre,
+        user,
         origenMain: esMain,
         ampliado: true,
         usarCatalogoIe: true,
@@ -831,6 +832,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       {
         rolActor: user?.rol,
         nombreActor: user?.nombre,
+        user,
         areaCorte: omitirCorte ? null : prestEmpForm.areaCorte,
         omitirCorte,
       },
@@ -2498,6 +2500,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {valePuedeImprimir(v) && (
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirValeSi(v)}>Imprimir</button>
+                        )}
+                        {puedeAprobarVales && v.estado_aprobacion === 'pendiente_admin' && (
+                          <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.45rem' }} onClick={() => aprobarV(v.id)}>Aprobar</button>
                         )}
                         {puedeEditarVales && !['cancelado', 'rechazado'].includes(v.estado_aprobacion) && (
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarValeRow(v)}>Editar</button>
