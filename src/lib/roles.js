@@ -354,13 +354,16 @@ function normalizarNombrePrivilegio(nombre) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-/** Andrés Marrero (o AMR), la ficha visible. No es la cuenta oculta del administrador principal. */
+/**
+ * Andrés Marrero o AMR. Sigue en nómina como gerente y entra a toda la app,
+ * Contabilidad incluida. La marca de administrador principal no le quita ese acceso.
+ */
 export function esAndresMarrero(user) {
-  if (!user || user.es_admin_principal === true) return false;
+  if (!user) return false;
   const n = normalizarNombrePrivilegio(user.nombre);
   if (!n) return false;
   if (n === 'amr') return true;
-  return n.includes('andres') && n.includes('marrero');
+  return n.includes('marrero');
 }
 
 let sesionPrivilegios = null;

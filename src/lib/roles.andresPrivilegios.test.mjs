@@ -19,8 +19,9 @@ const ANDRES = {
 
 assert.equal(esAndresMarrero(ANDRES), true);
 assert.equal(esAndresMarrero({ nombre: 'AMR', rol: 'Gerente' }), true);
+assert.equal(esAndresMarrero({ nombre: 'Marrero', rol: 'Gerente' }), true);
 assert.equal(esAndresMarrero({ nombre: 'Juan Pérez', rol: 'Gerente' }), false);
-assert.equal(esAndresMarrero({ nombre: 'Andrés Marrero', es_admin_principal: true }), false);
+assert.equal(esAndresMarrero({ nombre: 'Andrés Marrero', es_admin_principal: true }), true);
 
 fijarSesionPrivilegios(null);
 assert.equal(puedeVerSeccionContabilidad('Gerente'), false);
@@ -50,8 +51,8 @@ assert.equal(puedeVerModulo('Cajero', 'Nómina'), false);
 assert.equal(puedeVerSeccionContabilidad('Cajero'), false);
 
 fijarSesionPrivilegios({ ...ANDRES, es_admin_principal: true });
-assert.equal(puedeVerModulo('Gerente', 'Nómina', ANDRES.id), false);
-assert.equal(puedeVerSeccionContabilidad('Gerente', ANDRES.id), false);
+assert.equal(puedeVerModulo('Gerente', 'Nómina', ANDRES.id), true);
+assert.equal(puedeVerSeccionContabilidad('Gerente', ANDRES.id), true);
 
 fijarSesionPrivilegios(null);
 assert.equal(puedeVerModulo('Gerente', 'Nómina'), false);
