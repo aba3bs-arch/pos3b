@@ -99,4 +99,20 @@ const rest = await restaurarDepartamentoCatalogoCedis('ACCESORIOS', null);
 assert.equal(rest.ok, true);
 assert.ok(listarDepartamentosCatalogoCedis().includes('ACCESORIOS'));
 
+// Departamento extra (CUETES) + vínculo CEDIS: se ve. Sin vínculo, no.
+const cuetes = filtrarInventarioCatalogoCedis(
+  [
+    { id: '94', cat: 'CUETES' },
+    { id: '1', cat: 'CIGARROS' },
+    { id: '9', cat: 'BEBIDAS' },
+    { id: '77', cat: 'CUETES' },
+  ],
+  {
+    departamentos: ['CIGARROS', 'CUETES', 'ELECTRONICOS'],
+    idsProveedorCedis: new Set(['94', '1']),
+    exigirProveedor: true,
+  },
+);
+assert.deepEqual(cuetes.map((p) => p.id).sort(), ['1', '94']);
+
 console.log('catalogoCedis.test.mjs OK');

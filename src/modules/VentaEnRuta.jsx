@@ -78,6 +78,7 @@ import {
   listarDepartamentosCatalogoCedis,
   sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
+import { cargarTodosLosVinculosProveedor } from '../lib/cargarVinculosProveedor.js';
 import { asegurarProveedorCedisLas3bAmbito } from '../lib/proveedoresAmbito.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolMostradorRestringido, esRolRepartidor, normalizarRol } from '../lib/roles.js';
@@ -1644,13 +1645,10 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
       setProveedorCedis(prov);
       setAvisoProv(prov ? '' : `Crea el proveedor «${PROVEEDOR_CEDIS_NOMBRE}» en CEDIS → Proveedores.`);
       if (prov?.id) {
-        const { data, error } = await supabase
-          .from('proveedor_producto')
-          .select('producto_id')
-          .eq('proveedor_id', prov.id);
+        const cargados = await cargarTodosLosVinculosProveedor(supabase, { proveedorId: prov.id });
         if (!cancel) {
-          if (error) setIdsCedis(new Set());
-          else setIdsCedis(new Set((data || []).map((r) => String(r.producto_id || '').trim()).filter(Boolean)));
+          if (!cargados.ok) setIdsCedis(new Set());
+          else setIdsCedis(new Set((cargados.data || []).map((r) => String(r.producto_id || '').trim()).filter(Boolean)));
         }
       } else if (!cancel) {
         setIdsCedis(new Set());

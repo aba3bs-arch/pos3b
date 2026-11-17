@@ -6,6 +6,7 @@
 
 import { etiquetaDepartamento, normalizarDepartamento } from './departamentos.js';
 import { esAlmacenCentral } from '../constants/sucursales.js';
+import { cargarTodosLosVinculosProveedor } from './cargarVinculosProveedor.js';
 
 export const PROVEEDOR_CEDIS_NOMBRE = 'CEDIS LAS 3B';
 
@@ -420,9 +421,22 @@ export async function sincronizarDepartamentosCatalogoCedis(supabase) {
  * @param {Array} inventario
  * @param {{ idsProveedorCedis?: Set<string>|null, exigirProveedor?: boolean }} opts
  */
+function catPermitidoEnCedis(cat, permitidos) {
+  const n = normalizarDepartamento(cat);
+  if (!n || estaOcultoCedis(n)) return false;
+  if (permitidos.has(n)) return true;
+  if (n === 'CIGARRO_ELECTRONICO' && permitidos.has('ELECTRONICOS')) return true;
+  return false;
+}
+
 export function filtrarInventarioCatalogoCedis(inventario, opts = {}) {
-  const { idsProveedorCedis = null, exigirProveedor = true } = opts;
-  let list = (inventario || []).filter((p) => esDepartamentoCatalogoCedis(p.cat));
+  const { idsProveedorCedis = null, exigirProveedor = true, departamentos = null } = opts;
+  const permitidos = Array.isArray(departamentos)
+    ? new Set(departamentos.map((d) => normalizarDepartamento(d)).filter(Boolean))
+    : null;
+  let list = (inventario || []).filter((p) => (
+    permitidos ? catPermitidoEnCedis(p?.cat, permitidos) : esDepartamentoCatalogoCedis(p.cat)
+  ));
   if (exigirProveedor && idsProveedorCedis) {
     list = list.filter((p) => idsProveedorCedis.has(String(p.id)));
   }
@@ -464,14 +478,12 @@ export async function asegurarVinculosCatalogoCedis(supabase, inventario = []) {
     return { ok: true, proveedorId: proveedor.id, vinculados: 0, yaEstaban: 0 };
   }
 
-  const { data: existentes, error: eEx } = await supabase
-    .from('proveedor_producto')
-    .select('producto_id')
-    .eq('proveedor_id', proveedor.id)
-    .limit(20000);
-  if (eEx) return { ok: false, error: eEx.message };
+  const cargados = await cargarTodosLosVinculosProveedor(supabase, { proveedorId: proveedor.id });
+  if (!cargados.ok) {
+    return { ok: false, error: cargados.error?.message || String(cargados.error || 'No se pudieron leer los vínculos.') };
+  }
 
-  const ya = new Set((existentes || []).map((r) => String(r.producto_id)));
+  const ya = new Set((cargados.data || []).map((r) => String(r.producto_id)));
   const faltan = candidatos.filter((id) => !ya.has(id));
   if (!faltan.length) {
     return { ok: true, proveedorId: proveedor.id, vinculados: 0, yaEstaban: ya.size };
