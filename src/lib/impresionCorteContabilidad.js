@@ -201,6 +201,41 @@ function filasResumenModulo(data) {
     .join('');
 }
 
+/** Un renglón por gasto: categoría, quién, descripción y monto. */
+function htmlGastosIdentificados(gastos = []) {
+  const lista = Array.isArray(gastos) ? gastos : [];
+  if (!lista.length) return '<p class="muted">Sin gastos registrados.</p>';
+  return lista.map((g, i) => {
+    const cat = String(g.categoria || 'SIN CATEGORÍA').trim();
+    const sub = String(g.subcategoria || '').trim();
+    const emp = String(g.usuario_nombre || '').trim();
+    const gen = String(g.solicitado_por || '').trim();
+    const desc = String(g.comentario || g.descripcion || '').trim();
+    const hora = g.created_at
+      ? new Date(g.created_at).toLocaleString('es-MX', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+      : '—';
+    const quien = [
+      emp ? `Empleado: ${emp}` : '',
+      gen && gen !== emp ? `Generó: ${gen}` : '',
+    ].filter(Boolean).join(' · ') || 'Sin empleado';
+    const concepto = sub ? `${cat} › ${sub}` : cat;
+    return `
+      <div class="cat-block">
+        <div class="cat-head"><strong>${i + 1}. ${esc(concepto)}</strong></div>
+        <table>
+          <tr><td colspan="2">${esc(quien)}</td></tr>
+          <tr><td colspan="2"><strong>Descripción:</strong> ${desc ? esc(desc) : '<span class="muted">Sin descripción</span>'}</td></tr>
+          <tr><td>${esc(hora)}</td><td class="r"><strong>${fmt(g.monto)}</strong></td></tr>
+        </table>
+      </div>`;
+  }).join('');
+}
+
 function htmlGastosPorCategoria(data) {
   const grupos = resumenGastosPorCategoria(data.gastos, data.modulo);
   if (!grupos.length) return '<p class="muted">Sin gastos registrados.</p>';
@@ -264,8 +299,8 @@ export function htmlCorteContabilidad(data) {
     <strong>Resumen</strong>
     <table>${filasResumenModulo(data)}</table>
     <div class="sep"></div>
-    <strong>Desglose de gastos por categoría</strong>
-    ${htmlGastosPorCategoria(data)}
+    <strong>${data.modulo === 'garage' ? 'Desglose de gastos' : 'Desglose de gastos por categoría'}</strong>
+    ${data.modulo === 'garage' ? htmlGastosIdentificados(data.gastos) : htmlGastosPorCategoria(data)}
     <table style="margin-top:8px">
       <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(data.gastos_total)}</strong></td></tr>
     </table>
@@ -655,7 +690,11 @@ export function htmlRecoleccionGarage(data) {
     data.recoleccion_anterior_tras ?? e.recoleccion_anterior_tras ?? (temporal ? antAntes + recActual : 0),
   );
   const venta = round2(data.venta ?? e.venta ?? 0);
-  const gastos = round2(data.gastos_total ?? 0);
+  const gastosLista = (data.gastos && data.gastos.length)
+    ? data.gastos
+    : (Array.isArray(e.gastos) ? e.gastos : []);
+  const sumaLista = round2(gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  const gastos = sumaLista > 0 ? sumaLista : round2(data.gastos_total ?? e.gastos_total ?? 0);
   const bannerBg = temporal ? '#b9770e' : '#7f8c8d';
   const titulo = temporal ? 'RECOLECCIÓN TEMPORAL' : 'RECOLECCIÓN';
 
@@ -686,6 +725,12 @@ export function htmlRecoleccionGarage(data) {
       }
       <tr><td>Recolección anterior (queda)</td><td class="r">${fmt(antTras)}</td></tr>
       <tr><td>Máquinas / DSCH en ceros</td><td class="r"><strong>${temporal ? 'NO' : 'SÍ'}</strong></td></tr>
+    </table>
+    <div class="sep"></div>
+    <strong>Desglose de gastos (${gastosLista.length})</strong>
+    ${htmlGastosIdentificados(gastosLista)}
+    <table style="margin-top:8px">
+      <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(gastos)}</strong></td></tr>
     </table>
     ${htmlBloquePagoClienteTicket(data.pago_cliente || data.pagoCliente)}
     <div class="sep"></div>
