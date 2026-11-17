@@ -28,6 +28,7 @@ import SelectorCalendario from './SelectorCalendario.jsx';
 import HistorialLiquidacionesGlobal from './HistorialLiquidacionesGlobal.jsx';
 import PanelFondoServicios from './PanelFondoServicios.jsx';
 import PendientesRecolectorTiendas from './PendientesRecolectorTiendas.jsx';
+import InventarioCamionRecolector, { useInventariosCamion } from './InventarioCamionRecolector.jsx';
 
 const PRESETS_PENDIENTE = [
   { id: 'todos', label: 'Todos los pendientes' },
@@ -62,6 +63,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const esHistorial = modoConsulta === 'historial';
   const esFondo = modoConsulta === 'fondo';
   const esSoloPanel = esFondo;
+  const inventariosCamion = useInventariosCamion(supabase, !esHistorial && !esFondo && vista === 'recolectores');
   const fechaLiquidacion = useMemo(() => fmtFechaClave(fechaSellado), [fechaSellado]);
   const repNombre = useMemo(() => repartidores.find((r) => r.id === repLiq)?.nombre || '', [repartidores, repLiq]);
 
@@ -399,28 +401,31 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.8rem' }}>
             Efectivo en tránsito por recolector (toca una casilla para liquidar)
           </p>
+          <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.72rem' }}>
+            Inventario a precio de venta en ruta · Actualización al recibir cambios y consulta de respaldo cada 15 segundos.
+          </p>
           {!resumenReps.length ? (
             <p className="muted" style={{ margin: 0 }}>{cargando ? 'Cargando recolectores…' : 'Sin recolectores activos.'}</p>
           ) : (
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
                 gap: '0.55rem',
               }}
             >
               {resumenReps.map((r) => {
                 const conMonto = Number(r.total) > 0;
                 return (
+                  <div key={r.id} style={{ border: '1px solid rgba(15, 23, 42, 0.12)', borderRadius: '10px', overflow: 'hidden' }}>
                   <button
-                    key={r.id}
                     type="button"
                     onClick={() => abrirRecolector(r.id)}
                     style={{
                       textAlign: 'left',
+                      width: '100%',
                       padding: '0.7rem 0.85rem',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(15, 23, 42, 0.12)',
+                      border: 'none',
                       background: conMonto ? 'rgba(225, 153, 41, 0.08)' : 'rgba(148, 163, 184, 0.08)',
                       cursor: 'pointer',
                     }}
@@ -443,6 +448,12 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                       {conMonto ? `${r.count} mov. en tránsito` : 'Sin tránsito'}
                     </div>
                   </button>
+                  <InventarioCamionRecolector
+                    datos={inventariosCamion.porRecolector[r.id]}
+                    cargando={inventariosCamion.cargando}
+                    error={inventariosCamion.error}
+                  />
+                  </div>
                 );
               })}
             </div>
