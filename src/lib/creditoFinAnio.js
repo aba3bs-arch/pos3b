@@ -4,6 +4,9 @@
  */
 
 import { filtrarProductosPorTexto, pareceCodigoProducto, productoPorCodigoExacto } from './buscarProductoTexto.js';
+import { cargarGastoCreditoCobradoACorteAbarrotes } from './controlEfectivo.js';
+import { folioCompraConPago, notasConFolioInv } from './foliosInventario.js';
+import { asegurarProveedorPorNombre } from './proveedorEntregas.js';
 
 export const TIPO_DEJAR = 'dejar';
 export const TIPO_RETIRAR = 'retirar';
@@ -16,6 +19,8 @@ export const AVISO_FALTA_CREDITO_FIN_ANIO =
 const TABLA_CUENTAS = 'credito_fin_anio_cuentas';
 const TABLA_MOV = 'credito_fin_anio_mov';
 const TABLA_ABONOS = 'credito_fin_anio_abonos';
+const TABLA_RECIBOS = 'credito_fin_anio_recibos';
+const PROVEEDOR_CUETES = 'CUETES';
 
 export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -196,6 +201,92 @@ export function validarAbono(monto) {
   return '';
 }
 
+/** Total de cada tarjeta: inventario de cuetes menos abonos. */
+export function saldosTarjetas(tiendas, cuentas, movimientos, abonos) {
+  const por = resumenPorSucursal(cuentas, movimientos, abonos);
+  return (tiendas || []).map((id) => {
+    const sid = String(id || '').toUpperCase();
+    const r = por.get(sid) || { saldoMercancia: 0, abonado: 0, saldo: 0 };
+    return {
+      sucursalId: sid,
+      mercancia: r.saldoMercancia,
+      abonado: r.abonado,
+      total: r.saldo,
+    };
+  });
+}
+
+export function totalTarjetas(saldos) {
+  return round2((saldos || []).reduce((s, x) => s + (Number(x.total) || 0), 0));
+}
+
+/** Lo que quedaría pendiente si se cobra esta recolección. */
+export function creditoPendienteTrasRecoleccion(total, recoleccion) {
+  const t = round2(total);
+  const r = round2(recoleccion);
+  if (!(r > 0)) return t;
+  return round2(t - r);
+}
+
+/**
+ * Reparte la recolección entre cuentas abiertas, en el orden de las tiendas.
+ * El pendiente que queda es el total de las tarjetas menos lo aplicado.
+ */
+export function planLiquidacion({ tiendas, cuentas, movimientos, abonos, monto }) {
+  const pedido = round2(monto);
+  if (!(pedido > 0)) return { ok: false, error: 'La recolección debe ser mayor a cero.' };
+  const tarjetas = saldosTarjetas(tiendas, cuentas, movimientos, abonos);
+  const total = totalTarjetas(tarjetas);
+  if (round2(pedido - total) > 0.001) {
+    return { ok: false, error: 'La recolección no puede ser mayor que el crédito pendiente.' };
+  }
+  const movsPorCuenta = new Map();
+  const abonosPorCuenta = new Map();
+  for (const m of movimientos || []) {
+    if (!vivo(m)) continue;
+    const id = String(m.cuenta_id || '');
+    if (!movsPorCuenta.has(id)) movsPorCuenta.set(id, []);
+    movsPorCuenta.get(id).push(m);
+  }
+  for (const a of abonos || []) {
+    if (!vivo(a)) continue;
+    const id = String(a.cuenta_id || '');
+    if (!abonosPorCuenta.has(id)) abonosPorCuenta.set(id, []);
+    abonosPorCuenta.get(id).push(a);
+  }
+  let resta = pedido;
+  const partes = [];
+  for (const id of tiendas || []) {
+    if (!(resta > 0.001)) break;
+    const sid = String(id || '').toUpperCase();
+    const abiertas = (cuentas || []).filter((c) => vivo(c)
+      && String(c.sucursal_id || '').toUpperCase() === sid
+      && c.estado !== ESTADO_CERRADA);
+    for (const c of abiertas) {
+      if (!(resta > 0.001)) break;
+      const saldo = resumenCuenta(
+        movsPorCuenta.get(String(c.id)) || [],
+        abonosPorCuenta.get(String(c.id)) || [],
+      ).saldo;
+      if (!(saldo > 0.001)) continue;
+      const toma = round2(Math.min(saldo, resta));
+      partes.push({ sucursalId: sid, cuentaId: c.id, monto: toma });
+      resta = round2(resta - toma);
+    }
+  }
+  const aplicado = round2(pedido - resta);
+  if (round2(pedido - aplicado) > 0.001) {
+    return { ok: false, error: 'No hay cuenta abierta para aplicar toda la recolección.' };
+  }
+  return {
+    ok: true,
+    partes,
+    aplicado,
+    total,
+    pendiente: round2(total - aplicado),
+  };
+}
+
 export function validarCuenta({ sucursalId, nombre }) {
   if (!String(sucursalId || '').trim()) return 'Elige la sucursal.';
   if (!String(nombre || '').trim()) return 'Escribe el nombre de la cuenta.';
@@ -234,6 +325,10 @@ export function listarMovimientosFinAnio(supabase) {
 
 export function listarAbonosFinAnio(supabase) {
   return listarTabla(supabase, TABLA_ABONOS);
+}
+
+export function listarRecibosFinAnio(supabase) {
+  return listarTabla(supabase, TABLA_RECIBOS);
 }
 
 export async function crearCuentaFinAnio(supabase, { sucursalId, nombre, notas, user }) {
@@ -345,19 +440,112 @@ export async function archivarMovimientoFinAnio(supabase, id) {
   return { ok: true };
 }
 
-export async function registrarAbonoFinAnio(supabase, cuentaId, { monto, notas }, user) {
+export async function registrarAbonoFinAnio(supabase, cuentaId, { monto, notas, sucursalId }, user) {
   const errorVal = validarAbono(monto);
   if (errorVal) return { ok: false, error: errorVal };
   if (!cuentaId) return { ok: false, error: 'Abre una cuenta primero.' };
+  const cobrado = round2(monto);
   const { error } = await supabase.from(TABLA_ABONOS).insert({
     cuenta_id: cuentaId,
-    monto: round2(monto),
+    monto: cobrado,
     notas: String(notas || '').trim() || null,
     created_by: nombreDe(user),
   });
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CREDITO_FIN_ANIO };
   if (error) return { ok: false, error: error.message || 'No se pudo registrar el abono.' };
-  return { ok: true };
+  if (!sucursalId) return { ok: true };
+  const gas = await cargarGastoCreditoCobradoACorteAbarrotes(supabase, {
+    sucursal_origen: sucursalId,
+    num_traspaso: `FIN-ANIO ${String(sucursalId).toUpperCase()}`,
+    monto: cobrado,
+  }, { cajero: nombreDe(user) });
+  if (!gas.ok) {
+    return {
+      ok: true,
+      aviso: `El abono quedó en la cuenta. No se anotó el gasto en Abarrotes: ${gas.error}`,
+    };
+  }
+  return { ok: true, gastoId: gas.gastoId || null };
+}
+
+/** Aplica la recolección como abonos (y gasto de Abarrotes) hasta dejar solo el crédito pendiente. */
+export async function liquidarRecoleccionFinAnio(supabase, { tiendas, cuentas, movimientos, abonos, monto, user }) {
+  const plan = planLiquidacion({ tiendas, cuentas, movimientos, abonos, monto });
+  if (!plan.ok) return plan;
+  const avisos = [];
+  for (const parte of plan.partes) {
+    const r = await registrarAbonoFinAnio(supabase, parte.cuentaId, {
+      monto: parte.monto,
+      notas: 'Liquidación',
+      sucursalId: parte.sucursalId,
+    }, user);
+    if (!r?.ok) return r;
+    if (r.aviso) avisos.push(r.aviso);
+  }
+  return {
+    ok: true,
+    aplicado: plan.aplicado,
+    pendiente: plan.pendiente,
+    aviso: avisos.join(' '),
+  };
+}
+
+/** Manda el inventario de la cuenta a Compras y guarda el mismo recibo aquí. */
+export async function enviarInventarioACompras(supabase, { cuenta, lineas, user }) {
+  const items = (lineas || []).filter((l) => Number(l.cantidad) > 0);
+  if (!items.length) return { ok: false, error: 'No hay mercancía para enviar.' };
+  if (!cuenta?.id) return { ok: false, error: 'Abre una cuenta primero.' };
+  const suc = String(cuenta.sucursal_id || '').toUpperCase();
+  if (!suc || suc === 'MAIN' || suc === 'CEDIS') {
+    return { ok: false, error: 'Esta sucursal no recibe pedidos de compra.' };
+  }
+  const prov = await asegurarProveedorPorNombre(supabase, PROVEEDOR_CUETES);
+  const itemsPedido = items.map((l) => ({
+    id: String(l.codigo || l.nombre || '').trim(),
+    nombre: l.nombre,
+    qty_pedido: Number(l.cantidad) || 0,
+    costo_est: l.cantidad ? round2(l.valor / l.cantidad) : 0,
+    stock_teorico: 0,
+  })).filter((i) => i.id && i.qty_pedido > 0);
+  if (!itemsPedido.length) return { ok: false, error: 'No hay mercancía para enviar.' };
+  const total = round2(items.reduce((s, l) => s + (Number(l.valor) || 0), 0));
+  const notasBase = `Crédito fin de año ${cuenta.nombre || ''} · ${suc}`.trim();
+  const { data, error } = await supabase.from('compras').insert([{
+    proveedor_id: prov.ok ? prov.id : null,
+    sucursal_id: suc,
+    total,
+    notas: notasBase,
+    estado: 'pedido',
+    items_pedido: itemsPedido,
+    items: [],
+  }]).select('id').single();
+  if (error) return { ok: false, error: error.message || 'No se pudo crear el pedido en Compras.' };
+  const folio = folioCompraConPago(data.id, suc, 'credito');
+  const notas = notasConFolioInv(notasBase, folio);
+  await supabase.from('compras').update({ notas }).eq('id', data.id);
+  const recibo = {
+    cuenta_id: cuenta.id,
+    sucursal_id: suc,
+    compra_id: data.id,
+    folio,
+    total,
+    items: itemsPedido,
+    created_by: nombreDe(user),
+  };
+  const ins = await supabase.from(TABLA_RECIBOS).insert(recibo).select('*').single();
+  const falta = ins.error && faltaTabla(ins.error);
+  return {
+    ok: true,
+    compraId: data.id,
+    folio,
+    total,
+    items: itemsPedido,
+    proveedor: prov.ok ? prov.nombre : PROVEEDOR_CUETES,
+    recibo: ins.data || { ...recibo, id: data.id },
+    aviso: falta
+      ? 'El pedido ya está en Compras. Para ver el recibo también aquí, ejecuta supabase/fix_credito_fin_anio.sql.'
+      : (ins.error ? `El pedido está en Compras. No se guardó la copia del recibo: ${ins.error.message}` : ''),
+  };
 }
 
 export async function editarAbonoFinAnio(supabase, id, { monto, notas }) {

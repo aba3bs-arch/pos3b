@@ -4,8 +4,12 @@ import {
   TIPO_DEJAR,
   TIPO_RETIRAR,
   inventarioDeMovimientos,
+  creditoPendienteTrasRecoleccion,
   inventarioPorSucursal,
   nombreCuentaFinAnio,
+  planLiquidacion,
+  saldosTarjetas,
+  totalTarjetas,
   resumenCuenta,
   resumenPorSucursal,
   codigoVisibleProducto,
@@ -65,6 +69,36 @@ assert.equal(lineas3.length, 2);
 assert.equal(lineas3.find((l) => l.nombre === 'Coca').cantidad, 11);
 assert.equal(lineas3.find((l) => l.nombre === 'Sal').cantidad, 1);
 assert.equal(invSuc.has('FUSION'), false);
+
+const tiendas = ['FUSION', '3B2'];
+const cuentasLiq = [
+  { id: 'c1', sucursal_id: 'FUSION', estado: 'abierta' },
+  { id: 'c2', sucursal_id: '3B2', estado: 'abierta' },
+];
+const movsLiq = [
+  { tipo: TIPO_DEJAR, codigo: '93', nombre: 'Escupidor', cantidad: 4, importe: 400, cuenta_id: 'c1' },
+  { tipo: TIPO_DEJAR, codigo: '80', nombre: 'Paloma', cantidad: 10, importe: 100, cuenta_id: 'c2' },
+];
+const abonosLiq = [{ cuenta_id: 'c1', monto: 50 }];
+const tarjetas = saldosTarjetas(tiendas, cuentasLiq, movsLiq, abonosLiq);
+assert.equal(tarjetas.find((t) => t.sucursalId === 'FUSION').total, 350);
+assert.equal(tarjetas.find((t) => t.sucursalId === '3B2').total, 100);
+const total = totalTarjetas(tarjetas);
+assert.equal(total, 450);
+assert.equal(creditoPendienteTrasRecoleccion(total, 150), 300);
+const plan = planLiquidacion({
+  tiendas, cuentas: cuentasLiq, movimientos: movsLiq, abonos: abonosLiq, monto: 400,
+});
+assert.equal(plan.ok, true);
+assert.equal(plan.partes[0].sucursalId, 'FUSION');
+assert.equal(plan.partes[0].monto, 350);
+assert.equal(plan.partes[1].sucursalId, '3B2');
+assert.equal(plan.partes[1].monto, 50);
+assert.equal(plan.pendiente, 50);
+assert.equal(plan.pendiente, Math.round((total - plan.aplicado) * 100) / 100);
+assert.match(planLiquidacion({
+  tiendas, cuentas: cuentasLiq, movimientos: movsLiq, abonos: abonosLiq, monto: 999,
+}).error, /no puede ser mayor/);
 
 assert.equal(validarDejar({ nombre: '', cantidad: 1, precio: 1 }), 'Escribe el producto.');
 assert.equal(validarDejar({ nombre: 'Sal', cantidad: 0, precio: 1 }), 'La cantidad debe ser mayor a cero.');

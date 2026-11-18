@@ -7,25 +7,30 @@ import {
   archivarAbonoFinAnio,
   archivarCuentaFinAnio,
   archivarMovimientoFinAnio,
+  codigoVisibleProducto,
   crearCuentaFinAnio,
+  creditoPendienteTrasRecoleccion,
   dejarMercanciaFinAnio,
   editarAbonoFinAnio,
   editarCuentaFinAnio,
   editarMovimientoFinAnio,
-  codigoVisibleProducto,
+  enviarInventarioACompras,
   inventarioDeMovimientos,
-  inventarioPorSucursal,
+  liquidarRecoleccionFinAnio,
   listarAbonosFinAnio,
   listarCuentasFinAnio,
   listarMovimientosFinAnio,
+  listarRecibosFinAnio,
   nombreCuentaFinAnio,
+  planLiquidacion,
   productoParaCargarFinAnio,
   registrarAbonoFinAnio,
   resumenCuenta,
-  resumenPorSucursal,
-  retirarMercanciaFinAnio,
+  saldosTarjetas,
   sugerenciasCatalogoFinAnio,
+  totalTarjetas,
 } from '../lib/creditoFinAnio.js';
+import { imprimirPedidoCompra } from '../lib/impresion.js';
 
 const COLOR = '#3730a3';
 
@@ -62,26 +67,25 @@ function Campo({ label, children }) {
   );
 }
 
-function LineasInventario({ lineas }) {
-  if (!lineas.length) {
-    return <p className="muted" style={{ margin: '0.45rem 0 0', fontSize: '0.8rem' }}>Sin mercancía.</p>;
+function itemsRecibo(recibo) {
+  const raw = recibo?.items;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
-  return (
-    <ul style={{ listStyle: 'none', margin: '0.45rem 0 0', padding: 0, display: 'grid', gap: '0.2rem', maxHeight: 180, overflow: 'auto' }}>
-      {lineas.map((l) => (
-        <li key={l.clave} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', fontSize: '0.8rem' }}>
-          <span>{l.nombre}{l.codigo ? ` · ${l.codigo}` : ''}</span>
-          <span style={{ whiteSpace: 'nowrap' }}>{fmtQty(l.cantidad)} · {fmtMonto(l.valor)}</span>
-        </li>
-      ))}
-    </ul>
-  );
+  return [];
 }
 
-export default function CreditoFinAnioRuta({ supabase, user, inventario = [], onVolver }) {
+export default function CreditoFinAnioRuta({ supabase, user, inventario = [], onVolver, onNavigate }) {
   const [cuentas, setCuentas] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
   const [abonos, setAbonos] = useState([]);
+  const [recibos, setRecibos] = useState([]);
   const [aviso, setAviso] = useState('');
   const [sucursalId, setSucursalId] = useState('');
   const [cuentaId, setCuentaId] = useState('');
@@ -97,6 +101,8 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [editMov, setEditMov] = useState(null);
   const [editAbono, setEditAbono] = useState(null);
   const [pestana, setPestana] = useState('cuentas');
+  const [recoleccion, setRecoleccion] = useState('');
+  const [reciboVer, setReciboVer] = useState(null);
 
   const tiendas = useMemo(
     () => listarSucursalesOperativas().filter((s) => !esSucursalRuta(s)),
@@ -105,14 +111,16 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
-    const [c, m, a] = await Promise.all([
+    const [c, m, a, rec] = await Promise.all([
       listarCuentasFinAnio(supabase),
       listarMovimientosFinAnio(supabase),
       listarAbonosFinAnio(supabase),
+      listarRecibosFinAnio(supabase),
     ]);
     setCuentas(c.data || []);
     setMovimientos(m.data || []);
     setAbonos(a.data || []);
+    setRecibos(rec.faltaTabla ? [] : (rec.data || []));
     setAviso(c.aviso || m.aviso || a.aviso || c.error || m.error || a.error || '');
   }, [supabase]);
 
@@ -120,31 +128,16 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     void cargar();
   }, [cargar]);
 
-  const porSucursal = useMemo(
-    () => resumenPorSucursal(cuentas, movimientos, abonos),
-    [cuentas, movimientos, abonos],
+  const tarjetas = useMemo(
+    () => saldosTarjetas(tiendas, cuentas, movimientos, abonos),
+    [tiendas, cuentas, movimientos, abonos],
   );
-  const inventarioTienda = useMemo(
-    () => inventarioPorSucursal(cuentas, movimientos),
-    [cuentas, movimientos],
+  const totalTiendas = useMemo(() => totalTarjetas(tarjetas), [tarjetas]);
+  const recoleccionNum = Number(recoleccion);
+  const pendienteVista = creditoPendienteTrasRecoleccion(
+    totalTiendas,
+    Number.isFinite(recoleccionNum) && recoleccionNum > 0 ? recoleccionNum : 0,
   );
-  const totalesLiquidacion = useMemo(() => {
-    let mercancia = 0;
-    let abonado = 0;
-    let saldo = 0;
-    for (const id of tiendas) {
-      const r = porSucursal.get(id);
-      if (!r) continue;
-      mercancia += r.saldoMercancia;
-      abonado += r.abonado;
-      saldo += r.saldo;
-    }
-    return {
-      mercancia: Math.round(mercancia * 100) / 100,
-      abonado: Math.round(abonado * 100) / 100,
-      saldo: Math.round(saldo * 100) / 100,
-    };
-  }, [tiendas, porSucursal]);
   const cuentasTienda = useMemo(
     () => cuentas.filter((c) => String(c.sucursal_id || '').toUpperCase() === sucursalId),
     [cuentas, sucursalId],
@@ -190,7 +183,8 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       return false;
     }
     await cargar();
-    return true;
+    if (r.aviso) alert(r.aviso);
+    return r;
   };
 
   const abrirCuenta = async () => {
@@ -235,9 +229,46 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const abonar = async () => {
-    const ok = await correr(() => registrarAbonoFinAnio(supabase, cuenta.id, abono, user));
+    const ok = await correr(() => registrarAbonoFinAnio(supabase, cuenta.id, {
+      ...abono,
+      sucursalId: cuenta.sucursal_id || sucursalId,
+    }, user));
     if (!ok) return;
     setAbono({ monto: '', notas: '' });
+  };
+
+  const liquidar = async () => {
+    const plan = planLiquidacion({ tiendas, cuentas, movimientos, abonos, monto: recoleccion });
+    if (!plan.ok) return alert(plan.error);
+    if (!confirm(`¿Liquidar ${fmtMonto(plan.aplicado)}?\nQueda crédito pendiente ${fmtMonto(plan.pendiente)}.`)) return;
+    const ok = await correr(() => liquidarRecoleccionFinAnio(supabase, {
+      tiendas, cuentas, movimientos, abonos, monto: recoleccion, user,
+    }));
+    if (!ok) return;
+    setRecoleccion('');
+  };
+
+  const imprimirRecibo = (recibo) => {
+    imprimirPedidoCompra({
+      sucursal: recibo.sucursal_id || sucursalId,
+      proveedor: 'CUETES',
+      folio: recibo.folio,
+      notas: `Crédito fin de año · ${etiquetaTienda(recibo.sucursal_id || sucursalId)}`,
+      items: itemsRecibo(recibo),
+      total: recibo.total,
+      usuario: user?.nombre || '',
+    });
+  };
+
+  const enviarCompras = async () => {
+    const lineas = inventarioCuenta.filter((l) => Number(l.cantidad) > 0);
+    if (!lineas.length) return alert('No hay mercancía para enviar.');
+    if (!confirm(`¿Enviar el inventario a Compras de ${etiquetaTienda(sucursalId)}? Se genera un recibo.`)) return;
+    const ok = await correr(() => enviarInventarioACompras(supabase, { cuenta, lineas, user }));
+    if (!ok?.recibo && !ok?.folio) return;
+    const recibo = ok.recibo || { folio: ok.folio, total: ok.total, items: ok.items, sucursal_id: sucursalId, compra_id: ok.compraId };
+    setReciboVer(recibo);
+    imprimirRecibo(recibo);
   };
 
   const elegirProducto = (p) => {
@@ -298,47 +329,55 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         </button>
       </div>
 
-      {!sucursalId && (
-        <>
-          {pestana === 'liquidacion' && (
-            <div className="card" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <span>Mercancía {fmtMonto(totalesLiquidacion.mercancia)}</span>
-              <span>Abonos {fmtMonto(totalesLiquidacion.abonado)}</span>
-              <strong>Saldo {fmtMonto(totalesLiquidacion.saldo)}</strong>
-            </div>
-          )}
+      {!sucursalId && pestana === 'cuentas' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+          {tarjetas.map((t) => (
+            <button
+              key={t.sucursalId}
+              type="button"
+              className="card"
+              onClick={() => { setSucursalId(t.sucursalId); setCuentaId(''); }}
+              style={{ textAlign: 'left', cursor: 'pointer', borderTop: `4px solid ${COLOR}` }}
+            >
+              <strong style={{ color: COLOR }}>{etiquetaTienda(t.sucursalId)}</strong>
+              <p style={{ margin: '0.45rem 0 0', fontSize: '1.35rem', fontWeight: 700 }}>{fmtMonto(t.total)}</p>
+              <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.78rem' }}>Total de cuetes</p>
+            </button>
+          ))}
+        </div>
+      )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
-            {tiendas.map((id) => {
-              const r = porSucursal.get(id) || { cuentas: 0, abiertas: 0, saldoMercancia: 0, abonado: 0, saldo: 0 };
-              const lineas = inventarioTienda.get(id) || [];
-              return (
-                <div
-                  key={id}
-                  className="card"
-                  style={{ textAlign: 'left', borderTop: `4px solid ${COLOR}` }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => { setSucursalId(id); setCuentaId(''); }}
-                    style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit' }}
-                  >
-                    <strong style={{ color: COLOR }}>{etiquetaTienda(id)}</strong>
-                  </button>
-                  <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
-                    {r.cuentas} cuenta{r.cuentas === 1 ? '' : 's'} · {r.abiertas} abierta{r.abiertas === 1 ? '' : 's'}
-                  </p>
-                  <p style={{ margin: '0.35rem 0 0' }}>Mercancía {fmtMonto(r.saldoMercancia)}</p>
-                  {pestana === 'liquidacion' && (
-                    <p style={{ margin: '0.15rem 0 0' }}>Abonos {fmtMonto(r.abonado)}</p>
-                  )}
-                  <p style={{ margin: '0.15rem 0 0' }}>Saldo {fmtMonto(r.saldo)}</p>
-                  <LineasInventario lineas={lineas} />
-                </div>
-              );
-            })}
+      {!sucursalId && pestana === 'liquidacion' && (
+        <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 520 }}>
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total de las tiendas</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{fmtMonto(totalTiendas)}</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+              Es la suma de las tarjetas. Los abonos ya están descontados.
+            </p>
           </div>
-        </>
+          <Campo label="Recolección">
+            <input
+              className="input"
+              inputMode="decimal"
+              value={recoleccion}
+              placeholder="0.00"
+              onChange={(e) => setRecoleccion(e.target.value)}
+            />
+          </Campo>
+          <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void liquidar()}>
+            Liquidar
+          </button>
+          {recoleccion.trim() && Number(recoleccion) > totalTiendas + 0.001 && (
+            <p style={{ margin: 0, color: '#b45309' }}>La recolección no puede ser mayor que el crédito pendiente.</p>
+          )}
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Crédito pendiente</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700, color: COLOR }}>
+              {fmtMonto(recoleccion.trim() && Number(recoleccion) > 0 && Number(recoleccion) <= totalTiendas + 0.001 ? pendienteVista : totalTiendas)}
+            </p>
+          </div>
+        </div>
       )}
 
       {sucursalId && !cuenta && (
@@ -496,6 +535,48 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
                   ))}
                 </tbody>
               </table>
+            )}
+            {inventarioCuenta.some((l) => Number(l.cantidad) > 0) && (
+              <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando} onClick={() => void enviarCompras()}>
+                Enviar inventario a Compras
+              </button>
+            )}
+            {recibos.filter((r) => String(r.cuenta_id) === String(cuenta.id)).map((recibo) => (
+              <div key={recibo.id || recibo.folio} style={{ marginTop: '0.75rem', display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span>Recibo {recibo.folio} · {fmtMonto(recibo.total)}</span>
+                <button type="button" className="btn btn-ghost" onClick={() => setReciboVer(recibo)}>Ver</button>
+                <button type="button" className="btn btn-ghost" onClick={() => imprimirRecibo(recibo)}>Imprimir</button>
+                {onNavigate && recibo.compra_id && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => onNavigate('Compras', { compraId: recibo.compra_id, sucursalRecepcion: recibo.sucursal_id })}
+                  >
+                    Ver en Compras
+                  </button>
+                )}
+              </div>
+            ))}
+            {reciboVer && String(reciboVer.cuenta_id || cuenta.id) === String(cuenta.id) && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <p style={{ margin: '0 0 0.35rem' }}><strong>Recibo {reciboVer.folio}</strong></p>
+                <table className="table" style={{ width: '100%', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr><th>Producto</th><th>Código</th><th>Cantidad</th><th>Precio</th></tr>
+                  </thead>
+                  <tbody>
+                    {itemsRecibo(reciboVer).map((l) => (
+                      <tr key={`${l.id}-${l.nombre}`}>
+                        <td>{l.nombre}</td>
+                        <td>{l.id || '—'}</td>
+                        <td>{fmtQty(l.qty_pedido)}</td>
+                        <td>{fmtMonto(l.costo_est)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p style={{ margin: '0.4rem 0 0' }}>Total {fmtMonto(reciboVer.total)}</p>
+              </div>
             )}
           </div>
 

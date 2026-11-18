@@ -62,3 +62,26 @@ create policy "credito_fin_anio_mov_anon_rw" on public.credito_fin_anio_mov
 drop policy if exists "credito_fin_anio_abonos_anon_rw" on public.credito_fin_anio_abonos;
 create policy "credito_fin_anio_abonos_anon_rw" on public.credito_fin_anio_abonos
   for all using (true) with check (true);
+
+-- Recibo del inventario enviado a Compras. El mismo folio se ve en Compras → Por recibir.
+create table if not exists public.credito_fin_anio_recibos (
+  id uuid primary key default gen_random_uuid(),
+  cuenta_id uuid not null,
+  sucursal_id text not null,
+  compra_id uuid,
+  folio text not null,
+  total numeric(12,2) not null default 0,
+  items jsonb not null default '[]'::jsonb,
+  created_by text,
+  created_at timestamptz default now(),
+  archived_at timestamptz
+);
+
+create index if not exists idx_credito_fin_anio_recibos_cuenta
+  on public.credito_fin_anio_recibos (cuenta_id, created_at desc);
+
+alter table public.credito_fin_anio_recibos enable row level security;
+
+drop policy if exists "credito_fin_anio_recibos_anon_rw" on public.credito_fin_anio_recibos;
+create policy "credito_fin_anio_recibos_anon_rw" on public.credito_fin_anio_recibos
+  for all using (true) with check (true);
