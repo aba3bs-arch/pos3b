@@ -2,9 +2,18 @@ import assert from 'node:assert/strict';
 import {
   CUENTA_RT_FONDO_DEFAULT,
   CUENTAS_RT,
+  puedeVerSolicitudPagoServicio,
   resumirFondoPorServicio,
   totalesFondo,
 } from './rutaFondoServicios.js';
+
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Cajero', nombre: 'Sandra' }), true);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Supervisor', nombre: 'Luis' }), true);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Administrador', nombre: 'Administrador principal' }), false);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Cajero', nombre: 'Creador', es_admin_principal: true }), false);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Gerente', nombre: 'Andres Marrero' }), false);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Gerente', nombre: 'Otro gerente' }), false);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Cajero', esCtMovil: true, nombre: 'CT' }), false);
 
 assert.equal(CUENTA_RT_FONDO_DEFAULT, 'servicios');
 assert.ok(CUENTAS_RT.some((c) => c.id === 'servicios'));

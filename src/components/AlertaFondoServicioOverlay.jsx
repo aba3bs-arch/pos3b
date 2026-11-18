@@ -11,15 +11,16 @@ import {
   aprobarCobroServicioConPin,
   etiquetaModuloCorteFondo,
   obtenerSolicitudFondo,
+  puedeVerSolicitudPagoServicio,
   rechazarCobroServicio,
 } from '../lib/rutaFondoServicios.js';
 import { fmtMonto } from '../lib/consultasUi.js';
-import { normalizarRol } from '../lib/roles.js';
 import InputPin from './InputPin.jsx';
 import PortalFlotante from './PortalFlotante.jsx';
 
 /**
- * Overlay en caja: cobro de servicio (Fondo) pendiente de PIN del cajero.
+ * Overlay en la caja de la sucursal: cobro de servicio pendiente de PIN del cajero.
+ * No se muestra en la sesión del administrador.
  */
 export default function AlertaFondoServicioOverlay({ supabase, user, sucursal }) {
   const [alertas, setAlertas] = useState([]);
@@ -27,12 +28,7 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
   const [pin, setPin] = useState('');
   const [procesando, setProcesando] = useState(false);
 
-  const rol = normalizarRol(user?.rol);
-  const puedeVer = Boolean(
-    user
-    && !user.esCtMovil
-    && (rol === 'Cajero' || rol === 'Administrador' || rol === 'Gerente' || rol === 'Supervisor'),
-  );
+  const puedeVer = puedeVerSolicitudPagoServicio(user);
 
   const cargar = useCallback(async () => {
     if (!supabase || !puedeVer || !sucursal) {

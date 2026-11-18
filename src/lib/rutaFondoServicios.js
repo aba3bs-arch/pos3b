@@ -5,6 +5,7 @@
  */
 
 import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
+import { normalizarRol, tienePrivilegiosCompletos } from './roles.js';
 import { MODULOS_CORTE, etiquetaModuloCorte } from './corteContabilidad/store.js';
 import { listarServiciosCobro } from './controlEfectivo.js';
 import { verificarPinCajero } from './rutaCxc.js';
@@ -29,6 +30,17 @@ export const AVISO_FALTA_FONDO =
   'Faltan tablas de Fondo servicios. En Supabase ejecuta supabase/fix_ruta_fondo_servicios.sql';
 
 export const MODULOS_CORTE_FONDO = MODULOS_CORTE;
+
+/**
+ * La solicitud de cobro se atiende en la caja de la sucursal.
+ * El administrador, el administrador principal y Andrés no la ven.
+ */
+export function puedeVerSolicitudPagoServicio(user) {
+  if (!user || user.esCtMovil) return false;
+  if (tienePrivilegiosCompletos(user)) return false;
+  const rol = normalizarRol(user.rol);
+  return rol === 'Cajero' || rol === 'Supervisor';
+}
 
 function faltaTabla(error) {
   const m = String(error?.message || error || '').toLowerCase();
@@ -103,7 +115,7 @@ export async function solicitarCobroServicioRuta(supabase, {
       `${repartidorNombre || 'Recolector'} solicita cobrar ${row.servicio_nombre} `
       + `en ${etiquetaTienda(suc)} · corte ${etiquetaModuloCorteFondo(mod)}.\n`
       + 'Aprueba con tu PIN de cajero (o PIN temporal CT) para cargar el gasto y registrar el Fondo.',
-  });
+  }, { skipPush: true });
 
   return { ok: true, data, notificacionId: notif?.id || null, aviso: notif?.aviso || null };
 }
