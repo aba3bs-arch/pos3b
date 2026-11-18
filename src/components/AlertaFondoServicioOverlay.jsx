@@ -7,19 +7,22 @@ import {
   etiquetaTipoNotificacion,
   listarNotificacionesPendientes,
 } from '../lib/contabilidadNotificaciones.js';
+import { listarSolicitudesCt } from '../lib/cubreSolicitudes.js';
 import {
   aprobarCobroServicioConPin,
   etiquetaModuloCorteFondo,
   obtenerSolicitudFondo,
   puedeVerSolicitudPagoServicio,
   rechazarCobroServicio,
+  sucursalesParaAlertaServicio,
 } from '../lib/rutaFondoServicios.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import InputPin from './InputPin.jsx';
 import PortalFlotante from './PortalFlotante.jsx';
 
 /**
- * Overlay en la caja de la sucursal: cobro de servicio pendiente de PIN del cajero.
+ * Overlay en la sucursal: cobro de servicio pendiente de PIN.
+ * Lo ven el cajero, el supervisor y el CT que cubre esa tienda.
  * No se muestra en la sesión del administrador.
  */
 export default function AlertaFondoServicioOverlay({ supabase, user, sucursal }) {
@@ -29,19 +32,48 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
   const [procesando, setProcesando] = useState(false);
 
   const puedeVer = puedeVerSolicitudPagoServicio(user);
+  const esCtMovil = Boolean(user?.esCtMovil);
+  const ctRhId = user?.ctRhId || null;
+  const sucursalCt = user?.esCubreTurno ? user?.sucursal_id : null;
 
   const cargar = useCallback(async () => {
-    if (!supabase || !puedeVer || !sucursal) {
+    if (!supabase || !puedeVer) {
       setAlertas([]);
       setSolicitud(null);
       return;
     }
-    const res = await listarNotificacionesPendientes(supabase, {
+    let coberturas = [];
+    if (esCtMovil) {
+      if (!ctRhId) {
+        setAlertas([]);
+        setSolicitud(null);
+        return;
+      }
+      const sol = await listarSolicitudesCt(supabase, {
+        ctRhId,
+        estados: ['aceptada', 'cumplida'],
+        limit: 40,
+      });
+      coberturas = sol.data || [];
+    }
+    const tiendas = sucursalesParaAlertaServicio(
+      { ...user, esCtMovil, ctRhId, sucursal_id: sucursalCt || user?.sucursal_id },
       sucursal,
+      coberturas,
+    );
+    if (!tiendas.length) {
+      setAlertas([]);
+      setSolicitud(null);
+      return;
+    }
+    const lotes = await Promise.all(tiendas.map((tienda) => listarNotificacionesPendientes(supabase, {
+      sucursal: tienda,
       tipos: TIPOS_ALERTA_FONDO_CAJERO,
       limit: 20,
-    });
-    const lista = res.data || [];
+    })));
+    const lista = lotes
+      .flatMap((r) => r.data || [])
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
     setAlertas(lista);
     if (!lista.length) {
       setSolicitud(null);
@@ -52,7 +84,7 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
       const s = await obtenerSolicitudFondo(supabase, refId);
       setSolicitud(s.data || null);
     }
-  }, [supabase, puedeVer, sucursal]);
+  }, [supabase, puedeVer, sucursal, esCtMovil, ctRhId, sucursalCt, user]);
 
   useEffect(() => {
     void cargar();
@@ -78,13 +110,13 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
 
   const aprobar = async () => {
     if (procesando) return;
-    if (!pin || String(pin).length < 4) return alert('Ingresa tu PIN de cajero.');
+    if (!pin || String(pin).length < 4) return alert('Ingresa el PIN del cajero o el PIN temporal del CT.');
     setProcesando(true);
     try {
       const r = await aprobarCobroServicioConPin(supabase, {
         solicitudId: actual.ref_id,
         pin,
-        sucursal,
+        sucursal: actual.sucursal_id || sucursal,
       });
       if (!r.ok) return alert(r.error || 'No se pudo aprobar.');
       setPin('');
@@ -96,14 +128,14 @@ export default function AlertaFondoServicioOverlay({ supabase, user, sucursal })
 
   const rechazar = async () => {
     if (procesando) return;
-    if (!pin || String(pin).length < 4) return alert('Ingresa tu PIN para rechazar.');
+    if (!pin || String(pin).length < 4) return alert('Ingresa el PIN del cajero o el PIN temporal del CT para rechazar.');
     const motivo = window.prompt('Motivo del rechazo (opcional):') || '';
     setProcesando(true);
     try {
       const r = await rechazarCobroServicio(supabase, {
         solicitudId: actual.ref_id,
         pin,
-        sucursal,
+        sucursal: actual.sucursal_id || sucursal,
         motivo,
       });
       if (!r.ok) return alert(r.error || 'No se pudo rechazar.');
