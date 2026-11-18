@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2ff"/>
+    </linearGradient>
+    <filter id="s" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#312e81" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="960" height="520" fill="url(#bg)"/>
+  <text x="48" y="52" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#312e81">Sin PIN, el dinero no existe</text>
+  <text x="48" y="84" font-family="Segoe UI,Arial,sans-serif" font-size="16" fill="#64748b">Al repartidor le sale un aviso flotante. Elige una de las dos puertas.</text>
+
+  <g filter="url(#s)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="250" y="120" width="460" height="250" rx="20" fill="#fff" stroke="#3730a3" stroke-width="3"/>
+    <text x="480" y="168" text-anchor="middle" font-size="14" font-weight="700" fill="#3730a3">AVISO</text>
+    <text x="480" y="206" text-anchor="middle" font-size="22" font-weight="700" fill="#0f172a">Recibes $480</text>
+    <text x="480" y="238" text-anchor="middle" font-size="15" fill="#64748b">Cajero · 3B3 Petróleos · abono 20 nov</text>
+    <rect x="290" y="268" width="380" height="48" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="310" y="298" font-size="16" fill="#94a3b8">PIN del repartidor</text>
+  </g>
+
+  <g font-family="Segoe UI,Arial,sans-serif" filter="url(#s)">
+    <rect x="80" y="400" width="380" height="88" rx="16" fill="#ecfdf5"/>
+    <text x="270" y="436" text-anchor="middle" font-size="18" font-weight="700" fill="#047857">Aprobar con PIN</text>
+    <text x="270" y="462" text-anchor="middle" font-size="14" fill="#065f46">Se descuenta el crédito y entra a gastos</text>
+
+    <rect x="500" y="400" width="380" height="88" rx="16" fill="#fef2f2"/>
+    <text x="690" y="436" text-anchor="middle" font-size="18" font-weight="700" fill="#b91c1c">Rechazar</text>
+    <text x="690" y="462" text-anchor="middle" font-size="14" fill="#991b1b">Se cancela. No hay abono ni gasto</text>
+  </g>
+</svg>

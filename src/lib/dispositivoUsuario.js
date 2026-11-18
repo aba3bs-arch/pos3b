@@ -85,7 +85,7 @@ export function dispositivosVinculadosUsuario(user) {
  * }}
  */
 export function evaluarVinculoDispositivo(user, opts = {}) {
-  if (!user || esUsuarioCubreTurno(user) || !rolExigeDispositivoUnico(user.rol)) {
+  if (!user || esUsuarioCubreTurno(user) || user.es_recolector_rt || !rolExigeDispositivoUnico(user.rol)) {
     return { ok: true, sinAnclaje: true };
   }
 

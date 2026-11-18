@@ -8,6 +8,8 @@ import {
   montosMixtoDesdeNotasCompra,
   decidirGastoRecepcionCompra,
   metaPagoMixtoDesdeArticulos,
+  pagoTicketRecepcionCompra,
+  armarPayloadTicketRecepcion,
 } from './compraGastoCorte.js';
 
 assert.equal(
@@ -24,6 +26,10 @@ assert.equal(folioVentaRutaDesdeNotas('Venta en ruta VR-ABC1 · Juan'), 'VR-ABC1
 assert.equal(metodoPagoDesdeNotasCompra('Venta en ruta VR-1 · metodo credito'), 'credito');
 assert.equal(metodoPagoDesdeNotasCompra('Venta en ruta VR-1 · metodo mixto'), 'mixto');
 assert.equal(metodoPagoDesdeNotasCompra('Venta en ruta VR-1 · Juan'), null);
+assert.equal(
+  metodoPagoDesdeNotasCompra('Crédito fin de año Fin de año 2026 · 3B3 · Folio inv CMP-3-4B208DFB-C · Folio inv CMP-M-4B208DFB-E'),
+  'credito',
+);
 
 assert.deepEqual(
   montosMixtoDesdeNotasCompra('Venta en ruta VR-1 · metodo mixto · efe 300.00 · cre 60.00'),
@@ -160,6 +166,38 @@ const dMixSoloCred = decidirGastoRecepcionCompra({
   },
 });
 assert.equal(dMixSoloCred.cargar, false);
+
+const dFinAnio = decidirGastoRecepcionCompra({
+  compra: { notas: 'Crédito fin de año Fin de año 2026 · 3B3 · metodo credito' },
+  totalTicket: 900,
+});
+assert.equal(dFinAnio.cargar, false);
+assert.equal(dFinAnio.metodo, 'credito');
+assert.equal(dFinAnio.montoEfectivo, 0);
+assert.equal(dFinAnio.montoCredito, 900);
+
+const ticketFin = pagoTicketRecepcionCompra(
+  { id: '4b208dfb-d048-445f-b476-736d573b996e', notas: 'Crédito fin de año Fin de año 2026 · 3B3 · Folio inv CMP-3-4B208DFB-C · Ticket proveedor: $900.00 · Folio inv CMP-M-4B208DFB-E', total: 900, sucursal_id: '3B3' },
+  null,
+  900,
+);
+assert.equal(ticketFin.metodo, 'credito');
+assert.equal(ticketFin.montoEfectivo, 0);
+assert.equal(ticketFin.montoCredito, 900);
+const payloadFin = armarPayloadTicketRecepcion({
+  compra: {
+    id: '4b208dfb-d048-445f-b476-736d573b996e',
+    sucursal_id: '3B3',
+    notas: 'Crédito fin de año Fin de año 2026 · 3B3 · Folio inv CMP-3-4B208DFB-C · Ticket proveedor: $900.00 · Folio inv CMP-M-4B208DFB-E',
+    total: 900,
+    items: [{ id: '87', nombre: 'Garra de tigre', qty: 10, costo: 40 }],
+  },
+  proveedor: 'CUETES',
+  total: 900,
+});
+assert.equal(payloadFin.metodo_pago, 'credito');
+assert.equal(payloadFin.monto_efectivo, 0);
+assert.match(payloadFin.folio, /-C$/);
 
 const dNormal = decidirGastoRecepcionCompra({
   compra: { notas: 'Pedido mayorista' },

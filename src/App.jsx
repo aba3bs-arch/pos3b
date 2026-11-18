@@ -87,7 +87,7 @@ import {
   sincronizarPinsCubreTurnoDesdeNube,
   sucursalDePinCubreTurno,
 } from './lib/cubreTurnoSync.js';
-import { buscarUsuarioPorPinYSucursal, buscarUsuarioPorId, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
+import { buscarUsuarioPorPinYSucursal, buscarUsuarioPorId, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje, usuarioDesdePinRecolector } from './lib/usuariosAuth.js';
 import { entrarConPun, olvidarPunSesion, recordarPunSesion } from './lib/punAdminPrincipal.js';
 import {
   buscarSocioPorPinAcceso,
@@ -150,6 +150,7 @@ import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
 import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
 import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOverlay.jsx';
 import AlertaAprobacionCobroRutaOverlay from './components/AlertaAprobacionCobroRutaOverlay.jsx';
+import AlertaAbonoFinAnioOverlay from './components/AlertaAbonoFinAnioOverlay.jsx';
 import AlertaExtensionTurnoOverlay from './components/AlertaExtensionTurnoOverlay.jsx';
 import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
@@ -1061,6 +1062,15 @@ function App() {
         recordarPunSesion(p);
         data = porPun.user;
       }
+    }
+    if (!data && !error && esCentralAdmin(sucursal)) {
+      const rec = await usuarioDesdePinRecolector(supabase, p);
+      if (rec.error) {
+        alert(rec.error);
+        setPin('');
+        return;
+      }
+      if (rec.user) data = rec.user;
     }
     if (error) {
       alert(error);
@@ -2189,6 +2199,12 @@ function App() {
         ) : null}
         {user && !user.esCtMovil && esRolRepartidor(user.rol) ? (
           <AlertaAprobacionCobroRutaOverlay
+            supabase={supabase}
+            user={user}
+          />
+        ) : null}
+        {user && !user.esCtMovil && esRolRepartidor(user.rol) ? (
+          <AlertaAbonoFinAnioOverlay
             supabase={supabase}
             user={user}
           />

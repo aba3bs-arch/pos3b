@@ -53,14 +53,32 @@ export const SUBCOMANDOS_VENTA_RUTA = [
     icon: 'package',
     grupo: 'admin',
   },
+  {
+    id: 'ruta_fin_anio_abono',
+    vista: null,
+    hub: false,
+    label: 'Crédito fin de año — Abono',
+    desc: 'El cajero entrega el abono. El repartidor lo aprueba con PIN antes de registrarlo en gastos.',
+    icon: 'dollar',
+    grupo: 'oper',
+  },
+  {
+    id: 'ruta_fin_anio_mercancia',
+    vista: null,
+    hub: false,
+    label: 'Crédito fin de año — Ingresar y retirar',
+    desc: 'El recolector deja mercancía en la cuenta y la retira si se equivocó. No edita, no borra y no liquida.',
+    icon: 'package',
+    grupo: 'oper',
+  },
 ];
 
 /** Defaults por rol cuando no hay checkbox en Configuración. */
 export const ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL = {
   // Gerente: todo el hub, excepto limpiar consultas (solo Admin por defecto).
   Gerente: SUBCOMANDOS_VENTA_RUTA.filter((s) => s.hub !== false).map((s) => s.id),
-  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
-  Cajero: ['ruta_creditos', 'ruta_cancelacion'],
+  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_mercancia'],
+  Cajero: ['ruta_creditos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_abono'],
   Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
   Auditor: ['ruta_consolidacion', 'ruta_auditorias', 'ruta_consultas', 'ruta_preinventario'],
 };

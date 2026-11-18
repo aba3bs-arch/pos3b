@@ -1,0 +1,180 @@
+/**
+ * Dejar mercancía de fin de año descuenta el camión del recolector
+ * igual que una venta: sube qty_vendida en la carga en ruta.
+ * Retirar (si se equivocó) devuelve esa cantidad al camión.
+ */
+
+import { resolverRepartidorId } from './rutaTransito.js';
+import {
+  asignarVentaALineasProducto,
+  disponibleEnLineaCarga,
+  lineasDeVariasCargas,
+  listarCargasRuta,
+} from './ventaEnRuta.js';
+
+function round3(n) {
+  return Math.round((Number(n) || 0) * 1000) / 1000;
+}
+
+export function agruparInventarioCamion(cargas, lineas) {
+  const porCarga = new Map((cargas || []).map((c) => [String(c.id), c]));
+  const grupos = new Map();
+  for (const lin of lineas || []) {
+    const carga = porCarga.get(String(lin.carga_id)) || {};
+    const key = String(carga.vendedor_id || carga.camion_id || carga.id || 'camion');
+    if (!grupos.has(key)) {
+      grupos.set(key, {
+        id: key,
+        nombre: carga.vendedor_nombre || carga.camion_etiqueta || 'Camión',
+        camion: carga.camion_etiqueta || '',
+        piezas: 0,
+        productos: new Map(),
+      });
+    }
+    const disp = disponibleEnLineaCarga(lin);
+    if (!(disp > 0)) continue;
+    const g = grupos.get(key);
+    const pid = String(lin.producto_id || '');
+    if (!pid) continue;
+    const prev = g.productos.get(pid) || { id: pid, nombre: lin.producto_nombre || pid, disponible: 0 };
+    prev.disponible = round3(prev.disponible + disp);
+    g.productos.set(pid, prev);
+    g.piezas = round3(g.piezas + disp);
+  }
+  return [...grupos.values()]
+    .map((g) => ({
+      id: g.id,
+      nombre: g.nombre,
+      camion: g.camion,
+      piezas: g.piezas,
+      productos: [...g.productos.values()].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es')),
+    }))
+    .filter((g) => g.piezas > 0);
+}
+
+/** Devuelve piezas al camión bajando qty_vendida, de la línea más reciente hacia atrás. */
+export function planDevolucionCamion(lineas, productoId, cantidad) {
+  let rest = Math.floor(Math.abs(Number(cantidad) || 0));
+  const asignaciones = [];
+  const propias = (lineas || []).filter((l) => String(l.producto_id) === String(productoId));
+  for (const lin of [...propias].reverse()) {
+    if (rest <= 0) break;
+    const vendida = Number(lin.qty_vendida) || 0;
+    if (!(vendida > 0)) continue;
+    const take = Math.min(Math.floor(vendida), rest);
+    if (!(take > 0)) continue;
+    asignaciones.push({ linea: lin, qty: take, antes: vendida, nueva: round3(vendida - take) });
+    rest -= take;
+  }
+  return { ok: true, asignaciones, pendiente: rest };
+}
+
+async function idsDeRecolector(supabase, user) {
+  const ids = [];
+  const push = (id) => {
+    const s = String(id || '').trim();
+    if (s && !ids.includes(s)) ids.push(s);
+  };
+  push(user?.id);
+  push(user?.repartidor_id);
+  try {
+    const r = await resolverRepartidorId(supabase, user?.id, user?.nombre, { repartidorId: user?.repartidor_id });
+    if (r?.ok) push(r.id);
+  } catch {
+    /* sin tabla de repartidores */
+  }
+  return ids;
+}
+
+async function cargasYLineasDelRecolector(supabase, user) {
+  const ids = await idsDeRecolector(supabase, user);
+  let cargas = [];
+  for (const id of ids) {
+    const c = await listarCargasRuta(supabase, { estado: 'en_ruta', vendedorId: id, limit: 20 });
+    if (c.error) return { ok: false, error: c.error };
+    if ((c.data || []).length) {
+      cargas = c.data;
+      break;
+    }
+  }
+  if (!cargas.length) {
+    return { ok: false, error: 'No hay carga en el camión. Cárgalo igual que el cigarro.' };
+  }
+  const lr = await lineasDeVariasCargas(supabase, cargas);
+  if (lr.error) return { ok: false, error: lr.error };
+  return { ok: true, cargas, lineas: lr.data || [] };
+}
+
+async function aplicarQtyVendida(supabase, cambios) {
+  const hechos = [];
+  for (const c of cambios) {
+    const id = c.linea?.id;
+    if (!id) continue;
+    const { data, error } = await supabase
+      .from('ruta_carga_lineas')
+      .update({ qty_vendida: c.nueva })
+      .eq('id', id)
+      .eq('qty_vendida', c.antes)
+      .select('id');
+    if (error || !data?.length) {
+      for (const h of hechos.reverse()) {
+        await supabase.from('ruta_carga_lineas').update({ qty_vendida: h.antes }).eq('id', h.linea.id);
+      }
+      return {
+        ok: false,
+        error: error?.message || 'El inventario del camión cambió. Vuelve a intentar.',
+      };
+    }
+    hechos.push(c);
+  }
+  return { ok: true, cambios: hechos };
+}
+
+export async function descontarProductoDelCamion(supabase, { user, productoId, cantidad }) {
+  const pid = String(productoId || '').trim();
+  if (!pid) return { ok: false, error: 'Falta el código del producto.' };
+  const base = await cargasYLineasDelRecolector(supabase, user);
+  if (!base.ok) return base;
+  const propias = base.lineas.filter((l) => String(l.producto_id) === pid);
+  const asg = asignarVentaALineasProducto(propias, cantidad);
+  if (!asg.ok) {
+    return { ok: false, error: asg.error === 'Cantidad inválida.' ? asg.error : `En el camión ${asg.error}` };
+  }
+  const cambios = asg.asignaciones.map((x) => {
+    const antes = Number(x.linea.qty_vendida) || 0;
+    return { linea: x.linea, qty: x.qty, antes, nueva: round3(antes + x.qty) };
+  });
+  const aplicado = await aplicarQtyVendida(supabase, cambios);
+  if (!aplicado.ok) return aplicado;
+  return { ok: true, cambios };
+}
+
+export async function devolverProductoAlCamion(supabase, { user, productoId, cantidad }) {
+  const pid = String(productoId || '').trim();
+  if (!pid) return { ok: true, cambios: [] };
+  const base = await cargasYLineasDelRecolector(supabase, user);
+  if (!base.ok) return { ok: true, cambios: [], aviso: base.error };
+  const plan = planDevolucionCamion(base.lineas, pid, cantidad);
+  if (!plan.asignaciones.length) return { ok: true, cambios: [] };
+  const aplicado = await aplicarQtyVendida(supabase, plan.asignaciones);
+  if (!aplicado.ok) return aplicado;
+  return { ok: true, cambios: plan.asignaciones };
+}
+
+export async function revertirAjusteCamion(supabase, cambios) {
+  const inversos = (cambios || []).map((c) => ({
+    linea: c.linea,
+    antes: c.nueva,
+    nueva: c.antes,
+  }));
+  return aplicarQtyVendida(supabase, inversos);
+}
+
+export async function listarInventarioCamiones(supabase) {
+  if (!supabase) return { ok: false, camiones: [], error: 'Sin conexión.' };
+  const c = await listarCargasRuta(supabase, { estado: 'en_ruta', limit: 40 });
+  if (c.error) return { ok: false, camiones: [], error: c.error };
+  const lr = await lineasDeVariasCargas(supabase, c.data || []);
+  if (lr.error) return { ok: false, camiones: [], error: lr.error };
+  return { ok: true, camiones: agruparInventarioCamion(c.data || [], lr.data || []) };
+}

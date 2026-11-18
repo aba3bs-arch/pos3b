@@ -86,6 +86,7 @@ import { TUTORIAL_VENTA_EN_RUTA } from '../content/tutorialVentaEnRuta.js';
 import CorteRuta from './CorteRuta.jsx';
 import ConsolidacionRuta from './ConsolidacionRuta.jsx';
 import AlertaAprobacionCobroRutaOverlay from '../components/AlertaAprobacionCobroRutaOverlay.jsx';
+import AlertaAbonoFinAnioOverlay from '../components/AlertaAbonoFinAnioOverlay.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
 import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
@@ -174,8 +175,10 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
     () =>
       subcomandosVentaRutaVisibles(user?.rol, user?.id).map((s) => ({
         id: s.vista,
-        label: s.label,
-        desc: s.desc,
+        label: s.id === 'ruta_fin_anio' && normalizarRol(user?.rol) === 'Cajero' ? 'Abono fin de año' : s.label,
+        desc: s.id === 'ruta_fin_anio' && normalizarRol(user?.rol) === 'Cajero'
+          ? 'Entregas el dinero. El repartidor lo aprueba con su PIN.'
+          : s.desc,
         icon: s.icon,
       })),
     [user?.rol, user?.id],
@@ -258,6 +261,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
       {vendedorSesion && !esRolRepartidor(user?.rol) && (
         <AlertaAprobacionCobroRutaOverlay supabase={supabase} user={user} sesion={vendedorSesion} />
+      )}
+      {vendedorSesion && !esRolRepartidor(user?.rol) && (
+        <AlertaAbonoFinAnioOverlay supabase={supabase} user={user} sesion={vendedorSesion} />
       )}
       {vendedorSesion && (vista === 'hub' || vista === 'venta') && (
         <div
@@ -425,6 +431,8 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           supabase={supabase}
           user={user}
           inventario={inventario}
+          sucursal={sucursal || user?.sucursal_id}
+          onNavigate={onNavigate}
           onVolver={() => ir('hub')}
         />
       )}

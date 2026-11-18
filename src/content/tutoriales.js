@@ -14,8 +14,10 @@ import { TUTORIAL_COBRO_SERVICIOS } from './tutorialCobroServicios.js';
 import { TUTORIAL_CANCELACION_RUTA } from './tutorialCancelacionRuta.js';
 import { TUTORIAL_ESTADISTICAS_RUTA } from './tutorialEstadisticasRuta.js';
 import { TUTORIAL_COMPRAS } from './tutorialCompras.js';
+import { TUTORIAL_CREDITO_FIN_ANIO } from './tutorialCreditoFinAnio.js';
 
 export const TUTORIALES = [
+  TUTORIAL_CREDITO_FIN_ANIO,
   TUTORIAL_COMPRAS,
   TUTORIAL_CANCELACION_RUTA,
   TUTORIAL_COBRO_SERVICIOS,
