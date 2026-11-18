@@ -29,6 +29,7 @@ import {
   resumenCuenta,
   saldosTarjetas,
   sugerenciasCatalogoFinAnio,
+  totalAntesDeLiquidar,
   totalTarjetas,
 } from '../lib/creditoFinAnio.js';
 import { imprimirPedidoCompra } from '../lib/impresion.js';
@@ -244,7 +245,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
 
   const liquidar = async () => {
     if (!enCurso) return alert('Primero registra el abono en la tienda. Aquí se va acumulando.');
-    if (!confirm(`¿Cerrar esta liquidación de ${fmtMonto(enCurso.monto)}?\nLos siguientes abonos abrirán otra línea.`)) return;
+    if (!confirm(`¿Liquidar ${fmtMonto(enCurso.monto)}?\nEl total de las tiendas queda en ${fmtMonto(totalTiendas)}.`)) return;
     const ok = await correr(() => cerrarLiquidacionFinAnio(supabase, enCurso.id));
     if (!ok) return;
     setLineaAbierta('');
@@ -352,17 +353,48 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       {!sucursalId && pestana === 'liquidacion' && (
         <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 640 }}>
           <div>
-            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Liquidación</p>
-            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{fmtMonto(enCurso ? enCurso.monto : 0)}</p>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total de las tiendas</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>
+              {fmtMonto(totalAntesDeLiquidar(totalTiendas, enCurso ? enCurso.monto : 0))}
+            </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-              Solo cuenta el dinero que las tiendas ya abonaron. Si nadie ha pagado, queda en cero.
+              Suma de las tarjetas, antes de descontar los abonos de esta liquidación.
             </p>
           </div>
           <div>
-            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Crédito pendiente</p>
-            <p style={{ margin: '0.15rem 0 0', fontSize: '1.15rem', fontWeight: 700 }}>{fmtMonto(totalTiendas)}</p>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Abonos</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.35rem', fontWeight: 700 }}>
+              − {fmtMonto(enCurso ? enCurso.monto : 0)}
+            </p>
+            {enCurso ? (
+              <div style={{ marginTop: '0.45rem', display: 'grid', gap: '0.45rem' }}>
+                {desgloseLiquidacion(enCurso, abonos, cuentas).map((t) => (
+                  <div key={t.sucursal_id}>
+                    <strong>{etiquetaTienda(t.sucursal_id)}</strong>
+                    <span className="muted"> · {fmtMonto(t.monto)}</span>
+                    {t.abonos.filter((a) => a.created_at || a.notas).map((a, i) => (
+                      <p key={`${t.sucursal_id}-${a.created_at || i}`} className="muted" style={{ margin: '0.15rem 0 0 0.75rem', fontSize: '0.8rem' }}>
+                        Abono {fmtMonto(a.monto)}
+                        {a.created_at ? ` · ${fechaPhoenix(a.created_at)}` : ''}
+                        {a.notas ? ` · ${a.notas}` : ''}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Nadie ha abonado.</p>
+            )}
+          </div>
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Liquidación</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700, color: COLOR }}>
+              {fmtMonto(enCurso ? enCurso.monto : 0)}
+            </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-              Es lo que dejaste a crédito, la suma de las tarjetas. Cada abono se descuenta de aquí y pasa a la liquidación.
+              {enCurso
+                ? `Al liquidar, el total de las tiendas queda en ${fmtMonto(totalTiendas)}.`
+                : 'Sin abonos, la liquidación queda en cero.'}
             </p>
           </div>
           <button type="button" className="btn btn-primary" disabled={guardando || !enCurso} onClick={() => void liquidar()}>
@@ -370,11 +402,11 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
           </button>
           <div>
             <h4 style={{ margin: '0.2rem 0 0.5rem' }}>Registro</h4>
-            {liquidaciones.filter((row) => Number(row.monto) > 0).length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>Sin abonos, el registro queda vacío. Cuando una tienda pague, aquí aparece una línea con ese total.</p>
+            {liquidaciones.filter((row) => Number(row.monto) > 0 && String(row.id) !== String(enCurso?.id || '')).length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>Al liquidar, aquí queda una línea con ese total.</p>
             ) : (
               <div style={{ display: 'grid', gap: '0.4rem' }}>
-                {liquidaciones.filter((row) => Number(row.monto) > 0).map((row) => {
+                {liquidaciones.filter((row) => Number(row.monto) > 0 && String(row.id) !== String(enCurso?.id || '')).map((row) => {
                   const abierta = lineaAbierta === String(row.id);
                   const enCursoFila = String(row.estado || '') === 'abierta';
                   const tiendasFila = desgloseLiquidacion(row, abonos, cuentas);

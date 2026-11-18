@@ -15,6 +15,7 @@ import {
   nombreCuentaFinAnio,
   planLiquidacion,
   saldosTarjetas,
+  totalAntesDeLiquidar,
   totalTarjetas,
   resumenCuenta,
   resumenPorSucursal,
@@ -91,6 +92,8 @@ assert.equal(tarjetas.find((t) => t.sucursalId === 'FUSION').total, 350);
 assert.equal(tarjetas.find((t) => t.sucursalId === '3B2').total, 100);
 const total = totalTarjetas(tarjetas);
 assert.equal(total, 450);
+assert.equal(totalAntesDeLiquidar(1000, 480), 1480);
+assert.equal(totalAntesDeLiquidar(1000, 0), 1000);
 assert.equal(creditoPendienteTrasRecoleccion(total, 150), 300);
 const plan = planLiquidacion({
   tiendas, cuentas: cuentasLiq, movimientos: movsLiq, abonos: abonosLiq, monto: 400,

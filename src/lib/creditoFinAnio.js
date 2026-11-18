@@ -221,6 +221,11 @@ export function totalTarjetas(saldos) {
   return round2((saldos || []).reduce((s, x) => s + (Number(x.total) || 0), 0));
 }
 
+/** Total que se ve antes de liquidar: el crédito neto más los abonos de esta liquidación. */
+export function totalAntesDeLiquidar(totalNeto, abonosEnCurso) {
+  return round2((Number(totalNeto) || 0) + (Number(abonosEnCurso) || 0));
+}
+
 /** Lo que quedaría pendiente si se cobra esta recolección. */
 export function creditoPendienteTrasRecoleccion(total, recoleccion) {
   const t = round2(total);
