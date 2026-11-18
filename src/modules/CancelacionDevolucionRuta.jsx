@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { fmtMonto } from '../lib/consultasUi.js';
 import {
+  opcionesDevolucionCuetes,
+  solicitarDevolucionCuetes,
+} from '../lib/devolucionCuetesRuta.js';
+import { listarCuentasFinAnio, listarMovimientosFinAnio } from '../lib/creditoFinAnio.js';
+import {
   AVISO_FALTA_CANCELACIONES,
   aprobarCancelacionVentaConPin,
   listarCancelacionesPendientes,
@@ -28,6 +33,7 @@ export default function CancelacionDevolucionRuta({
   onVolver,
 }) {
   const [ventas, setVentas] = useState([]);
+  const [cuetes, setCuetes] = useState([]);
   const [pendientes, setPendientes] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [ventaId, setVentaId] = useState('');
@@ -51,18 +57,31 @@ export default function CancelacionDevolucionRuta({
       } catch {
         /* no bloquear la pantalla */
       }
-      const [v, p] = await Promise.all([
+      const [v, p, cuentas, movs] = await Promise.all([
         listarVentasRuta(supabase, { limit: 80 }),
         listarCancelacionesPendientes(supabase, { limit: 40 }),
+        listarCuentasFinAnio(supabase),
+        listarMovimientosFinAnio(supabase),
       ]);
       if (v.aviso || v.error) setAviso?.(v.aviso || v.error);
       if (p.aviso) setAviso?.(p.aviso);
+      if (cuentas.error && !cuentas.faltaTabla) setAviso?.(cuentas.error);
+      if (movs.error && !movs.faltaTabla) setAviso?.(movs.error);
       const activas = (v.data || []).filter(
         (x) => String(x.estado || '').toLowerCase() !== 'cancelada'
           && !(Array.isArray(x.articulos) && x.articulos.some((a) => a && a._cancelada)),
       );
+      const pendientesLista = p.data || [];
+      const ocupados = new Set(
+        pendientesLista
+          .filter((s) => s?.meta?.tipo === 'cuetes')
+          .map((s) => `${s.meta.cuenta_id}|${s.meta.clave}`),
+      );
+      const opciones = opcionesDevolucionCuetes(cuentas.data, movs.data)
+        .filter((o) => !ocupados.has(`${o.cuentaId}|${o.clave}`));
       setVentas(activas);
-      setPendientes(p.data || []);
+      setCuetes(opciones);
+      setPendientes(pendientesLista);
     } finally {
       setCargando(false);
     }
@@ -73,29 +92,42 @@ export default function CancelacionDevolucionRuta({
   }, [cargar, tick]);
 
   const ventaSel = ventas.find((v) => String(v.id) === String(ventaId)) || null;
+  const cueteSel = cuetes.find((c) => String(c.id) === String(ventaId)) || null;
 
   const solicitar = async () => {
-    if (!ventaId) return alert('Selecciona una venta.');
+    if (!ventaId) return alert('Selecciona una venta o un cuete.');
     if (!motivo.trim()) return alert('Indica el motivo de la cancelación.');
-    if (!confirm(
-      `¿Solicitar cancelación de ${ventaSel?.folio || ventaId}?\n`
-      + 'Un administrador debe aprobar con PIN.\n'
-      + 'Se devolverá inventario y se eliminará la venta, crédito/efectivo y compra en todos lados.',
-    )) return;
+    const texto = cueteSel
+      ? `¿Solicitar devolución de ${cueteSel.cantidad} pza de ${cueteSel.nombre || cueteSel.codigo}?\n`
+        + 'Un administrador debe aprobar con PIN.\n'
+        + `Sale de la cuenta de la tienda y regresa al camión de ${cueteSel.repartidorNombre || 'el repartidor'}.`
+      : `¿Solicitar cancelación de ${ventaSel?.folio || ventaId}?\n`
+        + 'Un administrador debe aprobar con PIN.\n'
+        + 'Se devolverá inventario y se eliminará la venta, crédito/efectivo y compra en todos lados.';
+    if (!confirm(texto)) return;
     setEnviando(true);
     try {
-      const r = await solicitarCancelacionVentaRuta(supabase, {
-        ventaId,
-        motivo: motivo.trim(),
-        solicitadoPor: user?.nombre || null,
-        solicitadoPorId: user?.id || null,
-      });
+      const r = cueteSel
+        ? await solicitarDevolucionCuetes(supabase, {
+          opcion: cueteSel,
+          motivo: motivo.trim(),
+          solicitadoPor: user?.nombre || null,
+          solicitadoPorId: user?.id || null,
+        })
+        : await solicitarCancelacionVentaRuta(supabase, {
+          ventaId,
+          motivo: motivo.trim(),
+          solicitadoPor: user?.nombre || null,
+          solicitadoPorId: user?.id || null,
+        });
       if (!r.ok) {
         alert(r.error || AVISO_FALTA_CANCELACIONES);
         if (r.aviso) setAviso?.(r.aviso);
         return;
       }
-      alert('Solicitud enviada. El administrador debe aprobar con PIN en la notificación o aquí abajo.');
+      alert(cueteSel
+        ? `Solicitud enviada. Al aprobar, ${cueteSel.cantidad} pza regresan al camión${r.camionNombre ? ` de ${r.camionNombre}` : ''}.`
+        : 'Solicitud enviada. El administrador debe aprobar con PIN en la notificación o aquí abajo.');
       setMotivo('');
       setVentaId('');
       setTick((t) => t + 1);
@@ -106,7 +138,10 @@ export default function CancelacionDevolucionRuta({
 
   const resumenResultado = (res = {}) => {
     const partes = [];
-    if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
+    if (res.cuetes) {
+      partes.push(`camión de ${res.camionNombre || 'repartidor'} +${res.piezas || 0} pza`);
+      partes.push('cuenta de cuetes');
+    } else if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
     if (res.inventarioTienda?.aplicados) partes.push(`tienda −${res.inventarioTienda.aplicados} prod.`);
     if (res.creditos?.eliminados) partes.push(`crédito ×${res.creditos.eliminados}`);
     if (res.transito?.eliminado) partes.push('efectivo RC quitado');
@@ -120,9 +155,12 @@ export default function CancelacionDevolucionRuta({
     if (!pinAdmin || String(pinAdmin).length < 4) {
       return alert('Ingresa el PIN de administrador para aprobar.');
     }
-    if (!confirm(
-      `¿Aprobar cancelación ${sol.folio_venta}?\n`
-      + 'Se revertirá inventario, crédito/mixto y efectivo RC, y se borrará la venta.',
+    const esCuete = sol?.meta?.tipo === 'cuetes' || String(sol?.metodo_pago || '').toLowerCase() === 'cuetes';
+    if (!confirm(esCuete
+      ? `¿Aprobar devolución ${sol.folio_venta}?\n`
+        + 'Los cuetes salen de la cuenta de la tienda y regresan al camión del repartidor.'
+      : `¿Aprobar cancelación ${sol.folio_venta}?\n`
+        + 'Se revertirá inventario, crédito/mixto y efectivo RC, y se borrará la venta.',
     )) return;
     setAprobandoId(sol.id);
     try {
@@ -197,6 +235,8 @@ export default function CancelacionDevolucionRuta({
             Un <strong>administrador</strong> aprueba con PIN y se elimina en todos lados:
             primero devuelve inventario al camión (y descuenta piso si ya se recibió), luego
             borra crédito y/o efectivo, la compra y el registro de la venta.
+            La mercancía de <strong>cuetes</strong> dejada en la tienda también se devuelve aquí:
+            sale de la cuenta y regresa al camión del repartidor.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -216,7 +256,7 @@ export default function CancelacionDevolucionRuta({
 
       <div style={{ marginTop: '1rem', display: 'grid', gap: '0.75rem', maxWidth: 560 }}>
         <label style={{ fontSize: '0.85rem' }}>
-          Venta a cancelar
+          Venta o cuetes a devolver
           <select
             className="input"
             style={{ marginTop: '0.35rem', width: '100%' }}
@@ -225,6 +265,15 @@ export default function CancelacionDevolucionRuta({
             disabled={cargando || enviando}
           >
             <option value="">— Elige folio —</option>
+            {cuetes.length ? (
+              <optgroup label="Cuetes (regresan al camión)">
+                {cuetes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.etiqueta} · {fmtMonto(c.valor)}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
             {ventas.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.folio || String(v.id).slice(0, 8)} · {v.cliente_nombre || v.cliente_id || '—'} ·{' '}
@@ -234,7 +283,28 @@ export default function CancelacionDevolucionRuta({
           </select>
         </label>
 
-        {ventaSel ? (
+        {cueteSel ? (
+          <div
+            style={{
+              padding: '0.65rem 0.75rem',
+              borderRadius: 8,
+              background: 'rgba(185,28,28,0.06)',
+              border: '1px solid #fecaca',
+              fontSize: '0.84rem',
+            }}
+          >
+            <div><strong>{cueteSel.folio}</strong> · Cuetes</div>
+            <div className="muted">
+              {cueteSel.nombre || cueteSel.codigo} · {cueteSel.cantidad} pza
+              {cueteSel.repartidorNombre ? ` · dejó ${cueteSel.repartidorNombre}` : ''}
+            </div>
+            <div style={{ marginTop: 4 }}>
+              {fmtMonto(cueteSel.valor)} · al aprobar regresan al camión del repartidor
+            </div>
+          </div>
+        ) : null}
+
+        {ventaSel && !cueteSel ? (
           <div
             style={{
               padding: '0.65rem 0.75rem',
@@ -265,7 +335,9 @@ export default function CancelacionDevolucionRuta({
             style={{ marginTop: '0.35rem', width: '100%', resize: 'vertical' }}
             value={motivo}
             onChange={(e) => setMotivo(e.target.value)}
-            placeholder="Ej. Venta a crédito por error a la tienda equivocada"
+            placeholder={cueteSel
+              ? 'Ej. Se dejaron los cuetes en la tienda equivocada'
+              : 'Ej. Venta a crédito por error a la tienda equivocada'}
             disabled={enviando}
           />
         </label>
@@ -277,7 +349,7 @@ export default function CancelacionDevolucionRuta({
           disabled={enviando || !ventaId || !motivo.trim()}
           onClick={() => void solicitar()}
         >
-          {enviando ? 'Enviando…' : 'Solicitar cancelación (PIN admin)'}
+          {enviando ? 'Enviando…' : (cueteSel ? 'Solicitar devolución al camión (PIN admin)' : 'Solicitar cancelación (PIN admin)')}
         </button>
       </div>
 

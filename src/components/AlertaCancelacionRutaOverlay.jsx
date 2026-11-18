@@ -131,7 +131,10 @@ export default function AlertaCancelacionRutaOverlay({ supabase, user }) {
       }
       const res = r.resultado || {};
       const partes = [];
-      if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
+      if (res.cuetes) {
+        partes.push(`camión de ${res.camionNombre || 'repartidor'} +${res.piezas || 0} pza`);
+        partes.push('cuenta de cuetes');
+      } else if (res.camion?.length) partes.push(`camión ${res.camion.length} línea(s)`);
       if (res.inventarioTienda?.aplicados) partes.push(`tienda −${res.inventarioTienda.aplicados} prod.`);
       if (res.creditos?.eliminados) partes.push(`crédito ×${res.creditos.eliminados}`);
       if (res.gastoCorte?.anulados) partes.push(`gasto corte ×${res.gastoCorte.anulados}`);
