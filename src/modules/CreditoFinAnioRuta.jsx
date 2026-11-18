@@ -41,7 +41,9 @@ import {
   solicitudAbonoPendiente,
 } from '../lib/creditoFinAnioAbonoAprobacion.js';
 import { imprimirPedidoCompra } from '../lib/impresion.js';
-import { normalizarRol } from '../lib/roles.js';
+import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
+import { TUTORIAL_CREDITO_FIN_ANIO } from '../content/tutorialCreditoFinAnio.js';
+import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
 import { puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
 
 const COLOR = '#3730a3';
@@ -119,7 +121,9 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [pestana, setPestana] = useState('cuentas');
   const puedeAbonar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_fin_anio_abono');
   const soloAbono = normalizarRol(user?.rol) === 'Cajero' && puedeAbonar;
+  const soloLectura = esRolRepartidor(user?.rol);
   const [lineaAbierta, setLineaAbierta] = useState('');
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
   const [reciboVer, setReciboVer] = useState(null);
 
   const vistaTiendas = useMemo(
@@ -243,6 +247,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const abrirCuenta = async () => {
+    if (soloLectura) return alert('Solo puedes ver las cuentas.');
     if (guardando) return;
     setGuardando(true);
     const r = await crearCuentaFinAnio(supabase, {
@@ -263,6 +268,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const dejar = async () => {
+    if (soloLectura) return alert('Solo puedes ver las cuentas.');
     const ok = await correr(() => dejarMercanciaFinAnio(supabase, cuenta.id, deja, user));
     if (!ok) return;
     setDeja({ codigo: '', nombre: '', cantidad: '', precio: '', notas: '' });
@@ -270,6 +276,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const retirar = async () => {
+    if (soloLectura) return alert('Solo puedes ver las cuentas.');
     if (!lineaRetiro) return alert('Elige un producto del inventario de la cuenta.');
     const ok = await correr(() => retirarMercanciaFinAnio(supabase, cuenta.id, {
       codigo: lineaRetiro.codigo,
@@ -284,6 +291,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const abonar = async () => {
+    if (soloLectura) return alert('Solo puedes ver las cuentas.');
     const rep = repartidores.find((r) => String(r.id) === String(abono.repartidorId));
     const ok = await correr(() => solicitarAbonoFinAnio(supabase, {
       cuentaId: cuenta.id,
@@ -300,6 +308,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const liquidar = async () => {
+    if (soloLectura) return alert('Solo puedes ver las cuentas.');
     if (!enCurso) return alert('Primero registra el abono en la tienda. Aquí se va acumulando.');
     if (!confirm(`¿Liquidar ${fmtMonto(enCurso.monto)}?\nEl total de las tiendas queda en ${fmtMonto(totalTiendas)}.`)) return;
     const ok = await correr(() => cerrarLiquidacionFinAnio(supabase, enCurso.id));
@@ -320,6 +329,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const enviarCompras = async () => {
+    if (soloLectura) return alert('Solo puedes ver las cuentas.');
     const lineas = inventarioCuenta.filter((l) => Number(l.cantidad) > 0);
     if (!lineas.length) return alert('No hay mercancía para enviar.');
     if (!confirm(`¿Enviar el inventario a Compras de ${etiquetaTienda(sucursalId)}? Se genera un recibo.`)) return;
@@ -388,8 +398,9 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   if (soloAbono) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-        <div>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost" onClick={onVolver}>← Venta en ruta</button>
+          <button type="button" className="btn btn-ghost" onClick={() => setTutorialAbierto(true)}>Ver tutorial</button>
         </div>
         {aviso && (
           <div className="card" style={{ borderLeft: '4px solid #b45309' }}>
@@ -404,6 +415,11 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             </p>
           </div>
         )}
+        <VisorTutorialModal
+          abierto={tutorialAbierto}
+          tutorial={TUTORIAL_CREDITO_FIN_ANIO}
+          onCerrar={() => setTutorialAbierto(false)}
+        />
       </div>
     );
   }
@@ -412,6 +428,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <button type="button" className="btn btn-ghost" onClick={onVolver}>← Venta en ruta</button>
+        <button type="button" className="btn btn-ghost" onClick={() => setTutorialAbierto(true)}>Ver tutorial</button>
         {sucursalId && (
           <button type="button" className="btn btn-ghost" onClick={volverTiendas}>← Sucursales</button>
         )}
@@ -423,8 +440,9 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <h3 style={{ margin: 0, color: COLOR }}>Crédito fin de año</h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Registro propio de cada sucursal: mercancía dejada a crédito, inventario de la cuenta y abonos.
-          Sirve para el cierre de este año.
+          {soloLectura
+            ? 'Solo ves las cuentas. No puedes dejar mercancía, abonar, editar ni borrar.'
+            : 'Registro propio de cada sucursal: mercancía dejada a crédito, inventario de la cuenta y abonos. Sirve para el cierre de este año.'}
         </p>
       </div>
 
@@ -442,13 +460,15 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         >
           Cuentas
         </button>
-        <button
-          type="button"
-          className={`btn ${pestana === 'liquidacion' && !sucursalId ? 'btn-primary' : 'btn-ghost'}`}
-          onClick={() => { setPestana('liquidacion'); setSucursalId(''); setCuentaId(''); }}
-        >
-          Liquidación
-        </button>
+        {!soloLectura && (
+          <button
+            type="button"
+            className={`btn ${pestana === 'liquidacion' && !sucursalId ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => { setPestana('liquidacion'); setSucursalId(''); setCuentaId(''); }}
+          >
+            Liquidación
+          </button>
+        )}
       </div>
 
       {!sucursalId && pestana === 'cuentas' && (
@@ -469,7 +489,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         </div>
       )}
 
-      {!sucursalId && pestana === 'liquidacion' && (
+      {!soloLectura && !sucursalId && pestana === 'liquidacion' && (
         <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 640 }}>
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total de las tiendas</p>
@@ -617,17 +637,21 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
               );
             })}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem' }}>
-            <Campo label="Nueva cuenta">
-              <input className="input" value={nombreNueva} onChange={(e) => setNombreNueva(e.target.value)} />
-            </Campo>
-            <Campo label="Notas">
-              <input className="input" value={notasNueva} onChange={(e) => setNotasNueva(e.target.value)} />
-            </Campo>
-          </div>
-          <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void abrirCuenta()}>
-            Abrir cuenta
-          </button>
+          {!soloLectura && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem' }}>
+                <Campo label="Nueva cuenta">
+                  <input className="input" value={nombreNueva} onChange={(e) => setNombreNueva(e.target.value)} />
+                </Campo>
+                <Campo label="Notas">
+                  <input className="input" value={notasNueva} onChange={(e) => setNotasNueva(e.target.value)} />
+                </Campo>
+              </div>
+              <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void abrirCuenta()}>
+                Abrir cuenta
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -642,6 +666,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
                   {cuenta.notas ? ` · ${cuenta.notas}` : ''}
                 </p>
               </div>
+              {!soloLectura && (
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setEditCuenta({ nombre: cuenta.nombre, notas: cuenta.notas || '' })}>Editar</button>
                 <button
@@ -662,6 +687,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
                   Eliminar
                 </button>
               </div>
+              )}
             </div>
             {editCuenta && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem' }}>
@@ -687,7 +713,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             {resumen.saldo < 0 && <p className="muted" style={{ margin: 0 }}>La cuenta queda a favor de la sucursal.</p>}
           </div>
 
-          {!cerrada && (
+          {!cerrada && !soloLectura && (
             <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
               <h4 style={{ margin: 0 }}>Dejar mercancía a crédito</h4>
               <Campo label="Buscar en el catálogo (un código carga ese artículo; no mueve el inventario)">
@@ -744,7 +770,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
                 </tbody>
               </table>
             )}
-            {inventarioCuenta.some((l) => Number(l.cantidad) > 0) && (
+            {!soloLectura && inventarioCuenta.some((l) => Number(l.cantidad) > 0) && (
               <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando} onClick={() => void enviarCompras()}>
                 Enviar inventario a Compras
               </button>
@@ -788,7 +814,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             )}
           </div>
 
-          {!cerrada && inventarioCuenta.some((l) => l.cantidad > 0) && (
+          {!cerrada && !soloLectura && inventarioCuenta.some((l) => l.cantidad > 0) && (
             <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
               <h4 style={{ margin: 0 }}>Retirar de la cuenta</h4>
               <Campo label="Producto">
@@ -831,7 +857,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             {movsCuenta.length === 0 ? <p className="muted" style={{ margin: 0 }}>Sin movimientos.</p> : (
               <table className="table" style={{ width: '100%', fontSize: '0.85rem' }}>
                 <thead>
-                  <tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th>Cant.</th><th>Importe</th><th></th></tr>
+                  <tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th>Cant.</th><th>Importe</th>{!soloLectura && <th></th>}</tr>
                 </thead>
                 <tbody>
                   {movsCuenta.map((m) => (
@@ -841,10 +867,12 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
                       <td>{m.nombre}</td>
                       <td>{fmtQty(m.cantidad)}</td>
                       <td>{fmtMonto(m.importe)}</td>
+                      {!soloLectura && (
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem' }} onClick={() => setEditMov({ id: m.id, nombre: m.nombre, codigo: m.codigo || '', cantidad: m.cantidad, precio: m.precio, notas: m.notas || '' })}>Editar</button>
                         <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem' }} onClick={() => { if (confirm('¿Quitar este movimiento?')) void correr(() => archivarMovimientoFinAnio(supabase, m.id)); }}>Eliminar</button>
                       </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -870,7 +898,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             {abonosCuenta.length === 0 ? <p className="muted" style={{ margin: 0 }}>Sin abonos.</p> : (
               <table className="table" style={{ width: '100%', fontSize: '0.85rem' }}>
                 <thead>
-                  <tr><th>Fecha</th><th>Monto</th><th>Nota</th><th>Quién</th><th></th></tr>
+                  <tr><th>Fecha</th><th>Monto</th><th>Nota</th><th>Quién</th>{!soloLectura && <th></th>}</tr>
                 </thead>
                 <tbody>
                   {abonosCuenta.map((a) => (
@@ -879,10 +907,12 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
                       <td>{fmtMonto(a.monto)}</td>
                       <td>{a.notas || '—'}</td>
                       <td>{a.created_by || '—'}</td>
+                      {!soloLectura && (
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem' }} onClick={() => setEditAbono({ id: a.id, monto: a.monto, notas: a.notas || '' })}>Editar</button>
                         <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem' }} onClick={() => { if (confirm('¿Quitar este abono?')) void correr(() => archivarAbonoFinAnio(supabase, a.id)); }}>Eliminar</button>
                       </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -901,6 +931,11 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
           </div>
         </>
       )}
+      <VisorTutorialModal
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_CREDITO_FIN_ANIO}
+        onCerrar={() => setTutorialAbierto(false)}
+      />
     </div>
   );
 }

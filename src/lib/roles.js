@@ -719,7 +719,7 @@ export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
     Cajero: 'Mostrador: ventas, cortes, checador, compras, cobranza créditos ruta (PIN), abono de fin de año (lo aprueba el repartidor con PIN), consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
-    Repartidor: 'Ruta: recolecciones, Venta en Ruta (POS camión), productos; sin cobranza (la paga el cajero con PIN)',
+    Repartidor: 'Ruta: recolecciones, Venta en Ruta (POS camión), productos; ve las cuentas de crédito fin de año sin poder cambiarlas; sin cobranza (la paga el cajero con PIN)',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN; ve existencias negativas en Productos',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',

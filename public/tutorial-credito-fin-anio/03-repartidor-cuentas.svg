@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef2ff"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+    <filter id="s" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#312e81" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="960" height="520" fill="url(#bg)"/>
+  <text x="48" y="52" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#312e81">El repartidor solo mira Cuentas</text>
+  <text x="48" y="84" font-family="Segoe UI,Arial,sans-serif" font-size="16" fill="#64748b">Venta en Ruta → Crédito fin de año. Puede abrir la tienda. No puede cambiarla.</text>
+
+  <g filter="url(#s)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="40" y="116" width="560" height="360" rx="18" fill="#fff"/>
+    <rect x="64" y="144" width="120" height="40" rx="10" fill="#3730a3"/>
+    <text x="124" y="170" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">Cuentas</text>
+    <rect x="196" y="144" width="140" height="40" rx="10" fill="#f1f5f9" stroke="#e2e8f0"/>
+    <text x="266" y="170" text-anchor="middle" font-size="14" fill="#94a3b8">Liquidación</text>
+    <line x1="206" y1="154" x2="326" y2="174" stroke="#dc2626" stroke-width="3"/>
+    <line x1="326" y1="154" x2="206" y2="174" stroke="#dc2626" stroke-width="3"/>
+
+    <rect x="64" y="210" width="240" height="120" rx="14" fill="#fff" stroke="#3730a3" stroke-width="2"/>
+    <text x="84" y="246" font-size="16" font-weight="700" fill="#3730a3">3B3 Petróleos</text>
+    <text x="84" y="286" font-size="28" font-weight="700" fill="#0f172a">$1,000</text>
+    <text x="84" y="310" font-size="13" fill="#64748b">Total de cuetes</text>
+
+    <rect x="320" y="210" width="240" height="120" rx="14" fill="#fff" stroke="#e2e8f0"/>
+    <text x="340" y="246" font-size="16" font-weight="700" fill="#3730a3">Fusión</text>
+    <text x="340" y="286" font-size="28" font-weight="700" fill="#0f172a">$0</text>
+    <text x="340" y="310" font-size="13" fill="#64748b">Total de cuetes</text>
+
+    <rect x="64" y="356" width="496" height="88" rx="14" fill="#f8fafc"/>
+    <text x="88" y="392" font-size="16" font-weight="700" fill="#0f172a">Al abrir la tienda ve el saldo y los productos.</text>
+    <text x="88" y="418" font-size="15" fill="#64748b">No hay Editar, Eliminar, Dejar mercancía ni Abono.</text>
+  </g>
+
+  <g filter="url(#s)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="624" y="116" width="296" height="360" rx="18" fill="#fff"/>
+    <circle cx="772" cy="200" r="36" fill="#fee2e2"/>
+    <text x="772" y="210" text-anchor="middle" font-size="28" font-weight="700" fill="#b91c1c">✕</text>
+    <text x="772" y="270" text-anchor="middle" font-size="18" font-weight="700" fill="#991b1b">No puede</text>
+    <text x="660" y="320" font-size="16" fill="#334155">Borrar una cuenta</text>
+    <text x="660" y="354" font-size="16" fill="#334155">Cambiar un abono</text>
+    <text x="660" y="388" font-size="16" fill="#334155">Dejar mercancía</text>
+    <text x="660" y="422" font-size="16" fill="#334155">Liquidar</text>
+  </g>
+</svg>
