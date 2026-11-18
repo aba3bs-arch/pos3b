@@ -132,7 +132,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   const [lineaAbierta, setLineaAbierta] = useState('');
   const [tutorialAbierto, setTutorialAbierto] = useState(false);
-  const [camiones, setCamiones] = useState([]);
+  const [inventarioCamion, setInventarioCamion] = useState({ valorTotal: 0, valorReal: 0 });
   const [reciboVer, setReciboVer] = useState(null);
 
   const vistaTiendas = useMemo(
@@ -193,7 +193,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     let vivo = true;
     const leer = async () => {
       const r = await listarInventarioCamiones(supabase);
-      if (vivo) setCamiones(r.ok ? r.camiones : []);
+      if (vivo) setInventarioCamion({ valorTotal: r.valorTotal || 0, valorReal: r.valorReal || 0 });
     };
     void leer();
     const t = setInterval(() => { void leer(); }, 5000);
@@ -490,27 +490,17 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       </div>
 
       {esAdmin && (
-        <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <h4 style={{ margin: 0 }}>Inventario del camión</h4>
-            <span className="muted" style={{ fontSize: '0.8rem' }}>Se actualiza solo. Solo lo ve el administrador.</span>
+        <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Inventario total</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.8rem', fontWeight: 700 }}>{fmtMonto(inventarioCamion.valorTotal)}</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Valor de lo cargado en el camión.</p>
           </div>
-          {camiones.length === 0 ? (
-            <p className="muted" style={{ margin: 0 }}>No hay mercancía disponible en un camión en ruta.</p>
-          ) : camiones.map((cam) => (
-            <div key={cam.id}>
-              <strong>{cam.nombre}</strong>
-              {cam.camion && cam.camion !== cam.nombre ? <span className="muted"> · {cam.camion}</span> : null}
-              <span className="muted"> · {fmtQty(cam.piezas)} pzas</span>
-              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
-                {cam.productos.map((p) => (
-                  <span key={p.id} style={{ fontSize: '0.82rem', padding: '0.2rem 0.45rem', borderRadius: 8, background: 'rgba(55,48,163,0.08)' }}>
-                    {p.nombre} · {fmtQty(p.disponible)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Inventario en tiempo real</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.8rem', fontWeight: 700, color: COLOR }}>{fmtMonto(inventarioCamion.valorReal)}</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Lo que queda después de la venta a crédito. Se actualiza solo.</p>
+          </div>
         </div>
       )}
 
