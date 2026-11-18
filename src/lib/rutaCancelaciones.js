@@ -21,6 +21,7 @@ import {
   folioInvDesdeNotas,
 } from './foliosInventario.js';
 import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
+import { aprobarDevolucionCuetes, esCancelacionCuetes } from './devolucionCuetesRuta.js';
 import { lineasDeCarga } from './ventaEnRuta.js';
 
 /** Variantes de folio VR/CMP con sufijos -E/-C/-M/-ME/-MC (y base sin sufijo). */
@@ -780,6 +781,7 @@ export async function repararTransitosCancelacionesAprobadas(supabase, { limit =
   if (error) return { ok: false, error, limpiados: 0, reparadas: 0 };
 
   for (const sol of data || []) {
+    if (esCancelacionCuetes(sol)) continue;
     const folio = sol.folio_venta || null;
     let venta = null;
     if (sol.venta_id) {
@@ -1601,6 +1603,10 @@ export async function aprobarCancelacionVentaConPin(supabase, {
       auth.user?.nombre || auth.nombre || 'Admin',
     );
     return { ok: false, error: `La solicitud ya está ${sol.estado}.`, yaResuelta: true };
+  }
+
+  if (esCancelacionCuetes(sol)) {
+    return aprobarDevolucionCuetes(supabase, sol, auth);
   }
 
   const { data: ventaDb, error: eV } = await supabase

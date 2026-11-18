@@ -233,6 +233,12 @@ export async function revertirAjusteCamion(supabase, cambios) {
   return aplicarQtyVendida(supabase, inversos);
 }
 
+/** Aplica un plan ya armado (baja qty_vendida). No busca el camión del usuario. */
+export async function aplicarPlanDevolucionCamion(supabase, asignaciones) {
+  if (!asignaciones?.length) return { ok: false, error: 'No hay piezas para devolver al camión.' };
+  return aplicarQtyVendida(supabase, asignaciones);
+}
+
 export async function listarInventarioCamiones(supabase) {
   if (!supabase) return { ok: false, camiones: [], error: 'Sin conexión.' };
   const c = await listarCargasRuta(supabase, { estado: 'en_ruta', limit: 40 });
