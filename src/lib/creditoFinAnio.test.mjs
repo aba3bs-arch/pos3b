@@ -173,19 +173,19 @@ assert.equal(porNombre[0].id, '7502');
 assert.equal(productoParaCargarFinAnio(catalogo, '93A')?.id, '7503');
 
 assert.equal(puedeAccionVentaRuta('Administrador', '1', 'ruta_fin_anio'), true);
-assert.equal(puedeAccionVentaRuta('Gerente', '2', 'ruta_fin_anio'), true);
-assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio'), true);
-assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio_abono'), true);
-assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio'), true);
+assert.equal(puedeAccionVentaRuta('Gerente', '2', 'ruta_fin_anio'), false);
+assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio'), false);
+assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio_abono'), false);
+assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio'), false);
 assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio_abono'), false);
-assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio_mercancia'), true);
+assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio_mercancia'), false);
 assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio_mercancia'), false);
 assert.ok(!subcomandosVentaRutaVisibles('Repartidor', '4').some((s) => s.id === 'ruta_fin_anio_mercancia'));
-assert.ok(subcomandosVentaRutaVisibles('Repartidor', '4').some((s) => s.id === 'ruta_fin_anio'));
+assert.ok(!subcomandosVentaRutaVisibles('Repartidor', '4').some((s) => s.id === 'ruta_fin_anio'));
 assert.equal(puedeAccionVentaRuta('Gerente', '2', 'ruta_fin_anio_abono'), false);
 assert.equal(puedeAccionVentaRuta('Administrador', '1', 'ruta_fin_anio_abono'), true);
-assert.ok(subcomandosVentaRutaVisibles('Administrador', '1').some((s) => s.id === 'ruta_fin_anio'));
-assert.ok(subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio'));
+assert.ok(!subcomandosVentaRutaVisibles('Administrador', '1').some((s) => s.id === 'ruta_fin_anio'));
+assert.ok(!subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio'));
 assert.ok(!subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio_abono'));
 
 const cuentaCajero = cuentaAbiertaDeTienda(
