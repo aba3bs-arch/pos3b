@@ -26,6 +26,7 @@ import {
   listarProveedoresEnFilas,
   parsearTextoPegado,
 } from '../lib/importarCatalogo.js';
+import { cargarTodosLosVinculosProveedor } from '../lib/cargarVinculosProveedor.js';
 import { vaciarInventario, opcionesVaciado } from '../lib/borrarInventario.js';
 import { registrarCambioPrecio, leerProductoInventarioFresco } from '../lib/inventarioMovimientos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoEsFavorito, productoParaGuardar, productoVacio, patchToggleFavoritoSucursal } from '../lib/productoForm.js';
@@ -247,12 +248,15 @@ export default function Productos({
   /** Inventario mostrado en listas CEDIS (no muta el catálogo global). */
   const inventarioVista = useMemo(() => {
     if (!filtroCatalogoCedis) return inventario || [];
-    // Hasta resolver proveedor, mostrar solo deptos; luego exigir vínculo CEDIS LAS 3B.
+    // tickDepartamentos obliga a releer deptos CEDIS después de sincronizar la nube
+    // (CUETES y otros extras viven en localStorage y no son estado de React).
+    const departamentosCedis = tickDepartamentos >= 0 ? listarDepartamentosCatalogoCedis() : [];
     return filtrarInventarioCatalogoCedis(inventario, {
       idsProveedorCedis,
       exigirProveedor: Boolean(proveedorCedisId),
+      departamentos: departamentosCedis,
     });
-  }, [filtroCatalogoCedis, inventario, idsProveedorCedis, proveedorCedisId]);
+  }, [filtroCatalogoCedis, inventario, idsProveedorCedis, proveedorCedisId, tickDepartamentos]);
 
   const chipsExistencia = useMemo(
     () => (verNegativos ? FILTROS_CHIP.existencia : FILTROS_CHIP.existencia.filter((c) => c.id !== 'negativa')),
@@ -357,15 +361,15 @@ export default function Productos({
 
   const cargarMapaProveedores = async () => {
     if (!supabase) return;
-    const { data, error } = await supabase.from('proveedor_producto').select('proveedor_id, producto_id');
-    if (error) {
+    const res = await cargarTodosLosVinculosProveedor(supabase);
+    if (!res.ok) {
       setProductosPorProveedor(new Map());
       setIdsConProveedor(new Set());
       return;
     }
     const map = new Map();
     const todos = new Set();
-    for (const row of data || []) {
+    for (const row of res.data || []) {
       const prov = String(row.proveedor_id ?? '').trim();
       const prod = String(row.producto_id ?? '').trim();
       if (!prov || !prod) continue;
