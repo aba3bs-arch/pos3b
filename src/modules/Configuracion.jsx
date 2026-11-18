@@ -180,6 +180,11 @@ import {
   tieneAccionVentaRuta,
 } from '../lib/ventaEnRutaAcciones.js';
 import {
+  ACCIONES_CUADRE_PRIVILEGIO,
+  esLuzElenaCuadre,
+  puedeAjustarCuadre,
+} from '../lib/cuadrePrivilegios.js';
+import {
   leerVentanaRecoleccion,
   guardarVentanaRecoleccion,
   etiquetaVentanaRecoleccion,
@@ -2308,6 +2313,58 @@ export default function Configuracion({
                             <strong>{acc.label}</strong>
                             {esDefecto && !explicito && checked && (
                               <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.72rem' }}>(por defecto del rol)</span>
+                            )}
+                            <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem', lineHeight: 1.35 }}>{acc.desc}</div>
+                          </span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.85rem',
+                    borderRadius: '10px',
+                    background: 'rgba(15,118,110,0.06)',
+                    border: '1px solid rgba(15,118,110,0.22)',
+                    borderLeft: '4px solid #0f766e',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: '#0f766e' }}>Consultas — Cuadre de piezas</h4>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                    Baja del piso las piezas vendidas que el inventario no descontó.
+                    El administrador siempre puede. Luz Elena también.
+                    Márcalo aquí para dárselo a otro rol o empleado.
+                  </p>
+                  {ACCIONES_CUADRE_PRIVILEGIO.map((acc) => {
+                    const usuarioPriv = privModo === 'usuario'
+                      ? usuariosTurno.find((u) => String(u.id) === String(privKey))
+                      : null;
+                    const sujeto = privModo === 'usuario'
+                      ? { id: privKey, nombre: usuarioPriv?.nombre, rol: rolBase }
+                      : { rol: rolBase };
+                    const checked = privKey ? puedeAjustarCuadre(sujeto, privilegios) : false;
+                    const porLuz = Boolean(usuarioPriv && esLuzElenaCuadre(sujeto) && !leerAccionPrivilegio(acc.id, privModo, privKey));
+                    return (
+                      <div key={acc.id} style={{ marginBottom: '0.5rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!privKey}
+                            style={{ marginTop: '0.2rem' }}
+                            onChange={(e) => {
+                              if (!privKey) return;
+                              const next = guardarAccionPrivilegioExplicit(acc.id, privModo, privKey, e.target.checked);
+                              aplicarAccionYSubir(next);
+                            }}
+                          />
+                          <span>
+                            <strong>{acc.label}</strong>
+                            {porLuz && checked && (
+                              <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.72rem' }}>(Luz Elena)</span>
                             )}
                             <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem', lineHeight: 1.35 }}>{acc.desc}</div>
                           </span>
