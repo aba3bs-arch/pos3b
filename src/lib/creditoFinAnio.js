@@ -560,7 +560,7 @@ export async function registrarAbonoFinAnio(supabase, cuentaId, {
     }, { cajero: nombreDe(user) });
     if (!gas.ok) avisos.push(`El abono quedó en la cuenta. No se anotó el gasto en Abarrotes: ${gas.error}`);
   }
-  return { ok: true, aviso: avisos.filter(Boolean).join(' '), liquidacionId: acum.id || null };
+  return { ok: true, aviso: avisos.filter(Boolean).join(' '), liquidacionId: acum.id || null, abonoId: data?.id || null };
 }
 
 /** Suma el abono a la liquidación abierta. Si no hay, abre una línea nueva. */

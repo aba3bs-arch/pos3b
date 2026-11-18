@@ -150,6 +150,7 @@ import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
 import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
 import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOverlay.jsx';
 import AlertaAprobacionCobroRutaOverlay from './components/AlertaAprobacionCobroRutaOverlay.jsx';
+import AlertaAbonoFinAnioOverlay from './components/AlertaAbonoFinAnioOverlay.jsx';
 import AlertaExtensionTurnoOverlay from './components/AlertaExtensionTurnoOverlay.jsx';
 import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
@@ -2189,6 +2190,12 @@ function App() {
         ) : null}
         {user && !user.esCtMovil && esRolRepartidor(user.rol) ? (
           <AlertaAprobacionCobroRutaOverlay
+            supabase={supabase}
+            user={user}
+          />
+        ) : null}
+        {user && !user.esCtMovil && esRolRepartidor(user.rol) ? (
+          <AlertaAbonoFinAnioOverlay
             supabase={supabase}
             user={user}
           />

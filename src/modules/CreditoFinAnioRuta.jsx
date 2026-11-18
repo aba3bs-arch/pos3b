@@ -25,14 +25,21 @@ import {
   listarRecibosFinAnio,
   nombreCuentaFinAnio,
   productoParaCargarFinAnio,
-  registrarAbonoFinAnio,
   resumenCuenta,
   saldosTarjetas,
   sugerenciasCatalogoFinAnio,
   totalAntesDeLiquidar,
   totalTarjetas,
 } from '../lib/creditoFinAnio.js';
+import {
+  cancelarSolicitudAbonoFinAnio,
+  listarRepartidoresParaAbono,
+  listarSolicitudesAbonoCuenta,
+  solicitarAbonoFinAnio,
+  solicitudAbonoPendiente,
+} from '../lib/creditoFinAnioAbonoAprobacion.js';
 import { imprimirPedidoCompra } from '../lib/impresion.js';
+import { puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
 
 const COLOR = '#3730a3';
 
@@ -99,11 +106,15 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [busca, setBusca] = useState('');
   const [retiroClave, setRetiroClave] = useState('');
   const [retiro, setRetiro] = useState({ cantidad: '', precio: '', notas: '' });
-  const [abono, setAbono] = useState({ monto: '', notas: '' });
+  const [abono, setAbono] = useState({ monto: '', notas: '', repartidorId: '' });
+  const [repartidores, setRepartidores] = useState([]);
+  const [solicitudes, setSolicitudes] = useState([]);
+  const [marcaSolicitudes, setMarcaSolicitudes] = useState(0);
   const [editCuenta, setEditCuenta] = useState(null);
   const [editMov, setEditMov] = useState(null);
   const [editAbono, setEditAbono] = useState(null);
   const [pestana, setPestana] = useState('cuentas');
+  const puedeAbonar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_fin_anio_abono');
   const [lineaAbierta, setLineaAbierta] = useState('');
   const [reciboVer, setReciboVer] = useState(null);
 
@@ -127,11 +138,27 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     setRecibos(rec.faltaTabla ? [] : (rec.data || []));
     setLiquidaciones(liq.faltaTabla ? [] : (liq.data || []));
     setAviso(c.aviso || m.aviso || a.aviso || c.error || m.error || a.error || '');
-  }, [supabase]);
+    if (puedeAbonar) {
+      const reps = await listarRepartidoresParaAbono(supabase);
+      setRepartidores(reps.ok ? reps.data : []);
+    }
+  }, [supabase, puedeAbonar]);
 
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  useEffect(() => {
+    if (!supabase || !cuentaId || !puedeAbonar) { setSolicitudes([]); return undefined; }
+    let vigente = true;
+    const leer = async () => {
+      const r = await listarSolicitudesAbonoCuenta(supabase, cuentaId);
+      if (vigente) setSolicitudes(r.ok ? r.data : []);
+    };
+    void leer();
+    const t = setInterval(() => { void leer(); }, 15000);
+    return () => { vigente = false; clearInterval(t); };
+  }, [supabase, cuentaId, puedeAbonar, marcaSolicitudes]);
 
   const tarjetas = useMemo(
     () => saldosTarjetas(tiendas, cuentas, movimientos, abonos),
@@ -185,6 +212,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       return false;
     }
     await cargar();
+    setMarcaSolicitudes((n) => n + 1);
     if (r.aviso) alert(r.aviso);
     return r;
   };
@@ -231,16 +259,19 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const abonar = async () => {
-    const ok = await correr(() => registrarAbonoFinAnio(supabase, cuenta.id, {
-      ...abono,
+    const rep = repartidores.find((r) => String(r.id) === String(abono.repartidorId));
+    const ok = await correr(() => solicitarAbonoFinAnio(supabase, {
+      cuentaId: cuenta.id,
       sucursalId: cuenta.sucursal_id || sucursalId,
-      tiendas,
-      cuentas,
-      movimientos,
-      abonos,
-    }, user));
+      monto: abono.monto,
+      notas: abono.notas,
+      repartidorId: abono.repartidorId,
+      repartidorNombre: rep?.nombre,
+      cajero: user,
+    }));
     if (!ok) return;
-    setAbono({ monto: '', notas: '' });
+    setAbono({ monto: '', notas: '', repartidorId: '' });
+    alert(`Se envió el abono a ${rep?.nombre || 'el repartidor'}. Tiene que aprobarlo con su PIN. Si no lo aprueba, no se registra el abono ni el gasto.`);
   };
 
   const liquidar = async () => {
@@ -702,18 +733,43 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             </div>
           )}
 
-          {!cerrada && (
+          {!cerrada && puedeAbonar && (
             <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
               <h4 style={{ margin: 0 }}>Abono a la cuenta</h4>
+              <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+                Tú entregas el dinero. El repartidor lo aprueba con su PIN. Si no aprueba, no entra a gastos y se cancela.
+              </p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem' }}>
                 <Campo label="Monto">
                   <input className="input" inputMode="decimal" value={abono.monto} onChange={(e) => setAbono({ ...abono, monto: e.target.value })} />
+                </Campo>
+                <Campo label="Repartidor que recibe">
+                  <select className="input" value={abono.repartidorId} onChange={(e) => setAbono({ ...abono, repartidorId: e.target.value })}>
+                    <option value="">Elige</option>
+                    {repartidores.map((r) => (
+                      <option key={r.id} value={r.id}>{r.nombre}</option>
+                    ))}
+                  </select>
                 </Campo>
                 <Campo label="Nota">
                   <input className="input" value={abono.notas} onChange={(e) => setAbono({ ...abono, notas: e.target.value })} />
                 </Campo>
               </div>
-              <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void abonar()}>Registrar abono</button>
+              <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void abonar()}>Enviar abono</button>
+              {solicitudes.filter(solicitudAbonoPendiente).map((s) => (
+                <div key={s.id} style={{ padding: '0.55rem 0.7rem', borderRadius: 8, background: 'rgba(55,48,163,0.08)', fontSize: '0.85rem' }}>
+                  <strong>{fmtMonto(s.monto)}</strong> esperando a {s.repartidor_nombre || 'el repartidor'}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ marginLeft: 8, fontSize: '0.78rem' }}
+                    onClick={() => {
+                      if (!confirm('¿Cancelar este abono? No se registrará el gasto.')) return;
+                      void correr(() => cancelarSolicitudAbonoFinAnio(supabase, { solicitudId: s.id, cajeroNombre: user?.nombre }));
+                    }}
+                  >Cancelar</button>
+                </div>
+              ))}
             </div>
           )}
 

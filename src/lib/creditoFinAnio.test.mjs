@@ -168,10 +168,15 @@ assert.equal(productoParaCargarFinAnio(catalogo, '93A')?.id, '7503');
 
 assert.equal(puedeAccionVentaRuta('Administrador', '1', 'ruta_fin_anio'), true);
 assert.equal(puedeAccionVentaRuta('Gerente', '2', 'ruta_fin_anio'), true);
-assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio'), false);
+assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio'), true);
+assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio_abono'), true);
 assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio'), false);
+assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio_abono'), false);
+assert.equal(puedeAccionVentaRuta('Gerente', '2', 'ruta_fin_anio_abono'), false);
+assert.equal(puedeAccionVentaRuta('Administrador', '1', 'ruta_fin_anio_abono'), true);
 assert.ok(subcomandosVentaRutaVisibles('Administrador', '1').some((s) => s.id === 'ruta_fin_anio'));
-assert.ok(!subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio'));
+assert.ok(subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio'));
+assert.ok(!subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio_abono'));
 
 function memoriaFinAnio() {
   const tables = {};

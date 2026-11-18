@@ -86,6 +86,7 @@ import { TUTORIAL_VENTA_EN_RUTA } from '../content/tutorialVentaEnRuta.js';
 import CorteRuta from './CorteRuta.jsx';
 import ConsolidacionRuta from './ConsolidacionRuta.jsx';
 import AlertaAprobacionCobroRutaOverlay from '../components/AlertaAprobacionCobroRutaOverlay.jsx';
+import AlertaAbonoFinAnioOverlay from '../components/AlertaAbonoFinAnioOverlay.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
 import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
@@ -258,6 +259,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
       {vendedorSesion && !esRolRepartidor(user?.rol) && (
         <AlertaAprobacionCobroRutaOverlay supabase={supabase} user={user} sesion={vendedorSesion} />
+      )}
+      {vendedorSesion && !esRolRepartidor(user?.rol) && (
+        <AlertaAbonoFinAnioOverlay supabase={supabase} user={user} sesion={vendedorSesion} />
       )}
       {vendedorSesion && (vista === 'hub' || vista === 'venta') && (
         <div

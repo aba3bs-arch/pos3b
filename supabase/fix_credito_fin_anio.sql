@@ -123,3 +123,38 @@ alter table public.credito_fin_anio_liquidaciones enable row level security;
 drop policy if exists "credito_fin_anio_liquidaciones_anon_rw" on public.credito_fin_anio_liquidaciones;
 create policy "credito_fin_anio_liquidaciones_anon_rw" on public.credito_fin_anio_liquidaciones
   for all using (true) with check (true);
+
+-- El cajero pide el abono. No se registra ni el abono ni el gasto hasta que
+-- el repartidor lo aprueba con su PIN.
+create table if not exists public.credito_fin_anio_abono_solicitudes (
+  id uuid primary key default gen_random_uuid(),
+  cuenta_id uuid not null,
+  sucursal_id text not null,
+  monto numeric(12,2) not null check (monto > 0),
+  notas text,
+  cajero_id text,
+  cajero_nombre text,
+  repartidor_id text not null,
+  repartidor_nombre text,
+  repartidor_aliases text[] not null default '{}',
+  estado text not null default 'pendiente',
+  motivo text,
+  resuelta_por text,
+  resuelta_at timestamptz,
+  aplicada_at timestamptz,
+  abono_id uuid,
+  created_at timestamptz default now(),
+  archived_at timestamptz
+);
+
+create index if not exists idx_credito_fin_anio_abono_sol_estado
+  on public.credito_fin_anio_abono_solicitudes (estado, created_at desc);
+
+create index if not exists idx_credito_fin_anio_abono_sol_aliases
+  on public.credito_fin_anio_abono_solicitudes using gin (repartidor_aliases);
+
+alter table public.credito_fin_anio_abono_solicitudes enable row level security;
+
+drop policy if exists "credito_fin_anio_abono_sol_anon_rw" on public.credito_fin_anio_abono_solicitudes;
+create policy "credito_fin_anio_abono_sol_anon_rw" on public.credito_fin_anio_abono_solicitudes
+  for all using (true) with check (true);
