@@ -44,6 +44,12 @@ import { imprimirPedidoCompra } from '../lib/impresion.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_CREDITO_FIN_ANIO } from '../content/tutorialCreditoFinAnio.js';
 import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
+import {
+  descontarProductoDelCamion,
+  devolverProductoAlCamion,
+  listarInventarioCamiones,
+  revertirAjusteCamion,
+} from '../lib/creditoFinAnioCamion.js';
 import { puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
 
 const COLOR = '#3730a3';
@@ -123,8 +129,10 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const soloAbono = normalizarRol(user?.rol) === 'Cajero' && puedeAbonar;
   const soloLectura = esRolRepartidor(user?.rol);
   const puedeMercancia = !soloLectura || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_fin_anio_mercancia');
+  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   const [lineaAbierta, setLineaAbierta] = useState('');
   const [tutorialAbierto, setTutorialAbierto] = useState(false);
+  const [camiones, setCamiones] = useState([]);
   const [reciboVer, setReciboVer] = useState(null);
 
   const vistaTiendas = useMemo(
@@ -179,6 +187,18 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     const next = elegida?.id ? String(elegida.id) : '';
     if (String(cuentaId || '') !== next) setCuentaId(next);
   }, [soloAbono, sucSesion, sucursalId, cuentaId, cuentas, movimientos, abonos]);
+
+  useEffect(() => {
+    if (!esAdmin || !supabase) return undefined;
+    let vivo = true;
+    const leer = async () => {
+      const r = await listarInventarioCamiones(supabase);
+      if (vivo) setCamiones(r.ok ? r.camiones : []);
+    };
+    void leer();
+    const t = setInterval(() => { void leer(); }, 5000);
+    return () => { vivo = false; clearInterval(t); };
+  }, [esAdmin, supabase, marcaSolicitudes]);
 
   const tarjetas = useMemo(
     () => saldosTarjetas(tiendas, cuentas, movimientos, abonos),
@@ -270,7 +290,17 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
 
   const dejar = async () => {
     if (!puedeMercancia) return alert('No puedes ingresar mercancía.');
+    let ajuste = null;
+    if (soloLectura) {
+      ajuste = await descontarProductoDelCamion(supabase, {
+        user,
+        productoId: deja.codigo,
+        cantidad: deja.cantidad,
+      });
+      if (!ajuste.ok) return alert(ajuste.error || 'No se pudo descontar del camión.');
+    }
     const ok = await correr(() => dejarMercanciaFinAnio(supabase, cuenta.id, deja, user));
+    if (!ok && ajuste?.cambios) await revertirAjusteCamion(supabase, ajuste.cambios);
     if (!ok) return;
     setDeja({ codigo: '', nombre: '', cantidad: '', precio: '', notas: '' });
     setBusca('');
@@ -279,6 +309,15 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const retirar = async () => {
     if (!puedeMercancia) return alert('No puedes retirar mercancía.');
     if (!lineaRetiro) return alert('Elige un producto del inventario de la cuenta.');
+    let ajuste = null;
+    if (soloLectura) {
+      ajuste = await devolverProductoAlCamion(supabase, {
+        user,
+        productoId: lineaRetiro.codigo,
+        cantidad: retiro.cantidad,
+      });
+      if (!ajuste.ok) return alert(ajuste.error || 'No se pudo devolver al camión.');
+    }
     const ok = await correr(() => retirarMercanciaFinAnio(supabase, cuenta.id, {
       codigo: lineaRetiro.codigo,
       nombre: lineaRetiro.nombre,
@@ -286,7 +325,10 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       precio: retiro.precio === '' ? (lineaRetiro.cantidad ? lineaRetiro.valor / lineaRetiro.cantidad : 0) : retiro.precio,
       notas: retiro.notas,
     }, lineaRetiro.cantidad, user));
-    if (!ok) return;
+    if (!ok) {
+      if (ajuste?.cambios) await revertirAjusteCamion(supabase, ajuste.cambios);
+      return;
+    }
     setRetiro({ cantidad: '', precio: '', notas: '' });
     setRetiroClave('');
   };
@@ -442,10 +484,35 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         <h3 style={{ margin: 0, color: COLOR }}>Crédito fin de año</h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {soloLectura
-            ? 'Puedes ingresar producto y retirarlo si te equivocas. No puedes editar, borrar, abonar ni liquidar.'
+            ? 'Al dejar un producto se descuenta de tu camión. Si te equivocas, retíralo y regresa. No puedes editar, borrar, abonar ni liquidar.'
             : 'Registro propio de cada sucursal: mercancía dejada a crédito, inventario de la cuenta y abonos. Sirve para el cierre de este año.'}
         </p>
       </div>
+
+      {esAdmin && (
+        <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <h4 style={{ margin: 0 }}>Inventario del camión</h4>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>Se actualiza solo. Solo lo ve el administrador.</span>
+          </div>
+          {camiones.length === 0 ? (
+            <p className="muted" style={{ margin: 0 }}>No hay mercancía disponible en un camión en ruta.</p>
+          ) : camiones.map((cam) => (
+            <div key={cam.id}>
+              <strong>{cam.nombre}</strong>
+              {cam.camion && cam.camion !== cam.nombre ? <span className="muted"> · {cam.camion}</span> : null}
+              <span className="muted"> · {fmtQty(cam.piezas)} pzas</span>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
+                {cam.productos.map((p) => (
+                  <span key={p.id} style={{ fontSize: '0.82rem', padding: '0.2rem 0.45rem', borderRadius: 8, background: 'rgba(55,48,163,0.08)' }}>
+                    {p.nombre} · {fmtQty(p.disponible)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {aviso && (
         <div className="card" style={{ borderLeft: '4px solid #b45309' }}>
@@ -717,7 +784,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
           {!cerrada && puedeMercancia && (
             <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
               <h4 style={{ margin: 0 }}>Dejar mercancía a crédito</h4>
-              <Campo label="Buscar en el catálogo (un código carga ese artículo; no mueve el inventario)">
+              <Campo label="Buscar en el catálogo (un código carga ese artículo y lo descuenta del camión)">
                 <input className="input" value={busca} placeholder="Código o nombre" onChange={(e) => setBusca(e.target.value)} />
               </Campo>
               {sugerencias.length > 0 && (
