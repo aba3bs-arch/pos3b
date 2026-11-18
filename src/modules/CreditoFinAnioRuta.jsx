@@ -352,22 +352,26 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       {!sucursalId && pestana === 'liquidacion' && (
         <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 640 }}>
           <div>
-            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total de las tiendas</p>
-            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{fmtMonto(totalTiendas)}</p>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Liquidación</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{fmtMonto(enCurso ? enCurso.monto : 0)}</p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-              Es la suma de las tarjetas. Los abonos ya están descontados.
+              Solo cuenta el dinero que las tiendas ya abonaron. Si nadie ha pagado, queda en cero.
             </p>
           </div>
-          <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
-            Cada abono de una tienda se descuenta del crédito y se suma a la liquidación en curso.
-          </p>
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Crédito pendiente</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.15rem', fontWeight: 700 }}>{fmtMonto(totalTiendas)}</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+              Es lo que dejaste a crédito, la suma de las tarjetas. Cada abono se descuenta de aquí y pasa a la liquidación.
+            </p>
+          </div>
           <button type="button" className="btn btn-primary" disabled={guardando || !enCurso} onClick={() => void liquidar()}>
             Liquidar{enCurso ? ` · ${fmtMonto(enCurso.monto)}` : ''}
           </button>
           <div>
             <h4 style={{ margin: '0.2rem 0 0.5rem' }}>Registro</h4>
             {liquidaciones.filter((row) => Number(row.monto) > 0).length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>Los abonos de las tiendas van a aparecer aquí, en una sola línea.</p>
+              <p className="muted" style={{ margin: 0 }}>Sin abonos, el registro queda vacío. Cuando una tienda pague, aquí aparece una línea con ese total.</p>
             ) : (
               <div style={{ display: 'grid', gap: '0.4rem' }}>
                 {liquidaciones.filter((row) => Number(row.monto) > 0).map((row) => {
