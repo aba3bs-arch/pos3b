@@ -494,12 +494,12 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Inventario total</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.8rem', fontWeight: 700 }}>{fmtMonto(inventarioCamion.valorTotal)}</p>
-            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Valor de lo cargado en el camión.</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Valor de los cuetes cargados en el camión.</p>
           </div>
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Inventario en tiempo real</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.8rem', fontWeight: 700, color: COLOR }}>{fmtMonto(inventarioCamion.valorReal)}</p>
-            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Lo que queda después de la venta a crédito. Se actualiza solo.</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Cuetes que quedan después de la venta a crédito. Se actualiza solo.</p>
           </div>
         </div>
       )}

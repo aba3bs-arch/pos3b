@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { agruparInventarioCamion, cifrasInventarioCamion, planDevolucionCamion } from './creditoFinAnioCamion.js';
+import {
+  agruparInventarioCamion,
+  cifrasInventarioCamion,
+  lineasInventarioCuetes,
+  planDevolucionCamion,
+} from './creditoFinAnioCamion.js';
 import { asignarVentaALineasProducto } from './ventaEnRuta.js';
 
 const cargas = [
@@ -19,6 +24,17 @@ assert.equal(grupos[0].productos.find((p) => p.id === '85'), undefined);
 const cifras = cifrasInventarioCamion(grupos);
 assert.equal(cifras.valorTotal, 600);
 assert.equal(cifras.valorReal, 375);
+
+const soloCuetes = lineasInventarioCuetes(lineas, [
+  { id: '93', cat: 'CUETES', precio_ruta: 30 },
+  { id: '85', cat: 'CIGARROS', precio_ruta: 100 },
+]);
+assert.equal(soloCuetes.length, 1);
+assert.equal(soloCuetes[0].producto_id, '93');
+assert.equal(soloCuetes[0].precio, 30);
+const cifrasCuete = cifrasInventarioCamion(agruparInventarioCamion(cargas, soloCuetes));
+assert.equal(cifrasCuete.valorTotal, 600);
+assert.equal(cifrasCuete.valorReal, 450);
 
 const venta = asignarVentaALineasProducto(
   [{ id: 'l1', producto_id: '93', qty_cargada: 20, qty_vendida: 5, qty_devuelta: 0 }],
