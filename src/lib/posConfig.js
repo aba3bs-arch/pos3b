@@ -454,6 +454,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'ruta_gastos', label: 'Venta en Ruta — Gastos (foto ticket → RC)' },
   { id: 'ruta_cancelacion', label: 'Venta en Ruta — Cancelación / Devolución' },
   { id: 'ruta_liquidacion', label: 'Venta en Ruta — RC/VentaRuta' },
+  { id: 'ruta_fin_anio', label: 'Venta en Ruta — Crédito fin de año' },
   { id: 'prod_alta', label: 'Productos — Nuevo producto' },
   { id: 'prod_ajuste', label: 'Productos — Ajuste de inventario' },
   { id: 'prod_traspaso', label: 'Productos — Traspasos' },

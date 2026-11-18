@@ -45,6 +45,14 @@ export const SUBCOMANDOS_VENTA_RUTA = [
     grupo: 'oper',
   },
   { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios', icon: 'register', grupo: 'admin' },
+  {
+    id: 'ruta_fin_anio',
+    vista: 'finanio',
+    label: 'Crédito fin de año',
+    desc: 'Cuentas e inventario de crédito dejado en sucursales. Aparte de venta y recolección.',
+    icon: 'package',
+    grupo: 'admin',
+  },
 ];
 
 /** Defaults por rol cuando no hay checkbox en Configuración. */
