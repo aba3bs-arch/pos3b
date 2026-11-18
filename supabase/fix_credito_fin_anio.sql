@@ -93,10 +93,27 @@ create table if not exists public.credito_fin_anio_liquidaciones (
   pendiente numeric(12,2) not null default 0,
   total_antes numeric(12,2) not null default 0,
   detalle jsonb not null default '[]'::jsonb,
+  estado text not null default 'abierta',
   created_by text,
   created_at timestamptz default now(),
   archived_at timestamptz
 );
+
+alter table public.credito_fin_anio_liquidaciones
+  add column if not exists estado text;
+
+update public.credito_fin_anio_liquidaciones
+  set estado = 'cerrada'
+  where estado is null;
+
+alter table public.credito_fin_anio_liquidaciones
+  alter column estado set default 'abierta';
+
+alter table public.credito_fin_anio_abonos
+  add column if not exists sucursal_id text;
+
+alter table public.credito_fin_anio_abonos
+  add column if not exists liquidacion_id uuid;
 
 create index if not exists idx_credito_fin_anio_liquidaciones_fecha
   on public.credito_fin_anio_liquidaciones (created_at desc);

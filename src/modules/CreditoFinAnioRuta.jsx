@@ -7,24 +7,23 @@ import {
   archivarAbonoFinAnio,
   archivarCuentaFinAnio,
   archivarMovimientoFinAnio,
+  cerrarLiquidacionFinAnio,
   codigoVisibleProducto,
-  detalleLiquidacion,
+  desgloseLiquidacion,
   crearCuentaFinAnio,
-  creditoPendienteTrasRecoleccion,
   dejarMercanciaFinAnio,
   editarAbonoFinAnio,
   editarCuentaFinAnio,
   editarMovimientoFinAnio,
   enviarInventarioACompras,
   inventarioDeMovimientos,
-  liquidarRecoleccionFinAnio,
+  liquidacionEnCurso,
   listarAbonosFinAnio,
   listarCuentasFinAnio,
   listarLiquidacionesFinAnio,
   listarMovimientosFinAnio,
   listarRecibosFinAnio,
   nombreCuentaFinAnio,
-  planLiquidacion,
   productoParaCargarFinAnio,
   registrarAbonoFinAnio,
   resumenCuenta,
@@ -104,7 +103,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [editMov, setEditMov] = useState(null);
   const [editAbono, setEditAbono] = useState(null);
   const [pestana, setPestana] = useState('cuentas');
-  const [recoleccion, setRecoleccion] = useState('');
+  const [lineaAbierta, setLineaAbierta] = useState('');
   const [reciboVer, setReciboVer] = useState(null);
 
   const tiendas = useMemo(
@@ -138,11 +137,8 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     [tiendas, cuentas, movimientos, abonos],
   );
   const totalTiendas = useMemo(() => totalTarjetas(tarjetas), [tarjetas]);
-  const recoleccionNum = Number(recoleccion);
-  const pendienteVista = creditoPendienteTrasRecoleccion(
-    totalTiendas,
-    Number.isFinite(recoleccionNum) && recoleccionNum > 0 ? recoleccionNum : 0,
-  );
+  const abierta = liquidacionEnCurso(liquidaciones);
+  const enCurso = abierta && Number(abierta.monto) > 0 ? abierta : null;
   const cuentasTienda = useMemo(
     () => cuentas.filter((c) => String(c.sucursal_id || '').toUpperCase() === sucursalId),
     [cuentas, sucursalId],
@@ -237,20 +233,21 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     const ok = await correr(() => registrarAbonoFinAnio(supabase, cuenta.id, {
       ...abono,
       sucursalId: cuenta.sucursal_id || sucursalId,
+      tiendas,
+      cuentas,
+      movimientos,
+      abonos,
     }, user));
     if (!ok) return;
     setAbono({ monto: '', notas: '' });
   };
 
   const liquidar = async () => {
-    const plan = planLiquidacion({ tiendas, cuentas, movimientos, abonos, monto: recoleccion });
-    if (!plan.ok) return alert(plan.error);
-    if (!confirm(`¿Liquidar ${fmtMonto(plan.aplicado)}?\nQueda crédito pendiente ${fmtMonto(plan.pendiente)}.`)) return;
-    const ok = await correr(() => liquidarRecoleccionFinAnio(supabase, {
-      tiendas, cuentas, movimientos, abonos, monto: recoleccion, user,
-    }));
+    if (!enCurso) return alert('Primero registra el abono en la tienda. Aquí se va acumulando.');
+    if (!confirm(`¿Cerrar esta liquidación de ${fmtMonto(enCurso.monto)}?\nLos siguientes abonos abrirán otra línea.`)) return;
+    const ok = await correr(() => cerrarLiquidacionFinAnio(supabase, enCurso.id));
     if (!ok) return;
-    setRecoleccion('');
+    setLineaAbierta('');
   };
 
   const imprimirRecibo = (recibo) => {
@@ -361,58 +358,73 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
               Es la suma de las tarjetas. Los abonos ya están descontados.
             </p>
           </div>
-          <Campo label="Recolección">
-            <input
-              className="input"
-              inputMode="decimal"
-              value={recoleccion}
-              placeholder="0.00"
-              onChange={(e) => setRecoleccion(e.target.value)}
-            />
-          </Campo>
-          <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void liquidar()}>
-            Liquidar
+          <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+            Cada abono de una tienda se descuenta del crédito y se suma a la liquidación en curso.
+          </p>
+          <button type="button" className="btn btn-primary" disabled={guardando || !enCurso} onClick={() => void liquidar()}>
+            Liquidar{enCurso ? ` · ${fmtMonto(enCurso.monto)}` : ''}
           </button>
-          {recoleccion.trim() && Number(recoleccion) > totalTiendas + 0.001 && (
-            <p style={{ margin: 0, color: '#b45309' }}>La recolección no puede ser mayor que el crédito pendiente.</p>
-          )}
           <div>
-            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Crédito pendiente</p>
-            <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700, color: COLOR }}>
-              {fmtMonto(recoleccion.trim() && Number(recoleccion) > 0 && Number(recoleccion) <= totalTiendas + 0.001 ? pendienteVista : totalTiendas)}
-            </p>
-          </div>
-          <div>
-            <h4 style={{ margin: '0.4rem 0 0.5rem' }}>Registro de liquidaciones</h4>
-            {liquidaciones.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>Todavía no hay liquidaciones.</p>
+            <h4 style={{ margin: '0.2rem 0 0.5rem' }}>Registro</h4>
+            {liquidaciones.filter((row) => Number(row.monto) > 0).length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>Los abonos de las tiendas van a aparecer aquí, en una sola línea.</p>
             ) : (
-              <table className="table" style={{ width: '100%', fontSize: '0.85rem' }}>
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Recolección</th>
-                    <th>Quedó pendiente</th>
-                    <th>Tiendas</th>
-                    <th>Quién</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {liquidaciones.map((row) => (
-                    <tr key={row.id || `${row.created_at}-${row.monto}`}>
-                      <td>{fechaPhoenix(row.created_at)}</td>
-                      <td>{fmtMonto(row.monto)}</td>
-                      <td>{fmtMonto(row.pendiente)}</td>
-                      <td>
-                        {detalleLiquidacion(row.detalle).map((p) => (
-                          <div key={p.sucursal_id}>{etiquetaTienda(p.sucursal_id)} {fmtMonto(p.monto)}</div>
-                        ))}
-                      </td>
-                      <td>{row.created_by || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div style={{ display: 'grid', gap: '0.4rem' }}>
+                {liquidaciones.filter((row) => Number(row.monto) > 0).map((row) => {
+                  const abierta = lineaAbierta === String(row.id);
+                  const enCursoFila = String(row.estado || '') === 'abierta';
+                  const tiendasFila = desgloseLiquidacion(row, abonos, cuentas);
+                  return (
+                    <div key={row.id || `${row.created_at}-${row.monto}`} style={{ border: '1px solid var(--border, #e5e7eb)', borderRadius: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setLineaAbierta(abierta ? '' : String(row.id))}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '0.75rem',
+                          padding: '0.7rem 0.85rem',
+                          background: 'transparent',
+                          border: 0,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <span>
+                          <strong>{fmtMonto(row.monto)}</strong>
+                          <span className="muted" style={{ marginLeft: 8, fontSize: '0.8rem' }}>
+                            {enCursoFila ? 'En curso' : fechaPhoenix(row.created_at)}
+                            {row.created_by ? ` · ${row.created_by}` : ''}
+                          </span>
+                        </span>
+                        <span className="muted">{abierta ? 'Ocultar' : 'Ver tiendas'}</span>
+                      </button>
+                      {abierta && (
+                        <div style={{ padding: '0 0.85rem 0.75rem', display: 'grid', gap: '0.55rem' }}>
+                          {tiendasFila.length === 0 && (
+                            <p className="muted" style={{ margin: 0 }}>Esta línea no tiene tiendas.</p>
+                          )}
+                          {tiendasFila.map((t) => (
+                            <div key={t.sucursal_id}>
+                              <strong>{etiquetaTienda(t.sucursal_id)}</strong>
+                              <span className="muted"> · {fmtMonto(t.monto)}</span>
+                              {t.abonos.filter((a) => a.created_at || a.notas).map((a, i) => (
+                                <p key={`${t.sucursal_id}-${a.created_at || i}`} className="muted" style={{ margin: '0.15rem 0 0 0.75rem', fontSize: '0.8rem' }}>
+                                  Abono {fmtMonto(a.monto)}
+                                  {a.created_at ? ` · ${fechaPhoenix(a.created_at)}` : ''}
+                                  {a.notas ? ` · ${a.notas}` : ''}
+                                </p>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>

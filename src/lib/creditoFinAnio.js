@@ -359,6 +359,48 @@ export function detalleLiquidacion(raw) {
   })).filter((p) => p.sucursal_id);
 }
 
+/** Suma los abonos de una liquidación por tienda y conserva cada abono. */
+export function desgloseLiquidacion(liquidacion, abonos, cuentas) {
+  const cuentaSuc = new Map(
+    (cuentas || []).map((c) => [String(c.id), String(c.sucursal_id || '').toUpperCase()]),
+  );
+  const propios = (abonos || []).filter((a) => a && !a.archived_at && String(a.liquidacion_id || '') === String(liquidacion?.id || ''));
+  const fuente = propios.length
+    ? propios.map((a) => ({
+      ...a,
+      sucursal_id: String(a.sucursal_id || cuentaSuc.get(String(a.cuenta_id)) || '').toUpperCase(),
+    }))
+    : detalleLiquidacion(liquidacion?.detalle).map((p) => ({
+      sucursal_id: p.sucursal_id,
+      monto: p.monto,
+    }));
+  const map = new Map();
+  for (const a of fuente) {
+    const sid = String(a.sucursal_id || '').toUpperCase();
+    if (!sid) continue;
+    const prev = map.get(sid) || { sucursal_id: sid, monto: 0, abonos: [] };
+    const monto = round2(a.monto);
+    prev.monto = round2(prev.monto + monto);
+    prev.abonos.push({
+      monto,
+      created_at: a.created_at || null,
+      notas: a.notas || '',
+    });
+    map.set(sid, prev);
+  }
+  return [...map.values()].sort((a, b) => a.sucursal_id.localeCompare(b.sucursal_id, 'es'));
+}
+
+export function liquidacionEnCurso(rows) {
+  return (rows || []).find((r) => {
+    if (!r || r.archived_at) return false;
+    const estado = r.estado == null || r.estado === '' ? '' : String(r.estado);
+    if (estado === ESTADO_CERRADA) return false;
+    if (estado === ESTADO_ABIERTA) return true;
+    return !(Number(r.monto) > 0);
+  }) || null;
+}
+
 export async function crearCuentaFinAnio(supabase, { sucursalId, nombre, notas, user }) {
   const errorVal = validarCuenta({ sucursalId, nombre });
   if (errorVal) return { ok: false, error: errorVal };
@@ -468,68 +510,132 @@ export async function archivarMovimientoFinAnio(supabase, id) {
   return { ok: true };
 }
 
-export async function registrarAbonoFinAnio(supabase, cuentaId, { monto, notas, sucursalId }, user) {
+export async function registrarAbonoFinAnio(supabase, cuentaId, {
+  monto, notas, sucursalId, tiendas, cuentas, movimientos, abonos,
+}, user) {
   const errorVal = validarAbono(monto);
   if (errorVal) return { ok: false, error: errorVal };
   if (!cuentaId) return { ok: false, error: 'Abre una cuenta primero.' };
   const cobrado = round2(monto);
-  const { error } = await supabase.from(TABLA_ABONOS).insert({
+  const suc = String(sucursalId || '').toUpperCase();
+  let { data, error } = await supabase.from(TABLA_ABONOS).insert({
     cuenta_id: cuentaId,
     monto: cobrado,
     notas: String(notas || '').trim() || null,
     created_by: nombreDe(user),
-  });
+    sucursal_id: suc || null,
+  }).select('*').single();
+  if (error && /sucursal_id/i.test(String(error.message || ''))) {
+    ({ data, error } = await supabase.from(TABLA_ABONOS).insert({
+      cuenta_id: cuentaId,
+      monto: cobrado,
+      notas: String(notas || '').trim() || null,
+      created_by: nombreDe(user),
+    }).select('*').single());
+  }
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CREDITO_FIN_ANIO };
   if (error) return { ok: false, error: error.message || 'No se pudo registrar el abono.' };
-  if (!sucursalId) return { ok: true };
-  const gas = await cargarGastoCreditoCobradoACorteAbarrotes(supabase, {
-    sucursal_origen: sucursalId,
-    num_traspaso: `FIN-ANIO ${String(sucursalId).toUpperCase()}`,
-    monto: cobrado,
-  }, { cajero: nombreDe(user) });
-  if (!gas.ok) {
-    return {
-      ok: true,
-      aviso: `El abono quedó en la cuenta. No se anotó el gasto en Abarrotes: ${gas.error}`,
-    };
-  }
-  return { ok: true, gastoId: gas.gastoId || null };
-}
 
-/** Aplica la recolección como abonos (y gasto de Abarrotes) hasta dejar solo el crédito pendiente. */
-export async function liquidarRecoleccionFinAnio(supabase, { tiendas, cuentas, movimientos, abonos, monto, user }) {
-  const plan = planLiquidacion({ tiendas, cuentas, movimientos, abonos, monto });
-  if (!plan.ok) return plan;
   const avisos = [];
-  for (const parte of plan.partes) {
-    const r = await registrarAbonoFinAnio(supabase, parte.cuentaId, {
-      monto: parte.monto,
-      notas: 'Liquidación',
-      sucursalId: parte.sucursalId,
-    }, user);
-    if (!r?.ok) return r;
-    if (r.aviso) avisos.push(r.aviso);
-  }
-  const fila = armarRegistroLiquidacion({
-    aplicado: plan.aplicado,
-    pendiente: plan.pendiente,
-    total: plan.total,
-    partes: plan.partes,
+  const creditoAntes = Array.isArray(tiendas)
+    ? totalTarjetas(saldosTarjetas(tiendas, cuentas, movimientos, abonos))
+    : null;
+  const acum = await acumularAbonoEnLiquidacion(supabase, {
+    abono: { ...data, sucursal_id: suc || data?.sucursal_id, monto: cobrado },
+    pendiente: creditoAntes == null ? null : round2(creditoAntes - cobrado),
     user,
   });
-  const ins = await supabase.from(TABLA_LIQUIDACIONES).insert(fila).select('*').single();
-  if (ins.error && faltaTabla(ins.error)) {
-    avisos.push('La liquidación quedó en las cuentas. Para el registro, ejecuta supabase/fix_credito_fin_anio.sql.');
-  } else if (ins.error) {
-    avisos.push(`La liquidación quedó en las cuentas. No se guardó el registro: ${ins.error.message}`);
+  if (acum.aviso) avisos.push(acum.aviso);
+
+  if (suc) {
+    const gas = await cargarGastoCreditoCobradoACorteAbarrotes(supabase, {
+      sucursal_origen: suc,
+      num_traspaso: `FIN-ANIO ${suc}`,
+      monto: cobrado,
+    }, { cajero: nombreDe(user) });
+    if (!gas.ok) avisos.push(`El abono quedó en la cuenta. No se anotó el gasto en Abarrotes: ${gas.error}`);
   }
-  return {
-    ok: true,
-    aplicado: plan.aplicado,
-    pendiente: plan.pendiente,
-    registro: ins.data || fila,
-    aviso: avisos.filter(Boolean).join(' '),
-  };
+  return { ok: true, aviso: avisos.filter(Boolean).join(' '), liquidacionId: acum.id || null };
+}
+
+/** Suma el abono a la liquidación abierta. Si no hay, abre una línea nueva. */
+export async function acumularAbonoEnLiquidacion(supabase, { abono, pendiente, user }) {
+  const lista = await listarLiquidacionesFinAnio(supabase);
+  if (lista.faltaTabla) {
+    return { aviso: 'El abono quedó en la tienda. Para verlo en Liquidación, ejecuta supabase/fix_credito_fin_anio.sql.' };
+  }
+  if (lista.error) return { aviso: `El abono quedó en la tienda. No se acumuló en Liquidación: ${lista.error}` };
+  let abierta = liquidacionEnCurso(lista.data);
+  if (!abierta) {
+    const ins = await supabase.from(TABLA_LIQUIDACIONES).insert({
+      monto: 0,
+      pendiente: 0,
+      total_antes: 0,
+      detalle: [],
+      estado: ESTADO_ABIERTA,
+      created_by: nombreDe(user),
+    }).select('*').single();
+    if (ins.error) {
+      return { aviso: faltaTabla(ins.error)
+        ? 'El abono quedó en la tienda. Para verlo en Liquidación, ejecuta supabase/fix_credito_fin_anio.sql.'
+        : `El abono quedó en la tienda. No se acumuló en Liquidación: ${ins.error.message}` };
+    }
+    abierta = ins.data;
+  }
+  if (abono?.id) {
+    const vinculo = await supabase.from(TABLA_ABONOS).update({ liquidacion_id: abierta.id }).eq('id', abono.id);
+    if (vinculo.error && !/liquidacion_id/i.test(String(vinculo.error.message || ''))) {
+      return { id: abierta.id, aviso: `No se pudo ligar el abono a la liquidación: ${vinculo.error.message}` };
+    }
+  }
+  const deEsta = await supabase.from(TABLA_ABONOS).select('*').eq('liquidacion_id', abierta.id).is('archived_at', null);
+  let desglose;
+  if (deEsta.error) {
+    const previos = detalleLiquidacion(abierta.detalle);
+    const sid = String(abono?.sucursal_id || '').toUpperCase();
+    const junto = [...previos];
+    if (sid) junto.push({ sucursal_id: sid, monto: round2(abono?.monto) });
+    const map = new Map();
+    for (const p of junto) {
+      const id = String(p.sucursal_id || '').toUpperCase();
+      if (!id) continue;
+      map.set(id, round2((map.get(id) || 0) + (Number(p.monto) || 0)));
+    }
+    desglose = [...map.entries()].map(([sucursal_id, monto]) => ({ sucursal_id, monto, abonos: [] }));
+  } else {
+    const ligados = (deEsta.data || []).map((a) => (
+      String(a.id) === String(abono?.id)
+        ? { ...a, sucursal_id: a.sucursal_id || abono?.sucursal_id, monto: abono?.monto ?? a.monto }
+        : a
+    ));
+    if (!ligados.some((a) => String(a.id) === String(abono?.id))) {
+      ligados.push({ ...abono, liquidacion_id: abierta.id });
+    }
+    desglose = desgloseLiquidacion({ id: abierta.id, detalle: [] }, ligados, []);
+  }
+  const monto = round2(desglose.reduce((s, t) => s + t.monto, 0));
+  const pendienteN = pendiente == null ? round2(abierta.pendiente) : round2(pendiente);
+  const totalAntes = Number(abierta.monto) > 0 ? round2(abierta.total_antes) : round2(pendienteN + monto);
+  const upd = await supabase.from(TABLA_LIQUIDACIONES).update({
+    monto,
+    pendiente: pendienteN,
+    total_antes: totalAntes,
+    detalle: desglose.map((t) => ({ sucursal_id: t.sucursal_id, monto: t.monto })),
+  }).eq('id', abierta.id);
+  if (upd.error) return { id: abierta.id, aviso: `No se actualizó el total de la liquidación: ${upd.error.message}` };
+  return { id: abierta.id };
+}
+
+/** Cierra la línea en curso. Los abonos siguientes abren otra. */
+export async function cerrarLiquidacionFinAnio(supabase, id) {
+  if (!id) return { ok: false, error: 'No hay abonos acumulados para liquidar.' };
+  const { data, error } = await supabase.from(TABLA_LIQUIDACIONES).update({ estado: ESTADO_CERRADA }).eq('id', id).select('*').single();
+  if (error && faltaTabla(error)) {
+    return { ok: false, error: 'Para cerrar el registro, ejecuta supabase/fix_credito_fin_anio.sql.' };
+  }
+  if (error) return { ok: false, error: error.message || 'No se pudo cerrar la liquidación.' };
+  if (!(Number(data?.monto) > 0)) return { ok: false, error: 'Esta liquidación no tiene abonos.' };
+  return { ok: true, data };
 }
 
 /** Manda el inventario de la cuenta a Compras y guarda el mismo recibo aquí. */

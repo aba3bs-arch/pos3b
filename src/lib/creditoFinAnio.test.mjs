@@ -6,7 +6,11 @@ import {
   inventarioDeMovimientos,
   creditoPendienteTrasRecoleccion,
   armarRegistroLiquidacion,
+  cerrarLiquidacionFinAnio,
+  desgloseLiquidacion,
   detalleLiquidacion,
+  liquidacionEnCurso,
+  registrarAbonoFinAnio,
   inventarioPorSucursal,
   nombreCuentaFinAnio,
   planLiquidacion,
@@ -111,6 +115,24 @@ assert.equal(reg.total_antes, 450);
 assert.equal(reg.created_by, 'Administrador principal');
 assert.equal(detalleLiquidacion(reg.detalle).reduce((s, p) => s + p.monto, 0), 400);
 
+const liqCurso = { id: 'L1', estado: 'abierta' };
+const desglose = desgloseLiquidacion(liqCurso, [
+  { id: 'a1', liquidacion_id: 'L1', cuenta_id: 'c1', monto: 100, created_at: '2026-11-17T18:00:00Z' },
+  { id: 'a2', liquidacion_id: 'L1', cuenta_id: 'c1', monto: 50 },
+  { id: 'a3', liquidacion_id: 'L1', cuenta_id: 'c2', monto: 40 },
+  { id: 'a4', liquidacion_id: 'L2', cuenta_id: 'c1', monto: 999 },
+], [
+  { id: 'c1', sucursal_id: 'FUSION' },
+  { id: 'c2', sucursal_id: '3B3' },
+]);
+assert.equal(desglose.find((t) => t.sucursal_id === 'FUSION').monto, 150);
+assert.equal(desglose.find((t) => t.sucursal_id === 'FUSION').abonos.length, 2);
+assert.equal(desglose.find((t) => t.sucursal_id === '3B3').monto, 40);
+assert.equal(liquidacionEnCurso([{ id: 'c', estado: 'cerrada' }, { id: 'a', estado: 'abierta' }]).id, 'a');
+assert.equal(liquidacionEnCurso([{ id: 'c', estado: 'cerrada' }]), null);
+assert.equal(liquidacionEnCurso([{ id: 'vieja', monto: 90 }]), null);
+assert.equal(liquidacionEnCurso([{ id: 'vacia', monto: 0 }]).id, 'vacia');
+
 assert.match(planLiquidacion({
   tiendas, cuentas: cuentasLiq, movimientos: movsLiq, abonos: abonosLiq, monto: 999,
 }).error, /no puede ser mayor/);
@@ -147,5 +169,102 @@ assert.equal(puedeAccionVentaRuta('Cajero', '3', 'ruta_fin_anio'), false);
 assert.equal(puedeAccionVentaRuta('Repartidor', '4', 'ruta_fin_anio'), false);
 assert.ok(subcomandosVentaRutaVisibles('Administrador', '1').some((s) => s.id === 'ruta_fin_anio'));
 assert.ok(!subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio'));
+
+function memoriaFinAnio() {
+  const tables = {};
+  let n = 1;
+  return {
+    tables,
+    from(name) {
+      const known = name.startsWith('credito_fin_anio_');
+      if (!tables[name]) tables[name] = [];
+      const rows = tables[name];
+      const q = { filters: [], patch: null, inserted: null };
+      const matched = () => rows.filter((r) => q.filters.every(([col, op, val]) => (
+        op === 'is' ? r[col] == null : String(r[col]) === String(val)
+      )));
+      const chain = {
+        select() { return chain; },
+        is(col, val) { q.filters.push([col, 'is', val]); return chain; },
+        order() { return chain; },
+        eq(col, val) { q.filters.push([col, 'eq', val]); return chain; },
+        limit() {
+          return Promise.resolve(known ? { data: matched(), error: null } : { data: [], error: { message: 'no', code: '42P01' } });
+        },
+        insert(row) {
+          if (!known) {
+            q.inserted = { data: null, error: { message: 'relation does not exist', code: '42P01' } };
+            return chain;
+          }
+          const src = Array.isArray(row) ? row[0] : row;
+          const rec = { id: `id${n++}`, archived_at: null, created_at: new Date().toISOString(), ...src };
+          rows.unshift(rec);
+          q.inserted = { data: rec, error: null };
+          return chain;
+        },
+        update(patch) { q.patch = patch; return chain; },
+        single() {
+          if (q.inserted) return Promise.resolve(q.inserted);
+          const found = matched();
+          if (q.patch) found.forEach((r) => Object.assign(r, q.patch));
+          return Promise.resolve({ data: found[0] || null, error: found[0] ? null : { message: 'none' } });
+        },
+        then(resolve, reject) {
+          if (q.inserted) return Promise.resolve(q.inserted).then(resolve, reject);
+          const found = matched();
+          if (q.patch) found.forEach((r) => Object.assign(r, q.patch));
+          return Promise.resolve({ data: found, error: null }).then(resolve, reject);
+        },
+      };
+      return chain;
+    },
+  };
+}
+
+const db = memoriaFinAnio();
+const quien = { nombre: 'Admin' };
+const cuentasMem = [
+  { id: 'c1', sucursal_id: 'FUSION', estado: 'abierta' },
+  { id: 'c2', sucursal_id: '3B2', estado: 'abierta' },
+];
+const movimientosMem = [
+  { cuenta_id: 'c1', tipo: TIPO_DEJAR, importe: 300 },
+  { cuenta_id: 'c2', tipo: TIPO_DEJAR, importe: 100 },
+];
+const primero = await registrarAbonoFinAnio(db, 'c1', {
+  monto: 80, sucursalId: 'FUSION', tiendas, cuentas: cuentasMem, movimientos: movimientosMem, abonos: [],
+}, quien);
+const abonosTrasPrimero = db.tables.credito_fin_anio_abonos;
+const segundo = await registrarAbonoFinAnio(db, 'c2', {
+  monto: 40,
+  sucursalId: '3B2',
+  tiendas,
+  cuentas: cuentasMem,
+  movimientos: movimientosMem,
+  abonos: [...abonosTrasPrimero],
+}, quien);
+assert.equal(primero.ok, true);
+assert.equal(segundo.ok, true);
+assert.equal(primero.liquidacionId, segundo.liquidacionId);
+const linea = db.tables.credito_fin_anio_liquidaciones.find((r) => r.id === primero.liquidacionId);
+assert.equal(linea.monto, 120);
+assert.equal(linea.estado, 'abierta');
+assert.equal(linea.pendiente, 280);
+const tiendasLinea = desgloseLiquidacion(linea, db.tables.credito_fin_anio_abonos, cuentasMem);
+assert.equal(tiendasLinea.find((t) => t.sucursal_id === 'FUSION').monto, 80);
+assert.equal(tiendasLinea.find((t) => t.sucursal_id === '3B2').monto, 40);
+const cierre = await cerrarLiquidacionFinAnio(db, linea.id);
+assert.equal(cierre.ok, true);
+const tercero = await registrarAbonoFinAnio(db, 'c1', {
+  monto: 25,
+  sucursalId: 'FUSION',
+  tiendas,
+  cuentas: cuentasMem,
+  movimientos: movimientosMem,
+  abonos: [...db.tables.credito_fin_anio_abonos],
+}, quien);
+assert.notEqual(tercero.liquidacionId, linea.id);
+assert.equal(db.tables.credito_fin_anio_liquidaciones.find((r) => r.id === linea.id).monto, 120);
+assert.equal(db.tables.credito_fin_anio_liquidaciones.find((r) => r.id === tercero.liquidacionId).monto, 25);
 
 console.log('creditoFinAnio.test.mjs ok');
