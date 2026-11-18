@@ -85,3 +85,24 @@ alter table public.credito_fin_anio_recibos enable row level security;
 drop policy if exists "credito_fin_anio_recibos_anon_rw" on public.credito_fin_anio_recibos;
 create policy "credito_fin_anio_recibos_anon_rw" on public.credito_fin_anio_recibos
   for all using (true) with check (true);
+
+-- Cada vez que se liquida: cuánto se cobró, qué quedó pendiente y en qué tiendas.
+create table if not exists public.credito_fin_anio_liquidaciones (
+  id uuid primary key default gen_random_uuid(),
+  monto numeric(12,2) not null,
+  pendiente numeric(12,2) not null default 0,
+  total_antes numeric(12,2) not null default 0,
+  detalle jsonb not null default '[]'::jsonb,
+  created_by text,
+  created_at timestamptz default now(),
+  archived_at timestamptz
+);
+
+create index if not exists idx_credito_fin_anio_liquidaciones_fecha
+  on public.credito_fin_anio_liquidaciones (created_at desc);
+
+alter table public.credito_fin_anio_liquidaciones enable row level security;
+
+drop policy if exists "credito_fin_anio_liquidaciones_anon_rw" on public.credito_fin_anio_liquidaciones;
+create policy "credito_fin_anio_liquidaciones_anon_rw" on public.credito_fin_anio_liquidaciones
+  for all using (true) with check (true);

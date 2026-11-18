@@ -5,6 +5,8 @@ import {
   TIPO_RETIRAR,
   inventarioDeMovimientos,
   creditoPendienteTrasRecoleccion,
+  armarRegistroLiquidacion,
+  detalleLiquidacion,
   inventarioPorSucursal,
   nombreCuentaFinAnio,
   planLiquidacion,
@@ -96,6 +98,19 @@ assert.equal(plan.partes[1].sucursalId, '3B2');
 assert.equal(plan.partes[1].monto, 50);
 assert.equal(plan.pendiente, 50);
 assert.equal(plan.pendiente, Math.round((total - plan.aplicado) * 100) / 100);
+const reg = armarRegistroLiquidacion({
+  aplicado: plan.aplicado,
+  pendiente: plan.pendiente,
+  total: plan.total,
+  partes: plan.partes,
+  user: { nombre: 'Administrador principal' },
+});
+assert.equal(reg.monto, 400);
+assert.equal(reg.pendiente, 50);
+assert.equal(reg.total_antes, 450);
+assert.equal(reg.created_by, 'Administrador principal');
+assert.equal(detalleLiquidacion(reg.detalle).reduce((s, p) => s + p.monto, 0), 400);
+
 assert.match(planLiquidacion({
   tiendas, cuentas: cuentasLiq, movimientos: movsLiq, abonos: abonosLiq, monto: 999,
 }).error, /no puede ser mayor/);

@@ -20,6 +20,7 @@ const TABLA_CUENTAS = 'credito_fin_anio_cuentas';
 const TABLA_MOV = 'credito_fin_anio_mov';
 const TABLA_ABONOS = 'credito_fin_anio_abonos';
 const TABLA_RECIBOS = 'credito_fin_anio_recibos';
+const TABLA_LIQUIDACIONES = 'credito_fin_anio_liquidaciones';
 const PROVEEDOR_CUETES = 'CUETES';
 
 export function round2(n) {
@@ -331,6 +332,33 @@ export function listarRecibosFinAnio(supabase) {
   return listarTabla(supabase, TABLA_RECIBOS);
 }
 
+export function listarLiquidacionesFinAnio(supabase) {
+  return listarTabla(supabase, TABLA_LIQUIDACIONES);
+}
+
+/** Fila del registro: cuánto se liquidó, qué quedó pendiente y en qué tiendas. */
+export function armarRegistroLiquidacion({ aplicado, pendiente, total, partes, user }) {
+  const detalle = (partes || []).map((p) => ({
+    sucursal_id: String(p.sucursalId || p.sucursal_id || '').toUpperCase(),
+    monto: round2(p.monto),
+  })).filter((p) => p.sucursal_id && p.monto > 0);
+  return {
+    monto: round2(aplicado),
+    pendiente: round2(pendiente),
+    total_antes: round2(total),
+    detalle,
+    created_by: nombreDe(user),
+  };
+}
+
+export function detalleLiquidacion(raw) {
+  const src = Array.isArray(raw) ? raw : [];
+  return src.map((p) => ({
+    sucursal_id: String(p?.sucursal_id || p?.sucursalId || '').toUpperCase(),
+    monto: round2(p?.monto),
+  })).filter((p) => p.sucursal_id);
+}
+
 export async function crearCuentaFinAnio(supabase, { sucursalId, nombre, notas, user }) {
   const errorVal = validarCuenta({ sucursalId, nombre });
   if (errorVal) return { ok: false, error: errorVal };
@@ -482,11 +510,25 @@ export async function liquidarRecoleccionFinAnio(supabase, { tiendas, cuentas, m
     if (!r?.ok) return r;
     if (r.aviso) avisos.push(r.aviso);
   }
+  const fila = armarRegistroLiquidacion({
+    aplicado: plan.aplicado,
+    pendiente: plan.pendiente,
+    total: plan.total,
+    partes: plan.partes,
+    user,
+  });
+  const ins = await supabase.from(TABLA_LIQUIDACIONES).insert(fila).select('*').single();
+  if (ins.error && faltaTabla(ins.error)) {
+    avisos.push('La liquidación quedó en las cuentas. Para el registro, ejecuta supabase/fix_credito_fin_anio.sql.');
+  } else if (ins.error) {
+    avisos.push(`La liquidación quedó en las cuentas. No se guardó el registro: ${ins.error.message}`);
+  }
   return {
     ok: true,
     aplicado: plan.aplicado,
     pendiente: plan.pendiente,
-    aviso: avisos.join(' '),
+    registro: ins.data || fila,
+    aviso: avisos.filter(Boolean).join(' '),
   };
 }
 

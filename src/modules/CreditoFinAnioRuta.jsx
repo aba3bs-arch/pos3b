@@ -8,6 +8,7 @@ import {
   archivarCuentaFinAnio,
   archivarMovimientoFinAnio,
   codigoVisibleProducto,
+  detalleLiquidacion,
   crearCuentaFinAnio,
   creditoPendienteTrasRecoleccion,
   dejarMercanciaFinAnio,
@@ -19,6 +20,7 @@ import {
   liquidarRecoleccionFinAnio,
   listarAbonosFinAnio,
   listarCuentasFinAnio,
+  listarLiquidacionesFinAnio,
   listarMovimientosFinAnio,
   listarRecibosFinAnio,
   nombreCuentaFinAnio,
@@ -86,6 +88,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [movimientos, setMovimientos] = useState([]);
   const [abonos, setAbonos] = useState([]);
   const [recibos, setRecibos] = useState([]);
+  const [liquidaciones, setLiquidaciones] = useState([]);
   const [aviso, setAviso] = useState('');
   const [sucursalId, setSucursalId] = useState('');
   const [cuentaId, setCuentaId] = useState('');
@@ -111,16 +114,18 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
-    const [c, m, a, rec] = await Promise.all([
+    const [c, m, a, rec, liq] = await Promise.all([
       listarCuentasFinAnio(supabase),
       listarMovimientosFinAnio(supabase),
       listarAbonosFinAnio(supabase),
       listarRecibosFinAnio(supabase),
+      listarLiquidacionesFinAnio(supabase),
     ]);
     setCuentas(c.data || []);
     setMovimientos(m.data || []);
     setAbonos(a.data || []);
     setRecibos(rec.faltaTabla ? [] : (rec.data || []));
+    setLiquidaciones(liq.faltaTabla ? [] : (liq.data || []));
     setAviso(c.aviso || m.aviso || a.aviso || c.error || m.error || a.error || '');
   }, [supabase]);
 
@@ -348,7 +353,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       )}
 
       {!sucursalId && pestana === 'liquidacion' && (
-        <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 520 }}>
+        <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 640 }}>
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total de las tiendas</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{fmtMonto(totalTiendas)}</p>
@@ -376,6 +381,39 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700, color: COLOR }}>
               {fmtMonto(recoleccion.trim() && Number(recoleccion) > 0 && Number(recoleccion) <= totalTiendas + 0.001 ? pendienteVista : totalTiendas)}
             </p>
+          </div>
+          <div>
+            <h4 style={{ margin: '0.4rem 0 0.5rem' }}>Registro de liquidaciones</h4>
+            {liquidaciones.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>Todavía no hay liquidaciones.</p>
+            ) : (
+              <table className="table" style={{ width: '100%', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Recolección</th>
+                    <th>Quedó pendiente</th>
+                    <th>Tiendas</th>
+                    <th>Quién</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {liquidaciones.map((row) => (
+                    <tr key={row.id || `${row.created_at}-${row.monto}`}>
+                      <td>{fechaPhoenix(row.created_at)}</td>
+                      <td>{fmtMonto(row.monto)}</td>
+                      <td>{fmtMonto(row.pendiente)}</td>
+                      <td>
+                        {detalleLiquidacion(row.detalle).map((p) => (
+                          <div key={p.sucursal_id}>{etiquetaTienda(p.sucursal_id)} {fmtMonto(p.monto)}</div>
+                        ))}
+                      </td>
+                      <td>{row.created_by || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
