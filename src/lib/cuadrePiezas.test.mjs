@@ -4,6 +4,7 @@ import {
   parseCodigosCuadre,
   parseConteosCuadre,
   separarTicketsDuplicados,
+  textoResumenCuadre,
 } from './cuadrePiezas.js';
 
 const ticketA = {
@@ -83,5 +84,47 @@ assert.deepEqual(parseCodigosCuadre('34, 41 33'), ['34', '41', '33']);
 assert.deepEqual(parseConteosCuadre('34 16\n41,22'), { 34: 16, 41: 22 });
 assert.equal(cuadre.resumen.piezasPorAjustar, 5);
 assert.equal(cuadre.resumen.ticketsRepetidos, 1);
+assert.equal(cuadre.resumen.todaLaVendida, false);
+
+const ventaOk = {
+  id: 'aaaaaaaa-1111-4111-8111-111111111111',
+  created_at: '2026-11-18T18:00:00.000Z',
+  sucursal_id: '3B10',
+  vendedor: 'Ana',
+  total: 20,
+  articulos: [{ id: '99', nombre: 'Sabritas', qty: 2 }],
+};
+const movOk = {
+  producto_id: '99',
+  tipo: 'retiro',
+  modo: 'venta',
+  cantidad: 2,
+  motivo: 'Venta · Efectivo MXN · ticket aaaaaaaa',
+};
+const todo = construirCuadre({
+  ventas: [ventaOk, ventaVista],
+  movimientos: [movOk, movVista],
+  stocks: { 99: 8, 33: 5 },
+});
+assert.equal(todo.filas.length, 2);
+assert.equal(todo.filas.find((f) => f.id === '99').piezasReales, 2);
+assert.equal(todo.filas.find((f) => f.id === '99').diferencia, false);
+assert.equal(todo.resumen.todaLaVendida, true);
+assert.equal(todo.resumen.productosVendidos, 2);
+assert.equal(todo.resumen.piezasVendidas, 4);
+assert.equal(todo.resumen.conDesfase, 0);
+assert.equal(todo.resumen.coinciden, 2);
+assert.match(textoResumenCuadre(todo.resumen), /Toda la mercancía vendida: 2 producto/);
+assert.match(textoResumenCuadre(todo.resumen), /coinciden/);
+
+const soloConteo = construirCuadre({
+  ventas: [],
+  conteos: { 30: 192 },
+  stocks: { 30: 166 },
+  nombres: { 30: 'Smoking Gun' },
+});
+assert.equal(soloConteo.filas.length, 1);
+assert.equal(soloConteo.filas[0].diferencia, true);
+assert.match(soloConteo.filas[0].explicacion, /26 pieza/);
 
 console.log('cuadrePiezas.test.mjs ok');
