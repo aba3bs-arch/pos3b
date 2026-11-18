@@ -8,7 +8,7 @@ import {
   textoResumenCuadre,
   ymdPhoenix,
 } from '../lib/cuadrePiezas.js';
-import { tienePrivilegiosCompletos } from '../lib/roles.js';
+import { puedeAjustarCuadre } from '../lib/cuadrePrivilegios.js';
 
 function ayerPhoenix() {
   const hoy = ymdPhoenix();
@@ -36,7 +36,7 @@ export default function CuadrePiezas({ supabase, inventario = [], sucursal, user
   const [ajustando, setAjustando] = useState(false);
   const [busca, setBusca] = useState('');
   const [soloDesfase, setSoloDesfase] = useState(false);
-  const puedeAjustar = tienePrivilegiosCompletos(user);
+  const puedeAjustar = puedeAjustarCuadre(user);
 
   const revisar = async () => {
     setCargando(true);
@@ -202,7 +202,7 @@ export default function CuadrePiezas({ supabase, inventario = [], sucursal, user
         </button>
       )}
       {hayAjuste && !puedeAjustar && (
-        <p className="muted" style={{ margin: 0 }}>El ajuste lo aplica el administrador.</p>
+        <p className="muted" style={{ margin: 0 }}>El ajuste lo aplica el administrador, Luz Elena, o quien se marque en Configuración → Privilegios → Cuadre de piezas.</p>
       )}
     </div>
   );
