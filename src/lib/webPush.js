@@ -3,7 +3,7 @@ import { puedeRecibirNotificacionesDispositivo, registrarServiceWorkerNotificaci
 import { credencialesSupabasePublicas } from './supabase.js';
 
 /** Reenvíos de la alarma por si el celular tenía la app cerrada y el primer push no se mostró. */
-export const DEMORAS_REFUERZO_ASALTO_MS = [12_000, 35_000];
+export const DEMORAS_REFUERZO_ASALTO_MS = [12_000, 35_000, 90_000];
 
 export const AVISO_SIN_TABLA_PUSH =
   'Falta la tabla pos_push_subscriptions. Ejecuta supabase/fix_push_subscriptions.sql';
@@ -195,7 +195,7 @@ export function pushAsaltoSinReintento(res) {
 }
 
 /**
- * Vuelve a enviar la alarma a los 12 s y a los 35 s.
+ * Vuelve a enviar la alarma a los 12 s, a los 35 s y a los 90 s.
  * Si el celular tenía la app cerrada y el primer aviso no se mostró, el siguiente sí entra
  * (misma etiqueta: no se acumulan, vuelve a sonar).
  */

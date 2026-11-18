@@ -13,6 +13,7 @@
  */
 import webpush from 'npm:web-push@3.6.7';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { opcionesEnvioPush } from './opcionesPush.js';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -120,17 +121,14 @@ Deno.serve(async (req) => {
     const eliminados = [];
     const fallos = [];
 
-    // Asalto: urgencia alta, 6 h de vida (el celular puede estar sin datos) y topic
-    // para que un reintento reemplace el aviso que aún no se entregó, en vez de perderse.
-    const opcionesEnvio = esAsalto
-      ? { TTL: 60 * 60 * 6, urgency: 'high' as const, topic: 'asalto3b' }
-      : { TTL: 60 * 60 * 12, urgency: 'high' as const };
-
     for (const s of lista) {
       const subscription = {
         endpoint: s.endpoint,
         keys: { p256dh: s.p256dh, auth: s.auth },
       };
+      // Android no lleva Topic: FCM no entrega la alarma con ese header.
+      // iPhone sí, para reemplazar un aviso que todavía está en cola.
+      const opcionesEnvio = opcionesEnvioPush(s.endpoint, esAsalto);
       const r = await enviarConReintento(subscription, payload, opcionesEnvio);
       if (r.ok) {
         enviados += 1;

@@ -290,7 +290,7 @@ export async function dispararAlertaAsalto(supabase, {
       excluirDispositivoId: obtenerIdDispositivoLocal(),
     };
     const push = await dispararPushRemoto(supabase, pushPayload);
-    // El celular con la app cerrada a veces tira el primer push. Se reenvía a los 12 s y 35 s.
+    // El celular con la app cerrada a veces tira el primer push. Se reenvía a los 12 s, 35 s y 90 s.
     if (!pushAsaltoSinReintento(push)) {
       programarRefuerzoPushAsalto(supabase, pushPayload);
     }
