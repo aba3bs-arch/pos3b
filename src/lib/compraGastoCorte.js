@@ -30,7 +30,10 @@ export function folioVentaRutaDesdeNotas(notas) {
  * Compat con pedidos viejos sin esa etiqueta.
  */
 export function metodoPagoDesdeNotasCompra(notas) {
-  const m = String(notas || '').match(/\bmetodo\s*[:=]?\s*(credito|crédito|efectivo|mixto)\b/i);
+  const texto = String(notas || '');
+  // Crédito de fin de año se deja en la tienda; no es una compra de contado.
+  if (/cr[eé]dito\s+fin\s+de\s+a[nñ]o/i.test(texto)) return 'credito';
+  const m = texto.match(/\bmetodo\s*[:=]?\s*(credito|crédito|efectivo|mixto)\b/i);
   if (!m) return null;
   const v = String(m[1] || '')
     .toLowerCase()
@@ -182,6 +185,17 @@ export async function resolverVentaRutaDeCompra(supabase, compra) {
  */
 export function decidirGastoRecepcionCompra({ compra, totalTicket, venta = null } = {}) {
   const total = round2(totalTicket);
+  const notas = String(compra?.notas || '');
+  if (/cr[eé]dito\s+fin\s+de\s+a[nñ]o/i.test(notas)) {
+    return {
+      cargar: false,
+      monto: 0,
+      motivo: 'credito',
+      metodo: 'credito',
+      montoCredito: total,
+      montoEfectivo: 0,
+    };
+  }
   const esRuta = esCompraVentaEnRuta(compra);
   if (!esRuta) {
     return { cargar: true, monto: total, motivo: 'compra_normal' };
@@ -441,7 +455,8 @@ export function armarPayloadTicketRecepcion({
   const totalTicket = round2(total != null ? total : (compra?.total || 0));
   const pago = pagoTicketRecepcionCompra(compra, venta, totalTicket);
   const folioVr = folioVentaRutaDesdeNotas(compra?.notas) || venta?.folio || null;
-  const folioBase = folio || folioVr || null;
+  const folioNotas = (String(compra?.notas || '').match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1] || '';
+  const folioBase = folio || folioNotas || folioVr || null;
   let folioTicket = folioBase;
   let folioEfectivo = null;
   let folioCredito = null;

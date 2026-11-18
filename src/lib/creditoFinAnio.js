@@ -509,7 +509,7 @@ export async function enviarInventarioACompras(supabase, { cuenta, lineas, user 
   })).filter((i) => i.id && i.qty_pedido > 0);
   if (!itemsPedido.length) return { ok: false, error: 'No hay mercancía para enviar.' };
   const total = round2(items.reduce((s, l) => s + (Number(l.valor) || 0), 0));
-  const notasBase = `Crédito fin de año ${cuenta.nombre || ''} · ${suc}`.trim();
+  const notasBase = `Crédito fin de año ${cuenta.nombre || ''} · ${suc} · metodo credito`.trim();
   const { data, error } = await supabase.from('compras').insert([{
     proveedor_id: prov.ok ? prov.id : null,
     sucursal_id: suc,
