@@ -7,6 +7,7 @@ import {
   creditoPendienteTrasRecoleccion,
   armarRegistroLiquidacion,
   cerrarLiquidacionFinAnio,
+  cuentaAbiertaDeTienda,
   desgloseLiquidacion,
   detalleLiquidacion,
   liquidacionEnCurso,
@@ -182,6 +183,24 @@ assert.equal(puedeAccionVentaRuta('Administrador', '1', 'ruta_fin_anio_abono'), 
 assert.ok(subcomandosVentaRutaVisibles('Administrador', '1').some((s) => s.id === 'ruta_fin_anio'));
 assert.ok(subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio'));
 assert.ok(!subcomandosVentaRutaVisibles('Cajero', '3').some((s) => s.id === 'ruta_fin_anio_abono'));
+
+const cuentaCajero = cuentaAbiertaDeTienda(
+  [
+    { id: 'cerrada', sucursal_id: '3B3', estado: 'cerrada' },
+    { id: 'chica', sucursal_id: '3B3', estado: 'abierta' },
+    { id: 'grande', sucursal_id: '3B3', estado: 'abierta' },
+    { id: 'otra', sucursal_id: 'FUSION', estado: 'abierta' },
+  ],
+  [
+    { cuenta_id: 'chica', tipo: TIPO_DEJAR, importe: 100 },
+    { cuenta_id: 'grande', tipo: TIPO_DEJAR, importe: 1000 },
+    { cuenta_id: 'otra', tipo: TIPO_DEJAR, importe: 500 },
+  ],
+  [],
+  '3B3',
+);
+assert.equal(cuentaCajero.id, 'grande');
+assert.equal(cuentaAbiertaDeTienda([{ id: 'x', sucursal_id: '3B2', estado: 'cerrada' }], [], [], '3B2'), null);
 
 function memoriaFinAnio() {
   const tables = {};

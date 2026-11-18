@@ -175,8 +175,10 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
     () =>
       subcomandosVentaRutaVisibles(user?.rol, user?.id).map((s) => ({
         id: s.vista,
-        label: s.label,
-        desc: s.desc,
+        label: s.id === 'ruta_fin_anio' && normalizarRol(user?.rol) === 'Cajero' ? 'Abono fin de año' : s.label,
+        desc: s.id === 'ruta_fin_anio' && normalizarRol(user?.rol) === 'Cajero'
+          ? 'Entregas el dinero. El repartidor lo aprueba con su PIN.'
+          : s.desc,
         icon: s.icon,
       })),
     [user?.rol, user?.id],

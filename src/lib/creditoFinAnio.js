@@ -241,6 +241,25 @@ export function tiendasDeLaSesion(tiendas, sucursalSesion) {
   return { tiendas: propias.length ? propias : [suc], soloSuTienda: true };
 }
 
+/** Cuenta abierta de la tienda a la que el cajero abona. Prefiere la de mayor saldo. */
+export function cuentaAbiertaDeTienda(cuentas, movimientos, abonos, sucursalId) {
+  const sid = normalizarCodigoTienda(sucursalId);
+  if (!sid) return null;
+  const abiertas = (cuentas || []).filter((c) => (
+    c
+    && !c.archived_at
+    && normalizarCodigoTienda(c.sucursal_id) === sid
+    && c.estado !== ESTADO_CERRADA
+  ));
+  if (!abiertas.length) return null;
+  const rank = abiertas.map((c) => {
+    const movs = (movimientos || []).filter((m) => String(m.cuenta_id) === String(c.id) && !m.archived_at);
+    const pagos = (abonos || []).filter((a) => String(a.cuenta_id) === String(c.id) && !a.archived_at);
+    return { c, saldo: resumenCuenta(movs, pagos).saldo };
+  }).sort((a, b) => b.saldo - a.saldo);
+  return (rank.find((x) => x.saldo > 0) || rank[0]).c;
+}
+
 /** Lo que quedaría pendiente si se cobra esta recolección. */
 export function creditoPendienteTrasRecoleccion(total, recoleccion) {
   const t = round2(total);

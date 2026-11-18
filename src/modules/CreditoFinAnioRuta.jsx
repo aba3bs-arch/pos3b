@@ -10,6 +10,7 @@ import {
   cerrarLiquidacionFinAnio,
   codigoVisibleProducto,
   desgloseLiquidacion,
+  cuentaAbiertaDeTienda,
   crearCuentaFinAnio,
   dejarMercanciaFinAnio,
   editarAbonoFinAnio,
@@ -40,6 +41,7 @@ import {
   solicitudAbonoPendiente,
 } from '../lib/creditoFinAnioAbonoAprobacion.js';
 import { imprimirPedidoCompra } from '../lib/impresion.js';
+import { normalizarRol } from '../lib/roles.js';
 import { puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
 
 const COLOR = '#3730a3';
@@ -116,6 +118,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [editAbono, setEditAbono] = useState(null);
   const [pestana, setPestana] = useState('cuentas');
   const puedeAbonar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_fin_anio_abono');
+  const soloAbono = normalizarRol(user?.rol) === 'Cajero' && puedeAbonar;
   const [lineaAbierta, setLineaAbierta] = useState('');
   const [reciboVer, setReciboVer] = useState(null);
 
@@ -164,6 +167,14 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     return () => { vigente = false; clearInterval(t); };
   }, [supabase, cuentaId, puedeAbonar, marcaSolicitudes]);
 
+  useEffect(() => {
+    if (!soloAbono) return;
+    if (sucSesion && sucursalId !== sucSesion) setSucursalId(sucSesion);
+    const elegida = cuentaAbiertaDeTienda(cuentas, movimientos, abonos, sucSesion);
+    const next = elegida?.id ? String(elegida.id) : '';
+    if (String(cuentaId || '') !== next) setCuentaId(next);
+  }, [soloAbono, sucSesion, sucursalId, cuentaId, cuentas, movimientos, abonos]);
+
   const tarjetas = useMemo(
     () => saldosTarjetas(tiendas, cuentas, movimientos, abonos),
     [tiendas, cuentas, movimientos, abonos],
@@ -182,7 +193,10 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     () => cuentas.filter((c) => String(c.sucursal_id || '').toUpperCase() === sucursalId),
     [cuentas, sucursalId],
   );
-  const cuenta = cuentasTienda.find((c) => String(c.id) === String(cuentaId)) || null;
+  const cuentaManual = cuentasTienda.find((c) => String(c.id) === String(cuentaId)) || null;
+  const cuenta = soloAbono
+    ? cuentaAbiertaDeTienda(cuentas, movimientos, abonos, sucSesion)
+    : cuentaManual;
   const movsCuenta = useMemo(
     () => movimientos.filter((m) => String(m.cuenta_id) === String(cuentaId)),
     [movimientos, cuentaId],
@@ -330,6 +344,69 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     setSucursalId('');
     setCuentaId('');
   };
+
+  const panelAbono = cuenta && !cerrada && puedeAbonar ? (
+    <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
+      <h4 style={{ margin: 0 }}>Abono a la cuenta</h4>
+      <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+        Tú entregas el dinero. El repartidor lo aprueba con su PIN. Si no aprueba, no entra a gastos y se cancela.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem' }}>
+        <Campo label="Monto">
+          <input className="input" inputMode="decimal" value={abono.monto} onChange={(e) => setAbono({ ...abono, monto: e.target.value })} />
+        </Campo>
+        <Campo label="Repartidor que recibe">
+          <select className="input" value={abono.repartidorId} onChange={(e) => setAbono({ ...abono, repartidorId: e.target.value })}>
+            <option value="">Elige</option>
+            {repartidores.map((r) => (
+              <option key={r.id} value={r.id}>{r.nombre}</option>
+            ))}
+          </select>
+        </Campo>
+        <Campo label="Nota">
+          <input className="input" value={abono.notas} onChange={(e) => setAbono({ ...abono, notas: e.target.value })} />
+        </Campo>
+      </div>
+      <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void abonar()}>Enviar abono</button>
+      {solicitudes.filter(solicitudAbonoPendiente).map((s) => (
+        <div key={s.id} style={{ padding: '0.55rem 0.7rem', borderRadius: 8, background: 'rgba(55,48,163,0.08)', fontSize: '0.85rem' }}>
+          <strong>{fmtMonto(s.monto)}</strong> esperando a {s.repartidor_nombre || 'el repartidor'}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ marginLeft: 8, fontSize: '0.78rem' }}
+            onClick={() => {
+              if (!confirm('¿Cancelar este abono? No se registrará el gasto.')) return;
+              void correr(() => cancelarSolicitudAbonoFinAnio(supabase, { solicitudId: s.id, cajeroNombre: user?.nombre }));
+            }}
+          >Cancelar</button>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  if (soloAbono) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+        <div>
+          <button type="button" className="btn btn-ghost" onClick={onVolver}>← Venta en ruta</button>
+        </div>
+        {aviso && (
+          <div className="card" style={{ borderLeft: '4px solid #b45309' }}>
+            <p style={{ margin: 0 }}>{aviso}</p>
+          </div>
+        )}
+        {panelAbono || (
+          <div className="card">
+            <h4 style={{ margin: 0 }}>Abono a la cuenta</h4>
+            <p className="muted" style={{ margin: '0.45rem 0 0' }}>
+              Esta tienda no tiene una cuenta abierta para abonar.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -747,45 +824,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             </div>
           )}
 
-          {!cerrada && puedeAbonar && (
-            <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
-              <h4 style={{ margin: 0 }}>Abono a la cuenta</h4>
-              <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
-                Tú entregas el dinero. El repartidor lo aprueba con su PIN. Si no aprueba, no entra a gastos y se cancela.
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem' }}>
-                <Campo label="Monto">
-                  <input className="input" inputMode="decimal" value={abono.monto} onChange={(e) => setAbono({ ...abono, monto: e.target.value })} />
-                </Campo>
-                <Campo label="Repartidor que recibe">
-                  <select className="input" value={abono.repartidorId} onChange={(e) => setAbono({ ...abono, repartidorId: e.target.value })}>
-                    <option value="">Elige</option>
-                    {repartidores.map((r) => (
-                      <option key={r.id} value={r.id}>{r.nombre}</option>
-                    ))}
-                  </select>
-                </Campo>
-                <Campo label="Nota">
-                  <input className="input" value={abono.notas} onChange={(e) => setAbono({ ...abono, notas: e.target.value })} />
-                </Campo>
-              </div>
-              <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void abonar()}>Enviar abono</button>
-              {solicitudes.filter(solicitudAbonoPendiente).map((s) => (
-                <div key={s.id} style={{ padding: '0.55rem 0.7rem', borderRadius: 8, background: 'rgba(55,48,163,0.08)', fontSize: '0.85rem' }}>
-                  <strong>{fmtMonto(s.monto)}</strong> esperando a {s.repartidor_nombre || 'el repartidor'}
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    style={{ marginLeft: 8, fontSize: '0.78rem' }}
-                    onClick={() => {
-                      if (!confirm('¿Cancelar este abono? No se registrará el gasto.')) return;
-                      void correr(() => cancelarSolicitudAbonoFinAnio(supabase, { solicitudId: s.id, cajeroNombre: user?.nombre }));
-                    }}
-                  >Cancelar</button>
-                </div>
-              ))}
-            </div>
-          )}
+          {panelAbono}
 
           <div className="card" style={{ overflowX: 'auto' }}>
             <h4 style={{ margin: '0 0 0.5rem' }}>Movimientos</h4>
