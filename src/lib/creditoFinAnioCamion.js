@@ -16,6 +16,15 @@ function round3(n) {
   return Math.round((Number(n) || 0) * 1000) / 1000;
 }
 
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function precioLinea(lin) {
+  const n = Number(lin?.precio) || 0;
+  return n > 0 ? n : 0;
+}
+
 export function agruparInventarioCamion(cargas, lineas) {
   const porCarga = new Map((cargas || []).map((c) => [String(c.id), c]));
   const grupos = new Map();
@@ -28,12 +37,18 @@ export function agruparInventarioCamion(cargas, lineas) {
         nombre: carga.vendedor_nombre || carga.camion_etiqueta || 'Camión',
         camion: carga.camion_etiqueta || '',
         piezas: 0,
+        valorTotal: 0,
+        valorReal: 0,
         productos: new Map(),
       });
     }
-    const disp = disponibleEnLineaCarga(lin);
-    if (!(disp > 0)) continue;
     const g = grupos.get(key);
+    const precio = precioLinea(lin);
+    const cargada = Math.max(0, Number(lin.qty_cargada) || 0);
+    const disp = disponibleEnLineaCarga(lin);
+    g.valorTotal = round2(g.valorTotal + cargada * precio);
+    g.valorReal = round2(g.valorReal + disp * precio);
+    if (!(disp > 0)) continue;
     const pid = String(lin.producto_id || '');
     if (!pid) continue;
     const prev = g.productos.get(pid) || { id: pid, nombre: lin.producto_nombre || pid, disponible: 0 };
@@ -47,9 +62,19 @@ export function agruparInventarioCamion(cargas, lineas) {
       nombre: g.nombre,
       camion: g.camion,
       piezas: g.piezas,
+      valorTotal: g.valorTotal,
+      valorReal: g.valorReal,
       productos: [...g.productos.values()].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es')),
     }))
-    .filter((g) => g.piezas > 0);
+    .filter((g) => g.valorTotal > 0 || g.piezas > 0);
+}
+
+/** Un solo par de cifras: lo cargado y lo que queda después de vender o dejar a crédito. */
+export function cifrasInventarioCamion(grupos) {
+  return {
+    valorTotal: round2((grupos || []).reduce((s, g) => s + (Number(g.valorTotal) || 0), 0)),
+    valorReal: round2((grupos || []).reduce((s, g) => s + (Number(g.valorReal) || 0), 0)),
+  };
 }
 
 /** Devuelve piezas al camión bajando qty_vendida, de la línea más reciente hacia atrás. */
@@ -176,5 +201,6 @@ export async function listarInventarioCamiones(supabase) {
   if (c.error) return { ok: false, camiones: [], error: c.error };
   const lr = await lineasDeVariasCargas(supabase, c.data || []);
   if (lr.error) return { ok: false, camiones: [], error: lr.error };
-  return { ok: true, camiones: agruparInventarioCamion(c.data || [], lr.data || []) };
+  const camiones = agruparInventarioCamion(c.data || [], lr.data || []);
+  return { ok: true, camiones, ...cifrasInventarioCamion(camiones) };
 }

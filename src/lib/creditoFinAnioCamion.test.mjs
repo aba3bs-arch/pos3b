@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import { agruparInventarioCamion, planDevolucionCamion } from './creditoFinAnioCamion.js';
+import { agruparInventarioCamion, cifrasInventarioCamion, planDevolucionCamion } from './creditoFinAnioCamion.js';
 import { asignarVentaALineasProducto } from './ventaEnRuta.js';
 
 const cargas = [
   { id: 'cg1', vendedor_id: 'rep_luis', vendedor_nombre: 'Luis', camion_etiqueta: 'Camión 1' },
 ];
 const lineas = [
-  { id: 'l1', carga_id: 'cg1', producto_id: '93', producto_nombre: 'Escupidor', qty_cargada: 20, qty_vendida: 5, qty_devuelta: 0 },
-  { id: 'l2', carga_id: 'cg1', producto_id: '85', producto_nombre: 'Cañón', qty_cargada: 10, qty_vendida: 10, qty_devuelta: 0 },
+  { id: 'l1', carga_id: 'cg1', producto_id: '93', producto_nombre: 'Escupidor', qty_cargada: 20, qty_vendida: 5, qty_devuelta: 0, precio: 25 },
+  { id: 'l2', carga_id: 'cg1', producto_id: '85', producto_nombre: 'Cañón', qty_cargada: 10, qty_vendida: 10, qty_devuelta: 0, precio: 10 },
 ];
 
 const grupos = agruparInventarioCamion(cargas, lineas);
@@ -16,6 +16,9 @@ assert.equal(grupos[0].nombre, 'Luis');
 assert.equal(grupos[0].piezas, 15);
 assert.equal(grupos[0].productos.find((p) => p.id === '93').disponible, 15);
 assert.equal(grupos[0].productos.find((p) => p.id === '85'), undefined);
+const cifras = cifrasInventarioCamion(grupos);
+assert.equal(cifras.valorTotal, 600);
+assert.equal(cifras.valorReal, 375);
 
 const venta = asignarVentaALineasProducto(
   [{ id: 'l1', producto_id: '93', qty_cargada: 20, qty_vendida: 5, qty_devuelta: 0 }],
