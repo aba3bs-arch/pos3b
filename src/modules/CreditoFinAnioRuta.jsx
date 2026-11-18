@@ -122,6 +122,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const puedeAbonar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_fin_anio_abono');
   const soloAbono = normalizarRol(user?.rol) === 'Cajero' && puedeAbonar;
   const soloLectura = esRolRepartidor(user?.rol);
+  const puedeMercancia = !soloLectura || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_fin_anio_mercancia');
   const [lineaAbierta, setLineaAbierta] = useState('');
   const [tutorialAbierto, setTutorialAbierto] = useState(false);
   const [reciboVer, setReciboVer] = useState(null);
@@ -268,7 +269,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const dejar = async () => {
-    if (soloLectura) return alert('Solo puedes ver las cuentas.');
+    if (!puedeMercancia) return alert('No puedes ingresar mercancía.');
     const ok = await correr(() => dejarMercanciaFinAnio(supabase, cuenta.id, deja, user));
     if (!ok) return;
     setDeja({ codigo: '', nombre: '', cantidad: '', precio: '', notas: '' });
@@ -276,7 +277,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const retirar = async () => {
-    if (soloLectura) return alert('Solo puedes ver las cuentas.');
+    if (!puedeMercancia) return alert('No puedes retirar mercancía.');
     if (!lineaRetiro) return alert('Elige un producto del inventario de la cuenta.');
     const ok = await correr(() => retirarMercanciaFinAnio(supabase, cuenta.id, {
       codigo: lineaRetiro.codigo,
@@ -441,7 +442,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         <h3 style={{ margin: 0, color: COLOR }}>Crédito fin de año</h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {soloLectura
-            ? 'Solo ves las cuentas. No puedes dejar mercancía, abonar, editar ni borrar.'
+            ? 'Puedes ingresar producto y retirarlo si te equivocas. No puedes editar, borrar, abonar ni liquidar.'
             : 'Registro propio de cada sucursal: mercancía dejada a crédito, inventario de la cuenta y abonos. Sirve para el cierre de este año.'}
         </p>
       </div>
@@ -713,7 +714,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             {resumen.saldo < 0 && <p className="muted" style={{ margin: 0 }}>La cuenta queda a favor de la sucursal.</p>}
           </div>
 
-          {!cerrada && !soloLectura && (
+          {!cerrada && puedeMercancia && (
             <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
               <h4 style={{ margin: 0 }}>Dejar mercancía a crédito</h4>
               <Campo label="Buscar en el catálogo (un código carga ese artículo; no mueve el inventario)">
@@ -814,7 +815,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             )}
           </div>
 
-          {!cerrada && !soloLectura && inventarioCuenta.some((l) => l.cantidad > 0) && (
+          {!cerrada && puedeMercancia && inventarioCuenta.some((l) => l.cantidad > 0) && (
             <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
               <h4 style={{ margin: 0 }}>Retirar de la cuenta</h4>
               <Campo label="Producto">

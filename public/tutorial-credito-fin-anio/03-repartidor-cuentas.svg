@@ -33,8 +33,8 @@
     <text x="340" y="310" font-size="13" fill="#64748b">Total de cuetes</text>
 
     <rect x="64" y="356" width="496" height="88" rx="14" fill="#f8fafc"/>
-    <text x="88" y="392" font-size="16" font-weight="700" fill="#0f172a">Al abrir la tienda ve el saldo y los productos.</text>
-    <text x="88" y="418" font-size="15" fill="#64748b">No hay Editar, Eliminar, Dejar mercancía ni Abono.</text>
+    <text x="88" y="392" font-size="16" font-weight="700" fill="#0f172a">Dejar mercancía a crédito</text>
+    <text x="88" y="418" font-size="15" fill="#64748b">Código, cantidad y precio. Retirar si se equivocó.</text>
   </g>
 
   <g filter="url(#s)" font-family="Segoe UI,Arial,sans-serif">
@@ -44,7 +44,7 @@
     <text x="772" y="270" text-anchor="middle" font-size="18" font-weight="700" fill="#991b1b">No puede</text>
     <text x="660" y="320" font-size="16" fill="#334155">Borrar una cuenta</text>
     <text x="660" y="354" font-size="16" fill="#334155">Cambiar un abono</text>
-    <text x="660" y="388" font-size="16" fill="#334155">Dejar mercancía</text>
+    <text x="660" y="388" font-size="16" fill="#334155">Enviar el abono</text>
     <text x="660" y="422" font-size="16" fill="#334155">Liquidar</text>
   </g>
 </svg>

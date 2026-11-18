@@ -35,8 +35,8 @@
     <text x="480" y="290" text-anchor="middle" font-size="15" fill="#334155">Recibe el dinero</text>
     <text x="480" y="318" text-anchor="middle" font-size="15" fill="#334155">y aprueba con PIN</text>
     <rect x="370" y="360" width="220" height="64" rx="12" fill="#eef2ff"/>
-    <text x="480" y="388" text-anchor="middle" font-size="14" font-weight="700" fill="#3730a3">Solo ve Cuentas</text>
-    <text x="480" y="410" text-anchor="middle" font-size="13" fill="#4338ca">No borra ni cambia nada</text>
+    <text x="480" y="388" text-anchor="middle" font-size="14" font-weight="700" fill="#3730a3">Ingresa producto</text>
+    <text x="480" y="410" text-anchor="middle" font-size="13" fill="#4338ca">Lo retira si se equivoca</text>
   </g>
 
   <g filter="url(#s)" font-family="Segoe UI,Arial,sans-serif">

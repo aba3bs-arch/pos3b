@@ -15,7 +15,7 @@ export const TUTORIAL_CREDITO_FIN_ANIO = {
       titulo: '1. Tres papeles, una sola regla',
       cuerpo: [
         '**Cajero:** entrega el dinero en la tienda. Solo ve el formulario de abono.',
-        '**Repartidor / recolector:** recibe ese dinero. Solo ve la pestaña **Cuentas**. No borra ni cambia nada.',
+        '**Repartidor / recolector:** ingresa el producto en **Cuentas** y lo retira si se equivocó. No borra cuentas ni abonos, y no liquida.',
         '**MAIN:** ve todas las tiendas y la pestaña **Liquidación**.',
         'Regla: **si el repartidor no aprueba con PIN, no hay abono y no hay gasto.**',
       ],
@@ -40,8 +40,8 @@ export const TUTORIAL_CREDITO_FIN_ANIO = {
       cuerpo: [
         'Entra a **Venta en Ruta → Crédito fin de año**.',
         'Ahí está la pestaña **Cuentas**. La de **Liquidación** no le aparece.',
-        'Puede abrir una tienda y ver el total de cuetes, los productos y los abonos.',
-        'No hay **Editar**, **Eliminar**, **Dejar mercancía**, **Retirar** ni **Enviar abono**.',
+        'Abre la tienda y usa **Dejar mercancía a crédito**: código, cantidad y precio.',
+        'Si se equivocó, **Retirar de la cuenta** saca ese producto. No hay **Editar**, **Eliminar** ni **Enviar abono**.',
       ],
       imagen: `${IMG}/03-repartidor-cuentas.svg`,
       imagenAlt: 'Pestaña Cuentas visible y Liquidación tachada. El repartidor no puede borrar ni cambiar',
@@ -93,11 +93,11 @@ export const TUTORIAL_CREDITO_FIN_ANIO = {
           opciones: [
             'Borrar cuentas y cambiar abonos',
             'Liquidar el dinero de todas las tiendas',
-            'Ver la pestaña Cuentas, sin editar ni borrar',
+            'Ver Cuentas, ingresar producto y retirarlo si se equivoca',
             'Enviar el abono desde la tienda',
           ],
           correcta: 2,
-          explicacion: 'El repartidor **solo consulta Cuentas**. No altera nada.',
+          explicacion: 'El repartidor **ingresa y retira mercancía** en Cuentas. No borra cuentas ni liquida.',
         },
         {
           id: 'q3',
