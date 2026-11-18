@@ -4,6 +4,7 @@ import {
   CUENTAS_RT,
   puedeVerSolicitudPagoServicio,
   resumirFondoPorServicio,
+  sucursalesParaAlertaServicio,
   totalesFondo,
 } from './rutaFondoServicios.js';
 
@@ -13,7 +14,28 @@ assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Administrador', nombre: 'Admi
 assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Cajero', nombre: 'Creador', es_admin_principal: true }), false);
 assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Gerente', nombre: 'Andres Marrero' }), false);
 assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Gerente', nombre: 'Otro gerente' }), false);
-assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Cajero', esCtMovil: true, nombre: 'CT' }), false);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Cajero', esCtMovil: true, nombre: 'CT' }), true);
+assert.equal(puedeVerSolicitudPagoServicio({ rol: 'Cajero', esCubreTurno: true, nombre: 'CT caja', sucursal_id: '3B6' }), true);
+
+const ctMovil = { esCtMovil: true, rol: 'Cajero', nombre: 'CT', ctRhId: 'rh-1' };
+const coberturaHoy = {
+  estado: 'aceptada',
+  pin_temporal: '1234',
+  sucursal_id: '3B6',
+  pin_valido_desde: '2020-01-01T00:00:00-07:00',
+  pin_valido_hasta: '2099-01-01T00:00:00-07:00',
+};
+const coberturaFutura = {
+  ...coberturaHoy,
+  sucursal_id: '3B7',
+  pin_valido_desde: '2098-01-01T00:00:00-07:00',
+};
+assert.deepEqual(sucursalesParaAlertaServicio(ctMovil, 'MAIN', [coberturaHoy, coberturaFutura]), ['3B6']);
+assert.deepEqual(sucursalesParaAlertaServicio(ctMovil, 'MAIN', []), []);
+assert.deepEqual(
+  sucursalesParaAlertaServicio({ esCubreTurno: true, rol: 'Cajero', sucursal_id: '3B10' }, 'MAIN', []),
+  ['3B10'],
+);
 
 assert.equal(CUENTA_RT_FONDO_DEFAULT, 'servicios');
 assert.ok(CUENTAS_RT.some((c) => c.id === 'servicios'));

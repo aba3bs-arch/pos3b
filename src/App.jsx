@@ -2184,7 +2184,7 @@ function App() {
             onIrCubreTurnos={() => irAModulo('Checador', { pestana: 'cubre' })}
           />
         ) : null}
-        {user && !user.esCtMovil ? (
+        {user ? (
           <AlertaFondoServicioOverlay
             supabase={supabase}
             user={user}

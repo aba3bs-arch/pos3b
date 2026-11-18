@@ -5,6 +5,7 @@
  */
 
 import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
+import { pinTemporalCtActivo } from './cubreSolicitudes.js';
 import { normalizarRol, tienePrivilegiosCompletos } from './roles.js';
 import { MODULOS_CORTE, etiquetaModuloCorte } from './corteContabilidad/store.js';
 import { listarServiciosCobro } from './controlEfectivo.js';
@@ -32,14 +33,33 @@ export const AVISO_FALTA_FONDO =
 export const MODULOS_CORTE_FONDO = MODULOS_CORTE;
 
 /**
- * La solicitud de cobro se atiende en la caja de la sucursal.
+ * La solicitud de cobro se atiende en la sucursal: cajero, supervisor o el CT que la cubre.
  * El administrador, el administrador principal y Andrés no la ven.
  */
 export function puedeVerSolicitudPagoServicio(user) {
-  if (!user || user.esCtMovil) return false;
+  if (!user) return false;
+  if (user.esCubreTurno || user.esCtMovil) return true;
   if (tienePrivilegiosCompletos(user)) return false;
   const rol = normalizarRol(user.rol);
   return rol === 'Cajero' || rol === 'Supervisor';
+}
+
+/** Tiendas cuyas solicitudes de servicio puede autorizar esta sesión. */
+export function sucursalesParaAlertaServicio(user, sucursalSesion, coberturas = []) {
+  if (!puedeVerSolicitudPagoServicio(user)) return [];
+  if (user?.esCtMovil) {
+    const ids = [];
+    for (const s of coberturas || []) {
+      if (!pinTemporalCtActivo(s)) continue;
+      const suc = normalizarCodigoTienda(s.sucursal_id);
+      if (suc && !ids.includes(suc)) ids.push(suc);
+    }
+    return ids;
+  }
+  const suc = normalizarCodigoTienda(
+    user?.esCubreTurno ? (user.sucursal_id || sucursalSesion) : sucursalSesion,
+  );
+  return suc ? [suc] : [];
 }
 
 function faltaTabla(error) {
