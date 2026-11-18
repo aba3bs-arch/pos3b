@@ -48,8 +48,9 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   {
     id: 'ruta_fin_anio',
     vista: 'finanio',
+    hub: false,
     label: 'Crédito fin de año',
-    desc: 'Cuentas e inventario de crédito dejado en sucursales. Aparte de venta y recolección.',
+    desc: 'Sin uso por ahora. Los cuetes se venden como el cigarro: precio, carga, POS, crédito y cancelación.',
     icon: 'package',
     grupo: 'admin',
   },
@@ -77,8 +78,8 @@ export const SUBCOMANDOS_VENTA_RUTA = [
 export const ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL = {
   // Gerente: todo el hub, excepto limpiar consultas (solo Admin por defecto).
   Gerente: SUBCOMANDOS_VENTA_RUTA.filter((s) => s.hub !== false).map((s) => s.id),
-  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_mercancia'],
-  Cajero: ['ruta_creditos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_abono'],
+  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
+  Cajero: ['ruta_creditos', 'ruta_cancelacion'],
   Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
   Auditor: ['ruta_consolidacion', 'ruta_auditorias', 'ruta_consultas', 'ruta_preinventario'],
 };

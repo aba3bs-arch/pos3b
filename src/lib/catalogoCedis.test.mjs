@@ -7,6 +7,7 @@ import {
   catCedisDesdeUi,
   departamentoCedisUiDesdeCat,
   departamentoFiltroCoincideCedis,
+  entraEnPreciosDeRuta,
   esDepartamentoCatalogoCedis,
   esProveedorCedisLas3b,
   filtrarInventarioCatalogoCedis,
@@ -43,6 +44,12 @@ for (const d of DEPARTAMENTOS_CEDIS_UI) {
 
 const listaBase = listarDepartamentosCatalogoCedis();
 assert.ok(listaBase.includes('CIGARROS'));
+assert.ok(listaBase.includes('CUETES'));
+assert.equal(esDepartamentoCatalogoCedis('CUETES'), true);
+const ids = new Set(['1']);
+assert.equal(entraEnPreciosDeRuta({ id: '93', cat: 'CUETES' }, ids), true);
+assert.equal(entraEnPreciosDeRuta({ id: '1', cat: 'CIGARROS' }, ids), true);
+assert.equal(entraEnPreciosDeRuta({ id: '2', cat: 'CIGARROS' }, ids), false);
 assert.ok(listaBase.includes('ELECTRONICOS'));
 assert.ok(!listaBase.includes('CIGARRO_ELECTRONICO'));
 

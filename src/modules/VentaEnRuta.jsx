@@ -74,7 +74,7 @@ import {
   PROVEEDOR_CEDIS_NOMBRE,
   buscarProveedorCedisLas3b,
   departamentoFiltroCoincideCedis,
-  esDepartamentoCatalogoCedis,
+  entraEnPreciosDeRuta,
   listarDepartamentosCatalogoCedis,
   sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
@@ -1681,10 +1681,7 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
 
   const lista = useMemo(() => {
     // Un solo proveedor (CEDIS LAS 3B) + departamentos CEDIS.
-    let list = (inventario || []).filter((p) => esDepartamentoCatalogoCedis(p.cat));
-    if (idsCedis.size > 0) {
-      list = list.filter((p) => idsCedis.has(String(p.id)));
-    }
+    let list = (inventario || []).filter((p) => entraEnPreciosDeRuta(p, idsCedis));
     const term = q.trim();
     if (term) list = list.filter((p) => productoCoincideBusqueda(p, term));
     if (departamento) {
@@ -1734,8 +1731,8 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
         Venta en Ruta tiene <strong>un solo proveedor</strong>:{' '}
         <strong>{PROVEEDOR_CEDIS_NOMBRE}</strong>
         {proveedorCedis?.id ? ` · id ${String(proveedorCedis.id).slice(0, 8)}…` : ''}.
-        Solo departamentos CEDIS. Edita compra y venta en ruta; la ganancia se calcula por artículo.
-        El precio de venta en ruta se usa en el POS (sucursales y clientes externos).
+        Solo departamentos CEDIS, cuetes incluidos. Edita compra y venta en ruta; la ganancia se calcula por artículo.
+        El precio de venta en ruta se usa en la carga y en el POS, igual para cigarro y para cuetes.
       </p>
       {avisoProv ? (
         <p style={{ margin: '0 0 0.55rem', fontSize: '0.8rem', color: '#b45309' }}>{avisoProv}</p>
