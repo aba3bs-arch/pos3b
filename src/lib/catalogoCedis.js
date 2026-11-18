@@ -16,6 +16,7 @@ const LS_DEPTOS_CEDIS_OCULTOS = 'pos3b_departamentos_cedis_ocultos';
 /** Departamentos base del catálogo CEDIS (nombres de negocio / UI). */
 export const DEPARTAMENTOS_CEDIS_UI = [
   'CIGARROS',
+  'CUETES',
   'BLUNTWRAP',
   'ELECTRONICOS',
   'ABARROTES',
@@ -29,6 +30,7 @@ export const DEPARTAMENTOS_CEDIS_UI = [
  */
 const DEPTOS_CEDIS_CORE = new Set([
   'CIGARROS',
+  'CUETES',
   'BLUNTWRAP',
   'ELECTRONICOS',
   'CIGARRO_ELECTRONICO',
@@ -142,6 +144,22 @@ export function catCedisDesdeUi(deptoUi) {
 
 export function aplicaFiltroCatalogoCedis(sucursal) {
   return esAlmacenCentral(sucursal);
+}
+
+/**
+ * Precios de ruta: mismo catálogo CEDIS que el cigarro.
+ * Cuetes entran aunque no tengan vínculo con CEDIS LAS 3B, para poder
+ * ponerles precio de ruta y venderlos en carga, POS, crédito y cancelación.
+ */
+export function entraEnPreciosDeRuta(producto, idsVinculoCedis = null) {
+  const cat = normalizarDepartamento(producto?.cat);
+  if (!esDepartamentoCatalogoCedis(cat)) return false;
+  if (cat === 'CUETES') return true;
+  const ids = idsVinculoCedis;
+  if (ids && typeof ids.size === 'number' && ids.size > 0) {
+    return ids.has(String(producto?.id || ''));
+  }
+  return true;
 }
 
 /** ¿Este cat pertenece al catálogo CEDIS (núcleo o extra creado en CEDIS)? */
