@@ -101,6 +101,21 @@ function horaPhoenix(iso) {
   });
 }
 
+export function pisoTrasAjuste(fila) {
+  if (fila?.stock == null) return null;
+  const stock = Number(fila.stock);
+  const sinBaja = Math.max(0, Number(fila.sinBaja) || 0);
+  return stock - sinBaja;
+}
+
+export function filaConDiferencia(fila) {
+  if (!fila) return false;
+  if (Number(fila.sinBaja) > 0 || Number(fila.piezasDuplicadas) > 0) return true;
+  if (fila.contado == null) return false;
+  const piso = pisoTrasAjuste(fila);
+  return piso != null && piso !== Number(fila.contado);
+}
+
 export function explicarCuadre(fila) {
   const partes = [];
   if (fila.piezasDuplicadas > 0) {
@@ -121,10 +136,12 @@ export function explicarCuadre(fila) {
     partes.push('La venta real sí bajó el inventario. El sobrante está solo en la consulta, por el ticket repetido.');
   }
   if (fila.contado != null) {
-    const base = fila.sinBaja > 0 ? fila.stock - fila.sinBaja : fila.stock;
-    const gap = base - fila.contado;
+    const base = pisoTrasAjuste(fila);
+    const gap = base == null ? null : base - fila.contado;
     if (fila.sinBaja > 0 && gap === 0) {
       partes.push(`Al ajustar esas ${fila.sinBaja}, el piso queda en ${base}, igual que el conteo.`);
+    } else if (gap == null) {
+      partes.push(`El conteo es ${fila.contado}.`);
     } else if (fila.sinBaja > 0 && gap > 0) {
       partes.push(`Al ajustar esas ${fila.sinBaja}, el piso quedaría en ${base}. El conteo sigue ${gap} pieza(s) abajo: esas no están en ningún ticket.`);
     } else if (gap > 0) {
@@ -212,19 +229,54 @@ export function construirCuadre({
   const filas = [...porProducto.values()]
     .filter((f) => {
       if (filtro) return true;
-      return f.sinBaja > 0 || f.piezasDuplicadas > 0 || f.contado != null;
+      return f.piezasReales > 0 || f.piezasConsulta > 0 || f.contado != null;
     })
-    .map((f) => ({ ...f, explicacion: explicarCuadre(f) }))
-    .sort((a, b) => b.sinBaja - a.sinBaja || a.nombre.localeCompare(b.nombre, 'es'));
+    .map((f) => ({ ...f, explicacion: explicarCuadre(f), diferencia: filaConDiferencia(f) }))
+    .sort((a, b) => {
+      if (a.diferencia !== b.diferencia) return a.diferencia ? -1 : 1;
+      if (b.sinBaja !== a.sinBaja) return b.sinBaja - a.sinBaja;
+      if (b.piezasReales !== a.piezasReales) return b.piezasReales - a.piezasReales;
+      return a.nombre.localeCompare(b.nombre, 'es');
+    });
 
+  const productosVendidos = filas.filter((f) => f.piezasReales > 0 || f.piezasConsulta > 0).length;
   const resumen = {
     productos: filas.length,
-    conDesfase: filas.filter((f) => f.sinBaja > 0).length,
+    productosVendidos,
+    piezasVendidas: filas.reduce((s, f) => s + f.piezasReales, 0),
+    piezasConsulta: filas.reduce((s, f) => s + f.piezasConsulta, 0),
+    conDesfase: filas.filter((f) => f.diferencia).length,
+    coinciden: filas.filter((f) => !f.diferencia && (f.piezasReales > 0 || f.piezasConsulta > 0)).length,
     piezasPorAjustar: filas.reduce((s, f) => s + f.sinBaja, 0),
     ticketsReales: reales.length,
     ticketsRepetidos: copias.length,
+    todaLaVendida: !filtro,
   };
   return { filas, resumen };
+}
+
+export function textoResumenCuadre(resumen = {}) {
+  const vendidos = Number(resumen.productosVendidos) || 0;
+  const piezas = Number(resumen.piezasVendidas) || 0;
+  const tickets = Number(resumen.ticketsReales) || 0;
+  const desfase = Number(resumen.conDesfase) || 0;
+  const repetidos = Number(resumen.ticketsRepetidos) || 0;
+  if (!vendidos) {
+    if (Number(resumen.productos) > 0) {
+      return `No hubo ventas de esos productos. El conteo se comparó con el piso de ${resumen.productos} producto(s).`;
+    }
+    return resumen.todaLaVendida
+      ? 'No hay mercancía vendida en este periodo.'
+      : 'Esos códigos no tienen venta en este periodo.';
+  }
+  const alcance = resumen.todaLaVendida
+    ? `Toda la mercancía vendida: ${vendidos} producto(s), ${piezas} pieza(s), en ${tickets} ticket(s).`
+    : `Códigos revisados con venta: ${vendidos} producto(s), ${piezas} pieza(s), en ${tickets} ticket(s).`;
+  const extra = repetidos > 0 ? ` ${repetidos} ticket(s) estaban repetidos y se contaron una sola vez.` : '';
+  const cierre = desfase > 0
+    ? ` ${desfase} producto(s) no cuadran.`
+    : ' Ventas, consultas e inventario coinciden.';
+  return `${alcance}${extra}${cierre}`;
 }
 
 const PAGE = 1000;
