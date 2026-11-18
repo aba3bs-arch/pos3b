@@ -214,6 +214,59 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   };
 }
 
+function nombreComparable(valor) {
+  return String(valor || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * PIN del Panel RT (tabla repartidores). No es el PIN de Usuarios.
+ * En MAIN abre la sesión del repartidor con el mismo nombre, o una sesión de recolector.
+ */
+export async function usuarioDesdePinRecolector(supabase, pin) {
+  if (!supabase) return { user: null, error: 'Sin conexión a Supabase.' };
+  const p = String(pin || '').trim();
+  if (!p) return { user: null, error: null };
+  const { data, error } = await supabase.from('repartidores').select('id, nombre, pin, activo');
+  if (error) return { user: null, error: mensajeErrorConsultaUsuarios(error) };
+  const hits = (data || []).filter((r) => r && r.activo !== false && String(r.pin ?? '').trim() === p);
+  if (!hits.length) return { user: null, error: null };
+  if (hits.length > 1) {
+    return { user: null, error: 'Ese PIN de recolector está repetido en Panel RT. Deja uno solo.' };
+  }
+  const rep = hits[0];
+  const nombre = nombreComparable(rep.nombre);
+  const { data: usuarios, error: errorUsers } = await supabase
+    .from('usuarios')
+    .select('*')
+    .eq('rol', 'Repartidor')
+    .limit(50);
+  if (errorUsers) return { user: null, error: mensajeErrorConsultaUsuarios(errorUsers) };
+  const ligado = (usuarios || []).find((u) => (
+    usuarioEstaActivo(u)
+    && !esAdminPrincipalOculto(u)
+    && nombreComparable(u.nombre) === nombre
+  ));
+  if (ligado) return { user: ligado, error: null, recolectorId: rep.id };
+  return {
+    user: {
+      id: `rt:${rep.id}`,
+      nombre: rep.nombre,
+      rol: 'Repartidor',
+      sucursal_id: 'MAIN',
+      activo: true,
+      repartidor_id: rep.id,
+      es_recolector_rt: true,
+    },
+    error: null,
+    recolectorId: rep.id,
+  };
+}
+
 /** True si el PIN ya lo usa un empleado fijo de esa sucursal. */
 export async function pinUsuarioOcupadoEnSucursal(supabase, pin, sucursalActiva, { excluirUsuarioId } = {}) {
   if (!supabase) return { ocupado: false, error: 'Sin conexión a Supabase.' };

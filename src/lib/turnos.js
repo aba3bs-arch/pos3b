@@ -1066,6 +1066,7 @@ export function rolSujetoTurno(rol) {
 /** ¿Puede el empleado iniciar sesión ahora? (cajero/repartidor solo en ventana de su turno + tolerancia). */
 export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, sucursal = null) {
   if (esUsuarioCubreTurno(user)) return { ok: true, cubreTurno: true };
+  if (user?.es_recolector_rt) return { ok: true, recolectorRt: true };
   const rol = normalizarRol(user?.rol);
   if (!rolSujetoTurno(rol)) return { ok: true };
 
