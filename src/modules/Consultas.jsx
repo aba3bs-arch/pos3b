@@ -30,6 +30,7 @@ import { pedirFolioEditado, renombrarFolioInventario } from '../lib/folioInventa
 import { fmtHoraNogales, resumenRecargasConsulta, ticketsDeArticulo } from '../lib/consultasRecargas.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import ReportePreciosVentas from '../components/ReportePreciosVentas.jsx';
+import CuadrePiezas from '../components/CuadrePiezas.jsx';
 import './Consultas.css';
 
 const NAV = [
@@ -38,6 +39,7 @@ const NAV = [
   { id: 'compras', label: 'Compras', ico: '🛒' },
   { id: 'cajas', label: 'Cajas de cobro', ico: '🖥' },
   { id: 'inventarios', label: 'Inventarios', ico: '⬡' },
+  { id: 'cuadre', label: 'Cuadre', ico: '≡' },
   { id: 'precios', label: 'Precios', ico: '$' },
 ];
 
@@ -52,6 +54,7 @@ const TITULOS = {
   cajas_saldos: 'Saldos de caja',
   cajas_cortes: 'Cortes de caja',
   inventarios: 'Ajuste De Inventario',
+  cuadre: 'Cuadre de piezas',
   precios: 'Precios',
   precios_vs_inv: 'Precios · Ventas vs inventario',
 };
@@ -761,6 +764,15 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             <span className="muted-top">{user?.nombre || ''}</span>
           </div>
         </div>
+
+        {seccion === 'cuadre' && (
+          <CuadrePiezas
+            supabase={supabase}
+            inventario={inventario}
+            sucursal={sucursal}
+            user={user}
+          />
+        )}
 
         {seccion === 'ventas' && (
           <div className="consultas-submenu">
