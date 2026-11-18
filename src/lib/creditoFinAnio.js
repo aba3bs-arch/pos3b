@@ -3,6 +3,7 @@
  * Tablas propias. No escribe ventas, CxC de ruta, recolección ni stock del camión.
  */
 
+import { esSucursalNoVenta, esSucursalRuta, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { filtrarProductosPorTexto, pareceCodigoProducto, productoPorCodigoExacto } from './buscarProductoTexto.js';
 import { cargarGastoCreditoCobradoACorteAbarrotes } from './controlEfectivo.js';
 import { folioCompraConPago, notasConFolioInv } from './foliosInventario.js';
@@ -224,6 +225,20 @@ export function totalTarjetas(saldos) {
 /** Total que se ve antes de liquidar: el crédito neto más los abonos de esta liquidación. */
 export function totalAntesDeLiquidar(totalNeto, abonosEnCurso) {
   return round2((Number(totalNeto) || 0) + (Number(abonosEnCurso) || 0));
+}
+
+/**
+ * En una tienda de venta solo se ve esa tarjeta.
+ * MAIN y CEDIS siguen viendo todas.
+ */
+export function tiendasDeLaSesion(tiendas, sucursalSesion) {
+  const todas = (tiendas || []).filter((id) => !esSucursalRuta(id));
+  const suc = normalizarCodigoTienda(sucursalSesion);
+  if (!suc || esSucursalNoVenta(suc) || esSucursalRuta(suc)) {
+    return { tiendas: todas, soloSuTienda: false };
+  }
+  const propias = todas.filter((id) => normalizarCodigoTienda(id) === suc);
+  return { tiendas: propias.length ? propias : [suc], soloSuTienda: true };
 }
 
 /** Lo que quedaría pendiente si se cobra esta recolección. */

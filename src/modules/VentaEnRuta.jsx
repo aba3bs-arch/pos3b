@@ -429,6 +429,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           supabase={supabase}
           user={user}
           inventario={inventario}
+          sucursal={sucursal || user?.sucursal_id}
           onNavigate={onNavigate}
           onVolver={() => ir('hub')}
         />
