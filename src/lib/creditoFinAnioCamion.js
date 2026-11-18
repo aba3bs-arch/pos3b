@@ -10,6 +10,7 @@ import {
   disponibleEnLineaCarga,
   lineasDeVariasCargas,
   listarCargasRuta,
+  precioRutaEspecial,
 } from './ventaEnRuta.js';
 
 function round3(n) {
@@ -67,6 +68,43 @@ export function agruparInventarioCamion(cargas, lineas) {
       productos: [...g.productos.values()].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es')),
     }))
     .filter((g) => g.valorTotal > 0 || g.piezas > 0);
+}
+
+/** El camión también carga cigarro. En este módulo solo cuenta el departamento CUETES. */
+export function esProductoCuete(producto) {
+  return String(producto?.cat || '').trim().toUpperCase() === 'CUETES';
+}
+
+/**
+ * Deja solo líneas de cuetes. El precio de ruta del catálogo manda sobre el precio
+ * sellado en la carga. No modifica las líneas originales.
+ */
+export function lineasInventarioCuetes(lineas, productos) {
+  const porId = new Map((productos || []).map((p) => [String(p.id), p]));
+  const out = [];
+  for (const lin of lineas || []) {
+    const producto = porId.get(String(lin.producto_id));
+    if (!esProductoCuete(producto)) continue;
+    const ruta = precioRutaEspecial(producto);
+    out.push(ruta ? { ...lin, precio: ruta } : lin);
+  }
+  return out;
+}
+
+async function productosDeLineas(supabase, lineas) {
+  const ids = [...new Set((lineas || []).map((l) => String(l.producto_id || '').trim()).filter(Boolean))];
+  if (!ids.length) return { data: [] };
+  const data = [];
+  for (let i = 0; i < ids.length; i += 80) {
+    const slice = ids.slice(i, i + 80);
+    const { data: rows, error } = await supabase
+      .from('productos')
+      .select('id, cat, precio_ruta')
+      .in('id', slice);
+    if (error) return { data, error: error.message || 'No se pudo leer el departamento de los productos.' };
+    data.push(...(rows || []));
+  }
+  return { data };
 }
 
 /** Un solo par de cifras: lo cargado y lo que queda después de vender o dejar a crédito. */
@@ -201,6 +239,9 @@ export async function listarInventarioCamiones(supabase) {
   if (c.error) return { ok: false, camiones: [], error: c.error };
   const lr = await lineasDeVariasCargas(supabase, c.data || []);
   if (lr.error) return { ok: false, camiones: [], error: lr.error };
-  const camiones = agruparInventarioCamion(c.data || [], lr.data || []);
+  const prods = await productosDeLineas(supabase, lr.data || []);
+  if (prods.error) return { ok: false, camiones: [], valorTotal: 0, valorReal: 0, error: prods.error };
+  const cuetes = lineasInventarioCuetes(lr.data || [], prods.data);
+  const camiones = agruparInventarioCamion(c.data || [], cuetes);
   return { ok: true, camiones, ...cifrasInventarioCamion(camiones) };
 }
