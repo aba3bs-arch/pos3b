@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { armarLiquidacionCuetes, cobrosCueteDeVenta } from './liquidacionCuetes.js';
+import { agruparCreditoPorTienda, armarLiquidacionCuetes, cobrosCueteDeVenta } from './liquidacionCuetes.js';
 
 const ids = new Set(['93', '85']);
 
@@ -58,5 +58,17 @@ assert.equal(cobrosCueteDeVenta({
   total: 50,
   articulos: [{ producto_id: '1', importe: 50 }],
 }, ids, []), null);
+
+const tiendas = agruparCreditoPorTienda([credito, contado], ids, [
+  { id: 'a1', venta_id: 'v1', monto: 480 },
+]);
+assert.equal(tiendas.length, 1);
+assert.equal(tiendas[0].sucursal_id, '3B3');
+assert.equal(tiendas[0].credito, 1000);
+assert.equal(tiendas[0].pendiente, 520);
+assert.equal(tiendas[0].abonado, 480);
+assert.equal(tiendas[0].tickets[0].folio, 'VR-1-C');
+assert.equal(tiendas[0].tickets[0].lineas[0].nombre, 'Escupidor');
+assert.equal(tiendas[0].tickets[0].lineas.length, 1);
 
 console.log('liquidacionCuetes.test.mjs ok');

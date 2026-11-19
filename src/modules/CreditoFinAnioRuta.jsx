@@ -126,7 +126,10 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [editCuenta, setEditCuenta] = useState(null);
   const [editMov, setEditMov] = useState(null);
   const [editAbono, setEditAbono] = useState(null);
-  const [pestana, setPestana] = useState('cuentas');
+  const [pestana, setPestana] = useState('credito');
+  const [creditoTiendas, setCreditoTiendas] = useState([]);
+  const [tiendaAbierta, setTiendaAbierta] = useState('');
+  const [ticketAbierto, setTicketAbierto] = useState('');
   const puedeAbonar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_fin_anio_abono');
   const soloAbono = normalizarRol(user?.rol) === 'Cajero' && puedeAbonar;
   const soloLectura = esRolRepartidor(user?.rol);
@@ -202,6 +205,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       if (!vivo) return;
       if (inv) setInventarioCamion({ valorTotal: inv.valorTotal || 0, valorReal: inv.valorReal || 0 });
       if (liq?.resumen) setLiqCuetes(liq.resumen);
+      if (liq?.tiendas) setCreditoTiendas(liq.tiendas);
     };
     void leer();
     const t = setInterval(() => { void leer(); }, 5000);
@@ -358,6 +362,10 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     alert(`Se envió el abono a ${rep?.nombre || 'el repartidor'}. Tiene que aprobarlo con su PIN. Si no lo aprueba, no se registra el abono ni el gasto.`);
   };
 
+  const tiendasCredito = soloSuTienda
+    ? creditoTiendas.filter((t) => normalizarCodigoTienda(t.sucursal_id) === sucSesion)
+    : creditoTiendas;
+
   const partesCuete = soloSuTienda
     ? liqCuetes.partes.filter((t) => normalizarCodigoTienda(t.sucursal_id) === sucSesion)
     : liqCuetes.partes;
@@ -503,7 +511,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <h3 style={{ margin: 0, color: COLOR }}>Crédito fin de año</h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Las ventas y los abonos de cuetes se juntan aquí para liquidar. Cada venta descuenta el inventario en tiempo real.
+          La venta se hace en Venta en ruta. Aquí solo se consulta el crédito de cuetes por tienda, sus tickets y la liquidación.
         </p>
       </div>
 
@@ -528,6 +536,107 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         </div>
       )}
 
+      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className={`btn ${pestana === 'credito' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setPestana('credito')}
+        >
+          Crédito por tienda
+        </button>
+        <button
+          type="button"
+          className={`btn ${pestana === 'liquidacion' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setPestana('liquidacion')}
+        >
+          Liquidación
+        </button>
+      </div>
+
+      {pestana === 'credito' && (
+        <div style={{ display: 'grid', gap: '0.75rem' }}>
+          {tiendasCredito.length === 0 && (
+            <div className="card">
+              <p className="muted" style={{ margin: 0 }}>Todavía no hay ventas a crédito de cuetes.</p>
+            </div>
+          )}
+          {tiendasCredito.map((t) => {
+            const abierta = tiendaAbierta === t.sucursal_id;
+            return (
+              <div key={t.sucursal_id} className="card" style={{ borderTop: `4px solid ${COLOR}`, display: 'grid', gap: '0.65rem' }}>
+                <button
+                  type="button"
+                  onClick={() => { setTiendaAbierta(abierta ? '' : t.sucursal_id); setTicketAbierto(''); }}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                >
+                  <span>
+                    <strong style={{ color: COLOR }}>{t.nombre || etiquetaTienda(t.sucursal_id)}</strong>
+                    <span className="muted" style={{ marginLeft: 8, fontSize: '0.8rem' }}>
+                      {t.tickets.length} {t.tickets.length === 1 ? 'ticket' : 'tickets'}
+                    </span>
+                  </span>
+                  <span className="muted">{abierta ? 'Ocultar' : 'Ver tickets'}</span>
+                </button>
+                <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
+                  <div>
+                    <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>Crédito</p>
+                    <strong>{fmtMonto(t.credito)}</strong>
+                  </div>
+                  <div>
+                    <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>Abonado</p>
+                    <strong>{fmtMonto(t.abonado)}</strong>
+                  </div>
+                  <div>
+                    <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>Pendiente</p>
+                    <strong style={{ color: COLOR }}>{fmtMonto(t.pendiente)}</strong>
+                  </div>
+                </div>
+                {abierta && t.tickets.map((ticket) => {
+                  const abierto = ticketAbierto === String(ticket.id);
+                  return (
+                    <div key={ticket.id || ticket.folio} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.55rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setTicketAbierto(abierto ? '' : String(ticket.id))}
+                        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        <span>
+                          <strong>{ticket.folio || 'Sin folio'}</strong>
+                          <span className="muted" style={{ marginLeft: 8, fontSize: '0.8rem' }}>
+                            {fechaPhoenix(ticket.created_at)}
+                            {ticket.vendedor ? ` · ${ticket.vendedor}` : ''}
+                            {ticket.estado ? ` · ${ticket.estado}` : ''}
+                          </span>
+                        </span>
+                        <span>
+                          <strong>{fmtMonto(ticket.credito)}</strong>
+                          <span className="muted" style={{ marginLeft: 8, fontSize: '0.78rem' }}>{abierto ? 'Ocultar' : 'Ver'}</span>
+                        </span>
+                      </button>
+                      {ticket.abonado > 0 && (
+                        <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.78rem' }}>
+                          Abonado {fmtMonto(ticket.abonado)} · pendiente {fmtMonto(ticket.pendiente)}
+                        </p>
+                      )}
+                      {abierto && (
+                        <div style={{ marginTop: '0.45rem', display: 'grid', gap: '0.25rem' }}>
+                          {ticket.lineas.map((l, i) => (
+                            <p key={`${ticket.id}-${i}`} style={{ margin: 0, fontSize: '0.85rem' }}>
+                              {l.nombre}
+                              <span className="muted"> · {fmtQty(l.cantidad)} × {fmtMonto(l.precio)} · {fmtMonto(l.importe)}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {false && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
           {tarjetas.map((t) => (
@@ -546,7 +655,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         </div>
       )}
 
-      {!sucursalId && (
+      {pestana === 'liquidacion' && !sucursalId && (
         <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 640 }}>
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total de las tiendas</p>

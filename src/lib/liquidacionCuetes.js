@@ -81,6 +81,76 @@ export function cobrosCueteDeVenta(venta, idsCuete, abonos = []) {
   return { sucursal_id: tienda.clave, nombre: tienda.nombre, vendido: cuete, pendiente: credito, cobros };
 }
 
+function lineasCueteDeVenta(venta, idsCuete) {
+  const set = idsCuete instanceof Set ? idsCuete : new Set((idsCuete || []).map((id) => String(id)));
+  const out = [];
+  for (const a of venta?.articulos || []) {
+    if (!a || a._pago_mixto || a._lineas_camion || !a.producto_id) continue;
+    if (!set.has(String(a.producto_id))) continue;
+    const cantidad = Number(a.cantidad) || 0;
+    const importe = Number(a.importe) || (Number(a.precio) || 0) * cantidad;
+    if (!(importe > 0)) continue;
+    out.push({
+      nombre: a.nombre || String(a.producto_id),
+      cantidad,
+      precio: round2(a.precio),
+      importe: round2(importe),
+    });
+  }
+  return out;
+}
+
+/** Ticket de una venta a crédito, solo con la parte de cuetes. El contado no entra. */
+export function ticketCreditoCuete(venta, idsCuete, abonos = []) {
+  const base = cobrosCueteDeVenta(venta, idsCuete, abonos);
+  if (!base) return null;
+  const { cuete, todos } = importeCuetesVenta(venta, idsCuete);
+  if (!(todos > 0)) return null;
+  const credito = roundShare(montosPagoDesdeVentaRuta(venta, todos).montoCredito, cuete / todos);
+  if (!(credito > 0)) return null;
+  return {
+    id: venta.id,
+    folio: venta.folio || '',
+    created_at: venta.created_at || null,
+    vendedor: venta.vendedor_nombre || '',
+    estado: String(venta.estado_credito || '').toLowerCase() || 'pendiente',
+    sucursal_id: base.sucursal_id,
+    nombre: base.nombre,
+    credito,
+    pendiente: base.pendiente,
+    abonado: round2(Math.max(0, credito - base.pendiente)),
+    lineas: lineasCueteDeVenta(venta, idsCuete),
+  };
+}
+
+/** Crédito de cuetes agrupado por tienda, con sus tickets. */
+export function agruparCreditoPorTienda(ventas, idsCuete, abonos = []) {
+  const map = new Map();
+  for (const venta of ventas || []) {
+    const t = ticketCreditoCuete(venta, idsCuete, abonos);
+    if (!t) continue;
+    const g = map.get(t.sucursal_id) || {
+      sucursal_id: t.sucursal_id,
+      nombre: t.nombre,
+      credito: 0,
+      pendiente: 0,
+      abonado: 0,
+      tickets: [],
+    };
+    g.credito = round2(g.credito + t.credito);
+    g.pendiente = round2(g.pendiente + t.pendiente);
+    g.abonado = round2(g.abonado + t.abonado);
+    g.tickets.push(t);
+    map.set(t.sucursal_id, g);
+  }
+  return [...map.values()]
+    .map((g) => ({
+      ...g,
+      tickets: g.tickets.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    }))
+    .sort((a, b) => b.credito - a.credito || a.sucursal_id.localeCompare(b.sucursal_id, 'es'));
+}
+
 export function refsLiquidadas(liquidaciones) {
   const set = new Set();
   for (const row of liquidaciones || []) {
@@ -154,7 +224,7 @@ export async function listarLiquidacionCuetes(supabase, liquidaciones = []) {
   const ventas = await paginar(
     supabase,
     'ruta_ventas',
-    'id,folio,cliente_id,cliente_tipo,cliente_nombre,metodo_pago,total,estado,estado_credito,created_at,articulos',
+    'id,folio,cliente_id,cliente_tipo,cliente_nombre,metodo_pago,total,estado,estado_credito,created_at,articulos,vendedor_nombre',
     (q) => q.order('created_at', { ascending: false }),
   );
   if (ventas.error) return { ok: false, error: ventas.error, resumen: armarLiquidacionCuetes([], ids, [], liquidaciones) };
@@ -168,6 +238,7 @@ export async function listarLiquidacionCuetes(supabase, liquidaciones = []) {
   return {
     ok: true,
     resumen: armarLiquidacionCuetes(ventas.data, ids, abonos.data, liquidaciones),
+    tiendas: agruparCreditoPorTienda(ventas.data, ids, abonos.data),
   };
 }
 
