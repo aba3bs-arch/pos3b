@@ -157,7 +157,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       }
 
       if (conFaltante) {
-        if (!user?.id) {
+        const operadorId = user?.id
+          || (user?.esCubreTurno ? `ct:${user.cubreSolicitudId || user.nombre || 'turno'}` : null);
+        if (!operadorId) {
           alert('No se pudo identificar al cajero/CT para cargar el faltante. Inicia sesión de nuevo.');
           return;
         }
@@ -169,8 +171,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             `Recargas MP · terminal $${Number(candado.recargas_mp?.terminal).toFixed(2)}`
             + ` − POS $${Number(candado.recargas_mp?.pos).toFixed(2)}`
             + ` · cierre abarrotes folio ${f}`
-            + (registrarRecargaMp ? ' · venta/recarga también registrada en POS' : ''),
-          usuario_id: user.id,
+            + (registrarRecargaMp ? ' · venta/recarga también registrada en POS' : '')
+            + (user?.esCubreTurno ? ' · cubre turno' : ''),
+          usuario_id: operadorId,
           usuario_nombre: user.nombre || null,
         });
         if (resGasto && resGasto.ok === false && !resGasto.cancelado) {

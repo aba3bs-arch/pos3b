@@ -598,8 +598,15 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     const faltanteAOperador =
       catUpper === 'EMPLEADO'
       && subUpper.includes('FALTANTE')
-      && opts.user?.id
-      && String(gasto.usuario_id || '') === String(opts.user.id);
+      && (
+        (opts.user?.id && String(gasto.usuario_id || '') === String(opts.user.id))
+        || (
+          opts.esCubreTurno
+          && String(gasto.usuario_id || '').startsWith('ct:')
+          && String(gasto.usuario_nombre || '').trim().toLowerCase()
+            === String(opts.user?.nombre || opts.nombreActor || '').trim().toLowerCase()
+        )
+      );
 
     if (!faltanteAOperador) {
       const catalogo = opts.empleadosCatalogo || [];
