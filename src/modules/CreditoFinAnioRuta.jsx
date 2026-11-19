@@ -26,6 +26,7 @@ import {
   listarRecibosFinAnio,
   nombreCuentaFinAnio,
   productoParaCargarFinAnio,
+  round2,
   resumenCuenta,
   saldosTarjetas,
   sugerenciasCatalogoFinAnio,
@@ -40,6 +41,7 @@ import {
   solicitarAbonoFinAnio,
   solicitudAbonoPendiente,
 } from '../lib/creditoFinAnioAbonoAprobacion.js';
+import { guardarLiquidacionCuetes, listarLiquidacionCuetes } from '../lib/liquidacionCuetes.js';
 import { imprimirPedidoCompra } from '../lib/impresion.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_CREDITO_FIN_ANIO } from '../content/tutorialCreditoFinAnio.js';
@@ -133,6 +135,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const [lineaAbierta, setLineaAbierta] = useState('');
   const [tutorialAbierto, setTutorialAbierto] = useState(false);
   const [inventarioCamion, setInventarioCamion] = useState({ valorTotal: 0, valorReal: 0 });
+  const [liqCuetes, setLiqCuetes] = useState({ pendiente: 0, abonado: 0, partes: [], pendientePorSucursal: [], totalAntes: 0 });
   const [reciboVer, setReciboVer] = useState(null);
 
   const vistaTiendas = useMemo(
@@ -189,16 +192,21 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   }, [soloAbono, sucSesion, sucursalId, cuentaId, cuentas, movimientos, abonos]);
 
   useEffect(() => {
-    if (!esAdmin || !supabase) return undefined;
+    if (!supabase) return undefined;
     let vivo = true;
     const leer = async () => {
-      const r = await listarInventarioCamiones(supabase);
-      if (vivo) setInventarioCamion({ valorTotal: r.valorTotal || 0, valorReal: r.valorReal || 0 });
+      const [inv, liq] = await Promise.all([
+        esAdmin ? listarInventarioCamiones(supabase) : Promise.resolve(null),
+        listarLiquidacionCuetes(supabase, liquidaciones),
+      ]);
+      if (!vivo) return;
+      if (inv) setInventarioCamion({ valorTotal: inv.valorTotal || 0, valorReal: inv.valorReal || 0 });
+      if (liq?.resumen) setLiqCuetes(liq.resumen);
     };
     void leer();
     const t = setInterval(() => { void leer(); }, 5000);
     return () => { vivo = false; clearInterval(t); };
-  }, [esAdmin, supabase, marcaSolicitudes]);
+  }, [esAdmin, supabase, marcaSolicitudes, liquidaciones]);
 
   const tarjetas = useMemo(
     () => saldosTarjetas(tiendas, cuentas, movimientos, abonos),
@@ -350,13 +358,25 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     alert(`Se envió el abono a ${rep?.nombre || 'el repartidor'}. Tiene que aprobarlo con su PIN. Si no lo aprueba, no se registra el abono ni el gasto.`);
   };
 
+  const partesCuete = soloSuTienda
+    ? liqCuetes.partes.filter((t) => normalizarCodigoTienda(t.sucursal_id) === sucSesion)
+    : liqCuetes.partes;
+  const abonoCuete = soloSuTienda
+    ? round2(partesCuete.reduce((s, t) => s + (Number(t.monto) || 0), 0))
+    : liqCuetes.abonado;
+  const pendienteCuete = soloSuTienda
+    ? round2((liqCuetes.pendientePorSucursal || []).filter((t) => normalizarCodigoTienda(t.sucursal_id) === sucSesion).reduce((s, t) => s + (Number(t.pendiente) || 0), 0))
+    : liqCuetes.pendiente;
+  const totalCuete = round2(pendienteCuete + abonoCuete);
+
   const liquidar = async () => {
-    if (soloLectura) return alert('Solo puedes ver las cuentas.');
-    if (!enCurso) return alert('Primero registra el abono en la tienda. Aquí se va acumulando.');
-    if (!confirm(`¿Liquidar ${fmtMonto(enCurso.monto)}?\nEl total de las tiendas queda en ${fmtMonto(totalTiendas)}.`)) return;
-    const ok = await correr(() => cerrarLiquidacionFinAnio(supabase, enCurso.id));
+    if (soloLectura || soloSuTienda) return;
+    if (!(abonoCuete > 0)) return alert('No hay ventas de contado ni abonos de cuetes para liquidar.');
+    if (!confirm(`¿Liquidar ${fmtMonto(abonoCuete)}?\nEl crédito de cuetes que sigue queda en ${fmtMonto(liqCuetes.pendiente)}.`)) return;
+    const ok = await correr(() => guardarLiquidacionCuetes(supabase, liqCuetes, user));
     if (!ok) return;
     setLineaAbierta('');
+    await cargar();
   };
 
   const imprimirRecibo = (recibo) => {
@@ -438,7 +458,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     </div>
   ) : null;
 
-  if (soloAbono) {
+  if (false && soloAbono) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -483,9 +503,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <h3 style={{ margin: 0, color: COLOR }}>Crédito fin de año</h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          {soloLectura
-            ? 'Al dejar un producto se descuenta de tu camión. Si te equivocas, retíralo y regresa. No puedes editar, borrar, abonar ni liquidar.'
-            : 'Registro propio de cada sucursal: mercancía dejada a crédito, inventario de la cuenta y abonos. Sirve para el cierre de este año.'}
+          Las ventas y los abonos de cuetes se juntan aquí para liquidar. Cada venta descuenta el inventario en tiempo real.
         </p>
       </div>
 
@@ -499,7 +517,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Inventario en tiempo real</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.8rem', fontWeight: 700, color: COLOR }}>{fmtMonto(inventarioCamion.valorReal)}</p>
-            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Cuetes que quedan después de la venta a crédito. Se actualiza solo.</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Baja con cada venta de cuetes. Se actualiza solo.</p>
           </div>
         </div>
       )}
@@ -510,26 +528,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className={`btn ${pestana === 'cuentas' && !sucursalId ? 'btn-primary' : 'btn-ghost'}`}
-          onClick={() => { setPestana('cuentas'); setSucursalId(''); setCuentaId(''); }}
-        >
-          Cuentas
-        </button>
-        {!soloLectura && (
-          <button
-            type="button"
-            className={`btn ${pestana === 'liquidacion' && !sucursalId ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => { setPestana('liquidacion'); setSucursalId(''); setCuentaId(''); }}
-          >
-            Liquidación
-          </button>
-        )}
-      </div>
-
-      {!sucursalId && pestana === 'cuentas' && (
+      {false && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
           {tarjetas.map((t) => (
             <button
@@ -547,33 +546,32 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
         </div>
       )}
 
-      {!soloLectura && !sucursalId && pestana === 'liquidacion' && (
+      {!sucursalId && (
         <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 640 }}>
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total de las tiendas</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>
-              {fmtMonto(totalAntesDeLiquidar(totalTiendas, abonoEnPantalla))}
+              {fmtMonto(totalCuete)}
             </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-              Suma de las tarjetas, antes de descontar los abonos de esta liquidación.
+              Cuetes vendidos que siguen a crédito, más lo cobrado que todavía no se liquida.
             </p>
           </div>
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Abonos</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.35rem', fontWeight: 700 }}>
-              − {fmtMonto(abonoEnPantalla)}
+              − {fmtMonto(abonoCuete)}
             </p>
-            {abonoEnPantalla > 0 ? (
+            {abonoCuete > 0 ? (
               <div style={{ marginTop: '0.45rem', display: 'grid', gap: '0.45rem' }}>
-                {partesEnPantalla.map((t) => (
+                {partesCuete.map((t) => (
                   <div key={t.sucursal_id}>
-                    <strong>{etiquetaTienda(t.sucursal_id)}</strong>
+                    <strong>{t.nombre || etiquetaTienda(t.sucursal_id)}</strong>
                     <span className="muted"> · {fmtMonto(t.monto)}</span>
                     {t.abonos.filter((a) => a.created_at || a.notas).map((a, i) => (
-                      <p key={`${t.sucursal_id}-${a.created_at || i}`} className="muted" style={{ margin: '0.15rem 0 0 0.75rem', fontSize: '0.8rem' }}>
-                        Abono {fmtMonto(a.monto)}
+                      <p key={`${t.sucursal_id}-${a.ref || a.created_at || i}`} className="muted" style={{ margin: '0.15rem 0 0 0.75rem', fontSize: '0.8rem' }}>
+                        {a.notas || 'Abono'} {fmtMonto(a.monto)}
                         {a.created_at ? ` · ${fechaPhoenix(a.created_at)}` : ''}
-                        {a.notas ? ` · ${a.notas}` : ''}
                       </p>
                     ))}
                   </div>
@@ -586,26 +584,26 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
           <div>
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Liquidación</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700, color: COLOR }}>
-              {fmtMonto(abonoEnPantalla)}
+              {fmtMonto(abonoCuete)}
             </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-              {abonoEnPantalla > 0
-                ? `Al liquidar, el total de las tiendas queda en ${fmtMonto(totalTiendas)}.`
+              {abonoCuete > 0
+                ? `Al liquidar, el crédito de cuetes queda en ${fmtMonto(pendienteCuete)}.`
                 : 'Sin abonos, la liquidación queda en cero.'}
             </p>
           </div>
-          {!soloSuTienda && (
-            <button type="button" className="btn btn-primary" disabled={guardando || !enCurso} onClick={() => void liquidar()}>
-              Liquidar{enCurso ? ` · ${fmtMonto(enCurso.monto)}` : ''}
+          {!soloSuTienda && !soloLectura && (
+            <button type="button" className="btn btn-primary" disabled={guardando || !(abonoCuete > 0)} onClick={() => void liquidar()}>
+              Liquidar{abonoCuete > 0 ? ` · ${fmtMonto(abonoCuete)}` : ''}
             </button>
           )}
           <div>
             <h4 style={{ margin: '0.2rem 0 0.5rem' }}>Registro</h4>
-            {liquidaciones.filter((row) => sumaPartes(partesDe(row)) > 0 && String(row.id) !== String(enCurso?.id || '')).length === 0 ? (
+            {liquidaciones.filter((row) => String(row.estado) === 'cerrada' && sumaPartes(partesDe(row)) > 0).length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>Al liquidar, aquí queda una línea con ese total.</p>
             ) : (
               <div style={{ display: 'grid', gap: '0.4rem' }}>
-                {liquidaciones.filter((row) => sumaPartes(partesDe(row)) > 0 && String(row.id) !== String(enCurso?.id || '')).map((row) => {
+                {liquidaciones.filter((row) => String(row.estado) === 'cerrada' && sumaPartes(partesDe(row)) > 0).map((row) => {
                   const abiertaFila = lineaAbierta === String(row.id);
                   const enCursoFila = String(row.estado || '') === 'abierta';
                   const tiendasFila = partesDe(row);

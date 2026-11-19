@@ -404,15 +404,26 @@ export function desgloseLiquidacion(liquidacion, abonos, cuentas) {
     (cuentas || []).map((c) => [String(c.id), String(c.sucursal_id || '').toUpperCase()]),
   );
   const propios = (abonos || []).filter((a) => a && !a.archived_at && String(a.liquidacion_id || '') === String(liquidacion?.id || ''));
+  const desdeDetalle = [];
+  for (const p of Array.isArray(liquidacion?.detalle) ? liquidacion.detalle : []) {
+    const sid = String(p?.sucursal_id || p?.sucursalId || '').toUpperCase();
+    if (!sid) continue;
+    const lineas = Array.isArray(p.abonos) && p.abonos.length ? p.abonos : [{ monto: p.monto }];
+    for (const a of lineas) {
+      desdeDetalle.push({
+        sucursal_id: sid,
+        monto: a.monto,
+        created_at: a.created_at || null,
+        notas: a.notas || '',
+      });
+    }
+  }
   const fuente = propios.length
     ? propios.map((a) => ({
       ...a,
       sucursal_id: String(a.sucursal_id || cuentaSuc.get(String(a.cuenta_id)) || '').toUpperCase(),
     }))
-    : detalleLiquidacion(liquidacion?.detalle).map((p) => ({
-      sucursal_id: p.sucursal_id,
-      monto: p.monto,
-    }));
+    : desdeDetalle;
   const map = new Map();
   for (const a of fuente) {
     const sid = String(a.sucursal_id || '').toUpperCase();
