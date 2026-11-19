@@ -19,6 +19,36 @@ export function esCompraVentaEnRuta(compra) {
   return /venta\s+en\s+ruta/i.test(String(compra?.notas || ''));
 }
 
+/**
+ * La venta ya salió del camión, pero la tienda aún no presionó Recibir.
+ * Hasta entonces no entra a abarrotes, liquidación, crédito ni RC/VentaRuta.
+ */
+export function ventaPendienteRecepcion(venta) {
+  const arts = venta?.articulos;
+  if (typeof arts === 'string') {
+    try {
+      return ventaPendienteRecepcion({ ...venta, articulos: JSON.parse(arts) });
+    } catch {
+      return false;
+    }
+  }
+  if (!Array.isArray(arts)) return false;
+  return arts.some((a) => a && (a._recepcion_pendiente === true || a._recepcion_pendiente === 1 || a._recepcion_pendiente === 'true'));
+}
+
+export function quitarMarcaRecepcionPendiente(articulos) {
+  let arts = articulos;
+  if (typeof arts === 'string') {
+    try {
+      arts = JSON.parse(arts);
+    } catch {
+      return articulos;
+    }
+  }
+  if (!Array.isArray(arts)) return arts;
+  return arts.filter((a) => !(a && (a._recepcion_pendiente === true || a._recepcion_pendiente === 1 || a._recepcion_pendiente === 'true')));
+}
+
 /** Extrae folio VR-… de las notas del pedido/compra. */
 export function folioVentaRutaDesdeNotas(notas) {
   const m = String(notas || '').match(/\b(VR-[A-Z0-9-]+)\b/i);

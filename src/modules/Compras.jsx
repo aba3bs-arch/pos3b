@@ -35,6 +35,7 @@ import {
   armarPayloadTicketRecepcionAsync,
   cargarGastoCompraACorteAbarrotes,
 } from '../lib/compraGastoCorte.js';
+import { liberarCargosVentaRutaAlRecibir } from '../lib/ventaEnRuta.js';
 import {
   DIAS_HISTORIAL_COMPRAS,
   archivarComprasHistorial,
@@ -962,6 +963,15 @@ export default function Compras({
       usuarioNombre: user?.nombre || null,
       rolActor: user?.rol || null,
     });
+    const cargoRes = await liberarCargosVentaRutaAlRecibir(supabase, {
+      compra: { ...compraActiva, total: totalTicket },
+      usuarioNombre: user?.nombre || null,
+    });
+    const msgCargo = !cargoRes.ok
+      ? `\n\n⚠ Inventario OK, pero no se cargó el efectivo o el crédito:\n${cargoRes.error || 'Error desconocido.'}`
+      : (cargoRes.avisos || []).length
+        ? `\n\n${cargoRes.avisos.join(' ')}`
+        : '';
     const msgGasto = !gastoRes.ok
       ? `\n\n⚠ Inventario OK, pero no se cargó el gasto al corte Abarrotes:\n${gastoRes.error || 'Error desconocido.'}`
       : gastoRes.omitido === 'credito'
@@ -982,7 +992,7 @@ export default function Compras({
         ? `\n\n⚠ ${inv.pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentarán al abrir Consultas → Inventario. No borres la caché local.`
         : '';
     alert(
-      `Mercancía recibida. Folio ${folioCompra}. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgGasto}${msgExtra}${msgNube}`,
+      `Mercancía recibida. Folio ${folioCompra}. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgGasto}${msgCargo}${msgExtra}${msgNube}`,
     );
     await imprimirTicketRecepcion(
       { ...compraActiva, total: totalTicket, items, proveedores: compraActiva.proveedores },

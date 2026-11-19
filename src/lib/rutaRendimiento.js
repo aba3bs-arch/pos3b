@@ -17,7 +17,7 @@ import {
   gastoVigente,
   totalGastos,
 } from './ventasRutaPorTienda.js';
-import { montosPagoDesdeVentaRuta } from './compraGastoCorte.js';
+import { montosPagoDesdeVentaRuta, ventaPendienteRecepcion } from './compraGastoCorte.js';
 import { listarMovimientosRecoleccionContabilidad } from './controlEfectivo.js';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -93,6 +93,7 @@ export function costearVentasRuta(ventas, { productos = new Map(), proveedorPorP
       total.canceladas += 1;
       continue;
     }
+    if (ventaPendienteRecepcion(v)) continue;
     const tienda = tiendaDeVentaRuta(v);
     const pago = montosPagoDesdeVentaRuta(v);
     const efectivo = r2(pago.montoEfectivo);

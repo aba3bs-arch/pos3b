@@ -5,7 +5,7 @@
  */
 
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { montosPagoDesdeVentaRuta } from './compraGastoCorte.js';
+import { montosPagoDesdeVentaRuta, ventaPendienteRecepcion } from './compraGastoCorte.js';
 import { listarAbonosFinAnio, listarCuentasFinAnio, round2 } from './creditoFinAnio.js';
 import { tiendaDeVentaRuta, ventaCancelada } from './ventasRutaPorTienda.js';
 
@@ -32,6 +32,7 @@ export function importeCuetesVenta(venta, idsCuete) {
 /** Parte de cuetes de una venta: lo pendiente y cada cobro (contado o abono). */
 export function cobrosCueteDeVenta(venta, idsCuete, abonos = []) {
   if (!venta || ventaCancelada(venta)) return null;
+  if (ventaPendienteRecepcion(venta)) return null;
   if (String(venta.estado_credito || '').toLowerCase() === 'anulado') return null;
   const { cuete, todos } = importeCuetesVenta(venta, idsCuete);
   if (!(cuete > 0) || !(todos > 0)) return null;
