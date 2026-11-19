@@ -113,6 +113,12 @@ assert.equal(casillas.length, 3);
 assert.equal(casillas[0].nombre, 'Ana');
 assert.equal(casillas[0].total, 700);
 assert.equal(casillas[0].count, 2);
+assert.equal(casillas[0].venta, 500);
+assert.equal(casillas[0].ventaN, 1);
+assert.equal(casillas[0].credito, 200);
+assert.equal(casillas[0].creditoN, 1);
+assert.equal(casillas[0].servicio, 90);
+assert.equal(casillas[0].servicioN, 1);
 assert.equal(casillas.find((c) => c.id === 'rep_b').total, 150);
 assert.equal(casillas.find((c) => c.id === 'rep_c').total, 0);
 

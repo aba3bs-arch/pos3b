@@ -942,37 +942,66 @@ export async function listarMercanciaEnTransitoPorRepartidor(supabase, repartido
   return movimientosMercancia(rows);
 }
 
+function casillaRcVacia(id, nombre) {
+  return {
+    id,
+    nombre,
+    total: 0,
+    count: 0,
+    venta: 0,
+    ventaN: 0,
+    credito: 0,
+    creditoN: 0,
+    servicio: 0,
+    servicioN: 0,
+  };
+}
+
+/** Rc/venta, Rc/créditos o Rc/servicios. El gasto no entra en la casilla. */
+export function cuboCasillaRc(m) {
+  const tipo = String(m?.tipo_movimiento || '');
+  if (!tipo || tipo === 'Gasto') return null;
+  if (tipo === 'Cobro Servicio') return 'servicio';
+  if (tipo === TIPO_COBRO_CREDITO || tipo === 'Entrega Crédito' || esCobroCreditoMovimiento(m)) return 'credito';
+  if (tipo === 'Venta Ruta' || tipo === 'Recolección') return 'venta';
+  return null;
+}
+
 /**
  * Agrupa mercancía en tránsito por recolector (totales para casillas RC/VentaRuta).
  * Pure: recibe lista de repartidores activos + movimientos en tránsito (sin Gasto).
+ * `total` sigue siendo solo mercancía. venta / credito / servicio parten la casilla.
  */
 export function agruparMercanciaEnTransitoPorRepartidor(repartidores = [], movimientos = []) {
   const byRep = new Map();
   for (const r of repartidores || []) {
     const id = String(r.id || '');
     if (!id) continue;
-    byRep.set(id, {
-      id: r.id,
-      nombre: r.nombre || id,
-      total: 0,
-      count: 0,
-    });
+    byRep.set(id, casillaRcVacia(r.id, r.nombre || id));
   }
   const merc = movimientosMercancia(movimientos);
   for (const m of merc) {
     const rid = String(m.repartidor_id || '');
     if (!rid) continue;
     if (!byRep.has(rid)) {
-      byRep.set(rid, {
-        id: m.repartidor_id,
-        nombre: m.repartidores?.nombre || m.repartidor_nombre || rid,
-        total: 0,
-        count: 0,
-      });
+      byRep.set(rid, casillaRcVacia(
+        m.repartidor_id,
+        m.repartidores?.nombre || m.repartidor_nombre || rid,
+      ));
     }
     const g = byRep.get(rid);
     g.total = Math.round((g.total + (Number(m.monto) || 0)) * 100) / 100;
     g.count += 1;
+  }
+  for (const m of movimientos || []) {
+    const rid = String(m.repartidor_id || '');
+    if (!rid || !byRep.has(rid)) continue;
+    const cubo = cuboCasillaRc(m);
+    if (!cubo) continue;
+    const g = byRep.get(rid);
+    const monto = Number(m.monto) || 0;
+    g[cubo] = Math.round((g[cubo] + monto) * 100) / 100;
+    g[`${cubo}N`] += 1;
   }
   return [...byRep.values()].sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total;
