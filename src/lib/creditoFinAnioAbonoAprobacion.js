@@ -4,10 +4,12 @@
  * Si lo rechaza, la operación se cancela.
  */
 
-import { esSucursalRuta, listarSucursalesOperativas } from '../constants/sucursales.js';
+import { esSucursalRuta, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { aliasesDeSesion, aliasesDeVendedor, solicitudEsDelVendedor } from './rutaCxcAprobacion.js';
 import { verificarPinVendedorSesionRuta } from './ventaEnRuta.js';
 import {
+  crearCuentaFinAnio,
+  cuentaAbiertaDeTienda,
   listarAbonosFinAnio,
   listarCuentasFinAnio,
   listarMovimientosFinAnio,
@@ -38,6 +40,24 @@ export async function listarRepartidoresParaAbono(supabase) {
     .order('nombre');
   if (error) return { ok: false, data: [], error: error.message || 'No se pudieron leer los repartidores.' };
   return { ok: true, data: (data || []).filter((r) => r?.id && r.activo !== false) };
+}
+
+/** Cuenta de la tienda donde el cajero deja el abono. Si no hay, se abre una de cuetes. */
+export async function asegurarCuentaAbonoCuetes(supabase, sucursalId, user) {
+  const sid = normalizarCodigoTienda(sucursalId);
+  if (!sid) return { ok: false, error: 'Falta la tienda.' };
+  const cuentas = await listarCuentasFinAnio(supabase);
+  if (cuentas.error && !cuentas.data) return { ok: false, error: cuentas.error || 'No se pudieron leer las cuentas.' };
+  const abierta = cuentaAbiertaDeTienda(cuentas.data, [], [], sid);
+  if (abierta?.id) return { ok: true, cuenta: abierta };
+  const creada = await crearCuentaFinAnio(supabase, {
+    sucursalId: sid,
+    nombre: 'Cuetes',
+    notas: 'Abonos del crédito de cuetes',
+    user,
+  });
+  if (!creada.ok) return creada;
+  return { ok: true, cuenta: creada.data };
 }
 
 export async function solicitarAbonoFinAnio(supabase, {

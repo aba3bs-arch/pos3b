@@ -35,6 +35,7 @@ import {
   totalTarjetas,
 } from '../lib/creditoFinAnio.js';
 import {
+  asegurarCuentaAbonoCuetes,
   cancelarSolicitudAbonoFinAnio,
   listarRepartidoresParaAbono,
   listarSolicitudesAbonoCuenta,
@@ -187,12 +188,10 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   }, [supabase, cuentaId, puedeAbonar, marcaSolicitudes]);
 
   useEffect(() => {
-    if (!soloAbono) return;
-    if (sucSesion && sucursalId !== sucSesion) setSucursalId(sucSesion);
+    if (!puedeAbonar || !sucSesion) return;
     const elegida = cuentaAbiertaDeTienda(cuentas, movimientos, abonos, sucSesion);
-    const next = elegida?.id ? String(elegida.id) : '';
-    if (String(cuentaId || '') !== next) setCuentaId(next);
-  }, [soloAbono, sucSesion, sucursalId, cuentaId, cuentas, movimientos, abonos]);
+    if (elegida?.id && String(cuentaId || '') !== String(elegida.id)) setCuentaId(String(elegida.id));
+  }, [puedeAbonar, sucSesion, cuentaId, cuentas, movimientos, abonos]);
 
   useEffect(() => {
     if (!supabase) return undefined;
@@ -346,11 +345,15 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   };
 
   const abonar = async () => {
-    if (soloLectura) return alert('Solo puedes ver las cuentas.');
+    if (!puedeAbonar) return;
+    if (!sucSesion) return alert('Esta sesión no tiene tienda para abonar.');
+    const libro = await asegurarCuentaAbonoCuetes(supabase, sucSesion, user);
+    if (!libro.ok) return alert(libro.error || 'No se pudo abrir la cuenta de la tienda.');
+    if (libro.cuenta?.id) setCuentaId(String(libro.cuenta.id));
     const rep = repartidores.find((r) => String(r.id) === String(abono.repartidorId));
     const ok = await correr(() => solicitarAbonoFinAnio(supabase, {
-      cuentaId: cuenta.id,
-      sucursalId: cuenta.sucursal_id || sucursalId,
+      cuentaId: libro.cuenta.id,
+      sucursalId: sucSesion,
       monto: abono.monto,
       notas: abono.notas,
       repartidorId: abono.repartidorId,
@@ -358,8 +361,9 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       cajero: user,
     }));
     if (!ok) return;
+    setMarcaSolicitudes((n) => n + 1);
     setAbono({ monto: '', notas: '', repartidorId: '' });
-    alert(`Se envió el abono a ${rep?.nombre || 'el repartidor'}. Tiene que aprobarlo con su PIN. Si no lo aprueba, no se registra el abono ni el gasto.`);
+    alert(`Se envió el abono a ${rep?.nombre || 'el recolector'}. Le llega la notificación y lo aprueba con su PIN. Si no lo aprueba, no se registra el abono ni el gasto.`);
   };
 
   const tiendasCredito = soloSuTienda
@@ -426,17 +430,17 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
     setCuentaId('');
   };
 
-  const panelAbono = cuenta && !cerrada && puedeAbonar ? (
+  const panelAbono = puedeAbonar && sucSesion ? (
     <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
-      <h4 style={{ margin: 0 }}>Abono a la cuenta</h4>
+      <h4 style={{ margin: 0 }}>Abono de {etiquetaTienda(sucSesion)}</h4>
       <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
-        Tú entregas el dinero. El repartidor lo aprueba con su PIN. Si no aprueba, no entra a gastos y se cancela.
+        Tú entregas el dinero. El recolector recibe la notificación y lo aprueba con su PIN. Si no aprueba, no entra a gastos y se cancela.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem' }}>
         <Campo label="Monto">
           <input className="input" inputMode="decimal" value={abono.monto} onChange={(e) => setAbono({ ...abono, monto: e.target.value })} />
         </Campo>
-        <Campo label="Repartidor que recibe">
+        <Campo label="Recolector que recibe">
           <select className="input" value={abono.repartidorId} onChange={(e) => setAbono({ ...abono, repartidorId: e.target.value })}>
             <option value="">Elige</option>
             {repartidores.map((r) => (
@@ -511,7 +515,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <h3 style={{ margin: 0, color: COLOR }}>Crédito fin de año</h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          La venta se hace en Venta en ruta. Aquí solo se consulta el crédito de cuetes por tienda, sus tickets y la liquidación.
+          La venta se hace en Venta en ruta. El cajero abona aquí y el recolector recibe la notificación para aprobarlo con su PIN.
         </p>
       </div>
 
@@ -555,6 +559,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
 
       {pestana === 'credito' && (
         <div style={{ display: 'grid', gap: '0.75rem' }}>
+          {panelAbono}
           {tiendasCredito.length === 0 && (
             <div className="card">
               <p className="muted" style={{ margin: 0 }}>Todavía no hay ventas a crédito de cuetes.</p>

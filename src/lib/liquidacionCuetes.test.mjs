@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { agruparCreditoPorTienda, armarLiquidacionCuetes, cobrosCueteDeVenta } from './liquidacionCuetes.js';
+import { agruparCreditoPorTienda, aplicarAbonosFinAnio, armarLiquidacionCuetes, cobrosCueteDeVenta } from './liquidacionCuetes.js';
 
 const ids = new Set(['93', '85']);
 
@@ -70,5 +70,21 @@ assert.equal(tiendas[0].abonado, 480);
 assert.equal(tiendas[0].tickets[0].folio, 'VR-1-C');
 assert.equal(tiendas[0].tickets[0].lineas[0].nombre, 'Escupidor');
 assert.equal(tiendas[0].tickets[0].lineas.length, 1);
+
+const conAbono = aplicarAbonosFinAnio(
+  agruparCreditoPorTienda([credito], ids, []),
+  [{ id: 'fa1', cuenta_id: 'c3', monto: 480, created_at: '2026-11-18T22:00:00Z' }],
+  [{ id: 'c3', sucursal_id: '3B3' }],
+);
+assert.equal(conAbono[0].pendiente, 520);
+assert.equal(conAbono[0].abonado, 480);
+assert.equal(conAbono[0].tickets[0].pendiente, 520);
+
+const liqAbono = armarLiquidacionCuetes([credito], ids, [], [], [
+  { id: 'fa1', sucursal_id: '3B3', monto: 480, created_at: '2026-11-18T22:00:00Z' },
+], []);
+assert.equal(liqAbono.pendiente, 520);
+assert.equal(liqAbono.abonado, 480);
+assert.equal(liqAbono.partes[0].abonos[0].ref, 'finanio:fa1');
 
 console.log('liquidacionCuetes.test.mjs ok');

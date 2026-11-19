@@ -4,8 +4,9 @@
  * El efectivo y los abonos entran a la liquidación en curso hasta que se cierran.
  */
 
+import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { montosPagoDesdeVentaRuta } from './compraGastoCorte.js';
-import { round2 } from './creditoFinAnio.js';
+import { listarAbonosFinAnio, listarCuentasFinAnio, round2 } from './creditoFinAnio.js';
 import { tiendaDeVentaRuta, ventaCancelada } from './ventasRutaPorTienda.js';
 
 const TABLA_LIQUIDACIONES = 'credito_fin_anio_liquidaciones';
@@ -151,6 +152,60 @@ export function agruparCreditoPorTienda(ventas, idsCuete, abonos = []) {
     .sort((a, b) => b.credito - a.credito || a.sucursal_id.localeCompare(b.sucursal_id, 'es'));
 }
 
+/** Abonos que el cajero entregó y el recolector ya aprobó. */
+export function abonosFinAnioComoCobros(abonos, cuentas = []) {
+  const cuentaSuc = new Map(
+    (cuentas || []).map((c) => [String(c.id), normalizarCodigoTienda(c.sucursal_id) || String(c.sucursal_id || '').toUpperCase()]),
+  );
+  return (abonos || []).map((a) => {
+    if (!a || a.archived_at || !(Number(a.monto) > 0)) return null;
+    const sucursal_id = normalizarCodigoTienda(a.sucursal_id) || cuentaSuc.get(String(a.cuenta_id)) || '';
+    if (!sucursal_id) return null;
+    return {
+      ref: `finanio:${a.id}`,
+      sucursal_id,
+      nombre: etiquetaTienda(sucursal_id) || sucursal_id,
+      monto: round2(a.monto),
+      created_at: a.created_at || null,
+      notas: a.notas ? `Abono · ${a.notas}` : 'Abono de fin de año',
+    };
+  }).filter(Boolean);
+}
+
+/** Resta los abonos aprobados del crédito de cada tienda, del ticket más viejo al más nuevo. */
+export function aplicarAbonosFinAnio(tiendas, abonos, cuentas = []) {
+  const porTienda = new Map();
+  for (const c of abonosFinAnioComoCobros(abonos, cuentas)) {
+    const arr = porTienda.get(c.sucursal_id) || [];
+    arr.push(c);
+    porTienda.set(c.sucursal_id, arr);
+  }
+  return (tiendas || []).map((t) => {
+    const pagos = (porTienda.get(t.sucursal_id) || [])
+      .slice()
+      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+    let resto = round2(pagos.reduce((s, p) => s + p.monto, 0));
+    const tickets = (t.tickets || [])
+      .slice()
+      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+      .map((tk) => ({ ...tk }));
+    for (const tk of tickets) {
+      if (!(resto > 0) || !(tk.pendiente > 0)) continue;
+      const aplica = round2(Math.min(resto, tk.pendiente));
+      tk.pendiente = round2(tk.pendiente - aplica);
+      tk.abonado = round2((Number(tk.abonado) || 0) + aplica);
+      resto = round2(resto - aplica);
+    }
+    tickets.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    return {
+      ...t,
+      tickets,
+      pendiente: round2(tickets.reduce((s, tk) => s + tk.pendiente, 0)),
+      abonado: round2(tickets.reduce((s, tk) => s + tk.abonado, 0)),
+    };
+  });
+}
+
 export function refsLiquidadas(liquidaciones) {
   const set = new Set();
   for (const row of liquidaciones || []) {
@@ -165,7 +220,7 @@ export function refsLiquidadas(liquidaciones) {
 }
 
 /** Totales abiertos: crédito que sigue y cobros que todavía no se liquidan. */
-export function armarLiquidacionCuetes(ventas, idsCuete, abonos, liquidaciones) {
+export function armarLiquidacionCuetes(ventas, idsCuete, abonos, liquidaciones, abonosFinAnio = [], cuentas = []) {
   const ya = refsLiquidadas(liquidaciones);
   const porTienda = new Map();
   const pendienteDe = (sid, nombre) => {
@@ -189,6 +244,17 @@ export function armarLiquidacionCuetes(ventas, idsCuete, abonos, liquidaciones) 
       g.abonos.push(c);
       porTienda.set(c.sucursal_id, g);
     }
+  }
+  for (const c of abonosFinAnioComoCobros(abonosFinAnio, cuentas)) {
+    const g = pendienteDe(c.sucursal_id, c.nombre);
+    const aplica = round2(Math.min(c.monto, g.pendiente));
+    if (aplica > 0) {
+      g.pendiente = round2(g.pendiente - aplica);
+      pendiente = round2(pendiente - aplica);
+    }
+    if (ya.has(c.ref)) continue;
+    g.monto = round2(g.monto + c.monto);
+    g.abonos.push(c);
   }
   const grupos = [...porTienda.values()];
   const partes = grupos.filter((p) => p.monto > 0);
@@ -235,10 +301,16 @@ export async function listarLiquidacionCuetes(supabase, liquidaciones = []) {
     (q) => q.eq('tipo', 'abono'),
   );
   if (abonos.error) return { ok: false, error: abonos.error, resumen: armarLiquidacionCuetes(ventas.data, ids, [], liquidaciones) };
+  const [abonosCuenta, cuentas] = await Promise.all([
+    listarAbonosFinAnio(supabase),
+    listarCuentasFinAnio(supabase),
+  ]);
+  const pagos = abonosCuenta.error ? [] : (abonosCuenta.data || []);
+  const libros = cuentas.error ? [] : (cuentas.data || []);
   return {
     ok: true,
-    resumen: armarLiquidacionCuetes(ventas.data, ids, abonos.data, liquidaciones),
-    tiendas: agruparCreditoPorTienda(ventas.data, ids, abonos.data),
+    resumen: armarLiquidacionCuetes(ventas.data, ids, abonos.data, liquidaciones, pagos, libros),
+    tiendas: aplicarAbonosFinAnio(agruparCreditoPorTienda(ventas.data, ids, abonos.data), pagos, libros),
   };
 }
 
