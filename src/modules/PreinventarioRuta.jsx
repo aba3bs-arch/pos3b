@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Preinventario from './Preinventario.jsx';
+import TableroInventarioCamion from '../components/TableroInventarioCamion.jsx';
 import {
   inventarioCamionDesdeLineas,
   lineasDeCarga,
@@ -176,6 +177,7 @@ export default function PreinventarioRuta({ supabase, user, inventario = [], pro
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <TableroInventarioCamion supabase={supabase} user={user} />
       <div className="card" style={{ borderTop: `4px solid ${COLOR}`, margin: 0 }}>
         <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Preinventario · camión</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
