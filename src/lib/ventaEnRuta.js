@@ -1,7 +1,9 @@
 /**
  * Venta en Ruta POS v2
- * MAIN (CEDIS) → carga camión → POS móvil → efectivo a RC/VentaRuta (tránsito) / crédito CxC
- * → pedido en Compras (el cajero verifica y recibe en la tienda).
+ * MAIN (CEDIS) → carga camión → POS móvil → pedido en Compras.
+ * El efectivo (RC/VentaRuta), el crédito y el corte de abarrotes se cargan
+ * cuando la tienda presiona Recibir, después de confirmar el inventario.
+ * Cliente externo (sin pedido) sigue cargando al cerrar la venta.
  *
  * El efectivo de mercancía NO va a RC Abarrotes: se registra en transito_efectivo
  * (tipo «Venta Ruta») y se liquida en RC/VentaRuta → Pendientes, igual que el control
@@ -22,6 +24,13 @@ import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { listarRepartidores } from './controlEfectivo.js';
 import { conImpuesto, gananciaDesdePrecios } from './productoForm.js';
 import { familiaFoliosPago, folioConSufijoPago } from './foliosPago.js';
+import {
+  esCompraVentaEnRuta,
+  montosPagoDesdeVentaRuta,
+  quitarMarcaRecepcionPendiente,
+  resolverVentaRutaDeCompra,
+  ventaPendienteRecepcion,
+} from './compraGastoCorte.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 /** @deprecated El efectivo de venta en ruta ya no entra a RC Abarrotes. */
@@ -1929,6 +1938,113 @@ export async function crearPedidoCompraDesdeVentaRuta(supabase, {
   return { ok: true, id: data?.id };
 }
 
+/**
+ * Al presionar Recibir en Compras, carga el efectivo a RC/VentaRuta y el crédito a la cuenta.
+ * Si la venta ya tenía esos cargos (pedidos anteriores), no los duplica.
+ */
+export async function liberarCargosVentaRutaAlRecibir(supabase, { compra, usuarioNombre } = {}) {
+  if (!supabase || !compra?.id) return { ok: false, error: 'Sin compra.' };
+  if (!esCompraVentaEnRuta(compra)) return { ok: true, omitido: 'no_ruta' };
+  const venta = await resolverVentaRutaDeCompra(supabase, compra);
+  if (!venta?.id) return { ok: true, omitido: 'sin_venta' };
+
+  const pago = montosPagoDesdeVentaRuta(venta);
+  const avisos = [];
+  let transitoId = venta.transito_id || null;
+
+  if (pago.montoEfectivo > 0 && !transitoId) {
+    const folioEfe = familiaFoliosPago(venta.folio, pago.metodo).efectivo || venta.folio;
+    const ya = await supabase
+      .from('transito_efectivo')
+      .select('id')
+      .eq('num_traspaso', folioEfe)
+      .limit(1);
+    if (ya.data?.[0]?.id) {
+      transitoId = ya.data[0].id;
+    } else {
+      let vendedorId = '';
+      let repartidorId = '';
+      if (venta.carga_id) {
+        const c = await supabase
+          .from('ruta_cargas')
+          .select('vendedor_id')
+          .eq('id', venta.carga_id)
+          .maybeSingle();
+        const vid = String(c.data?.vendedor_id || '').trim();
+        if (vid && !/^[0-9a-f-]{36}$/i.test(vid) && !vid.startsWith('rt:')) repartidorId = vid;
+        else vendedorId = vid;
+      }
+      const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
+        sucursalOrigen: venta.cliente_id,
+        monto: pago.montoEfectivo,
+        folioVenta: folioEfe,
+        vendedorId: vendedorId || undefined,
+        vendedorNombre: venta.vendedor_nombre || usuarioNombre,
+        repartidorId: repartidorId || undefined,
+        nota: `Venta ruta ${venta.folio} · ${pago.metodo === 'mixto' ? `mixto efectivo ${pago.montoEfectivo}` : 'efectivo'} · recibida · ${venta.cliente_nombre || venta.cliente_id}`,
+      });
+      if (!tr.ok) return { ok: false, error: tr.error || 'No se registró el efectivo en RC/VentaRuta.' };
+      transitoId = tr.id;
+      avisos.push(`Efectivo ${pago.montoEfectivo.toFixed(2)} en RC/VentaRuta.`);
+    }
+  }
+
+  if (pago.montoCredito > 0) {
+    const ex = await supabase
+      .from('ruta_cxc_movimientos')
+      .select('id')
+      .eq('venta_id', venta.id)
+      .eq('tipo', 'cargo')
+      .limit(1);
+    if (!ex.data?.length) {
+      const folioCre = familiaFoliosPago(venta.folio, pago.metodo).credito || venta.folio;
+      const cxc = await registrarCargoCreditoRuta(supabase, {
+        clienteTipo: venta.cliente_tipo || 'sucursal',
+        clienteId: venta.cliente_id,
+        clienteNombre: venta.cliente_nombre || venta.cliente_id,
+        monto: pago.montoCredito,
+        ventaId: venta.id,
+        cargaId: venta.carga_id,
+        folioVenta: folioCre,
+        usuarioNombre: usuarioNombre || venta.vendedor_nombre,
+        notas: pago.metodo === 'mixto'
+          ? `Venta ${venta.folio} · mixto crédito ${pago.montoCredito} · recibida`
+          : `Venta ${venta.folio}`,
+      });
+      if (!cxc.ok) {
+        if (transitoId) {
+          await supabase.from('ruta_ventas').update({ transito_id: String(transitoId) }).eq('id', venta.id);
+        }
+        return { ok: false, error: cxc.error || 'No se registró el crédito.', transitoId };
+      }
+      avisos.push(`Crédito ${pago.montoCredito.toFixed(2)} en la cuenta de la tienda.`);
+    }
+  }
+
+  const patch = {};
+  if (transitoId && String(transitoId) !== String(venta.transito_id || '')) {
+    patch.transito_id = String(transitoId);
+  }
+  const estadoCre = String(venta.estado_credito || '').toLowerCase();
+  if (pago.montoCredito > 0 && estadoCre !== 'pagado' && estadoCre !== 'anulado' && estadoCre !== 'pendiente') {
+    patch.estado_credito = 'pendiente';
+  }
+  if (ventaPendienteRecepcion(venta)) {
+    patch.articulos = quitarMarcaRecepcionPendiente(venta.articulos);
+  }
+  if (Object.keys(patch).length) {
+    const { error } = await supabase.from('ruta_ventas').update(patch).eq('id', venta.id);
+    if (error) return { ok: false, error: error.message, transitoId, avisos };
+  }
+  return {
+    ok: true,
+    transitoId,
+    montoEfectivo: pago.montoEfectivo,
+    montoCredito: pago.montoCredito,
+    avisos,
+  };
+}
+
 // ─── Ventas POS ───────────────────────────────────────────────────
 
 export async function listarVentasRuta(supabase, { cargaId, limit = 200 } = {}) {
@@ -2093,6 +2209,11 @@ export async function registrarVentaRuta(supabase, {
   if (lineasCamionMeta.length) {
     artsGuardar.push({ _lineas_camion: lineasCamionMeta });
   }
+  // Tienda: el dinero espera a que el cajero presione Recibir y confirme el inventario.
+  const esperaRecepcion = tipoCli === 'sucursal';
+  if (esperaRecepcion) {
+    artsGuardar.push({ _recepcion_pendiente: true });
+  }
   const ventaPayload = {
     carga_id: primaryCargaId,
     folio,
@@ -2103,7 +2224,7 @@ export async function registrarVentaRuta(supabase, {
     total,
     articulos: artsGuardar,
     vendedor_nombre: vendedorNombre || null,
-    estado_credito: montoCre > 0 ? 'pendiente' : null,
+    estado_credito: !esperaRecepcion && montoCre > 0 ? 'pendiente' : null,
   };
 
   const { data: ventaRow, error } = await supabase
@@ -2219,7 +2340,7 @@ export async function registrarVentaRuta(supabase, {
     await enlazarVenta();
   }
 
-  if (montoEfe > 0) {
+  if (!esperaRecepcion && montoEfe > 0) {
     // Efectivo → RC/VentaRuta (transito_efectivo tipo «Venta Ruta»).
     // Aparece en Pendientes por liquidar; NO va a RC Abarrotes (ese es corte de tienda).
     let ridTransito = repartidorId ? String(repartidorId) : '';
@@ -2258,7 +2379,7 @@ export async function registrarVentaRuta(supabase, {
     avisos.push(`Efectivo ${montoEfe.toFixed(2)} en RC/VentaRuta · ${vendedorNombre || 'recolector'} (Pendientes).`);
   }
 
-  if (montoCre > 0) {
+  if (!esperaRecepcion && montoCre > 0) {
     const folioCre = foliosPago.credito || folio;
     const cxc = await registrarCargoCreditoRuta(supabase, {
       clienteTipo: tipoCli,
@@ -2287,10 +2408,17 @@ export async function registrarVentaRuta(supabase, {
     }
   }
 
+  if (esperaRecepcion && compraId) {
+    avisos.push(
+      'El efectivo, el crédito, el corte de abarrotes, la liquidación y RC/VentaRuta se cargan cuando la tienda presione Recibir.',
+    );
+  }
+
   await enlazarVenta();
 
   return {
     ok: true,
+    esperaRecepcion: Boolean(esperaRecepcion && compraId),
     venta: {
       ...venta,
       compra_id: compraId,

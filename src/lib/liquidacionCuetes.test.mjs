@@ -53,6 +53,16 @@ assert.equal(cerrado.totalAntes, 520);
 
 assert.equal(cobrosCueteDeVenta({ ...credito, estado: 'cancelada' }, ids, []), null);
 assert.equal(cobrosCueteDeVenta({
+  ...credito,
+  id: 'v-espera',
+  articulos: [...credito.articulos, { _recepcion_pendiente: true }],
+}, ids, []), null);
+assert.equal(armarLiquidacionCuetes([{
+  ...contado,
+  id: 'v-espera-efe',
+  articulos: [...contado.articulos, { _recepcion_pendiente: true }],
+}], ids, [], []).totalAntes, 0);
+assert.equal(cobrosCueteDeVenta({
   id: 'v3',
   metodo_pago: 'efectivo',
   total: 50,

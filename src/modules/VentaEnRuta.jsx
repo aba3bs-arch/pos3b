@@ -2249,16 +2249,18 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     }
 
     setGuardando(false);
-    const extra = [
-      r.cuenta === 'mixto'
-        ? `Mixto · efe ${fmtMonto(r.montoEfectivo)} · créd ${fmtMonto(r.montoCredito)}`
-        : r.cuenta === 'credito'
-          ? 'Crédito pendiente (cajero paga con PIN)'
-          : (r.transitoId
-            ? `Efectivo en RC/VentaRuta · ${vendedorNombre || 'recolector'}`
-            : 'Efectivo en tránsito'),
-      r.compraId ? 'Pedido en Compras listo para verificar y recibir en la tienda' : null,
-    ].filter(Boolean).join(' · ');
+    const extra = r.esperaRecepcion
+      ? 'Pedido en Compras. El efectivo, el crédito, abarrotes, la liquidación y RC/VentaRuta se cargan cuando la tienda presione Recibir.'
+      : [
+        r.cuenta === 'mixto'
+          ? `Mixto · efe ${fmtMonto(r.montoEfectivo)} · créd ${fmtMonto(r.montoCredito)}`
+          : r.cuenta === 'credito'
+            ? 'Crédito pendiente (cajero paga con PIN)'
+            : (r.transitoId
+              ? `Efectivo en RC/VentaRuta · ${vendedorNombre || 'recolector'}`
+              : 'Efectivo en tránsito'),
+        r.compraId ? 'Pedido en Compras listo para verificar y recibir en la tienda' : null,
+      ].filter(Boolean).join(' · ');
     alert(`Venta ${r.venta?.folio || ''} OK.\n${extra}`);
     omitirGuardadoRef.current = true;
     carritoRef.current = [];

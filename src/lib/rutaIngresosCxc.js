@@ -11,7 +11,7 @@
  */
 import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
 import { quitarSufijoPagoFolio } from './foliosPago.js';
-import { montosPagoDesdeVentaRuta } from './compraGastoCorte.js';
+import { montosPagoDesdeVentaRuta, ventaPendienteRecepcion } from './compraGastoCorte.js';
 import { esCargoPendienteCxc, listarMovimientosCxc, esCargoDesdeRecoleccion } from './rutaCxc.js';
 import { precioCompraCatalogo, disponibleEnLineaCarga, listarCargasRuta, lineasDeVariasCargas } from './ventaEnRuta.js';
 import { listarCamionesRuta, etiquetaCamion } from './rutaCamiones.js';
@@ -201,6 +201,7 @@ export function analizarIngresosRuta(ventas, movimientos, { tienda = '', desde =
       out.canceladas += 1;
       continue;
     }
+    if (ventaPendienteRecepcion(v)) continue;
     const t = tiendaDeVentaRuta(v);
     if (suc && t.clave !== suc) continue;
     const pago = montosPagoDesdeVentaRuta(v);
@@ -426,7 +427,7 @@ export function analizarEntregaRecolectores({
   const idsVentasPeriodo = new Set(ventas.map((v) => String(v.id)));
 
   for (const v of ventas) {
-    if (ventaCancelada(v)) continue;
+    if (ventaCancelada(v) || ventaPendienteRecepcion(v)) continue;
     const t = tiendaDeVentaRuta(v);
     if (suc && t.clave !== suc) continue;
     const pago = montosPagoDesdeVentaRuta(v);

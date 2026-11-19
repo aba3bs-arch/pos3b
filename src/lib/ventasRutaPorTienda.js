@@ -1,4 +1,4 @@
-import { montosPagoDesdeVentaRuta } from './compraGastoCorte.js';
+import { montosPagoDesdeVentaRuta, ventaPendienteRecepcion } from './compraGastoCorte.js';
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { inicioDia, finDia, ymdNogalesFromDate } from './corteCaja.js';
 
@@ -262,7 +262,7 @@ export function resumirTraspasosCredito(ventas, { tienda = '' } = {}) {
   const total = { traspasos: 0, credito: 0, pendiente: 0, otros: 0 };
 
   for (const v of ventas || []) {
-    if (ventaCancelada(v)) continue;
+    if (ventaCancelada(v) || ventaPendienteRecepcion(v)) continue;
     const estado = String(v?.estado_credito || '').toLowerCase();
     if (estado === 'anulado') continue;
     const credito = r2(montosPagoDesdeVentaRuta(v).montoCredito);
