@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
+import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import {
   PROVEEDOR_CEDIS_NOMBRE,
   aplicaFiltroCatalogoCedis,
@@ -29,7 +29,7 @@ import {
 import { cargarTodosLosVinculosProveedor } from '../lib/cargarVinculosProveedor.js';
 import { vaciarInventario, opcionesVaciado } from '../lib/borrarInventario.js';
 import { registrarCambioPrecio, leerProductoInventarioFresco } from '../lib/inventarioMovimientos.js';
-import { mensajeErrorColumnasProducto, parchePrecioCompraCon, precioCompraConDeProducto, productoDesdeDb, productoEsFavorito, productoParaGuardar, productoVacio, patchToggleFavoritoSucursal } from '../lib/productoForm.js';
+import { mensajeErrorColumnasProducto, OPCIONES_IMPUESTO, conImpuesto, impuestoEfectivo, parchePrecioCompraSin, precioCompraSinDeProducto, productoDesdeDb, productoEsFavorito, productoParaGuardar, productoVacio, patchToggleFavoritoSucursal } from '../lib/productoForm.js';
 import { codigoOcupadoPorOtro, normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import {
   puedeCrearProveedor,
@@ -160,6 +160,8 @@ export default function Productos({
   const [tickDepartamentos, setTickDepartamentos] = useState(0);
   const [preciosDraft, setPreciosDraft] = useState({});
   const [compraDraft, setCompraDraft] = useState({});
+  const [ivaDraft, setIvaDraft] = useState({});
+  const [precioFocoId, setPrecioFocoId] = useState(null);
   const [guardandoPrecios, setGuardandoPrecios] = useState(false);
   const [preciosQ, setPreciosQ] = useState('');
   const [preciosDepto, setPreciosDepto] = useState('');
@@ -501,6 +503,12 @@ export default function Productos({
     return () => window.clearTimeout(t);
   }, [vista]);
 
+  useEffect(() => {
+    if (vista !== 'precios' || !rowsPrecios.length) return;
+    if (rowsPrecios.some((p) => String(p.id) === String(precioFocoId))) return;
+    setPrecioFocoId(rowsPrecios[0].id);
+  }, [vista, rowsPrecios, precioFocoId]);
+
   const enfocarProductoPrecios = (productoId) => {
     const id = String(productoId || '');
     window.requestAnimationFrame(() => {
@@ -510,6 +518,16 @@ export default function Productos({
       input?.focus?.();
       input?.select?.();
     });
+  };
+
+  const irProductoPrecio = (delta) => {
+    if (!rowsPrecios.length) return;
+    const i = rowsPrecios.findIndex((p) => String(p.id) === String(precioFocoId));
+    const j = (i < 0 ? 0 : i) + delta;
+    if (j < 0 || j >= rowsPrecios.length) return;
+    const next = rowsPrecios[j];
+    setPrecioFocoId(next.id);
+    enfocarProductoPrecios(next.id);
   };
 
   const productoSeleccionado = useMemo(() => {
@@ -831,12 +849,16 @@ export default function Productos({
   const initPreciosDraft = () => {
     const venta = {};
     const compra = {};
+    const iva = {};
     for (const p of inventario) {
       venta[p.id] = String(Number(p.precio || 0).toFixed(2));
-      compra[p.id] = precioCompraConDeProducto(p).toFixed(2);
+      compra[p.id] = precioCompraSinDeProducto(p).toFixed(2);
+      iva[p.id] = String(impuestoEfectivo(p.impuesto));
     }
     setPreciosDraft(venta);
     setCompraDraft(compra);
+    setIvaDraft(iva);
+    setPrecioFocoId(null);
     setPreciosQ('');
     setPreciosDepto('');
     setPreciosProveedor('');
@@ -851,64 +873,79 @@ export default function Productos({
       if (ventaTxt != null && String(ventaTxt).trim() !== '') {
         const n = Number(ventaTxt);
         if (!Number.isFinite(n) || n < 0) return alert(`Precio de venta inválido en ${p.nombre || p.id}.`);
-        if (n !== Number(p.precio)) porId.set(p.id, { p, venta: n });
+        if (n !== Number(p.precio)) porId.set(p.id, { ...(porId.get(p.id) || { p }), p, venta: n });
       }
       const compraTxt = compraDraft[p.id];
       if (compraTxt != null && String(compraTxt).trim() !== '') {
         const n = Number(compraTxt);
         if (!Number.isFinite(n) || n < 0) return alert(`Precio de compra inválido en ${p.nombre || p.id}.`);
-        const actual = precioCompraConDeProducto(p);
         const compra = Math.round(n * 100) / 100;
-        if (compra !== actual) {
-          const prev = porId.get(p.id) || { p };
-          prev.compra = compra;
-          porId.set(p.id, prev);
+        if (compra !== precioCompraSinDeProducto(p)) {
+          porId.set(p.id, { ...(porId.get(p.id) || { p }), p, compra });
+        }
+      }
+      const ivaTxt = ivaDraft[p.id];
+      if (ivaTxt != null && String(ivaTxt).trim() !== '') {
+        const n = Number(ivaTxt);
+        if (!Number.isFinite(n) || n < 0) return alert(`IVA inválido en ${p.nombre || p.id}.`);
+        if (n !== impuestoEfectivo(p.impuesto)) {
+          porId.set(p.id, { ...(porId.get(p.id) || { p }), p, iva: n });
         }
       }
     }
     const cambios = [...porId.values()];
     const nVenta = cambios.filter((c) => c.venta != null).length;
     const nCompra = cambios.filter((c) => c.compra != null).length;
-    if (!nVenta && !nCompra) return alert('No hay cambios de precio.');
+    const nIva = cambios.filter((c) => c.iva != null).length;
+    if (!nVenta && !nCompra && !nIva) return alert('No hay cambios de precio.');
     const partes = [];
     if (nVenta) partes.push(`${nVenta} precio(s) de venta`);
     if (nCompra) partes.push(`${nCompra} precio(s) de compra`);
-    if (!confirm(`¿Actualizar ${partes.join(' y ')}? El precio de venta no cambia solo por mover el de compra.`)) return;
+    if (nIva) partes.push(`${nIva} IVA`);
+    if (!confirm(`¿Actualizar ${partes.join(' y ')}? El precio de caja cambia si mueves el IVA o el precio de venta. La compra sin impuestos no lo mueve sola.`)) return;
     setGuardandoPrecios(true);
-    for (const { p, venta, compra } of cambios) {
+    for (const { p, venta, compra, iva } of cambios) {
+      const sin = compra != null ? compra : precioCompraSinDeProducto(p);
       const patch = {};
-      if (venta != null) patch.precio = venta;
-      if (compra != null) {
-        const costo = parchePrecioCompraCon(p, compra, venta != null ? venta : null);
+      if (compra != null || iva != null) {
+        const costo = parchePrecioCompraSin(p, sin, {
+          impuesto: iva != null ? iva : undefined,
+          ventaCon: venta != null ? venta : null,
+        });
         if (!costo) {
           setGuardandoPrecios(false);
           return alert(`Precio de compra inválido en ${p.nombre || p.id}.`);
         }
         Object.assign(patch, costo);
       }
+      if (venta != null) patch.precio = venta;
       const { error } = await supabase.from('productos').update(patch).eq('id', p.id);
       if (error) {
         setGuardandoPrecios(false);
         return alert(error.message);
       }
-      if (venta != null) {
+      const precioCaja = patch.precio != null ? Number(patch.precio) : null;
+      if (precioCaja != null && precioCaja !== Number(p.precio)) {
         await registrarCambioPrecio(supabase, {
           producto_id: p.id,
           producto_nombre: p.nombre || p.id,
           precio_antes: Number(p.precio) || 0,
-          precio_despues: venta,
+          precio_despues: precioCaja,
+          motivo: iva != null && venta == null
+            ? `IVA ${impuestoEfectivo(p.impuesto)}% → ${iva}% · precio de caja $${Number(p.precio || 0).toFixed(2)} → $${precioCaja.toFixed(2)}`
+            : undefined,
           usuario: user?.nombre || '—',
           sucursal,
         });
       }
       if (compra != null) {
-        const antes = precioCompraConDeProducto(p);
+        const antes = precioCompraSinDeProducto(p);
         await registrarCambioPrecio(supabase, {
           producto_id: p.id,
           producto_nombre: p.nombre || p.id,
           precio_antes: antes,
           precio_despues: compra,
-          motivo: `Precio de compra $${antes.toFixed(2)} → $${compra.toFixed(2)}`,
+          motivo: `Precio de compra sin impuestos $${antes.toFixed(2)} → $${compra.toFixed(2)}`,
           usuario: user?.nombre || '—',
           sucursal,
         });
@@ -2160,7 +2197,7 @@ export default function Productos({
       {vista === 'precios' && (
         <div className="card">
           <p className="muted" style={{ marginTop: 0 }}>
-            Edita el precio de compra (con IVA) y el precio de venta de todo el catálogo. Aplican en todas las tiendas. El de venta no se recalcula solo.
+            Elige un departamento y recorre los productos de uno en uno. El IVA y la compra sin impuestos son los del formulario. Cambiar el IVA ajusta el precio de caja; cambiar solo la compra no.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 240px', minWidth: 0 }}>
@@ -2173,9 +2210,11 @@ export default function Productos({
                   const c = String(codigo || '').trim();
                   const exacto = productoPorCodigoExacto(inventario, c);
                   if (exacto) {
-                    setPreciosDepto('');
+                    const depto = normalizarDepartamento(exacto.cat);
+                    setPreciosDepto(departamentos.includes(depto) ? depto : '');
                     setPreciosProveedor('');
-                    setPreciosQ(String(exacto.id));
+                    setPreciosQ('');
+                    setPrecioFocoId(exacto.id);
                     enfocarProductoPrecios(exacto.id);
                     return;
                   }
@@ -2189,20 +2228,27 @@ export default function Productos({
                 inputStyle={{ flex: 1, minWidth: 0 }}
               />
             </div>
-            <select
-              className="select"
-              style={{ flex: '0 1 180px', minWidth: 140 }}
-              value={preciosDepto}
-              onChange={(e) => setPreciosDepto(e.target.value)}
-              title="Filtrar por departamento"
-            >
-              <option value="">Todos los departamentos</option>
-              {departamentos.map((d) => (
-                <option key={d} value={d}>
-                  {etiquetaDepartamento(d)}
-                </option>
-              ))}
-            </select>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 220px', minWidth: 180 }}>
+              <Icon name="package" size={16} />
+              <span className="muted" style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>Departamento</span>
+              <select
+                className="select"
+                style={{ flex: 1, minWidth: 140, fontWeight: 700 }}
+                value={preciosDepto}
+                onChange={(e) => {
+                  setPreciosDepto(e.target.value);
+                  setPrecioFocoId(null);
+                }}
+                title="Elige el departamento y recorre sus productos"
+              >
+                <option value="">Todos los departamentos</option>
+                {departamentos.map((d) => (
+                  <option key={d} value={d}>
+                    {etiquetaDepartamento(d)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <select
               className="select"
               style={{ flex: '0 1 180px', minWidth: 140 }}
@@ -2235,13 +2281,39 @@ export default function Productos({
               {rowsPrecios.length} producto{rowsPrecios.length === 1 ? '' : 's'}
             </span>
           </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={!rowsPrecios.length || rowsPrecios.findIndex((p) => String(p.id) === String(precioFocoId)) <= 0}
+              onClick={() => irProductoPrecio(-1)}
+            >
+              ← Anterior
+            </button>
+            <strong style={{ fontSize: '0.92rem' }}>
+              {rowsPrecios.length
+                ? `${Math.max(1, rowsPrecios.findIndex((p) => String(p.id) === String(precioFocoId)) + 1)} de ${rowsPrecios.length}`
+                : 'Sin productos'}
+              {precioFocoId ? ` · ${rowsPrecios.find((p) => String(p.id) === String(precioFocoId))?.nombre || ''}` : ''}
+            </strong>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={!rowsPrecios.length || rowsPrecios.findIndex((p) => String(p.id) === String(precioFocoId)) >= rowsPrecios.length - 1}
+              onClick={() => irProductoPrecio(1)}
+            >
+              Siguiente →
+            </button>
+          </div>
           <div className="table-wrap" style={{ maxHeight: '480px' }}>
             <table className="data">
               <thead>
                 <tr>
                   <th>Código</th>
                   <th>Producto</th>
-                  <th title="Con impuestos, el mismo del formulario del producto">Precio de compra</th>
+                  <th>Impuesto (IVA)</th>
+                  <th title="El mismo campo Sin impuestos del formulario">Compra sin impuestos</th>
+                  <th>Con impuestos</th>
                   <th>Precio actual</th>
                   <th>Nuevo precio</th>
                 </tr>
@@ -2249,7 +2321,7 @@ export default function Productos({
               <tbody>
                 {rowsPrecios.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
+                    <td colSpan={7} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
                       Sin productos con los filtros actuales
                       {preciosQ.trim() ? ` («${preciosQ.trim()}»)` : ''}
                     </td>
@@ -2258,6 +2330,8 @@ export default function Productos({
                   rowsPrecios.map((p) => (
                     <tr
                       key={p.id}
+                      onClick={() => setPrecioFocoId(p.id)}
+                      style={String(p.id) === String(precioFocoId) ? { background: 'rgba(59, 102, 181, 0.12)' } : undefined}
                       ref={(el) => {
                         if (el) preciosFilaRefs.current.set(String(p.id), el);
                         else preciosFilaRefs.current.delete(String(p.id));
@@ -2266,16 +2340,40 @@ export default function Productos({
                       <td>{p.id}</td>
                       <td>{p.nombre}</td>
                       <td>
+                        <select
+                          className="select"
+                          aria-label={`IVA ${p.nombre || p.id}`}
+                          style={{ minWidth: '7.5rem', padding: '0.35rem' }}
+                          value={ivaDraft[p.id] ?? String(impuestoEfectivo(p.impuesto))}
+                          onChange={(e) => {
+                            setPrecioFocoId(p.id);
+                            setIvaDraft({ ...ivaDraft, [p.id]: e.target.value });
+                          }}
+                        >
+                          {OPCIONES_IMPUESTO.map((o) => (
+                            <option key={o.value} value={String(o.value)}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
                         <input
                           className="input"
                           type="number"
                           step="0.01"
                           min={0}
-                          aria-label={`Precio de compra ${p.nombre || p.id}`}
+                          aria-label={`Compra sin impuestos ${p.nombre || p.id}`}
                           style={{ width: '7rem', padding: '0.35rem' }}
                           value={compraDraft[p.id] ?? ''}
-                          onChange={(e) => setCompraDraft({ ...compraDraft, [p.id]: e.target.value })}
+                          onChange={(e) => {
+                            setPrecioFocoId(p.id);
+                            setCompraDraft({ ...compraDraft, [p.id]: e.target.value });
+                          }}
                         />
+                      </td>
+                      <td>
+                        ${conImpuesto(Number(compraDraft[p.id]) || 0, Number(ivaDraft[p.id] ?? impuestoEfectivo(p.impuesto))).toFixed(2)}
                       </td>
                       <td>${Number(p.precio).toFixed(2)}</td>
                       <td>

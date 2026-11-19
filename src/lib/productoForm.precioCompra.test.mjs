@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parchePrecioCompraCon, precioCompraConDeProducto } from './productoForm.js';
+import { parchePrecioCompraCon, parchePrecioCompraSin, precioCompraConDeProducto } from './productoForm.js';
 
 const lata = {
   id: '7501022014554',
@@ -28,3 +28,21 @@ assert.equal(conVenta.ganancia_pct, 54.33);
 assert.equal(conVenta.precio_compra_sin, 12);
 
 assert.equal(parchePrecioCompraCon(lata, -1), null);
+
+const captura = {
+  precio: 19,
+  impuesto: 8,
+  precio_compra_sin: 13.12,
+  precio_venta_sin: 17.59,
+  ganancia_pct: 34.07,
+};
+const sinIva = parchePrecioCompraSin(captura, 13.12);
+assert.equal(sinIva.precio_compra_sin, 13.12);
+assert.equal(sinIva.precio_compra_con, 14.17);
+assert.equal(sinIva.precio, undefined);
+
+const cambiaIva = parchePrecioCompraSin(captura, 13.12, { impuesto: 0 });
+assert.equal(cambiaIva.impuesto, 0);
+assert.equal(cambiaIva.precio_compra_con, 13.12);
+assert.equal(cambiaIva.precio, 18);
+assert.equal(parchePrecioCompraSin(captura, -2), null);

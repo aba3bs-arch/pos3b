@@ -143,6 +143,11 @@ export function precioCompraConDeProducto(p) {
   return round2(productoDesdeDb(p).precio_compra_con);
 }
 
+/** Precio de compra sin IVA, el mismo campo del formulario del producto. */
+export function precioCompraSinDeProducto(p) {
+  return round2(productoDesdeDb(p).precio_compra_sin);
+}
+
 /**
  * Actualiza el costo de compra sin mover el precio de venta.
  * `ventaConNueva` se usa solo para recalcular la ganancia cuando el precio de venta también cambia.
@@ -166,6 +171,41 @@ export function parchePrecioCompraCon(producto, compraCon, ventaConNueva = null)
     costo: con,
     ganancia_pct: round2(ganancia),
   };
+}
+
+/**
+ * Actualiza el costo desde el precio de compra sin IVA.
+ * Si cambia el impuesto y no hay precio de venta nuevo, el precio de caja se recalcula con el IVA nuevo.
+ */
+export function parchePrecioCompraSin(producto, compraSin, opts = {}) {
+  const imp = opts.impuesto != null ? impuestoEfectivo(opts.impuesto) : impuestoEfectivo(producto?.impuesto);
+  const sin = round2(compraSin);
+  if (!Number.isFinite(sin) || sin < 0) return null;
+  const con = conImpuesto(sin, imp);
+  const ventaExplicita = opts.ventaCon != null && opts.ventaCon !== '';
+  const impAntes = impuestoEfectivo(producto?.impuesto);
+  const ventaConActual = round2(Number(producto?.precio ?? producto?.precio_venta_con) || 0);
+  const ventaSinGuardado = Number(producto?.precio_venta_sin);
+  const ventaSinBase = ventaSinGuardado > 0 ? round2(ventaSinGuardado) : sinImpuesto(ventaConActual, impAntes);
+  const ventaCon = ventaExplicita ? round2(opts.ventaCon) : ventaConActual;
+  const ventaSin = ventaExplicita ? sinImpuesto(ventaCon, imp) : ventaSinBase;
+  let ganancia = Number(producto?.ganancia_pct);
+  if (sin > 0) ganancia = gananciaDesdePrecios(sin, ventaSin);
+  else if (!Number.isFinite(ganancia)) ganancia = 0;
+  const patch = {
+    precio_compra_sin: sin,
+    precio_compra_con: con,
+    costo: con,
+    ganancia_pct: round2(ganancia),
+  };
+  if (opts.impuesto != null) patch.impuesto = imp;
+  if (!ventaExplicita && opts.impuesto != null && imp !== impAntes) {
+    const ventaNueva = precioConsumidor(conImpuesto(ventaSin, imp));
+    patch.precio_venta_sin = ventaSin;
+    patch.precio_venta_con = ventaNueva;
+    patch.precio = ventaNueva;
+  }
+  return patch;
 }
 
 export function productoDesdeDb(p) {
