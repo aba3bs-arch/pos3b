@@ -83,16 +83,16 @@ function Kpi({ fondo, icono, titulo, monto }) {
       color: '#fff',
       borderRadius: 14,
       padding: '0.7rem 0.75rem',
-      minHeight: 92,
+      minHeight: 118,
       boxShadow: 'inset 0 0 0 2px rgba(255,255,255,0.28)',
       display: 'flex',
       flexDirection: 'column',
       justifyContent: 'space-between',
     }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        {icono}
-        <span style={{ fontWeight: 800, fontSize: '0.86rem', lineHeight: 1.15, minWidth: 0 }}>{titulo}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <span style={{ flexShrink: 0 }}>{icono}</span>
+        <span style={{ fontWeight: 800, fontSize: '0.92rem', lineHeight: 1.15, minWidth: 0 }}>{titulo}</span>
       </div>
       <strong style={{ fontSize: 'clamp(1.05rem, 2.2vw, 1.45rem)', letterSpacing: '-0.02em' }}>{fmtMonto(monto)}</strong>
     </div>
@@ -180,7 +180,7 @@ export default function TableroCreditosPorCobrar({
     }}
     >
       <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        <DibujoCamion size={78} />
+        <DibujoCamion size={108} />
         <div style={{ flex: '1 1 180px', minWidth: 0 }}>
           <h2 style={{ margin: 0, fontSize: 'clamp(1.25rem, 3vw, 1.85rem)', fontWeight: 900, letterSpacing: '-0.02em' }}>
             <span style={{ fontStyle: 'italic' }}>RC</span>
@@ -203,9 +203,9 @@ export default function TableroCreditosPorCobrar({
       </header>
 
       <div className="tablero-creditos-kpis">
-        <Kpi fondo="linear-gradient(180deg,#f6b429,#e09112)" icono={<DibujoTarjeta size={36} />} titulo="Crédito por pagar" monto={tablero.totales.credito} />
-        <Kpi fondo="linear-gradient(180deg,#34c06a,#159447)" icono={<DibujoBilletes size={36} />} titulo="Abonos recibidos" monto={tablero.totales.abono} />
-        <Kpi fondo="linear-gradient(180deg,#3b82f6,#1d4ed8)" icono={<DibujoRefresco size={36} tono="claro" />} titulo="Crédito actualizado" monto={tablero.totales.actualizado} />
+        <Kpi fondo="linear-gradient(180deg,#f6b429,#e09112)" icono={<DibujoTarjeta size={58} />} titulo="Crédito por pagar" monto={tablero.totales.credito} />
+        <Kpi fondo="linear-gradient(180deg,#34c06a,#159447)" icono={<DibujoBilletes size={58} />} titulo="Abonos recibidos" monto={tablero.totales.abono} />
+        <Kpi fondo="linear-gradient(180deg,#3b82f6,#1d4ed8)" icono={<DibujoRefresco size={54} tono="claro" />} titulo="Crédito actualizado" monto={tablero.totales.actualizado} />
       </div>
 
       <div style={{
@@ -219,7 +219,7 @@ export default function TableroCreditosPorCobrar({
         padding: '0.55rem 0.7rem',
       }}
       >
-        <DibujoTienda size={34} />
+        <DibujoTienda size={48} />
         <div style={{ flex: '1 1 200px' }}>
           <strong style={{ fontSize: '1.02rem' }}>
             {tablero.tiendas.length} {tablero.tiendas.length === 1 ? 'Tienda con crédito' : 'Tiendas con crédito'}
@@ -244,7 +244,7 @@ export default function TableroCreditosPorCobrar({
             cursor: 'pointer',
           }}
         >
-          <DibujoGrafica size={22} />
+          <DibujoGrafica size={34} />
           Reporte RC
         </button>
       </div>
@@ -282,7 +282,7 @@ export default function TableroCreditosPorCobrar({
                   >
                     <td style={{ padding: '0.45rem 0.55rem' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <DibujoTienda size={26} />
+                        <DibujoTienda size={40} />
                         <span>
                           <strong style={{ display: 'block', color: '#1d4ed8' }}>{t.codigo || t.nombre}</strong>
                           {t.codigo ? <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{t.nombre}</span> : null}
@@ -322,7 +322,7 @@ export default function TableroCreditosPorCobrar({
         >
           {!tienda ? (
             <div style={{ padding: '1.2rem', textAlign: 'center' }}>
-              <DibujoTienda size={48} />
+              <DibujoTienda size={64} />
               <p style={{ margin: '0.6rem 0 0', fontWeight: 800, color: '#1e3a8a' }}>Elige una tienda</p>
               <p style={{ margin: '0.25rem 0 0', color: '#64748b', fontSize: '0.82rem' }}>
                 Aquí ves sus folios, registras un abono o liquidas el crédito.
@@ -339,7 +339,7 @@ export default function TableroCreditosPorCobrar({
                 color: '#fff',
               }}
               >
-                <DibujoTienda size={30} />
+                <DibujoTienda size={44} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <strong style={{ display: 'block' }}>{tienda.codigo || tienda.nombre}</strong>
                   <span style={{ fontSize: '0.78rem', opacity: 0.9 }}>{tienda.codigo ? tienda.nombre : 'Crédito'}</span>
@@ -358,15 +358,15 @@ export default function TableroCreditosPorCobrar({
               </div>
 
               <div style={{ display: 'grid', gap: 6, padding: '0.65rem 0.75rem 0' }}>
-                <FilaResumen icono={<DibujoDocumento size={18} />} label="Folios pendientes:" valor={String(tienda.folios.length)} />
-                <FilaResumen icono={<DibujoTarjeta size={18} />} label="Crédito por pagar:" valor={fmtMonto(tienda.credito)} />
-                <FilaResumen icono={<DibujoBilletes size={18} />} label="Abonos aplicados:" valor={fmtMonto(tienda.abono)} />
-                <FilaResumen icono={<DibujoRefresco size={18} />} label="Crédito actualizado:" valor={fmtMonto(tienda.actualizado)} />
+                <FilaResumen icono={<DibujoDocumento size={32} />} label="Folios pendientes:" valor={String(tienda.folios.length)} />
+                <FilaResumen icono={<DibujoTarjeta size={32} />} label="Crédito por pagar:" valor={fmtMonto(tienda.credito)} />
+                <FilaResumen icono={<DibujoBilletes size={32} />} label="Abonos aplicados:" valor={fmtMonto(tienda.abono)} />
+                <FilaResumen icono={<DibujoRefresco size={32} />} label="Crédito actualizado:" valor={fmtMonto(tienda.actualizado)} />
               </div>
 
               <div style={{ margin: '0.65rem 0.75rem 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, color: '#1e3a8a', marginBottom: 4 }}>
-                  <DibujoDocumento size={18} />
+                  <DibujoDocumento size={30} />
                   Folios del crédito ({tienda.folios.length})
                 </div>
                 <div style={{ maxHeight: 220, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
@@ -414,7 +414,7 @@ export default function TableroCreditosPorCobrar({
               }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 900, color: '#166534' }}>
-                  <DibujoBilletes size={26} />
+                  <DibujoBilletes size={40} />
                   Registrar abono
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
@@ -431,7 +431,13 @@ export default function TableroCreditosPorCobrar({
                     aria-label="Monto del abono"
                     style={{ flex: 1, fontSize: '1.15rem', fontWeight: 800, textAlign: 'center' }}
                   />
-                  <span aria-hidden><DibujoCalculadora size={30} /></span>
+                  <span aria-hidden style={{
+                    width: 56, height: 56, borderRadius: 12, background: '#fff', border: '2px solid #1e3a8a',
+                    display: 'grid', placeItems: 'center', flexShrink: 0,
+                  }}
+                  >
+                    <DibujoCalculadora size={44} />
+                  </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                   <button
@@ -440,7 +446,7 @@ export default function TableroCreditosPorCobrar({
                     onClick={onGuardarAbono}
                     style={btnAccion('#16a34a')}
                   >
-                    <DibujoPalomita size={20} />
+                    <DibujoPalomita size={30} />
                     {guardando ? 'Enviando…' : 'Guardar abono'}
                   </button>
                   <button
@@ -449,7 +455,7 @@ export default function TableroCreditosPorCobrar({
                     onClick={onLiquidar}
                     style={btnAccion('#e11d48')}
                   >
-                    <DibujoBandera size={20} />
+                    <DibujoBandera size={30} />
                     Liquidar crédito
                   </button>
                 </div>
@@ -458,11 +464,11 @@ export default function TableroCreditosPorCobrar({
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                   <button type="button" onClick={() => setHistorialAbierto((v) => !v)} style={btnSuave('#1d4ed8')}>
-                    <DibujoReloj size={16} />
+                    <DibujoReloj size={26} />
                     Ver historial de abonos
                   </button>
                   <button type="button" onClick={imprimirEstado} style={btnSuave('#7c3aed')}>
-                    <DibujoImpresora size={16} />
+                    <DibujoImpresora size={26} />
                     Imprimir estado
                   </button>
                 </div>
