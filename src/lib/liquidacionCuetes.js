@@ -153,6 +153,19 @@ export function agruparCreditoPorTienda(ventas, idsCuete, abonos = []) {
     .sort((a, b) => b.credito - a.credito || a.sucursal_id.localeCompare(b.sucursal_id, 'es'));
 }
 
+/** Suma el crédito de cuetes. El pendiente ya trae restados los abonos. */
+export function totalesCreditoCuete(tiendas) {
+  let credito = 0;
+  let abonado = 0;
+  let pendiente = 0;
+  for (const t of tiendas || []) {
+    credito += Number(t?.credito) || 0;
+    abonado += Number(t?.abonado) || 0;
+    pendiente += Number(t?.pendiente) || 0;
+  }
+  return { credito: round2(credito), abonado: round2(abonado), pendiente: round2(pendiente) };
+}
+
 /** Abonos que el cajero entregó y el recolector ya aprobó. */
 export function abonosFinAnioComoCobros(abonos, cuentas = []) {
   const cuentaSuc = new Map(
