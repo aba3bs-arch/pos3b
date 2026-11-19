@@ -246,7 +246,7 @@ const GUIAS = [
     id: 'mensajes',
     tema: 'mensajes y soporte',
     claves: [['chat', 4], ['mensajes', 4], ['mensaje', 4], ['soporte', 3], ['grupo 3b', 4]],
-    texto: 'Mensajes está en el menú: chat de tu sucursal, Grupo 3B y Soporte. Cada mensaje lleva tu nombre y tu turno. En Soporte, tu primer mensaje abre una solicitud; el asistente responde y un administrador la marca resuelta.',
+    texto: 'msj soporte está en el menú: chat de tu sucursal, Grupo 3B y Soporte. Cada mensaje lleva tu nombre y tu turno. En Soporte, tu primer mensaje abre una solicitud; el asistente responde y un administrador la marca resuelta.',
   },
   {
     id: 'tutorial',

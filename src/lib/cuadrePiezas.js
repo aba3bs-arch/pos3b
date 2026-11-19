@@ -5,7 +5,7 @@
  */
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { stockEnUbicacion } from './inventarioMultitienda.js';
-import { descontarStockPorVenta, guardarMovimientoLocal } from './inventarioMovimientos.js';
+import { descontarStockPorVenta, devolverStockPorCancelacion, registrarMovimientoInventario } from './inventarioMovimientos.js';
 
 function artsOf(row) {
   let a = row?.articulos;
@@ -351,6 +351,17 @@ export async function analizarCuadrePiezas(supabase, opts = {}) {
   };
 }
 
+export function motivoAjusteCuadre(fila) {
+  const qty = Math.floor(Number(fila?.sinBaja) || 0);
+  const folios = [...new Set(
+    (fila?.ticketsSinBaja || [])
+      .map((t) => String(t?.folio || '').slice(0, 8).toLowerCase())
+      .filter((f) => f.length >= 8),
+  )];
+  const lista = folios.length ? ` · ticket ${folios.join(' ')}` : '';
+  return `Cuadre de piezas · ${qty} pza de venta que no habían bajado del piso${lista}`;
+}
+
 export async function ajustarCuadrePiezas(supabase, filas, { usuario } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const pendientes = (filas || []).filter((f) => Number(f.sinBaja) > 0);
@@ -369,25 +380,27 @@ export async function ajustarCuadrePiezas(supabase, filas, { usuario } = {}) {
       errores.push(`${f.nombre}: ${r.error}`);
       continue;
     }
+    const mov = await registrarMovimientoInventario(supabase, {
+      tipo: 'retiro',
+      modo: 'consolidacion_venta',
+      producto_id: f.id,
+      producto_nombre: f.nombre,
+      cantidad: qty,
+      stock_antes: r.antes,
+      stock_despues: r.despues,
+      ubicacion: 'piso',
+      motivo: motivoAjusteCuadre(f),
+      usuario: usuario || '—',
+      sucursal: f.sucursal,
+      created_at: new Date().toISOString(),
+    });
+    if (!mov?.cloudId) {
+      await devolverStockPorCancelacion(supabase, { productoId: f.id, qty, sucursal: f.sucursal });
+      errores.push(`${f.nombre}: la baja no quedó registrada${mov?.error ? ` (${mov.error})` : ''}`);
+      continue;
+    }
     aplicados += 1;
     piezas += qty;
-    guardarMovimientoLocal(
-      {
-        tipo: 'retiro',
-        modo: 'consolidacion_venta',
-        producto_id: f.id,
-        producto_nombre: f.nombre,
-        cantidad: qty,
-        stock_antes: r.antes,
-        stock_despues: r.despues,
-        ubicacion: 'piso',
-        motivo: `Cuadre de piezas · ${qty} pza de venta que no habían bajado del piso`,
-        usuario: usuario || '—',
-        sucursal: f.sucursal,
-        created_at: new Date().toISOString(),
-      },
-      supabase,
-    );
   }
   return {
     ok: errores.length === 0,

@@ -441,8 +441,12 @@ export function rolVeBuzonComoIncidencias(rol) {
   return rolSoloPestanaIncidencias(rol);
 }
 
+const ETIQUETA_MODULO = {
+  Mensajes: 'msj soporte',
+};
+
 export function etiquetaModuloSidebar(_rol, moduloId) {
-  return moduloId;
+  return ETIQUETA_MODULO[moduloId] || moduloId;
 }
 
 export function modulosParaSidebar(rol, userId = null) {
