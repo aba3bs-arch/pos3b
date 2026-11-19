@@ -136,6 +136,38 @@ export function productoVacio() {
   };
 }
 
+/**
+ * Precio de compra con IVA, el mismo que muestra el formulario del producto.
+ */
+export function precioCompraConDeProducto(p) {
+  return round2(productoDesdeDb(p).precio_compra_con);
+}
+
+/**
+ * Actualiza el costo de compra sin mover el precio de venta.
+ * `ventaConNueva` se usa solo para recalcular la ganancia cuando el precio de venta también cambia.
+ */
+export function parchePrecioCompraCon(producto, compraCon, ventaConNueva = null) {
+  const imp = impuestoEfectivo(producto?.impuesto);
+  const con = round2(compraCon);
+  if (!Number.isFinite(con) || con < 0) return null;
+  const sin = sinImpuesto(con, imp);
+  const ventaCon = ventaConNueva != null
+    ? round2(ventaConNueva)
+    : round2(Number(producto?.precio ?? producto?.precio_venta_con) || 0);
+  const ventaSinGuardado = ventaConNueva == null ? Number(producto?.precio_venta_sin) : 0;
+  const ventaSin = ventaSinGuardado > 0 ? round2(ventaSinGuardado) : sinImpuesto(ventaCon, imp);
+  let ganancia = Number(producto?.ganancia_pct);
+  if (sin > 0) ganancia = gananciaDesdePrecios(sin, ventaSin);
+  else if (!Number.isFinite(ganancia)) ganancia = 0;
+  return {
+    precio_compra_con: con,
+    precio_compra_sin: sin,
+    costo: con,
+    ganancia_pct: round2(ganancia),
+  };
+}
+
 export function productoDesdeDb(p) {
   if (!p) return productoVacio();
   const impuesto = impuestoEfectivo(p.impuesto);

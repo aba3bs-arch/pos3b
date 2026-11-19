@@ -29,7 +29,7 @@ import {
 import { cargarTodosLosVinculosProveedor } from '../lib/cargarVinculosProveedor.js';
 import { vaciarInventario, opcionesVaciado } from '../lib/borrarInventario.js';
 import { registrarCambioPrecio, leerProductoInventarioFresco } from '../lib/inventarioMovimientos.js';
-import { mensajeErrorColumnasProducto, productoDesdeDb, productoEsFavorito, productoParaGuardar, productoVacio, patchToggleFavoritoSucursal } from '../lib/productoForm.js';
+import { mensajeErrorColumnasProducto, parchePrecioCompraCon, precioCompraConDeProducto, productoDesdeDb, productoEsFavorito, productoParaGuardar, productoVacio, patchToggleFavoritoSucursal } from '../lib/productoForm.js';
 import { codigoOcupadoPorOtro, normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import {
   puedeCrearProveedor,
@@ -159,6 +159,7 @@ export default function Productos({
   const [esEdicionProducto, setEsEdicionProducto] = useState(false);
   const [tickDepartamentos, setTickDepartamentos] = useState(0);
   const [preciosDraft, setPreciosDraft] = useState({});
+  const [compraDraft, setCompraDraft] = useState({});
   const [guardandoPrecios, setGuardandoPrecios] = useState(false);
   const [preciosQ, setPreciosQ] = useState('');
   const [preciosDepto, setPreciosDepto] = useState('');
@@ -828,9 +829,14 @@ export default function Productos({
   };
 
   const initPreciosDraft = () => {
-    const d = {};
-    for (const p of inventario) d[p.id] = String(Number(p.precio || 0).toFixed(2));
-    setPreciosDraft(d);
+    const venta = {};
+    const compra = {};
+    for (const p of inventario) {
+      venta[p.id] = String(Number(p.precio || 0).toFixed(2));
+      compra[p.id] = precioCompraConDeProducto(p).toFixed(2);
+    }
+    setPreciosDraft(venta);
+    setCompraDraft(compra);
     setPreciosQ('');
     setPreciosDepto('');
     setPreciosProveedor('');
@@ -839,30 +845,74 @@ export default function Productos({
   const guardarPrecios = async () => {
     if (!puedeGestionCatalogo) return alert('Tu rol no puede cambiar precios.');
     if (!supabase) return;
-    const cambios = Object.entries(preciosDraft).filter(([id, v]) => {
-      const p = inventario.find((x) => x.id === id);
-      return p && Number(v) !== Number(p.precio);
-    });
-    if (!cambios.length) return alert('No hay cambios de precio.');
-    if (!confirm(`¿Actualizar precio de ${cambios.length} producto(s)?`)) return;
+    const porId = new Map();
+    for (const p of inventario) {
+      const ventaTxt = preciosDraft[p.id];
+      if (ventaTxt != null && String(ventaTxt).trim() !== '') {
+        const n = Number(ventaTxt);
+        if (!Number.isFinite(n) || n < 0) return alert(`Precio de venta inválido en ${p.nombre || p.id}.`);
+        if (n !== Number(p.precio)) porId.set(p.id, { p, venta: n });
+      }
+      const compraTxt = compraDraft[p.id];
+      if (compraTxt != null && String(compraTxt).trim() !== '') {
+        const n = Number(compraTxt);
+        if (!Number.isFinite(n) || n < 0) return alert(`Precio de compra inválido en ${p.nombre || p.id}.`);
+        const actual = precioCompraConDeProducto(p);
+        const compra = Math.round(n * 100) / 100;
+        if (compra !== actual) {
+          const prev = porId.get(p.id) || { p };
+          prev.compra = compra;
+          porId.set(p.id, prev);
+        }
+      }
+    }
+    const cambios = [...porId.values()];
+    const nVenta = cambios.filter((c) => c.venta != null).length;
+    const nCompra = cambios.filter((c) => c.compra != null).length;
+    if (!nVenta && !nCompra) return alert('No hay cambios de precio.');
+    const partes = [];
+    if (nVenta) partes.push(`${nVenta} precio(s) de venta`);
+    if (nCompra) partes.push(`${nCompra} precio(s) de compra`);
+    if (!confirm(`¿Actualizar ${partes.join(' y ')}? El precio de venta no cambia solo por mover el de compra.`)) return;
     setGuardandoPrecios(true);
-    for (const [id, precio] of cambios) {
-      const p = inventario.find((x) => x.id === id);
-      const precioAntes = Number(p?.precio) || 0;
-      const precioDespues = Number(precio) || 0;
-      const { error } = await supabase.from('productos').update({ precio: precioDespues }).eq('id', id);
+    for (const { p, venta, compra } of cambios) {
+      const patch = {};
+      if (venta != null) patch.precio = venta;
+      if (compra != null) {
+        const costo = parchePrecioCompraCon(p, compra, venta != null ? venta : null);
+        if (!costo) {
+          setGuardandoPrecios(false);
+          return alert(`Precio de compra inválido en ${p.nombre || p.id}.`);
+        }
+        Object.assign(patch, costo);
+      }
+      const { error } = await supabase.from('productos').update(patch).eq('id', p.id);
       if (error) {
         setGuardandoPrecios(false);
         return alert(error.message);
       }
-      await registrarCambioPrecio(supabase, {
-        producto_id: id,
-        producto_nombre: p?.nombre || id,
-        precio_antes: precioAntes,
-        precio_despues: precioDespues,
-        usuario: user?.nombre || '—',
-        sucursal,
-      });
+      if (venta != null) {
+        await registrarCambioPrecio(supabase, {
+          producto_id: p.id,
+          producto_nombre: p.nombre || p.id,
+          precio_antes: Number(p.precio) || 0,
+          precio_despues: venta,
+          usuario: user?.nombre || '—',
+          sucursal,
+        });
+      }
+      if (compra != null) {
+        const antes = precioCompraConDeProducto(p);
+        await registrarCambioPrecio(supabase, {
+          producto_id: p.id,
+          producto_nombre: p.nombre || p.id,
+          precio_antes: antes,
+          precio_despues: compra,
+          motivo: `Precio de compra $${antes.toFixed(2)} → $${compra.toFixed(2)}`,
+          usuario: user?.nombre || '—',
+          sucursal,
+        });
+      }
     }
     setGuardandoPrecios(false);
     cargarDatos();
@@ -2110,7 +2160,7 @@ export default function Productos({
       {vista === 'precios' && (
         <div className="card">
           <p className="muted" style={{ marginTop: 0 }}>
-            Edita precios de venta para todo el catálogo (aplican en todas las tiendas) y guarda los cambios.
+            Edita el precio de compra (con IVA) y el precio de venta de todo el catálogo. Aplican en todas las tiendas. El de venta no se recalcula solo.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 240px', minWidth: 0 }}>
@@ -2191,6 +2241,7 @@ export default function Productos({
                 <tr>
                   <th>Código</th>
                   <th>Producto</th>
+                  <th title="Con impuestos, el mismo del formulario del producto">Precio de compra</th>
                   <th>Precio actual</th>
                   <th>Nuevo precio</th>
                 </tr>
@@ -2198,7 +2249,7 @@ export default function Productos({
               <tbody>
                 {rowsPrecios.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
+                    <td colSpan={5} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
                       Sin productos con los filtros actuales
                       {preciosQ.trim() ? ` («${preciosQ.trim()}»)` : ''}
                     </td>
@@ -2214,6 +2265,18 @@ export default function Productos({
                     >
                       <td>{p.id}</td>
                       <td>{p.nombre}</td>
+                      <td>
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          aria-label={`Precio de compra ${p.nombre || p.id}`}
+                          style={{ width: '7rem', padding: '0.35rem' }}
+                          value={compraDraft[p.id] ?? ''}
+                          onChange={(e) => setCompraDraft({ ...compraDraft, [p.id]: e.target.value })}
+                        />
+                      </td>
                       <td>${Number(p.precio).toFixed(2)}</td>
                       <td>
                         <input
