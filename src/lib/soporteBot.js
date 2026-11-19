@@ -174,7 +174,7 @@ const GUIAS = [
       ['cobranza', 6], ['credito', 3], ['creditos', 3], ['cobrar credito', 6], ['cobro de credito', 6], ['pagar folios', 5], ['solicitar cobro', 5], ['pin cajero', 4],
       ['repartidor', 2], ['por pagar', 3],
     ],
-    texto: 'Cobranza · créditos ruta: abre Cobranza o Venta en Ruta → Créditos por pagar, captura tu PIN cajero → «Abrir con PIN». En la carátula RC toca la tienda, escribe el monto y pulsa «Guardar abono», o «Liquidar crédito» para el saldo completo. El vendedor de ruta recibe el aviso y el pago se registra cuando lo aprueba con su PIN; sigue el estado en «Solicitudes de cobro» (Esperando al vendedor, Aprobada y cobrada, Rechazada).',
+    texto: 'Cobranza · créditos ruta: abre Cobranza, captura tu PIN cajero → «Abrir con PIN». Abre la tienda (▸), marca los folios a pagar (o «Marcar todos»), opcionalmente captura el Monto y pulsa «Solicitar cobro $…». El vendedor de ruta recibe el aviso y el pago se registra cuando lo aprueba con su PIN; sigue el estado en «Solicitudes de cobro» (Esperando al vendedor, Aprobada y cobrada, Rechazada).',
   },
   {
     id: 'compras',
