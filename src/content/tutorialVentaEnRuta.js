@@ -110,7 +110,7 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Incluye créditos de **venta en ruta** y de **Recolecciones** (Entrega Crédito / Por Cobrar).',
         'Se agrupan **por tienda** (3B2, 3B10 El Mezquite…). Nunca mezcles varias sucursales en un solo pago.',
         'Al abrir el módulo, la sync trae sola los Por Cobrar de Recolecciones (ya no hay botón Restaurar).',
-        'El cajero elige **una tienda**, puede pagar **parcial** y confirma con **PIN**.',
+        'El cajero elige **una tienda**, escribe el abono (**Guardar abono**) o pulsa **Liquidar crédito**. El vendedor lo aprueba con su **PIN**.',
         'Admin puede eliminar un crédito erróneo. No es un gasto de recepción.',
       ],
       imagen: `${IMG}/08-creditos.svg`,
