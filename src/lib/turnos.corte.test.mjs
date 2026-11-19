@@ -4,6 +4,7 @@ import {
   sugerirTurnoParaCorte,
   turnoActual,
   turnoConTolerancia,
+  usuarioAutorizadoCorte,
 } from './turnos.js';
 
 const diurno = { id: 'diurno', nombre: 'Turno diurno', hora_inicio: '07:00', hora_fin: '19:00' };
@@ -59,5 +60,17 @@ assert.equal(turnoActual(list, at(7)).id, 'diurno');
   assert.equal(s.turno.id, 'diurno');
   assert.equal(s.motivo, 'actual');
 }
+
+const ct = { rol: 'Cajero', esCubreTurno: true, turno_id: 'diurno', nombre: 'Ana Lopez' };
+assert.equal(usuarioAutorizadoCorte(ct, diurno, at(10), { turnos: list }).ok, true);
+assert.equal(
+  usuarioAutorizadoCorte({ rol: 'Cajero', esCubreTurno: true, turno_id: null, nombre: 'Ana Lopez' }, diurno, at(10), { turnos: list }).ok,
+  true,
+);
+assert.equal(usuarioAutorizadoCorte({ rol: 'Cajero', turno_id: null }, diurno, at(10), { turnos: list }).ok, false);
+assert.equal(
+  usuarioAutorizadoCorte({ rol: 'Cajero', esCubreTurno: true, turno_id: 'nocturno', nombre: 'Ana Lopez' }, diurno, at(10), { turnos: list }).ok,
+  false,
+);
 
 console.log('turnos.corte.test.mjs ok');

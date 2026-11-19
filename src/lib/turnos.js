@@ -1228,6 +1228,26 @@ export function usuarioAutorizadoCorte(user, turno, date = new Date(), opts = {}
     };
   }
 
+  // PIN temporal de cubre turno: cierra el corte de caja del turno que cubre,
+  // igual que el cajero de ese turno, para poder hacer el corte de abarrotes.
+  if (esUsuarioCubreTurno(user)) {
+    const asignadoCt = turnoIdParaUsuario(user, date);
+    const cubreEste = !asignadoCt
+      || esTurnoAmbos(asignadoCt)
+      || String(asignadoCt) === String(turno.id)
+      || !list.some((t) => String(t.id) === String(asignadoCt));
+    const relevoCt = Boolean(
+      enEntrega && actual && asignadoCt && String(asignadoCt) === String(actual.id),
+    );
+    if (cubreEste || relevoCt) {
+      return { ok: true, cubreTurno: true, enEntrega: enEntrega || relevoCt };
+    }
+    return {
+      ok: false,
+      error: `Estás cortando ${nombreTurnoLegible(turno)}. La cobertura es de ${etiquetaTurno(asignadoCt, list)}.`,
+    };
+  }
+
   if (sucursal && tieneAutorizacionFueraHorario(user, sucursal, date)) {
     return { ok: true, autorizacionAdmin: true, enEntrega };
   }
