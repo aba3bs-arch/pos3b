@@ -418,49 +418,49 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     void pagar(totalFoliosSel);
   };
 
-  const heading = titulo || (embedded ? 'Créditos por pagar' : 'Cobranza · créditos ruta');
-
   if (!cajero) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div>
-          {embedded ? (
-            <h3 style={{ margin: 0, color: '#0f766e' }}>{heading}</h3>
-          ) : (
-            <h2 style={{ margin: 0, color: '#0f766e' }}>{heading}</h2>
-          )}
-          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Ingresa el <strong>PIN del cajero</strong> para abrir créditos por pagar
-            (venta en ruta y créditos del módulo Recolecciones).
-            {verTodasLasTiendas
-              ? ' Central: ves todas las tiendas. Toca una para ver folios, registrar un abono o liquidar el crédito.'
-              : ` Solo créditos de ${tiendaLabelActiva || sucActiva || 'esta sucursal'}. Toca la tienda para ver folios, registrar un abono o liquidar.`}
-          </p>
-        </div>
-        <div className="card" style={{ borderTop: '4px solid #0f766e', maxWidth: 360 }}>
-          <label style={{ fontSize: '0.85rem', display: 'block' }}>
-            PIN cajero
-            <InputPin
-              value={pinEntrada}
-              onChange={(e) => setPinEntrada(e.target.value)}
-              className="input"
-              style={{ width: '100%', marginTop: '0.35rem' }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void abrirConPin();
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ marginTop: '0.75rem' }}
-            disabled={abriendo || !String(pinEntrada).trim()}
-            onClick={() => void abrirConPin()}
+      <TableroCreditosPorCobrar
+        cargos={[]}
+        acceso={(
+          <div style={{
+            background: '#fff',
+            color: '#0f172a',
+            borderRadius: 16,
+            padding: '0.9rem',
+            maxWidth: 420,
+          }}
           >
-            {abriendo ? 'Verificando…' : 'Abrir con PIN'}
-          </button>
-        </div>
-      </div>
+            <p style={{ margin: '0 0 0.7rem', fontSize: '0.9rem' }}>
+              Ingresa el <strong>PIN del cajero</strong> para ver las tiendas y registrar abonos.
+              {verTodasLasTiendas
+                ? ' Central ve todas las tiendas.'
+                : ` Esta caja ve ${tiendaLabelActiva || sucActiva || 'su sucursal'}.`}
+            </p>
+            <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700 }}>
+              PIN cajero
+              <InputPin
+                value={pinEntrada}
+                onChange={(e) => setPinEntrada(e.target.value)}
+                className="input"
+                style={{ width: '100%', marginTop: '0.35rem' }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void abrirConPin();
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginTop: '0.75rem' }}
+              disabled={abriendo || !String(pinEntrada).trim()}
+              onClick={() => void abrirConPin()}
+            >
+              {abriendo ? 'Verificando…' : 'Abrir con PIN'}
+            </button>
+          </div>
+        )}
+      />
     );
   }
 

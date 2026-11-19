@@ -121,6 +121,7 @@ export default function TableroCreditosPorCobrar({
   actualizando = false,
   idsEnAprobacion,
   cajeroNombre = '',
+  acceso = null,
 }) {
   const [abonos, setAbonos] = useState([]);
   const [historialAbierto, setHistorialAbierto] = useState(false);
@@ -192,14 +193,16 @@ export default function TableroCreditosPorCobrar({
             </p>
           ) : null}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onCerrarSesion} disabled={guardando || eliminando}>
-            Cerrar sesión
-          </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onActualizar} disabled={guardando || eliminando || actualizando}>
-            {actualizando ? 'Actualizando…' : 'Actualizar'}
-          </button>
-        </div>
+        {!acceso && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onCerrarSesion} disabled={guardando || eliminando}>
+              Cerrar sesión
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onActualizar} disabled={guardando || eliminando || actualizando}>
+              {actualizando ? 'Actualizando…' : 'Actualizar'}
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="tablero-creditos-kpis">
@@ -249,6 +252,11 @@ export default function TableroCreditosPorCobrar({
         </button>
       </div>
 
+      {acceso ? (
+        <div style={{ marginTop: '0.75rem' }}>{acceso}</div>
+      ) : null}
+
+      {!acceso && (
       <div className="tablero-creditos-split" style={{ marginTop: '0.75rem' }}>
         <div style={{ background: '#f8fafc', color: '#0f172a', borderRadius: 14, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem', minWidth: 520 }}>
@@ -502,6 +510,7 @@ export default function TableroCreditosPorCobrar({
           )}
         </aside>
       </div>
+      )}
     </section>
   );
 }
