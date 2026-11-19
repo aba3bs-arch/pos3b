@@ -70,7 +70,7 @@ import {
   esCentralAdmin,
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente, esRolRepartidor, fijarSesionPrivilegios } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente, esRolRepartidor, fijarSesionPrivilegios, etiquetaModuloSidebar } from './lib/roles.js';
 import { inventarioParaSucursal, asegurarMapaStock } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -1691,7 +1691,7 @@ function App() {
             </button>
             <h2 className="header-title app-header-title" style={{ color: colorDeModulo(vista) }}>
               <Icon name={iconoDeModulo(vista)} size={22} style={{ color: colorDeModulo(vista) }} />
-              {vista}
+              {etiquetaModuloSidebar(null, vista)}
             </h2>
             <RelojNogales />
             <div className="app-header-quick">

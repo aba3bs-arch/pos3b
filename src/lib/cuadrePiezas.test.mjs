@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   construirCuadre,
+  motivoAjusteCuadre,
   parseCodigosCuadre,
   parseConteosCuadre,
   separarTicketsDuplicados,
@@ -126,5 +127,23 @@ const soloConteo = construirCuadre({
 assert.equal(soloConteo.filas.length, 1);
 assert.equal(soloConteo.filas[0].diferencia, true);
 assert.match(soloConteo.filas[0].explicacion, /26 pieza/);
+
+assert.match(motivoAjusteCuadre(rojo), /016a3de7/);
+const sinCopia = construirCuadre({
+  ventas: [ticketB],
+  movimientos: [{
+    producto_id: '41',
+    tipo: 'retiro',
+    modo: 'consolidacion_venta',
+    cantidad: 2,
+    motivo: motivoAjusteCuadre(rojo),
+  }],
+  stocks: { 41: 15 },
+  filtroIds: ['41'],
+});
+const rojoOk = sinCopia.filas.find((f) => f.id === '41');
+assert.equal(rojoOk.sinBaja, 0);
+assert.equal(rojoOk.piezasDuplicadas, 0);
+assert.equal(rojoOk.diferencia, false);
 
 console.log('cuadrePiezas.test.mjs ok');
