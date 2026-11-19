@@ -42,7 +42,7 @@ import {
   solicitarAbonoFinAnio,
   solicitudAbonoPendiente,
 } from '../lib/creditoFinAnioAbonoAprobacion.js';
-import { guardarLiquidacionCuetes, listarLiquidacionCuetes } from '../lib/liquidacionCuetes.js';
+import { guardarLiquidacionCuetes, listarLiquidacionCuetes, totalesCreditoCuete } from '../lib/liquidacionCuetes.js';
 import { imprimirPedidoCompra } from '../lib/impresion.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_CREDITO_FIN_ANIO } from '../content/tutorialCreditoFinAnio.js';
@@ -369,6 +369,7 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
   const tiendasCredito = soloSuTienda
     ? creditoTiendas.filter((t) => normalizarCodigoTienda(t.sucursal_id) === sucSesion)
     : creditoTiendas;
+  const creditoCuete = useMemo(() => totalesCreditoCuete(tiendasCredito), [tiendasCredito]);
 
   const partesCuete = soloSuTienda
     ? liqCuetes.partes.filter((t) => normalizarCodigoTienda(t.sucursal_id) === sucSesion)
@@ -530,6 +531,15 @@ export default function CreditoFinAnioRuta({ supabase, user, inventario = [], on
             <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Inventario en tiempo real</p>
             <p style={{ margin: '0.15rem 0 0', fontSize: '1.8rem', fontWeight: 700, color: COLOR }}>{fmtMonto(inventarioCamion.valorReal)}</p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Baja con cada venta de cuetes. Se actualiza solo.</p>
+          </div>
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Crédito de cuetes</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '1.8rem', fontWeight: 700, color: COLOR }}>{fmtMonto(creditoCuete.pendiente)}</p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+              {creditoCuete.abonado > 0
+                ? `Crédito ${fmtMonto(creditoCuete.credito)} − abono ${fmtMonto(creditoCuete.abonado)}.`
+                : 'Solo cuetes vendidos a crédito. Sin abonos.'}
+            </p>
           </div>
         </div>
       )}

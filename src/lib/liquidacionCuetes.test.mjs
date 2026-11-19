@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { agruparCreditoPorTienda, aplicarAbonosFinAnio, armarLiquidacionCuetes, cobrosCueteDeVenta } from './liquidacionCuetes.js';
+import { agruparCreditoPorTienda, aplicarAbonosFinAnio, armarLiquidacionCuetes, cobrosCueteDeVenta, totalesCreditoCuete } from './liquidacionCuetes.js';
 
 const ids = new Set(['93', '85']);
 
@@ -96,5 +96,11 @@ const liqAbono = armarLiquidacionCuetes([credito], ids, [], [], [
 assert.equal(liqAbono.pendiente, 520);
 assert.equal(liqAbono.abonado, 480);
 assert.equal(liqAbono.partes[0].abonos[0].ref, 'finanio:fa1');
+
+const totales = totalesCreditoCuete(conAbono);
+assert.equal(totales.credito, 1000);
+assert.equal(totales.abonado, 480);
+assert.equal(totales.pendiente, 520);
+assert.deepEqual(totalesCreditoCuete([]), { credito: 0, abonado: 0, pendiente: 0 });
 
 console.log('liquidacionCuetes.test.mjs ok');
