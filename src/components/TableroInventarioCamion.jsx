@@ -16,10 +16,36 @@ import { TZ_NOGALES } from './RelojNogales.jsx';
 import {
   armarTableroTiendas,
   idsMovimientosMarcados,
+  incorporarVentasCredito,
   nombreCortoCamion,
-  totalesMarcados,
+  totalLiquidable,
   valoresInventarioCamion,
 } from '../lib/tableroCamionPreinventario.js';
+
+async function leerCxcDeVentas(supabase, ventas) {
+  const ventaIds = [...new Set((ventas || []).map((v) => v.id).filter(Boolean).map(String))];
+  if (!ventaIds.length) return [];
+  const rows = [];
+  const traer = async (campo, ids) => {
+    for (let i = 0; i < ids.length; i += 80) {
+      const slice = ids.slice(i, i + 80);
+      if (!slice.length) continue;
+      const { data, error } = await supabase.from('ruta_cxc_movimientos').select('*').in(campo, slice);
+      if (error) throw new Error(error.message);
+      rows.push(...(data || []));
+    }
+  };
+  await traer('venta_id', ventaIds);
+  const cargoIds = [...new Set(rows.filter((r) => r.tipo === 'cargo').map((r) => r.id).filter(Boolean).map(String))];
+  await traer('cargo_id', cargoIds);
+  const vistos = new Set();
+  return rows.filter((r) => {
+    const id = String(r.id);
+    if (vistos.has(id)) return false;
+    vistos.add(id);
+    return true;
+  });
+}
 
 const formato = new Intl.DateTimeFormat('es-MX', {
   timeZone: TZ_NOGALES,
@@ -72,7 +98,7 @@ export default function TableroInventarioCamion({ supabase, user }) {
   const [ultimaCarga, setUltimaCarga] = useState(null);
   const [actualizado, setActualizado] = useState(null);
   const [movimientos, setMovimientos] = useState([]);
-  const [tablero, setTablero] = useState({ filas: [], totales: { count: 0, efectivo: 0, credito: 0, total: 0 } });
+  const [tablero, setTablero] = useState({ filas: [], totales: { count: 0, efectivo: 0, credito: 0, abono: 0, total: 0 } });
   const [marcas, setMarcas] = useState({});
   const [tiendaAbierta, setTiendaAbierta] = useState('');
   const [ticketAbierto, setTicketAbierto] = useState('');
@@ -163,7 +189,13 @@ export default function TableroInventarioCamion({ supabase, user }) {
         if (eV) throw new Error(eV.message);
         ventas = (data || []).filter((v) => String(v.estado || '').toLowerCase() !== 'cancelada');
       }
-      const next = armarTableroTiendas(movs, ventas);
+      let cxc = [];
+      try {
+        cxc = await leerCxcDeVentas(supabase, ventas);
+      } catch {
+        cxc = [];
+      }
+      const next = incorporarVentasCredito(armarTableroTiendas(movs, ventas), ventas, cxc);
       setInventario(valoresInventarioCamion(lineas, productos));
       setUltimaCarga(evento.error ? null : evento.data?.[0]?.created_at || null);
       setActualizado(new Date().toISOString());
@@ -182,7 +214,7 @@ export default function TableroInventarioCamion({ supabase, user }) {
     void cargar();
   }, [cargar]);
 
-  const marcados = useMemo(() => totalesMarcados(tablero.filas, marcas), [tablero.filas, marcas]);
+  const aLiquidar = useMemo(() => totalLiquidable(tablero.filas, marcas), [tablero.filas, marcas]);
   const abierta = tablero.filas.find((f) => f.tienda === tiendaAbierta) || null;
 
   const liquidar = async () => {
@@ -206,8 +238,8 @@ export default function TableroInventarioCamion({ supabase, user }) {
     const netos = calcularNetosLiquidacion(items, 0);
     if (!window.confirm(
       `¿Liquidar ${fmtMonto(netos.netoMercancia)} de ${nombre}?\n\n`
-      + `Efectivo: ${fmtMonto(marcados.efectivo)}\n`
-      + `Crédito: ${fmtMonto(marcados.credito)}\n`
+      + `Efectivo en tránsito: ${fmtMonto(netos.netoMercancia)}\n`
+      + `El crédito por cobrar no entra a esta liquidación.\n`
       + `Se acredita a ${etiquetaCuentaRt(cuenta)}.`,
     )) return;
     setGuardando(true);
@@ -275,6 +307,9 @@ export default function TableroInventarioCamion({ supabase, user }) {
             <div style={{ background: '#dc2626', borderRadius: 8, padding: '0.2rem 0.45rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 800 }}>
               <span>Crédito:</span><span>{fmtMonto(tablero.totales.credito)}</span>
             </div>
+            <div style={{ background: '#166534', borderRadius: 8, padding: '0.2rem 0.45rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 800 }}>
+              <span>Abonos:</span><span>{fmtMonto(tablero.totales.abono)}</span>
+            </div>
           </div>
         </Kpi>
         <div style={{ background: 'linear-gradient(180deg,#123a86,#0b2f72)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 14, padding: '0.75rem 0.8rem' }}>
@@ -299,6 +334,7 @@ export default function TableroInventarioCamion({ supabase, user }) {
                   ['Venta total', '#e07a1a'],
                   ['Efectivo', '#15803d'],
                   ['Crédito', '#dc2626'],
+                  ['Abono', '#166534'],
                 ].map(([label, fondo]) => (
                   <th key={label} style={{ background: fondo, color: '#fff', padding: '0.45rem 0.4rem', textAlign: label === 'Tienda' ? 'left' : 'center' }}>{label}</th>
                 ))}
@@ -336,13 +372,14 @@ export default function TableroInventarioCamion({ supabase, user }) {
                     <td style={{ textAlign: 'center', color: '#c2410c', fontWeight: 800 }}>{fmtMonto(f.total)}</td>
                     <td style={{ textAlign: 'center', color: '#15803d', fontWeight: 800 }}>{fmtMonto(f.efectivo)}</td>
                     <td style={{ textAlign: 'center', color: '#dc2626', fontWeight: 800 }}>{fmtMonto(f.credito)}</td>
+                    <td style={{ textAlign: 'center', color: '#166534', fontWeight: 800 }}>{fmtMonto(f.abono)}</td>
                   </tr>
                 );
               })}
               {!tablero.filas.length && (
                 <tr>
-                  <td colSpan={5} style={{ padding: '0.8rem', color: '#64748b' }}>
-                    {cargando ? 'Cargando tiendas…' : 'Sin efectivo de venta o crédito en tránsito para este camión.'}
+                  <td colSpan={6} style={{ padding: '0.8rem', color: '#64748b' }}>
+                    {cargando ? 'Cargando tiendas…' : 'Sin ventas de efectivo o crédito para este camión.'}
                   </td>
                 </tr>
               )}
@@ -354,6 +391,7 @@ export default function TableroInventarioCamion({ supabase, user }) {
                 <td style={{ textAlign: 'center', background: '#e07a1a' }}>{fmtMonto(tablero.totales.total)}</td>
                 <td style={{ textAlign: 'center', background: '#15803d' }}>{fmtMonto(tablero.totales.efectivo)}</td>
                 <td style={{ textAlign: 'center', background: '#dc2626' }}>{fmtMonto(tablero.totales.credito)}</td>
+                <td style={{ textAlign: 'center', background: '#166534' }}>{fmtMonto(tablero.totales.abono)}</td>
               </tr>
             </tfoot>
           </table>
@@ -372,14 +410,15 @@ export default function TableroInventarioCamion({ supabase, user }) {
                   {abierta.count} movimiento{abierta.count === 1 ? '' : 's'}
                 </span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.4rem', margin: '0.65rem 0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.4rem', margin: '0.65rem 0' }}>
                 <Mini label="Total tienda" valor={abierta.total} color="#1d4ed8" />
                 <Mini label="Efectivo" valor={abierta.efectivo} color="#15803d" />
                 <Mini label="Crédito" valor={abierta.credito} color="#dc2626" />
+                <Mini label="Abono" valor={abierta.abono} color="#166534" />
               </div>
               <div style={{ fontWeight: 800, marginBottom: '0.35rem' }}>Tickets de la tienda</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                {abierta.tickets.map((t) => {
+                {abierta.tickets.filter((t) => !t.reemplazado).map((t) => {
                   const tipo = TIPO[t.tipo] || TIPO.efectivo;
                   const abierto = ticketAbierto === t.id;
                   return (
@@ -393,6 +432,9 @@ export default function TableroInventarioCamion({ supabase, user }) {
                         <div style={{ fontSize: '0.78rem' }}>
                           {t.productos > 0 && <div>Productos: {t.productos}</div>}
                           <div>Subtotal: <strong>{fmtMonto(t.subtotal)}</strong></div>
+                          {t.origen === 'credito' || t.abono > 0 ? (
+                            <div>Abono: <strong>{fmtMonto(t.abono)}</strong> · Saldo: <strong>{fmtMonto(t.saldo)}</strong></div>
+                          ) : null}
                         </div>
                         <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem' }} onClick={() => setTicketAbierto(abierto ? '' : t.id)}>
                           {abierto ? 'Ocultar' : 'Ver ticket'}
@@ -422,9 +464,9 @@ export default function TableroInventarioCamion({ supabase, user }) {
           <div style={{ fontWeight: 900 }}>Liquidar todo el efectivo en tránsito</div>
           <div style={{ fontSize: '0.78rem', color: '#dbe7ff' }}>Todas las tiendas de este recolector (solo lo marcado).</div>
         </div>
-        <button type="button" onClick={liquidar} disabled={guardando || !marcados.total} style={{ background: 'linear-gradient(180deg,#22c55e,#15803d)', color: '#fff', border: 'none', borderRadius: 12, padding: '0.55rem 0.8rem', fontWeight: 900, cursor: 'pointer', minWidth: 160 }}>
+        <button type="button" onClick={liquidar} disabled={guardando || !aLiquidar} style={{ background: 'linear-gradient(180deg,#22c55e,#15803d)', color: '#fff', border: 'none', borderRadius: 12, padding: '0.55rem 0.8rem', fontWeight: 900, cursor: 'pointer', minWidth: 160 }}>
           <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>Total a liquidar</div>
-          <div style={{ fontSize: '1.15rem' }}>{fmtMonto(marcados.total)}</div>
+          <div style={{ fontSize: '1.15rem' }}>{fmtMonto(aLiquidar)}</div>
         </button>
       </div>
     </section>
