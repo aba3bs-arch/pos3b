@@ -11,7 +11,7 @@ import {
   listarGastosActivosParaLiquidacion,
   listarRepartidores,
   reporteRecoleccionTiendaFecha,
-  resumenCaratulaRcPorRepartidor,
+  resumenMercanciaEnTransitoPorRepartidor,
   calcularNetosLiquidacion,
   armarAcreditacionesLiquidacion,
 } from '../lib/controlEfectivo.js';
@@ -28,9 +28,7 @@ import SelectorCalendario from './SelectorCalendario.jsx';
 import HistorialLiquidacionesGlobal from './HistorialLiquidacionesGlobal.jsx';
 import PanelFondoServicios from './PanelFondoServicios.jsx';
 import PendientesRecolectorTiendas from './PendientesRecolectorTiendas.jsx';
-import { useInventariosCamion } from './InventarioCamionRecolector.jsx';
-import CaratulaRcRecolectores from './CaratulaRcRecolectores.jsx';
-import { useMobileLayout } from '../hooks/useMobileLayout.js';
+import InventarioCamionRecolector, { useInventariosCamion } from './InventarioCamionRecolector.jsx';
 
 const PRESETS_PENDIENTE = [
   { id: 'todos', label: 'Todos los pendientes' },
@@ -61,8 +59,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [filtroHasta, setFiltroHasta] = useState('');
   const [fechaSellado, setFechaSellado] = useState(() => hoyClaveNogales());
   const [cuentaRtMercancia, setCuentaRtMercancia] = useState(() => cuentaRtMercanciaPorDefecto(user?.nombre));
-  const [filtroServicioRep, setFiltroServicioRep] = useState('');
-  const mobile = useMobileLayout();
 
   const esHistorial = modoConsulta === 'historial';
   const esFondo = modoConsulta === 'fondo';
@@ -120,7 +116,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       setRepartidores(reps);
 
       if (!cargaMovs) {
-        const resumen = await resumenCaratulaRcPorRepartidor(supabase, reps);
+        const resumen = await resumenMercanciaEnTransitoPorRepartidor(supabase, reps);
         if (!vigente()) return;
         setResumenReps(resumen);
         return;
@@ -286,11 +282,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     setVista('tiendas');
   };
 
-  const abrirServicios = (id) => {
-    setFiltroServicioRep(id || '');
-    cambiarModoConsulta('fondo');
-  };
-
   const volverARecolectores = () => {
     setTiendaAbierta(null);
     setVista('recolectores');
@@ -374,50 +365,34 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         </>
       )}
 
-      <div
-        style={mobile
-          ? { display: 'flex', gap: '0.15rem', borderBottom: '1px solid rgba(15, 23, 42, 0.1)', marginBottom: '0.75rem' }
-          : { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}
-      >
-        {[
-          ['pendiente', mobile ? 'RC Servicios' : 'Pendientes por liquidar'],
-          ['historial', mobile ? 'Pasadas' : 'Liquidaciones pasadas'],
-          ['fondo', mobile ? 'Fondo' : 'RC Servicios'],
-        ].map(([id, label]) => {
-          const activo = id === 'pendiente' ? modoConsulta === 'pendiente' : id === 'historial' ? esHistorial : esFondo;
-          return (
-            <button
-              key={id}
-              type="button"
-              className={mobile ? undefined : `btn ${activo ? 'btn-primary' : 'btn-ghost'}`}
-              style={mobile
-                ? {
-                  background: activo ? '#fff' : 'transparent',
-                  color: activo ? 'var(--brand-blue)' : 'var(--muted)',
-                  border: activo ? '1px solid rgba(15, 23, 42, 0.12)' : '1px solid transparent',
-                  borderBottom: activo ? '2px solid var(--brand-blue)' : '2px solid transparent',
-                  borderRadius: '8px 8px 0 0',
-                  fontWeight: 800,
-                  fontSize: '0.92rem',
-                  padding: '0.4rem 0.7rem 0.35rem',
-                  marginBottom: -1,
-                  cursor: 'pointer',
-                }
-                : { fontSize: '0.85rem' }}
-              onClick={() => {
-                setFiltroServicioRep('');
-                cambiarModoConsulta(id);
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <button
+          type="button"
+          className={`btn ${modoConsulta === 'pendiente' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.85rem' }}
+          onClick={() => cambiarModoConsulta('pendiente')}
+        >
+          Pendientes por liquidar
+        </button>
+        <button
+          type="button"
+          className={`btn ${esHistorial ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.85rem' }}
+          onClick={() => cambiarModoConsulta('historial')}
+        >
+          Liquidaciones pasadas
+        </button>
+        <button
+          type="button"
+          className={`btn ${esFondo ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.85rem' }}
+          onClick={() => cambiarModoConsulta('fondo')}
+        >
+          RC Servicios
+        </button>
       </div>
 
-      {esFondo && (
-        <PanelFondoServicios supabase={supabase} user={user} repartidorIdInicial={filtroServicioRep} />
-      )}
+      {esFondo && <PanelFondoServicios supabase={supabase} user={user} />}
 
       {error && !esSoloPanel && <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem' }}>{error}</p>}
 
@@ -429,14 +404,60 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.72rem' }}>
             Inventario a precio de venta en ruta · Actualización al recibir cambios y consulta de respaldo cada 15 segundos.
           </p>
-          <CaratulaRcRecolectores
-            resumenReps={resumenReps}
-            cargando={cargando}
-            inventarios={inventariosCamion}
-            onAbrirVenta={abrirRecolector}
-            onAbrirCreditos={abrirRecolector}
-            onAbrirServicios={abrirServicios}
-          />
+          {!resumenReps.length ? (
+            <p className="muted" style={{ margin: 0 }}>{cargando ? 'Cargando recolectores…' : 'Sin recolectores activos.'}</p>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
+                gap: '0.55rem',
+              }}
+            >
+              {resumenReps.map((r) => {
+                const conMonto = Number(r.total) > 0;
+                return (
+                  <div key={r.id} style={{ border: '1px solid rgba(15, 23, 42, 0.12)', borderRadius: '10px', overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    onClick={() => abrirRecolector(r.id)}
+                    style={{
+                      textAlign: 'left',
+                      width: '100%',
+                      padding: '0.7rem 0.85rem',
+                      border: 'none',
+                      background: conMonto ? 'rgba(225, 153, 41, 0.08)' : 'rgba(148, 163, 184, 0.08)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
+                      {r.nombre}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: '0.25rem',
+                        fontSize: '1.15rem',
+                        fontWeight: 800,
+                        color: conMonto ? 'var(--brand-gold-dark, #b45309)' : 'var(--muted)',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {fmtMonto(r.total)}
+                    </div>
+                    <div className="muted" style={{ marginTop: '0.15rem', fontSize: '0.72rem' }}>
+                      {conMonto ? `${r.count} mov. en tránsito` : 'Sin tránsito'}
+                    </div>
+                  </button>
+                  <InventarioCamionRecolector
+                    datos={inventariosCamion.porRecolector[r.id]}
+                    cargando={inventariosCamion.cargando}
+                    error={inventariosCamion.error}
+                  />
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
