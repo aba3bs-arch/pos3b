@@ -102,7 +102,7 @@ export const GUIAS_MODULOS = [
       ['pos venta en ruta', 8], ['venta en ruta', 4], ['vender en ruta', 7], ['vendo en ruta', 8], ['vender ruta', 6], ['vender en el camion', 7], ['login vendedor', 7], ['efectivo credito mixto', 7],
       ['creditos por pagar', 7], ['solicitar cobro', 5], ['cobro de servicios', 7], ['tienda destino', 6], ['repartidor', 4],
     ],
-    texto: 'Repartidor: «Venta en Ruta» → «POS venta en ruta» → «Login vendedor · POS» (elige vendedor, PIN y «Entrar»). Agrega productos y pulsa «Cobrar…»; elige «Tienda destino de la venta», «Efectivo», «Crédito» o «Mixto» y «Confirmar». Un crédito lo cobra el cajero en «Créditos por pagar» (o «Cobranza») con «Abrir con PIN» y «Solicitar cobro», y el repartidor lo aprueba con su PIN. Servicios: «Cobro servicios» → «Solicitar cobro al cajero».',
+    texto: 'Repartidor: «Venta en Ruta» → «POS venta en ruta» → «Login vendedor · POS» (elige vendedor, PIN y «Entrar»). Agrega productos y pulsa «Cobrar…»; elige «Tienda destino de la venta», «Efectivo», «Crédito» o «Mixto» y «Confirmar». Un crédito lo cobra el cajero en «Créditos por pagar» (o «Cobranza») con «Abrir con PIN», «Guardar abono» o «Liquidar crédito», y el repartidor lo aprueba con su PIN. Servicios: «Cobro servicios» → «Solicitar cobro al cajero».',
   },
   {
     id: 'ruta_cancelacion',
@@ -152,7 +152,7 @@ export const GUIAS_MODULOS = [
       ['saldos de credito', 7], ['cartera', 6], ['cartera por cobrar', 8], ['saldo de cliente', 7], ['saldo del cliente', 7], ['movimientos de credito', 7], ['quien me debe', 7],
       ['cuanto me deben', 7],
     ],
-    texto: 'Contabilidad → «Crédito» es solo consulta: la tabla «Cliente / sucursal» muestra el «Saldo» y al tocar una fila ves sus «Movimientos» (tipo, monto, folio). Los pagos no se registran aquí: el cajero los cobra en «Cobranza» con «Abrir con PIN» y «Solicitar cobro», y el repartidor confirma con su PIN.',
+    texto: 'Contabilidad → «Crédito» es solo consulta: la tabla «Cliente / sucursal» muestra el «Saldo» y al tocar una fila ves sus «Movimientos» (tipo, monto, folio). Los pagos no se registran aquí: el cajero los cobra en «Cobranza» con «Abrir con PIN», «Guardar abono» o «Liquidar crédito», y el repartidor confirma con su PIN.',
   },
   {
     id: 'auto_fin',

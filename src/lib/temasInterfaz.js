@@ -2,10 +2,16 @@ export const EVENTO_TEMA_INTERFAZ = 'pos3b-tema-interfaz';
 
 const LS_TEMA = 'pos3b_tema_interfaz';
 
-export const TEMA_DEFAULT = 'clasico';
+export const TEMA_DEFAULT = 'navidad';
 
 /** Carátulas / interfaces disponibles en el POS. */
 export const TEMAS_INTERFAZ = [
+  {
+    id: 'navidad',
+    label: 'Navidad',
+    desc: 'La misma carátula en el login y en los paneles, con marca de agua en toda la pantalla',
+    accent: '#166534',
+  },
   {
     id: 'clasico',
     label: 'Clásico 3B',

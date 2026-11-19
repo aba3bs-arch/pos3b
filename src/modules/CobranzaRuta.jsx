@@ -14,6 +14,7 @@ import {
   solicitarCobroCreditos,
   solicitudRequiereAccion,
 } from '../lib/rutaCxcAprobacion.js';
+import TableroCreditosPorCobrar from '../components/TableroCreditosPorCobrar.jsx';
 import { fmtFechaCorta, fmtMonto } from '../lib/consultasUi.js';
 import {
   esCentralAdmin,
@@ -233,7 +234,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       const next = prev === grupoId ? '' : grupoId;
       if (next) {
         const g = grupos.find((x) => x.id === next);
-        marcarTodosFolios(g?.items);
+        marcarTodosFolios((g?.items || []).filter((x) => !idsEnAprobacion.has(String(x.id))));
       } else {
         setFoliosSel(new Set());
       }
@@ -252,15 +253,13 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   useEffect(() => {
     if (!grupoSel?.items?.length) return;
     setFoliosSel((prev) => {
-      const ids = grupoSel.items.map((x) => String(x.id));
-      const mismos = ids.length === prev.size && ids.every((id) => prev.has(id));
-      if (mismos) return prev;
-      const algunoDeTienda = ids.some((id) => prev.has(id));
-      if (algunoDeTienda && prev.size > 0 && prev.size < ids.length) return prev;
-      if (prev.size === 0 || !algunoDeTienda) return new Set(ids);
-      return prev;
+      const ids = grupoSel.items
+        .map((x) => String(x.id))
+        .filter((id) => !idsEnAprobacion.has(id));
+      if (ids.length === prev.size && ids.every((id) => prev.has(id))) return prev;
+      return new Set(ids);
     });
-  }, [grupoSel]);
+  }, [grupoSel, idsEnAprobacion]);
 
   const itemsMarcados = useMemo(() => {
     if (!grupoSel) return [];
@@ -289,28 +288,6 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     if (!Number.isFinite(n) || n <= 0) return 0;
     return Math.round(n * 100) / 100;
   }, [montoPagarStr]);
-
-  const toggleFolio = (id) => {
-    const sid = String(id);
-    setFoliosSel((prev) => {
-      const next = new Set(prev);
-      if (next.has(sid)) next.delete(sid);
-      else next.add(sid);
-      return next;
-    });
-  };
-
-  const seleccionarTodosFolios = () => {
-    if (!grupoSel) return;
-    marcarTodosFolios(grupoSel.items);
-  };
-
-  const limpiarFoliosSel = () => setFoliosSel(new Set());
-
-  const usarTodo = () => {
-    if (!itemsMarcados.length) return;
-    setMontoPagarStr(String(totalFoliosSel));
-  };
 
   const abrirConPin = async () => {
     setAbriendo(true);
@@ -351,18 +328,23 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     await cargar({ conSyncFondo: false });
   };
 
-  const pagar = async () => {
+  const pagar = async (montoExplicito) => {
     if (pagoEnCurso.current) return;
     if (!grupoSel || !idsSeleccionados.length) {
-      return alert('Marca al menos un folio para pagar.');
+      return alert('Elige una tienda con folios pendientes.');
     }
-    const monto = montoPagarNum > 0 ? montoPagarNum : totalFoliosSel;
+    const explicito = montoExplicito != null && montoExplicito !== ''
+      ? Math.round(Number(montoExplicito) * 100) / 100
+      : null;
+    const monto = explicito != null && Number.isFinite(explicito) && explicito > 0
+      ? explicito
+      : (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel);
     if (!(monto > 0)) return;
     if (monto > totalFoliosSel + 0.009) {
       return alert(`El monto no puede superar los folios marcados (${fmtMonto(totalFoliosSel)}).`);
     }
     if (idsSeleccionados.some((id) => idsEnAprobacion.has(String(id)))) {
-      return alert('Alguno de los folios marcados ya espera la aprobación del vendedor. Cancela esa solicitud o desmárcalo.');
+      return alert('Alguno de los folios ya espera la aprobación del vendedor. Cancela esa solicitud arriba antes de registrar otro abono.');
     }
     if (!confirm(
       `¿Solicitar el cobro de ${fmtMonto(monto)} de ${grupoSel.label}?\n`
@@ -420,68 +402,70 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     await cargar({ conSyncFondo: true });
   };
 
-  const heading = titulo || (embedded ? 'Créditos por pagar' : 'Cobranza · créditos ruta');
+  const guardarAbono = () => {
+    if (!(montoPagarNum > 0)) {
+      alert('Escribe el monto del abono.');
+      return;
+    }
+    void pagar(montoPagarNum);
+  };
+
+  const liquidarCredito = () => {
+    if (!(totalFoliosSel > 0)) {
+      alert('Esta tienda no tiene crédito pendiente para liquidar.');
+      return;
+    }
+    void pagar(totalFoliosSel);
+  };
 
   if (!cajero) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div>
-          {embedded ? (
-            <h3 style={{ margin: 0, color: '#0f766e' }}>{heading}</h3>
-          ) : (
-            <h2 style={{ margin: 0, color: '#0f766e' }}>{heading}</h2>
-          )}
-          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Ingresa el <strong>PIN del cajero</strong> para abrir créditos por pagar
-            (venta en ruta y créditos del módulo Recolecciones).
-            {verTodasLasTiendas
-              ? ' Central: ves todas las tiendas; toca una, marca folios o paga un monto.'
-              : ` Solo créditos de ${tiendaLabelActiva || sucActiva || 'esta sucursal'}; marca folios o paga un monto.`}
-          </p>
-        </div>
-        <div className="card" style={{ borderTop: '4px solid #0f766e', maxWidth: 360 }}>
-          <label style={{ fontSize: '0.85rem', display: 'block' }}>
-            PIN cajero
-            <InputPin
-              value={pinEntrada}
-              onChange={(e) => setPinEntrada(e.target.value)}
-              className="input"
-              style={{ width: '100%', marginTop: '0.35rem' }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void abrirConPin();
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ marginTop: '0.75rem' }}
-            disabled={abriendo || !String(pinEntrada).trim()}
-            onClick={() => void abrirConPin()}
+      <TableroCreditosPorCobrar
+        cargos={[]}
+        acceso={(
+          <div style={{
+            background: '#fff',
+            color: '#0f172a',
+            borderRadius: 16,
+            padding: '0.9rem',
+            maxWidth: 420,
+          }}
           >
-            {abriendo ? 'Verificando…' : 'Abrir con PIN'}
-          </button>
-        </div>
-      </div>
+            <p style={{ margin: '0 0 0.7rem', fontSize: '0.9rem' }}>
+              Ingresa el <strong>PIN del cajero</strong> para ver las tiendas y registrar abonos.
+              {verTodasLasTiendas
+                ? ' Central ve todas las tiendas.'
+                : ` Esta caja ve ${tiendaLabelActiva || sucActiva || 'su sucursal'}.`}
+            </p>
+            <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700 }}>
+              PIN cajero
+              <InputPin
+                value={pinEntrada}
+                onChange={(e) => setPinEntrada(e.target.value)}
+                className="input"
+                style={{ width: '100%', marginTop: '0.35rem' }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void abrirConPin();
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginTop: '0.75rem' }}
+              disabled={abriendo || !String(pinEntrada).trim()}
+              onClick={() => void abrirConPin()}
+            >
+              {abriendo ? 'Verificando…' : 'Abrir con PIN'}
+            </button>
+          </div>
+        )}
+      />
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '100%' }}>
-      <div>
-        {embedded ? (
-          <h3 style={{ margin: 0, color: '#0f766e' }}>{heading}</h3>
-        ) : (
-          <h2 style={{ margin: 0, color: '#0f766e' }}>{heading}</h2>
-        )}
-        <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Cajero: <strong>{cajero.nombre || '—'}</strong>.
-          {verTodasLasTiendas
-            ? ' Central: toca una tienda, marca folios y/o escribe un monto (parcial FIFO).'
-            : ` Créditos de ${tiendaLabelActiva || sucActiva}: marca folios y/o escribe un monto (parcial FIFO).`}
-          {puedeEliminar ? ' · Admin: puedes eliminar folios marcados por error.' : ''}
-        </p>
-      </div>
       {solicitudes.length > 0 && (
         <div className="card" style={{ margin: 0, padding: '0.6rem 0.8rem', borderLeft: '4px solid #0f766e' }}>
           <strong style={{ fontSize: '0.85rem' }}>Solicitudes de cobro (aprobación del vendedor)</strong>
@@ -516,313 +500,25 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
         </p>
       )}
 
-      <div className="card" style={{ borderTop: '4px solid #0f766e' }}>
-        {grupos.length === 0 && !cargando ? (
-          <p className="muted">
-            {verTodasLasTiendas
-              ? 'No hay créditos pendientes. Si en Recolecciones aún hay folios «Por Cobrar», pulsa Actualizar.'
-              : `No hay créditos pendientes en ${tiendaLabelActiva || sucActiva}. Si en Recolecciones hay «Por Cobrar» de esta tienda, pulsa Actualizar.`}
-          </p>
-        ) : (
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
-            <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
-              {verTodasLasTiendas
-                ? `${grupos.length} tienda${grupos.length === 1 ? '' : 's'} con crédito · toca una para ver folios y pagar`
-                : `Desglose · ${tiendaLabelActiva || sucActiva}`}
-            </p>
-            {grupos.map((g) => {
-              const desplegado = selTienda === g.id;
-              const soloTienda = !verTodasLasTiendas;
-              return (
-                <div
-                  key={g.id}
-                  style={{
-                    border: desplegado ? '2px solid #0f766e' : '1px solid var(--border, #e2e8f0)',
-                    borderRadius: 10,
-                    overflow: 'hidden',
-                    background: '#fff',
-                  }}
-                >
-                  {/* Encabezado fijo: debajo de esta línea se ocultan los folios al scrollear */}
-                  <button
-                    type="button"
-                    onClick={() => toggleGrupo(g.id)}
-                    aria-expanded={desplegado}
-                    title={desplegado ? 'Plegar folios' : 'Desplegar folios'}
-                    style={{
-                      display: 'flex',
-                      width: '100%',
-                      alignItems: 'center',
-                      gap: '0.65rem',
-                      padding: '0.75rem 0.9rem',
-                      border: 'none',
-                      borderBottom: desplegado ? '1px solid var(--border, #e2e8f0)' : 'none',
-                      background: desplegado ? 'rgba(15,118,110,0.08)' : '#fff',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      color: 'inherit',
-                      position: 'relative',
-                      zIndex: 2,
-                    }}
-                  >
-                    {!soloTienda && (
-                      <span
-                        aria-hidden
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          border: desplegado ? '6px solid #0f766e' : '2px solid #94a3b8',
-                          boxSizing: 'border-box',
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                    <span style={{ fontWeight: 700, width: 16, flexShrink: 0 }} aria-hidden>
-                      {desplegado ? '▾' : '▸'}
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <strong style={{ display: 'block' }}>{g.label}</strong>
-                      <span className="muted" style={{ fontSize: '0.78rem' }}>
-                        {g.items.length} folio{g.items.length === 1 ? '' : 's'}
-                        {desplegado ? ' · toca para plegar' : ' · toca para desplegar'}
-                      </span>
-                    </span>
-                    <span style={{ flexShrink: 0, textAlign: 'right' }}>
-                      <span
-                        className="muted"
-                        style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.01em' }}
-                      >
-                        Balance antes del ingreso
-                      </span>
-                      <strong style={{ color: '#b45309', fontSize: '1.05rem' }}>{fmtMonto(g.total)}</strong>
-                    </span>
-                  </button>
-                  {desplegado && (
-                    <div
-                      style={{
-                        maxHeight: 'min(48vh, 420px)',
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        WebkitOverflowScrolling: 'touch',
-                        scrollbarGutter: 'stable',
-                        padding: '0.35rem 0.65rem 0.65rem',
-                      }}
-                    >
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span className="muted" style={{ fontSize: '0.75rem' }}>
-                          {foliosSel.size}/{g.items.length} folio(s) · {fmtMonto(totalFoliosSel)}
-                        </span>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={seleccionarTodosFolios}>
-                          Marcar todos
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={limpiarFoliosSel}
-                          disabled={!foliosSel.size}
-                        >
-                          Quitar marcas
-                        </button>
-                      </div>
-                      <table className="consultas-table" style={{ width: '100%', fontSize: '0.84rem', marginBottom: 0 }}>
-                        <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff' }}>
-                          <tr>
-                            <th style={{ width: 36, textAlign: 'center', background: '#fff' }} aria-label="Seleccionar" />
-                            <th style={{ textAlign: 'left', background: '#fff' }}>Folio</th>
-                            <th style={{ textAlign: 'left', background: '#fff' }}>Fecha</th>
-                            <th style={{ textAlign: 'right', background: '#fff' }}>Monto</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {g.items.map((m) => {
-                            const checked = foliosSel.has(String(m.id));
-                            return (
-                              <tr
-                                key={m.id}
-                                onClick={() => toggleFolio(m.id)}
-                                style={{
-                                  cursor: 'pointer',
-                                  background: checked ? 'rgba(15,118,110,0.06)' : undefined,
-                                }}
-                              >
-                                <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleFolio(m.id)}
-                                    aria-label={`Seleccionar folio ${m.folio_venta || m.venta_id || m.id}`}
-                                  />
-                                </td>
-                                <td>
-                                  <strong>{m.folio_venta || m.venta_id || '—'}</strong>
-                                  {idsEnAprobacion.has(String(m.id)) ? (
-                                    <span style={{ marginLeft: 6, fontSize: '0.68rem', fontWeight: 700, color: '#b45309' }}>En aprobación</span>
-                                  ) : null}
-                                  {m.notas ? (
-                                    <div className="muted" style={{ fontSize: '0.72rem', maxWidth: 280 }}>
-                                      {String(m.notas).length > 72 ? `${String(m.notas).slice(0, 72)}…` : m.notas}
-                                    </div>
-                                  ) : null}
-                                </td>
-                                <td className="muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                                  {fmtFechaCorta(m.created_at)}
-                                </td>
-                                <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMonto(m.monto)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-      </div>
-
-      {/* Pie de página del módulo (no flotante): una sola línea */}
-      <div
-        style={{
-          marginTop: 'auto',
-          padding: '0.45rem 0.65rem',
-          background: '#fff',
-          borderTop: '2px solid #0f766e',
-          borderRadius: '0 0 10px 10px',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'nowrap',
-            alignItems: 'center',
-            gap: '0.55rem',
-            overflowX: 'auto',
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              gap: '0.35rem',
-              flexShrink: 0,
-              padding: '0.2rem 0.5rem',
-              borderRadius: 6,
-              background: 'rgba(180, 83, 9, 0.08)',
-              border: '1px solid #fde68a',
-              whiteSpace: 'nowrap',
-            }}
-            title={grupoBalance ? `${grupoBalance.id} · ${grupoBalance.items.length} folio(s)` : ''}
-          >
-            <span className="muted" style={{ fontSize: '0.68rem', fontWeight: 600 }}>
-              Balance antes del ingreso
-            </span>
-            <strong style={{ color: '#b45309', fontSize: '0.98rem' }}>
-              {grupoBalance ? fmtMonto(totalTienda) : '—'}
-            </strong>
-          </div>
-
-          <span className="muted" style={{ fontSize: '0.72rem', flexShrink: 0, whiteSpace: 'nowrap' }}>
-            A pagar:{' '}
-            <strong style={{ color: 'inherit' }}>
-              {grupoSel
-                ? `${idsSeleccionados.length} · ${fmtMonto(totalFoliosSel)}`
-                : '—'}
-            </strong>
-            {grupoSel && (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel) > 0 ? (
-              <>
-                {' · '}Después:{' '}
-                {fmtMonto(Math.max(0, Math.round((totalTienda - (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel)) * 100) / 100))}
-              </>
-            ) : null}
-          </span>
-
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: '0.75rem',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-              margin: 0,
-            }}
-            title="Opcional · vacío = total marcado"
-          >
-            Monto
-            <input
-              type="number"
-              className="input"
-              min="0"
-              step="0.01"
-              max={totalFoliosSel || undefined}
-              value={montoPagarStr}
-              disabled={!grupoSel || !idsSeleccionados.length || guardando}
-              onChange={(e) => setMontoPagarStr(e.target.value)}
-              style={{ width: 100, padding: '0.28rem 0.4rem', fontSize: '0.85rem' }}
-              placeholder={totalFoliosSel > 0 ? String(totalFoliosSel) : '0.00'}
-            />
-          </label>
-
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={!idsSeleccionados.length || guardando || !(totalFoliosSel > 0)}
-            onClick={usarTodo}
-            title="Poner el total de los folios marcados en el monto"
-            style={{ flexShrink: 0 }}
-          >
-            Usar marcado
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={guardando || eliminando || !idsSeleccionados.length || !(totalFoliosSel > 0)}
-            onClick={() => void pagar()}
-            style={{ flexShrink: 0 }}
-          >
-            {guardando
-              ? 'Enviando…'
-              : montoPagarNum > 0
-                ? `Solicitar cobro ${fmtMonto(montoPagarNum)}`
-                : `Solicitar cobro ${idsSeleccionados.length || 0}`}
-          </button>
-          {puedeEliminar && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              style={{ color: '#b91c1c', borderColor: '#fecaca', flexShrink: 0 }}
-              disabled={guardando || eliminando || !idsSeleccionados.length}
-              onClick={() => void eliminarSeleccion()}
-              title="Solo administrador · elimina folios marcados"
-            >
-              {eliminando ? 'Eliminando…' : 'Eliminar'}
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={cerrarSesionCajero}
-            disabled={guardando || eliminando}
-            style={{ flexShrink: 0 }}
-          >
-            Cerrar sesión
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void cargar({ conSyncFondo: true })}
-            disabled={guardando || eliminando || cargando || syncBg}
-            style={{ flexShrink: 0 }}
-          >
-            Actualizar
-          </button>
-        </div>
-      </div>
+      <TableroCreditosPorCobrar
+        supabase={supabase}
+        cargos={rows}
+        tiendaAbierta={selTienda}
+        onElegirTienda={toggleGrupo}
+        montoAbono={montoPagarStr}
+        onMontoAbono={setMontoPagarStr}
+        guardando={guardando}
+        onGuardarAbono={guardarAbono}
+        onLiquidar={liquidarCredito}
+        puedeEliminar={puedeEliminar}
+        eliminando={eliminando}
+        onEliminar={() => void eliminarSeleccion()}
+        onCerrarSesion={cerrarSesionCajero}
+        onActualizar={() => void cargar({ conSyncFondo: true })}
+        actualizando={cargando || syncBg}
+        idsEnAprobacion={idsEnAprobacion}
+        cajeroNombre={cajero.nombre || ''}
+      />
     </div>
   );
 }
