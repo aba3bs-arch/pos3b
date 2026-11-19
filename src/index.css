@@ -2902,7 +2902,7 @@ table.data th {
   background-image: var(--navidad-marca);
   background-repeat: repeat;
   background-size: 340px 340px;
-  opacity: 0.28;
+  opacity: 0.12;
 }
 
 [data-tema='navidad'] body,
