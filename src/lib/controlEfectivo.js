@@ -4,6 +4,7 @@ import { enRangoYmd } from './fechas.js';
 import { estadoVentanaRecoleccion } from './ventanaRecoleccion.js';
 import { leerCandadoPostLiquidacion } from './candadoPostLiquidacion.js';
 import { crearNotificacion, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
+import { esCreditoCobrado } from './recoleccionTipos.js';
 
 /** Traspasos de mercancía: efectivo, crédito pendiente y crédito ya cobrado. */
 export const TIPO_COBRO_CREDITO = 'Cobro Crédito';
@@ -988,6 +989,76 @@ export async function resumenMercanciaEnTransitoPorRepartidor(supabase, repartid
     listarTodoEnTransito(supabase),
   ]);
   return agruparMercanciaEnTransitoPorRepartidor(reps, movs);
+}
+
+function redondearMontoRc(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function bucketVacioRc() {
+  return { total: 0, count: 0 };
+}
+
+/**
+ * Casilla de la carátula: venta (efectivo de ruta o recolección),
+ * créditos cobrados o servicios. El gasto no entra al efectivo en tránsito.
+ */
+export function bucketCaratulaRc(movimiento) {
+  const tipo = String(movimiento?.tipo_movimiento || '');
+  if (!movimiento || tipo === 'Gasto') return null;
+  if (tipo === 'Cobro Servicio') return 'servicios';
+  if (esCreditoCobrado(movimiento) || esCobroCreditoMovimiento(movimiento)) return 'creditos';
+  return 'venta';
+}
+
+/**
+ * Carátula RC: total y desglose venta / créditos / servicios por recolector.
+ * Incluye cobros de servicio (la casilla de mercancía los deja fuera).
+ */
+export function agruparCaratulaRcPorRepartidor(repartidores = [], movimientos = []) {
+  const byRep = new Map();
+  const asegurar = (id, nombre) => {
+    const key = String(id || '');
+    if (!key) return null;
+    if (!byRep.has(key)) {
+      byRep.set(key, {
+        id,
+        nombre: nombre || key,
+        total: 0,
+        count: 0,
+        venta: bucketVacioRc(),
+        creditos: bucketVacioRc(),
+        servicios: bucketVacioRc(),
+      });
+    }
+    return byRep.get(key);
+  };
+  for (const r of repartidores || []) asegurar(r.id, r.nombre);
+  for (const m of movimientos || []) {
+    const bucket = bucketCaratulaRc(m);
+    if (!bucket) continue;
+    const g = asegurar(m.repartidor_id, m.repartidores?.nombre || m.repartidor_nombre);
+    if (!g) continue;
+    const monto = redondearMontoRc(m.monto);
+    g[bucket].total = redondearMontoRc(g[bucket].total + monto);
+    g[bucket].count += 1;
+    g.total = redondearMontoRc(g.total + monto);
+    g.count += 1;
+  }
+  return [...byRep.values()].sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    return String(a.nombre).localeCompare(String(b.nombre), 'es');
+  });
+}
+
+/** Carátula de efectivo en tránsito (venta + créditos + servicios) por recolector. */
+export async function resumenCaratulaRcPorRepartidor(supabase, repartidores = null) {
+  if (!supabase) return [];
+  const [reps, movs] = await Promise.all([
+    repartidores ? Promise.resolve(repartidores) : listarRepartidores(supabase),
+    listarTodoEnTransito(supabase),
+  ]);
+  return agruparCaratulaRcPorRepartidor(reps, movs);
 }
 
 /**

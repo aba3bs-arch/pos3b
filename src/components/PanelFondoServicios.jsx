@@ -34,7 +34,7 @@ import { TUTORIAL_COBRO_SERVICIOS } from '../content/tutorialCobroServicios.js';
  * Separado de la liquidación de mercancía / venta (Francisco).
  * Desde Servicios se transfieren fondos a Tesorería (Cheche).
  */
-export default function PanelFondoServicios({ supabase, user }) {
+export default function PanelFondoServicios({ supabase, user, repartidorIdInicial = '' }) {
   const [servicios, setServicios] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
   const [filtroSrv, setFiltroSrv] = useState('');
@@ -91,6 +91,10 @@ export default function PanelFondoServicios({ supabase, user }) {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  useEffect(() => {
+    setFiltroRepCobros(repartidorIdInicial ? String(repartidorIdInicial) : '');
+  }, [repartidorIdInicial]);
 
   const resumen = useMemo(
     () => resumirFondoPorServicio(movimientos, servicios),

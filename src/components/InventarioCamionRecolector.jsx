@@ -104,7 +104,28 @@ export function useInventariosCamion(supabase, habilitado) {
   return estado;
 }
 
-export default function InventarioCamionRecolector({ datos, cargando, error }) {
+export default function InventarioCamionRecolector({ datos, cargando, error, variante = 'detalle' }) {
+  if (variante === 'caratula') {
+    if (!datos || datos.sinCamion) return null;
+    return (
+      <div style={{ border: '1px solid rgba(15, 23, 42, 0.12)', borderRadius: 10, padding: '0.75rem 0.85rem', background: '#fff' }}>
+        <div style={{ fontWeight: 800, color: 'var(--brand-blue)', marginBottom: '0.55rem', fontSize: '0.95rem' }}>
+          Inventario del camión{datos.camion ? ` · ${datos.camion}` : ''}
+        </div>
+        {error && <p role="status" style={{ color: 'var(--brand-red)', margin: '0 0 0.4rem', fontSize: '0.75rem' }}>{error}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '0.65rem' }}>
+          <div>
+            <div className="muted" style={{ fontSize: '0.78rem' }}>Cargado en ruta</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtMonto(datos.cargado)}</div>
+          </div>
+          <div style={{ borderLeft: '1px solid rgba(15, 23, 42, 0.12)', paddingLeft: '0.75rem' }}>
+            <div style={{ color: 'var(--brand-blue)', fontSize: '0.78rem', fontWeight: 700 }}>Disponible actual</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brand-blue)', fontVariantNumeric: 'tabular-nums' }}>{fmtMonto(datos.disponible)}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ padding: '0.7rem 0.85rem', borderTop: '1px solid var(--border, rgba(15,23,42,0.12))', fontSize: '0.72rem' }}>
       <div style={{ fontWeight: 700, color: 'var(--brand-blue)', marginBottom: '0.5rem' }}>
