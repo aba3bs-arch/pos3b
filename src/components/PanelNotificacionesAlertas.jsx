@@ -110,7 +110,7 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
         Reciba en el celular avisos de vales, préstamos, consumos, incidencias, cobros y{' '}
         <strong>alarma de asalto</strong>, también con la app cerrada. Administrador, Gerente e indirectos MAIN.
-        La alarma se reenvía a los 12 y 35 segundos por si el celular no mostró el primer aviso.
+        La alarma se reenvía a los 12, 35 y 90 segundos por si el celular no mostró el primer aviso.
       </p>
       {esIos && !pwa && (
         <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--brand-red)' }}>
@@ -186,7 +186,7 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
                   + (pushErr
                     ? `Push: ${pushErr}`
                     : `Push enviados: ${pushEnv ?? '—'} / suscripciones: ${pushTotal ?? '—'}`)
-                  + '\n\nSe reenvía a los 12 s y a los 35 s por si el celular está fuera de la app.'
+                  + '\n\nSe reenvía a los 12 s, a los 35 s y a los 90 s por si el celular está fuera de la app.'
                   + '\nEn MAIN/celulares con «Activar alertas» debe sonar la sirena.',
                 );
               }

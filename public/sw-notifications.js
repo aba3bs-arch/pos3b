@@ -85,38 +85,60 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     (async () => {
-      if (esAsalto) {
-        const payload = {
-          id: data.id,
-          titulo,
-          mensaje: data.mensaje,
-          tipo: data.tipo || 'asalto_en_proceso',
-          sucursal_id: data.sucursal_id || null,
-          at: new Date().toISOString(),
-        };
-        await guardarAsaltoEnCache(payload);
-        if (data.id) {
-          await guardarJsonCache(CONFIG_CACHE, ULTIMO_ASALTO_URL, { id: String(data.id), at: Date.now() });
-        }
-        try {
-          const clientsList = await self.clients.matchAll({
-            type: 'window',
-            includeUncontrolled: true,
-          });
-          for (const client of clientsList) {
-            client.postMessage({
-              type: 'pos3b-asalto-push',
-              payload,
-            });
-          }
-        } catch {
-          /* ignore */
-        }
+      // Android cierra el service worker si showNotification no arranca de inmediato.
+      // La caché y el aviso a las ventanas van en paralelo, no antes.
+      const aviso = mostrarAlerta(titulo, options);
+      if (!esAsalto) {
+        await aviso;
+        return;
       }
-      await self.registration.showNotification(titulo, options);
+      const payload = {
+        id: data.id,
+        titulo,
+        mensaje: data.mensaje,
+        tipo: data.tipo || 'asalto_en_proceso',
+        sucursal_id: data.sucursal_id || null,
+        at: new Date().toISOString(),
+      };
+      await Promise.all([
+        aviso,
+        guardarAsaltoEnCache(payload),
+        data.id
+          ? guardarJsonCache(CONFIG_CACHE, ULTIMO_ASALTO_URL, { id: String(data.id), at: Date.now() })
+          : Promise.resolve(),
+      ]);
+      try {
+        const clientsList = await self.clients.matchAll({
+          type: 'window',
+          includeUncontrolled: true,
+        });
+        for (const client of clientsList) {
+          client.postMessage({
+            type: 'pos3b-asalto-push',
+            payload,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
     })(),
   );
 });
+
+/** Muestra la alerta. Si Android rechaza vibración o acciones, reintenta con lo mínimo. */
+async function mostrarAlerta(titulo, options) {
+  try {
+    await self.registration.showNotification(titulo, options);
+  } catch {
+    await self.registration.showNotification(titulo, {
+      body: options.body || '',
+      tag: options.tag || `pos3b-${Date.now()}`,
+      icon: '/logo-3b.png',
+      data: options.data,
+      requireInteraction: true,
+    });
+  }
+}
 
 self.addEventListener('notificationclick', (event) => {
   const nData = event.notification.data || {};
@@ -257,8 +279,7 @@ async function revisarAsaltoPendiente() {
     sucursal_id: row.sucursal_id || null,
     at: row.created_at || new Date().toISOString(),
   };
-  await guardarAsaltoEnCache(payload);
-  await self.registration.showNotification(payload.titulo, {
+  await mostrarAlerta(payload.titulo, {
     body: payload.mensaje,
     tag: `pos3b-asalto-${row.id}`,
     icon: '/logo-3b.png',
@@ -269,6 +290,7 @@ async function revisarAsaltoPendiente() {
     vibrate: [400, 200, 400, 200, 600],
     data: { ...payload, asalto: true, url: '/?alerta=asalto' },
   });
+  await guardarAsaltoEnCache(payload);
 }
 
 async function registrarRevisionPeriodica() {

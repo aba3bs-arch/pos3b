@@ -52,6 +52,8 @@ supabase functions deploy enviar-push
 
 O sube la carpeta `supabase/functions/enviar-push` desde el dashboard.
 
+La alarma de asalto no manda el header `Topic` a Android (FCM no la entrega; el iPhone sí). Hay que volver a desplegar `enviar-push` para que ese cambio llegue a los celulares.
+
 ## 6. Activar en el celular
 
 1. Entra al POS como **Administrador** o **Gerente**
