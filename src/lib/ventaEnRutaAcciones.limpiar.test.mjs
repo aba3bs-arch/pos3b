@@ -24,5 +24,10 @@ assert.ok(
   (ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Repartidor || []).includes('ruta_servicios'),
   'repartidor tiene cobro servicios por defecto',
 );
+assert.ok(
+  (ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Repartidor || []).includes('ruta_clientes'),
+  'repartidor puede dar de alta clientes externos',
+);
+assert.ok((ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Supervisor || []).includes('ruta_clientes'));
 
 console.log('ventaEnRutaAcciones.limpiar.test.mjs ok');

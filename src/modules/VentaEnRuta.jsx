@@ -1909,6 +1909,25 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   );
 }
 
+function OpcionesDestinoRuta({ destinos }) {
+  const tiendas = (destinos || []).filter((d) => d.tipo === 'sucursal');
+  const externos = (destinos || []).filter((d) => d.tipo === 'externo');
+  return (
+    <>
+      <optgroup label="Tiendas">
+        {tiendas.map((d) => (
+          <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
+        ))}
+      </optgroup>
+      <optgroup label="Clientes externos">
+        {externos.map((d) => (
+          <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
+        ))}
+      </optgroup>
+    </>
+  );
+}
+
 function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, setAviso, onNavigate }) {
   const persistidoInicial = useMemo(() => leerCarritoPosRuta(vendedorSesion), [vendedorSesion]);
   const [cargas, setCargas] = useState([]);
@@ -2292,6 +2311,20 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     setMostrarCobro(false);
   };
 
+  const registrarClienteExterno = async () => {
+    const nombre = window.prompt('Nombre del cliente externo');
+    if (nombre == null) return;
+    const limpio = nombre.trim();
+    if (!limpio) return alert('El nombre es obligatorio.');
+    const telefono = window.prompt('Teléfono (opcional). Cancelar lo deja vacío.', '');
+    const tel = telefono == null ? '' : telefono.trim();
+    const r = await guardarClienteRuta(supabase, { nombre: limpio, telefono: tel });
+    if (!r.ok) return alert(r.error || 'No se pudo guardar el cliente.');
+    const nuevo = { id: r.id, nombre: limpio, telefono: tel, activo: true };
+    setClientesExt((prev) => [nuevo, ...prev.filter((c) => String(c.id) !== String(r.id))]);
+    setClienteKey(`externo:${r.id}`);
+  };
+
   const piezasCamion = productosCamion.reduce((s, p) => s + (Number(p.disponible) || 0), 0);
   const itemsCarrito = carrito.reduce((s, a) => s + (Number(a.cantidad) || 0), 0);
 
@@ -2337,11 +2370,12 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
               onChange={(e) => onCambiarDestino(e.target.value)}
             >
               <option value="">— Elige destino —</option>
-              {destinos.map((d) => (
-                <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
-              ))}
+              <OpcionesDestinoRuta destinos={destinos} />
             </select>
           </label>
+          <button type="button" className="btn btn-ghost" onClick={() => void registrarClienteExterno()}>
+            Nuevo cliente externo
+          </button>
           {clienteKey ? (
             <div className="ruta-pos-stock-pill">
               {cargandoCamion
@@ -2358,7 +2392,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
           <div className="ruta-pos-empty-icon"><Icon name="building" size={28} /></div>
           <h4>Selecciona el destino</h4>
           <p>
-            Elige la sucursal o cliente que recibe la mercancía para ver el inventario del camión y empezar a vender.
+            Elige la tienda o un cliente externo para ver el inventario del camión y empezar a vender.
           </p>
         </div>
       ) : cargandoCamion ? (
@@ -2594,20 +2628,27 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
               </div>
 
               <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
-                Tienda destino de la venta
+                Tienda o cliente externo
               </label>
               <select
                 className="select"
-                style={{ width: '100%', marginBottom: '0.75rem' }}
+                style={{ width: '100%', marginBottom: '0.45rem' }}
                 value={clienteKey}
                 onChange={(e) => setClienteKey(e.target.value)}
                 disabled={guardando}
               >
                 <option value="">— Elige destino —</option>
-                {destinos.map((d) => (
-                  <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
-                ))}
+                <OpcionesDestinoRuta destinos={destinos} />
               </select>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ marginBottom: '0.75rem' }}
+                disabled={guardando}
+                onClick={() => void registrarClienteExterno()}
+              >
+                Nuevo cliente externo
+              </button>
 
               <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
                 Forma de pago
@@ -2714,7 +2755,10 @@ function VistaClientes({ supabase, setAviso }) {
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Clientes externos</h3>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Clientes externos</h3>
+      <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+        Estos clientes salen en el POS de venta en ruta para venderles mercancía del camión.
+      </p>
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
         <input className="input" placeholder="Nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} />
         <input className="input" placeholder="Tel" value={tel} onChange={(e) => setTel(e.target.value)} />
