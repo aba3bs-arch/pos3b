@@ -1,18 +1,21 @@
 /**
- * Candado para cancelar consumo de empleados.
- * ON: se puede cancelar (borrar el vale o el gasto de corte).
- * OFF: el consumo queda; no se puede cancelar.
- * Un interruptor para directos (tienda) y otro para indirectos (MAIN).
+ * Candado de consumo por empleado.
+ * Cada persona tiene:
+ * - cancelar ON: se puede borrar su consumo (vale o gasto de corte).
+ * - cancelar OFF: ese consumo queda firme.
+ * - límite: máximo de consumo que se le puede cargar hoy (vacío = sin límite).
  */
-import { esValeConsumo } from './pinBeneficiarioConsumo.js';
-import { esEmpleadoConsumoPinCorte, esEmpleadoIndirectoOMain } from './empleadosVisibles.js';
+import { esValeConsumo, resolverBeneficiarioConsumoPin } from './pinBeneficiarioConsumo.js';
+import { esEmpleadoConsumoPinCorte } from './empleadosVisibles.js';
 import { normalizarNombreMatch } from './contabilidadConstants.js';
 
 const LS_CANDADO = 'pos3b_candado_cancelar_consumo';
 export const EVENTO_CANDADO_CANCELAR_CONSUMO = 'pos3b-candado-cancelar-consumo-updated';
+const TZ = 'America/Hermosillo';
 
-/** Por defecto se puede cancelar, igual que antes de este candado. */
-export const CANDADO_CANCELAR_CONSUMO_DEFAULT = { directos: true, indirectos: true };
+export function hoyConsumoClave(fecha = new Date()) {
+  return fecha.toLocaleDateString('en-CA', { timeZone: TZ });
+}
 
 function normalizarLado(val, fallback) {
   if (val === false || val === 0 || val === '0' || val === 'false') return false;
@@ -20,27 +23,48 @@ function normalizarLado(val, fallback) {
   return fallback;
 }
 
+function normalizarLimite(val) {
+  if (val == null || val === '') return null;
+  const n = Number(val);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
 export function normalizarCandadoCancelarConsumo(raw) {
-  const base = CANDADO_CANCELAR_CONSUMO_DEFAULT;
   const src = raw && typeof raw === 'object' ? raw : {};
-  return {
-    directos: normalizarLado(src.directos, base.directos),
-    indirectos: normalizarLado(src.indirectos, base.indirectos),
-  };
+  const mapa = src.empleados && typeof src.empleados === 'object' && !Array.isArray(src.empleados)
+    ? src.empleados
+    : {};
+  const empleados = {};
+  for (const [claveRaw, row] of Object.entries(mapa)) {
+    const id = String(row?.id || claveRaw || '').trim();
+    if (!id) continue;
+    empleados[id] = {
+      id,
+      nombre: String(row?.nombre || '').trim(),
+      cancelar: normalizarLado(row?.cancelar, true),
+      limite: normalizarLimite(row?.limite),
+    };
+  }
+  return { empleados };
 }
 
 export function leerCandadoCancelarConsumo() {
   try {
     const raw = localStorage.getItem(LS_CANDADO);
-    if (raw == null || raw === '') return { ...CANDADO_CANCELAR_CONSUMO_DEFAULT };
+    if (raw == null || raw === '') return { empleados: {} };
     return normalizarCandadoCancelarConsumo(JSON.parse(raw));
   } catch {
-    return { ...CANDADO_CANCELAR_CONSUMO_DEFAULT };
+    return { empleados: {} };
   }
 }
 
 export function guardarCandadoCancelarConsumo(parcial) {
-  const next = normalizarCandadoCancelarConsumo({ ...leerCandadoCancelarConsumo(), ...parcial });
+  const previo = leerCandadoCancelarConsumo();
+  const empleados = parcial?.empleados
+    ? parcial.empleados
+    : previo.empleados;
+  const next = normalizarCandadoCancelarConsumo({ empleados });
   localStorage.setItem(LS_CANDADO, JSON.stringify(next));
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(EVENTO_CANDADO_CANCELAR_CONSUMO, { detail: next }));
@@ -50,6 +74,11 @@ export function guardarCandadoCancelarConsumo(parcial) {
 
 export function etiquetaCandadoCancelarConsumo(activo) {
   return activo ? 'ON (se puede cancelar)' : 'OFF (no se puede cancelar)';
+}
+
+export function etiquetaLimiteConsumo(limite) {
+  if (limite == null) return 'Sin límite';
+  return `$${(Number(limite) || 0).toFixed(2)} hoy`;
 }
 
 /** True si el vale o el gasto de corte es un consumo (no faltante, anticipo ni recarga). */
@@ -62,54 +91,140 @@ export function esRegistroConsumo(registro = {}) {
   return blob.includes('CONSUMO');
 }
 
-export function evaluarCandadoCancelarConsumo(cfg, tipo) {
-  const c = normalizarCandadoCancelarConsumo(cfg);
-  const indirecto = tipo === 'indirecto';
-  const permitido = indirecto ? c.indirectos : c.directos;
-  if (permitido) return { ok: true, tipo: indirecto ? 'indirecto' : 'directo' };
-  const quien = indirecto ? 'indirectos' : 'directos';
-  return {
-    ok: false,
-    tipo: quien === 'indirectos' ? 'indirecto' : 'directo',
-    error: `El candado de cancelar consumo está apagado para empleados ${quien}. Enciéndelo en Configuración → Operación.`,
-  };
-}
-
 function mismoNombre(a, b) {
   const x = normalizarNombreMatch(a);
   const y = normalizarNombreMatch(b);
   return Boolean(x && y && x === y);
 }
 
-/** Directo (tienda) o indirecto (MAIN / consumo con PIN). */
-export async function clasificarEmpleadoConsumo(supabase, { usuarioId, nombre } = {}) {
-  const id = String(usuarioId || '').trim();
-  const nom = nombre || '';
-  if (id.startsWith('consumo-pin:') || esEmpleadoConsumoPinCorte(nom)) return 'indirecto';
-  if (!supabase) return 'directo';
-  const cols = 'id, nombre, rol, sucursal_id, tipo_empleado, turno_id, turno_horario, activo';
-  if (/^[0-9a-f-]{16,}$/i.test(id)) {
-    const { data } = await supabase.from('usuarios').select(cols).eq('id', id).maybeSingle();
-    if (data) return esEmpleadoIndirectoOMain(data) ? 'indirecto' : 'directo';
-  }
-  if (nom) {
-    const { data } = await supabase.from('usuarios').select(cols).limit(500);
-    const hit = (data || []).find((u) => mismoNombre(u?.nombre, nom) || String(u?.id) === id);
-    if (hit) return esEmpleadoIndirectoOMain(hit) ? 'indirecto' : 'directo';
-  }
-  return 'directo';
+function mismoBeneficiarioPin(a, b) {
+  const pa = resolverBeneficiarioConsumoPin(a);
+  const pb = resolverBeneficiarioConsumoPin(b);
+  return Boolean(pa && pb && pa.id === pb.id);
 }
 
-/**
- * Si el registro no es consumo, deja pasar.
- * Si es consumo, respeta el candado del tipo de empleado.
- */
+/** Ficha guardada de esa persona, o null si todavía no tiene candado propio. */
+export function configEmpleadoConsumo(cfg, { usuarioId, nombre } = {}) {
+  const map = normalizarCandadoCancelarConsumo(cfg).empleados;
+  const id = String(usuarioId || '').trim();
+  if (id && map[id]) return map[id];
+  const nom = nombre || '';
+  if (!nom) return null;
+  for (const row of Object.values(map)) {
+    if (mismoNombre(row.nombre, nom)) return row;
+  }
+  if (esEmpleadoConsumoPinCorte(nom)) {
+    for (const row of Object.values(map)) {
+      if (mismoBeneficiarioPin(row.nombre, nom)) return row;
+    }
+  }
+  return null;
+}
+
+export function evaluarCandadoCancelarConsumo(cfg, ref = {}) {
+  const row = configEmpleadoConsumo(cfg, ref);
+  if (!row || row.cancelar !== false) return { ok: true, empleado: row };
+  return {
+    ok: false,
+    empleado: row,
+    error: `El candado de ${row.nombre || 'este empleado'} está apagado. No se puede cancelar su consumo. Enciéndelo en Configuración → Operación.`,
+  };
+}
+
+export function evaluarLimiteConsumo({ limite, acumulado = 0, monto = 0, nombre } = {}) {
+  if (limite == null) return { ok: true };
+  const lim = Number(limite);
+  const lleva = Number(acumulado) || 0;
+  const cargo = Number(monto) || 0;
+  if (lleva + cargo <= lim + 0.009) {
+    return { ok: true, restante: Math.round((lim - lleva - cargo) * 100) / 100 };
+  }
+  const disponible = Math.max(0, Math.round((lim - lleva) * 100) / 100);
+  const quien = nombre || 'Este empleado';
+  return {
+    ok: false,
+    disponible,
+    error: `${quien} tiene límite de consumo de $${lim.toFixed(2)} hoy. Ya lleva $${lleva.toFixed(2)}. Disponible: $${disponible.toFixed(2)}.`,
+  };
+}
+
+function registroDeEstaPersona(registro, ref) {
+  const id = String(ref.usuarioId || '').trim();
+  const rid = String(registro.usuario_id || registro.usuarioId || '').trim();
+  if (id && rid && id === rid) return true;
+  const nombre = ref.nombre || '';
+  const rn = registro.usuario_nombre || registro.nombre_empleado || registro.nombre || '';
+  if (mismoNombre(nombre, rn)) return true;
+  if (esEmpleadoConsumoPinCorte(nombre) && mismoBeneficiarioPin(nombre, rn)) return true;
+  return false;
+}
+
+/** Suma el consumo de hoy: gastos del corte más vales que aún no están en el corte. */
+export async function acumuladoConsumoHoy(supabase, ref = {}, { excluirValeId, excluirGastoId } = {}) {
+  if (!supabase) return 0;
+  const hoy = hoyConsumoClave();
+  const desde = `${hoy}T00:00:00-07:00`;
+  const hasta = `${hoy}T23:59:59-07:00`;
+  let total = 0;
+
+  const gastos = await supabase
+    .from('cortes_contabilidad_gastos')
+    .select('id, monto, categoria, subcategoria, usuario_id, usuario_nombre, created_at')
+    .gte('created_at', desde)
+    .lte('created_at', hasta)
+    .limit(500);
+  if (!gastos.error) {
+    for (const g of gastos.data || []) {
+      if (excluirGastoId && String(g.id) === String(excluirGastoId)) continue;
+      if (!esRegistroConsumo(g) || !registroDeEstaPersona(g, ref)) continue;
+      total += Number(g.monto) || 0;
+    }
+  }
+
+  const vales = await supabase
+    .from('vales')
+    .select('id, monto, categoria, subcategoria, detalle, nombre_empleado, usuario_id, estado_aprobacion, cargado_corte, fecha')
+    .eq('fecha', hoy)
+    .limit(300);
+  if (!vales.error) {
+    for (const v of vales.data || []) {
+      if (excluirValeId && String(v.id) === String(excluirValeId)) continue;
+      if (v.cargado_corte) continue;
+      const est = String(v.estado_aprobacion || 'aprobado');
+      if (est === 'cancelado' || est === 'rechazado') continue;
+      if (!esRegistroConsumo(v) || !registroDeEstaPersona(v, ref)) continue;
+      total += Number(v.monto) || 0;
+    }
+  }
+
+  return Math.round(total * 100) / 100;
+}
+
 export async function revisarCancelarConsumo(supabase, registro = {}) {
   if (!esRegistroConsumo(registro)) return { ok: true, consumo: false };
-  const tipo = await clasificarEmpleadoConsumo(supabase, {
+  const ref = {
     usuarioId: registro.usuario_id || registro.usuarioId,
     nombre: registro.usuario_nombre || registro.nombre_empleado || registro.nombre,
+  };
+  const res = evaluarCandadoCancelarConsumo(leerCandadoCancelarConsumo(), ref);
+  return { ...res, consumo: true };
+}
+
+export async function revisarLimiteConsumo(supabase, registro = {}, extra = {}) {
+  if (!esRegistroConsumo(registro)) return { ok: true, consumo: false };
+  if (String(registro.comentario || '').toUpperCase().includes('VALE ')) return { ok: true, consumo: true, omitido: true };
+  const ref = {
+    usuarioId: registro.usuario_id || registro.usuarioId,
+    nombre: registro.usuario_nombre || registro.nombre_empleado || registro.nombre,
+  };
+  const row = configEmpleadoConsumo(leerCandadoCancelarConsumo(), ref);
+  if (!row || row.limite == null) return { ok: true, consumo: true };
+  const acumulado = await acumuladoConsumoHoy(supabase, { ...ref, nombre: ref.nombre || row.nombre }, extra);
+  const res = evaluarLimiteConsumo({
+    limite: row.limite,
+    acumulado,
+    monto: registro.monto,
+    nombre: row.nombre || ref.nombre,
   });
-  const res = evaluarCandadoCancelarConsumo(leerCandadoCancelarConsumo(), tipo);
   return { ...res, consumo: true };
 }

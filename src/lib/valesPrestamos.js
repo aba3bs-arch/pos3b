@@ -334,6 +334,17 @@ export async function registrarVale(supabase, row, opts = {}) {
     }
   }
 
+  {
+    const { esRegistroConsumo, revisarLimiteConsumo } = await import('./candadoCancelarConsumo.js');
+    if (esRegistroConsumo(row)) {
+      const tope = await revisarLimiteConsumo(supabase, {
+        ...row,
+        usuario_nombre: row.nombre_empleado,
+      });
+      if (!tope.ok) return tope;
+    }
+  }
+
   const folio = row.folio || (await siguienteFolioVale(supabase, row.sucursal_id));
   const sucursalIe = String(row.sucursal_ie || 'MAIN').trim().toUpperCase() || 'MAIN';
   const payload = {
@@ -488,6 +499,12 @@ export async function editarVale(supabase, vale, patch = {}, { nombre, user, suc
   if (patch.monto != null && patch.monto !== '') {
     const m = Number(patch.monto);
     if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
+    const propuesto = { ...vale, ...patch, monto: m, usuario_nombre: patch.nombre_empleado || vale.nombre_empleado };
+    const { esRegistroConsumo, revisarLimiteConsumo } = await import('./candadoCancelarConsumo.js');
+    if (esRegistroConsumo(propuesto)) {
+      const tope = await revisarLimiteConsumo(supabase, propuesto, { excluirValeId: vale.id });
+      if (!tope.ok) return tope;
+    }
     upd.monto = m;
   }
   if (patch.categoria != null && String(patch.categoria).trim()) {

@@ -1,6 +1,6 @@
 /**
- * Sincroniza el candado de cancelar consumo entre todas las cajas.
- * Nube: pos_candado_cancelar_consumo (fila GLOBAL, directos + indirectos).
+ * Sincroniza el candado de consumo por empleado entre todas las cajas.
+ * Nube: pos_candado_cancelar_consumo.empleados (json de la fila GLOBAL).
  */
 import {
   guardarCandadoCancelarConsumo,
@@ -24,7 +24,7 @@ export async function sincronizarCandadoCancelarConsumoDesdeNube(supabase) {
   if (!supabase) return { ok: true, cambio: false };
   const { data, error } = await supabase
     .from('pos_candado_cancelar_consumo')
-    .select('id, directos, indirectos, updated_at')
+    .select('id, empleados, updated_at')
     .eq('id', 'GLOBAL')
     .maybeSingle();
 
@@ -38,8 +38,8 @@ export async function sincronizarCandadoCancelarConsumoDesdeNube(supabase) {
 
   const remoto = normalizarCandadoCancelarConsumo(data);
   const local = leerCandadoCancelarConsumo();
-  const cambio = local.directos !== remoto.directos || local.indirectos !== remoto.indirectos;
-  if (cambio) guardarCandadoCancelarConsumo(remoto);
+  const cambio = JSON.stringify(local.empleados) !== JSON.stringify(remoto.empleados);
+  if (cambio) guardarCandadoCancelarConsumo({ empleados: remoto.empleados });
   return { ok: true, cambio, ...remoto };
 }
 
@@ -57,8 +57,7 @@ export async function aplicarCandadoCancelarConsumoNube(supabase, parcial) {
   const { error } = await supabase.from('pos_candado_cancelar_consumo').upsert(
     {
       id: 'GLOBAL',
-      directos: next.directos,
-      indirectos: next.indirectos,
+      empleados: next.empleados,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'id' },

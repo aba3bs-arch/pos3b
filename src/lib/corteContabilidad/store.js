@@ -32,7 +32,7 @@ import {
   esEmpleadoConsumoPinCorte,
 } from '../empleadosVisibles.js';
 import { limiteHistorialCierresCorte } from '../archivo.js';
-import { revisarCancelarConsumo } from '../candadoCancelarConsumo.js';
+import { esRegistroConsumo, revisarCancelarConsumo, revisarLimiteConsumo } from '../candadoCancelarConsumo.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -655,6 +655,11 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
         }
       }
     }
+  }
+
+  if (esRegistroConsumo(gasto)) {
+    const tope = await revisarLimiteConsumo(supabase, gasto);
+    if (!tope.ok) return tope;
   }
 
   // Abarrotes: mercancía / venta en ruta no se captura a mano como «Otros» (fuga).
