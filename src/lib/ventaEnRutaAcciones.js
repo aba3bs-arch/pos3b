@@ -7,14 +7,14 @@ import { normalizarRol, puedeVerModulo, sesionConPrivilegiosAdmin } from './role
  * Checkbox explícito (true/false) manda sobre el default del rol.
  */
 export const SUBCOMANDOS_VENTA_RUTA = [
+  { id: 'ruta_consulta_tienda', vista: 'consulta_tienda', label: 'Consultas por tienda', desc: 'Carga del camión y ventas por tienda, con efectivo y crédito', icon: 'building', grupo: 'admin' },
   { id: 'ruta_consolidacion', vista: 'consolidacion', label: 'Conciliación', desc: 'Por repartidor · mercancía, efectivo y créditos · alertas', icon: 'search', grupo: 'admin' },
   { id: 'ruta_camiones', vista: 'camiones', label: 'Camiones', desc: 'Alta y asignación a repartidor', icon: 'truck', grupo: 'admin' },
-  { id: 'ruta_carga', vista: 'carga', label: 'Carga de camión', desc: `Repartidor · descuenta CEDIS`, icon: 'package', grupo: 'admin' },
+  { id: 'ruta_carga', vista: 'carga', label: 'Carga de camión', desc: 'Repartidor · descuenta el almacén', icon: 'package', grupo: 'admin' },
   { id: 'ruta_precios', vista: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar', grupo: 'admin' },
   { id: 'ruta_clientes', vista: 'clientes', label: 'Clientes externos', desc: 'Clientes no propios', icon: 'users', grupo: 'admin' },
   { id: 'ruta_consultas', vista: 'consultas', label: 'Consultas', desc: 'Ingresos, créditos y cancelaciones (cajero: sin ventas/cargas/créditos por tienda)', icon: 'search', grupo: 'admin' },
   { id: 'ruta_reporte_ventas', vista: 'reporte_ventas', label: 'Reporte de ventas', desc: 'Saldos del recolector: ventas del camión, créditos recuperados, servicios y clientes externos', icon: 'dollar', grupo: 'admin' },
-  { id: 'ruta_consulta_tienda', vista: 'consulta_tienda', label: 'Consultas por tienda', desc: 'Carga del camión y ventas por tienda, con efectivo y crédito', icon: 'search', grupo: 'admin' },
   {
     id: 'ruta_limpiar_consultas',
     vista: null,

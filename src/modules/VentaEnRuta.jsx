@@ -255,11 +255,6 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
                 </button>
               )}
             </div>
-            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-              {NOMBRE_ALMACEN_RUTA} → camión (una carga abierta) → POS con toda la mercancía del camión ·
-              Efectivo a RC/VentaRuta · Crédito lo paga el cajero con PIN ·
-              mercancía a la tienda por <strong>Compras</strong>.
-            </p>
           </>
         )}
       </div>
@@ -3129,7 +3124,7 @@ function VistaConsultas({ supabase, user, sucursal, setAviso, cargarDatos, fusio
             </>
           ) : (
             <>
-              Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta).
+              Ingresos = cada aplicación de carga al camión.
               En Cargas: cancelar (sin ventas) o liquidar/cerrar.
               Cancelaciones = devoluciones aprobadas con PIN de administrador.
               {filtrarPorSucursal
@@ -3156,7 +3151,7 @@ function VistaConsultas({ supabase, user, sucursal, setAviso, cargarDatos, fusio
       ) : !rows.length ? (
         <p className="muted">
           {tab === 'ingresos' && filtrarPorSucursal
-            ? 'Los tickets de carga CEDIS→camión se consultan en central (MAIN/CEDIS). Esta tienda solo ve créditos y cancelaciones propias.'
+            ? 'Los tickets de carga al camión se consultan en central. Esta tienda solo ve créditos y cancelaciones propias.'
             : 'Sin registros.'}
         </p>
       ) : tab === 'ingresos' ? (
@@ -3230,7 +3225,7 @@ function VistaConsultas({ supabase, user, sucursal, setAviso, cargarDatos, fusio
                       <tr>
                         <td colSpan={7} style={{ background: '#f8fafc', padding: '0.5rem 0.75rem' }}>
                           <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
-                            {c.etiqueta || 'Ingreso a camión (salida CEDIS)'}
+                            {c.etiqueta || 'Ingreso a camión'}
                             {c.carga_folio ? ` · Carga ${c.carga_folio}` : ''}
                             {c.usuario_nombre ? ` · Aplicó: ${c.usuario_nombre}` : ''}
                           </div>
