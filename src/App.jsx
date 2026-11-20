@@ -25,6 +25,7 @@ import Tesoreria from './modules/Tesoreria.jsx';
 import ContVirtual from './modules/ContVirtual.jsx';
 import LibroDiario from './modules/LibroDiario.jsx';
 import VentaEnRuta from './modules/VentaEnRuta.jsx';
+import ModuloAntonio from './modules/ModuloAntonio.jsx';
 import CreditoRuta from './modules/CreditoRuta.jsx';
 import CobranzaRuta from './modules/CobranzaRuta.jsx';
 import AutoFin from './modules/AutoFin.jsx';
@@ -1931,6 +1932,9 @@ function App() {
               cargarDatos={cargarDatos}
               fusionarProducto={fusionarProductoEnCatalogo}
             />
+          )}
+          {vista === 'Antonio' && (
+            <ModuloAntonio supabase={supabase} user={user} sucursal={sucursal} />
           )}
           {vista === 'Productos' && (
             <Productos

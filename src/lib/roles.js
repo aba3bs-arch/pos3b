@@ -162,6 +162,7 @@ export const MODULOS_ORDEN = [
   'Corte Garage',
   'Productos',
   'Venta en Ruta',
+  'Antonio',
   'Compras',
   'Checador',
   'Check List',
@@ -616,6 +617,7 @@ export const MODULOS_CONTABILIDAD_SUELTOS_CAJERO = new Set([
  * (aunque se marquen en Privilegios). El resto sí se puede asignar desde Configuración.
  */
 export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
+  'Antonio',
   'Usuarios',
   'Configuracion',
   'RH ABA3B',
@@ -625,6 +627,7 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
 
 /** Módulos que el repartidor nunca puede abrir (bloqueo duro). */
 export const MODULOS_BLOQUEADOS_REPARTIDOR = new Set([
+  'Antonio',
   'Ventas',
   'Escáner caja',
   'Corte de caja',
