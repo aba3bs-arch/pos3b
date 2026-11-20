@@ -15,7 +15,6 @@ import {
   solicitudRequiereAccion,
 } from '../lib/rutaCxcAprobacion.js';
 import { fmtFechaCorta, fmtMonto } from '../lib/consultasUi.js';
-import TableroCreditosPorCobrar from '../components/TableroCreditosPorCobrar.jsx';
 import {
   esCentralAdmin,
   etiquetaTienda,
@@ -35,7 +34,7 @@ import {
  *   entonces se registra: gasto abarrotes + efectivo a tránsito (recolección reusa la ficha).
  * - Carga rápida de CxC + sync Recolecciones en segundo plano.
  */
-export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo, caratula = false }) {
+export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo }) {
   const [aviso, setAviso] = useState('');
   const [rows, setRows] = useState([]);
   const [selTienda, setSelTienda] = useState(''); // una sola tienda
@@ -352,13 +351,12 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     await cargar({ conSyncFondo: false });
   };
 
-  const pagar = async (montoExplicito) => {
+  const pagar = async () => {
     if (pagoEnCurso.current) return;
     if (!grupoSel || !idsSeleccionados.length) {
       return alert('Marca al menos un folio para pagar.');
     }
-    const forzado = Number(montoExplicito);
-    const monto = forzado > 0 ? forzado : (montoPagarNum > 0 ? montoPagarNum : totalFoliosSel);
+    const monto = montoPagarNum > 0 ? montoPagarNum : totalFoliosSel;
     if (!(monto > 0)) return;
     if (monto > totalFoliosSel + 0.009) {
       return alert(`El monto no puede superar los folios marcados (${fmtMonto(totalFoliosSel)}).`);
@@ -421,126 +419,6 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     setMontoPagarStr('');
     await cargar({ conSyncFondo: true });
   };
-
-  const guardarAbonoCaratula = () => {
-    if (!(montoPagarNum > 0)) {
-      alert('Escribe el monto del abono.');
-      return;
-    }
-    void pagar(montoPagarNum);
-  };
-
-  const liquidarCreditoCaratula = () => {
-    if (!(totalFoliosSel > 0)) {
-      alert('Esta tienda no tiene crédito pendiente para liquidar.');
-      return;
-    }
-    void pagar(totalFoliosSel);
-  };
-
-  const tableroCreditos = (acceso = null) => (
-    <TableroCreditosPorCobrar
-      supabase={supabase}
-      cargos={acceso ? [] : rows}
-      tiendaAbierta={selTienda}
-      onElegirTienda={toggleGrupo}
-      montoAbono={montoPagarStr}
-      onMontoAbono={setMontoPagarStr}
-      guardando={guardando}
-      onGuardarAbono={guardarAbonoCaratula}
-      onLiquidar={liquidarCreditoCaratula}
-      puedeEliminar={puedeEliminar}
-      eliminando={eliminando}
-      onEliminar={() => void eliminarSeleccion()}
-      onCerrarSesion={cerrarSesionCajero}
-      onActualizar={() => void cargar({ conSyncFondo: true })}
-      actualizando={cargando || syncBg}
-      idsEnAprobacion={idsEnAprobacion}
-      cajeroNombre={cajero?.nombre || ''}
-      acceso={acceso}
-    />
-  );
-
-  if (caratula && !cajero) {
-    return tableroCreditos(
-      <div style={{
-        background: '#fff',
-        color: '#0f172a',
-        borderRadius: 16,
-        padding: '0.9rem',
-        maxWidth: 420,
-      }}
-      >
-        <p style={{ margin: '0 0 0.7rem', fontSize: '0.9rem' }}>
-          Ingresa el <strong>PIN del cajero</strong> para ver las tiendas y registrar abonos.
-          {verTodasLasTiendas
-            ? ' Central ve todas las tiendas.'
-            : ` Esta caja ve ${tiendaLabelActiva || sucActiva || 'su sucursal'}.`}
-        </p>
-        <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700 }}>
-          PIN cajero
-          <InputPin
-            value={pinEntrada}
-            onChange={(e) => setPinEntrada(e.target.value)}
-            className="input"
-            style={{ width: '100%', marginTop: '0.35rem' }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void abrirConPin();
-            }}
-          />
-        </label>
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ marginTop: '0.75rem' }}
-          disabled={abriendo || !String(pinEntrada).trim()}
-          onClick={() => void abrirConPin()}
-        >
-          {abriendo ? 'Verificando…' : 'Abrir con PIN'}
-        </button>
-      </div>,
-    );
-  }
-
-  if (caratula) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        {solicitudes.length > 0 && (
-          <div className="card" style={{ margin: 0, padding: '0.6rem 0.8rem', borderLeft: '4px solid #0f766e' }}>
-            <strong style={{ fontSize: '0.85rem' }}>Solicitudes de cobro (aprobación del vendedor)</strong>
-            <div style={{ display: 'grid', gap: '0.35rem', marginTop: '0.4rem' }}>
-              {solicitudes.slice(0, 8).map((sol) => {
-                const aplicada = sol.estado === 'aprobada' && sol.aplicada_at;
-                const etiqueta = aplicada ? 'Aprobada y cobrada'
-                  : sol.estado === 'aprobada' ? 'Aprobada · registrando pago'
-                    : { pendiente: 'Esperando al vendedor', rechazada: 'Rechazada', cancelada: 'Cancelada' }[sol.estado] || sol.estado;
-                const color = aplicada ? '#187443' : sol.estado === 'rechazada' ? '#b42318' : sol.estado === 'pendiente' ? '#b45309' : '#64748b';
-                return (
-                  <div key={sol.id} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'baseline', fontSize: '0.82rem' }}>
-                    <strong>{fmtMonto(sol.monto)}</strong>
-                    <span>{sol.tienda || sol.sucursal_id}</span>
-                    <span className="muted">→ {sol.vendedor_nombre || 'vendedor'}</span>
-                    <span style={{ color, fontWeight: 700 }}>{etiqueta}</span>
-                    {sol.estado === 'rechazada' && sol.motivo ? <span className="muted">Motivo: {sol.motivo}</span> : null}
-                    <span className="muted">{fmtFechaCorta(sol.created_at)}</span>
-                    {sol.estado === 'pendiente' && (
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => void cancelarSolicitud(sol)}>Cancelar</button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {(cargando || syncBg) && (
-          <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
-            {cargando ? 'Cargando créditos…' : 'Sincronizando Recolecciones en segundo plano…'}
-          </p>
-        )}
-        {tableroCreditos()}
-      </div>
-    );
-  }
 
   const heading = titulo || (embedded ? 'Créditos por pagar' : 'Cobranza · créditos ruta');
 
