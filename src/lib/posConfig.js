@@ -454,6 +454,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'ruta_gastos', label: 'Venta en Ruta — Gastos (foto ticket → RC)' },
   { id: 'ruta_cancelacion', label: 'Venta en Ruta — Cancelación / Devolución' },
   { id: 'ruta_liquidacion', label: 'Venta en Ruta — RC/VentaRuta' },
+  { id: 'ruta_rc_servicios', label: 'Venta en Ruta — RC Servicios' },
   { id: 'ruta_fin_anio', label: 'Venta en Ruta — Crédito fin de año' },
   { id: 'ruta_fin_anio_abono', label: 'Venta en Ruta — Abono fin de año (solo cajero)' },
   { id: 'ruta_fin_anio_mercancia', label: 'Venta en Ruta — Ingresar y retirar fin de año (recolector)' },

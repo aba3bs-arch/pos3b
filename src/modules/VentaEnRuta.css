@@ -1478,3 +1478,165 @@
     max-width: 5rem;
   }
 }
+
+/* RC Servicios — saldos del recolector, igual que la carátula del celular. */
+.rc-srv {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 560px;
+}
+
+.rc-srv-titulo {
+  margin: 0;
+  color: #1e3a8a;
+  font-size: 1.35rem;
+}
+
+.rc-srv-intro {
+  margin: 0 0 0.45rem;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.rc-srv-error {
+  margin: 0 0 0.4rem;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.rc-srv-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.rc-srv-card {
+  background: linear-gradient(180deg, #fffaf2 0%, #fff4e5 100%);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 18px;
+  padding: 0.85rem 0.8rem 0.9rem;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.rc-srv-card--vacio {
+  background: #f4f1ea;
+}
+
+.rc-srv-nombre {
+  margin: 0;
+  color: #1d4ed8;
+  font-size: 1.45rem;
+  line-height: 1.15;
+}
+
+.rc-srv-leyenda {
+  margin-top: 0.35rem;
+  color: #2563eb;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.rc-srv-saldo {
+  margin-top: 0.1rem;
+  color: #f97316;
+  font-size: 2.15rem;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-srv-saldo--vacio {
+  color: #94a3b8;
+}
+
+.rc-srv-mov,
+.rc-srv-corte {
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.rc-srv-mov {
+  margin-top: 0.15rem;
+}
+
+.rc-srv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+  margin-top: 0.7rem;
+}
+
+.rc-srv-casilla {
+  border-radius: 16px;
+  padding: 0.65rem 0.6rem 0.7rem;
+  min-height: 118px;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.rc-srv-casilla-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.rc-srv-casilla-icono {
+  flex: none;
+  opacity: 0.95;
+  line-height: 0;
+}
+
+.rc-srv-casilla-titulo {
+  font-weight: 800;
+  font-size: 1.02rem;
+  line-height: 1.15;
+}
+
+.rc-srv-casilla-sub {
+  font-size: 0.78rem;
+  opacity: 0.95;
+  margin-top: 0.05rem;
+}
+
+.rc-srv-casilla--ventas { background: #16a34a; }
+.rc-srv-casilla--creditos { background: #2563eb; }
+.rc-srv-casilla--servicios { background: #c2410c; }
+.rc-srv-casilla--externos { background: #facc15; color: #1c1917; }
+
+.rc-srv-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  padding: 0.28rem 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.rc-srv-pill strong {
+  font-size: 0.95rem;
+}
+
+.rc-srv-rc {
+  margin-top: 0.45rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.rc-srv-monto {
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+@media (max-width: 420px) {
+  .rc-srv-nombre { font-size: 1.2rem; }
+  .rc-srv-saldo { font-size: 1.8rem; }
+  .rc-srv-casilla-titulo { font-size: 0.88rem; }
+}
