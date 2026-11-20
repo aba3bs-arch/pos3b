@@ -240,24 +240,28 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
             ← Venta en Ruta
           </button>
         )}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
-          {vista === 'hub' && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ fontSize: '0.82rem' }}
-              onClick={() => setTutorialAbierto(true)}
-            >
-              Ver tutorial
-            </button>
-          )}
-        </div>
-        <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          {NOMBRE_ALMACEN_RUTA} → camión (una carga abierta) → POS con toda la mercancía del camión ·
-          Efectivo a RC/VentaRuta · Crédito lo paga el cajero con PIN ·
-          mercancía a la tienda por <strong>Compras</strong>.
-        </p>
+        {vista !== 'consulta_tienda' && (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
+              {vista === 'hub' && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: '0.82rem' }}
+                  onClick={() => setTutorialAbierto(true)}
+                >
+                  Ver tutorial
+                </button>
+              )}
+            </div>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
+              {NOMBRE_ALMACEN_RUTA} → camión (una carga abierta) → POS con toda la mercancía del camión ·
+              Efectivo a RC/VentaRuta · Crédito lo paga el cajero con PIN ·
+              mercancía a la tienda por <strong>Compras</strong>.
+            </p>
+          </>
+        )}
       </div>
       {aviso && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)', fontSize: '0.85rem' }}>{aviso}</div>
