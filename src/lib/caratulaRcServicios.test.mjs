@@ -10,16 +10,12 @@ const movs = [
   { repartidor_id: 'rep_a', tipo_movimiento: 'Venta Ruta', sucursal_origen: '3B6', monto: 4730, estatus: 'En Tránsito' },
   { repartidor_id: 'rep_a', tipo_movimiento: 'Cobro Crédito', sucursal_origen: '3B6', monto: 1000, estatus: 'En Tránsito' },
   { repartidor_id: 'rep_a', tipo_movimiento: 'Venta Ruta', sucursal_origen: 'CEDIS', monto: 2925, estatus: 'En Tránsito' },
+  { repartidor_id: 'rep_a', tipo_movimiento: 'Entrega Crédito', sucursal_origen: '3B6', monto: 1260, estatus: 'En Tránsito' },
   { repartidor_id: 'rep_a', tipo_movimiento: 'Gasto', sucursal_origen: '3B6', monto: 80, estatus: 'En Tránsito' },
   { repartidor_id: 'rep_a', tipo_movimiento: 'Recolección', sucursal_origen: '3B10', monto: 50, estatus: 'Liquidado' },
 ];
 
-const creditos = [
-  { id: 'c1', tipo: 'cargo', estatus: 'pendiente', monto: 1260, usuario_nombre: 'Luis Enrique Mada Osuna' },
-  { id: 'c2', tipo: 'cargo', estatus: 'pagado', pagado_at: '2026-11-18', monto: 400, usuario_nombre: 'Luis Enrique Mada Osuna' },
-];
-
-const [luis, otro] = armarCaratulaRcServicios(reps, movs, creditos);
+const [luis, otro] = armarCaratulaRcServicios(reps, movs);
 
 assert.equal(luis.nombre, 'Luis Enrique Mada Osuna');
 assert.equal(luis.ventas.efectivo, 4730);
@@ -32,30 +28,33 @@ assert.equal(luis.servicios.total, 0);
 assert.equal(luis.externos.total, 2925);
 assert.equal(luis.externos.count, 1);
 assert.equal(luis.saldo, 9915);
-assert.equal(luis.transito, 3);
-assert.equal(luis.rc, 3);
+assert.equal(luis.transito, 4);
+assert.equal(luis.rc, 4);
 assert.equal(otro.saldo, 0);
 assert.equal(otro.transito, 0);
 
-const suelto = armarCaratulaRcServicios([], [
-  { repartidor_id: 'rep_x', repartidores: { nombre: 'Ana Ruiz' }, tipo_movimiento: 'Cobro Servicio', sucursal_origen: '3B9', monto: 50, estatus: 'En Tránsito' },
-], []);
-assert.equal(suelto[0].nombre, 'Ana Ruiz');
-assert.equal(suelto[0].servicios.total, 50);
-assert.equal(suelto[0].saldo, 50);
+const ajenos = armarCaratulaRcServicios(reps, [
+  ...movs,
+  { repartidor_id: 'rep_x', repartidores: { nombre: 'Gabriela Janette Rodriguez Chavez' }, tipo_movimiento: 'Cobro Servicio', sucursal_origen: '3B9', monto: 380, estatus: 'En Tránsito' },
+  { repartidor_id: 'rep_luz', repartidores: { nombre: 'LUZ ELENA VALENZUELA ZAZUETA' }, tipo_movimiento: 'Entrega Crédito', sucursal_origen: '3B7', monto: 120, estatus: 'En Tránsito' },
+]);
+assert.deepEqual(ajenos.map((f) => f.nombre), ['Luis Enrique Mada Osuna', 'Recolector']);
+assert.equal(ajenos[0].saldo, 9915);
 
 const legado = armarCaratulaRcServicios(
-  [{ id: 'rep_c', nombre: 'Misael' }],
+  [{ id: 'rep_c', nombre: 'Misael' }, { id: 'rep_off', nombre: 'Gabriela', activo: false }],
   [
     { repartidor_id: 'rep_c', tipo_movimiento: 'Recolección', sucursal_origen: '3B6', monto: 80, foto_url: 'crédito cobrado', estatus: 'En Tránsito' },
     { repartidor_id: 'rep_c', tipo_movimiento: 'Entrega Crédito', sucursal_origen: '3B6', monto: 300, estatus: 'En Tránsito' },
+    { repartidor_id: 'rep_off', tipo_movimiento: 'Venta Ruta', sucursal_origen: '3B6', monto: 380, estatus: 'En Tránsito' },
   ],
-  [],
 );
+assert.equal(legado.length, 1);
 assert.equal(legado[0].recuperados.total, 80);
+assert.equal(legado[0].ventas.creditoNuevo, 300);
 assert.equal(legado[0].ventas.efectivo, 0);
-assert.equal(legado[0].saldo, 80);
+assert.equal(legado[0].saldo, 380);
 assert.equal(legado[0].transito, 2);
-assert.equal(legado[0].rc, 1);
+assert.equal(legado[0].rc, 2);
 
 console.log('caratulaRcServicios.test.mjs ok');

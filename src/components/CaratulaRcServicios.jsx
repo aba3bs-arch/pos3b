@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fmtMonto, listarRepartidores, listarTodoEnTransito } from '../lib/controlEfectivo.js';
-import { listarCreditosPendientesRuta } from '../lib/rutaCxc.js';
 import { armarCaratulaRcServicios } from '../lib/caratulaRcServicios.js';
 
 const REFRESCO_MS = 15000;
@@ -135,13 +134,12 @@ export default function CaratulaRcServicios({ supabase }) {
       return;
     }
     try {
-      const [reps, movs, cred] = await Promise.all([
+      const [reps, movs] = await Promise.all([
         listarRepartidores(supabase),
         listarTodoEnTransito(supabase),
-        listarCreditosPendientesRuta(supabase, { todos: true, sync: 'skip' }),
       ]);
-      setError(cred?.error || '');
-      setFilas(armarCaratulaRcServicios(reps, movs, cred?.data || []));
+      setError('');
+      setFilas(armarCaratulaRcServicios(reps, movs));
     } catch (e) {
       setError(e?.message || String(e));
     } finally {

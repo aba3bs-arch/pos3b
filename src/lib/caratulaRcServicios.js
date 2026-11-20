@@ -10,25 +10,6 @@ function r2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-function normNombre(s) {
-  return String(s || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function mismoRecolector(a, b) {
-  const x = normNombre(a);
-  const y = normNombre(b);
-  if (!x || !y) return false;
-  if (x === y) return true;
-  const corto = x.length <= y.length ? x : y;
-  const largo = x.length <= y.length ? y : x;
-  return corto.length >= 6 && largo.includes(corto);
-}
-
 function vacio(id, nombre) {
   return {
     id,
@@ -49,45 +30,32 @@ function esTiendaPropia(codigo) {
   return listarSucursalesOperativas().includes(c);
 }
 
-function esCargoPendiente(m) {
-  if (!m || m.tipo !== 'cargo') return false;
-  if (m.pagado_at) return false;
-  const est = String(m.estatus || 'pendiente').toLowerCase();
-  return est === 'pendiente' || est === '' || est === 'null';
-}
-
-/** Venta Ruta, cobro de crédito y cobro de servicio cuentan como «rc». */
+/** Venta, crédito del camión, cobro de crédito y cobro de servicio cuentan como «rc». */
 function esMovimientoRc(m) {
   const tipo = String(m?.tipo_movimiento || '');
-  return tipo === 'Venta Ruta' || tipo === 'Cobro Servicio' || esCobroCreditoMovimiento(m);
+  return tipo === 'Venta Ruta' || tipo === 'Entrega Crédito' || tipo === 'Cobro Servicio' || esCobroCreditoMovimiento(m);
 }
 
 /**
- * Carátula RC Servicios: una fila por recolector.
+ * Carátula RC Servicios: una fila por recolector activo del Panel RT.
  * Saldo = ventas del camión (efectivo + crédito nuevo) + créditos recuperados
  * + servicios + clientes externos.
- * El crédito nuevo es el cargo pendiente de CxC; no es efectivo en tránsito.
+ * El crédito nuevo es «Entrega Crédito» que sigue en tránsito en ese camión.
+ * No usa el historial de CxC: ahí están cajas, auditoras y gente que ya no trabaja.
  */
-export function armarCaratulaRcServicios(repartidores = [], movimientos = [], creditos = []) {
+export function armarCaratulaRcServicios(repartidores = [], movimientos = []) {
   const filas = new Map();
   for (const r of repartidores || []) {
     const id = String(r?.id || '').trim();
-    if (!id) continue;
+    if (!id || r.activo === false) continue;
     filas.set(id, vacio(id, r.nombre || id));
   }
-
-  const asegurar = (id, nombre) => {
-    const clave = String(id || '').trim();
-    if (!clave) return null;
-    if (!filas.has(clave)) filas.set(clave, vacio(clave, nombre || clave));
-    return filas.get(clave);
-  };
 
   for (const m of movimientos || []) {
     const tipo = String(m?.tipo_movimiento || '');
     if (!tipo || tipo === 'Gasto') continue;
     if (String(m?.estatus || 'En Tránsito') !== 'En Tránsito') continue;
-    const fila = asegurar(m.repartidor_id, m.repartidores?.nombre || m.repartidor_nombre);
+    const fila = filas.get(String(m?.repartidor_id || '').trim());
     if (!fila) continue;
     const monto = r2(m.monto);
     fila.transito += 1;
@@ -103,6 +71,11 @@ export function armarCaratulaRcServicios(repartidores = [], movimientos = [], cr
       fila.servicios.total = r2(fila.servicios.total + monto);
       continue;
     }
+    if (tipo === 'Entrega Crédito') {
+      fila.ventas.creditoCount += 1;
+      fila.ventas.creditoNuevo = r2(fila.ventas.creditoNuevo + monto);
+      continue;
+    }
     if (tipo !== 'Venta Ruta' && tipo !== 'Recolección') continue;
     if (esTiendaPropia(m.sucursal_origen)) {
       fila.ventas.efectivoCount += 1;
@@ -111,25 +84,6 @@ export function armarCaratulaRcServicios(repartidores = [], movimientos = [], cr
       fila.externos.count += 1;
       fila.externos.total = r2(fila.externos.total + monto);
     }
-  }
-
-  for (const c of creditos || []) {
-    if (!esCargoPendiente(c)) continue;
-    const nombre = c.usuario_nombre || c.cajero_nombre || c.vendedor_nombre || '';
-    let fila = null;
-    for (const f of filas.values()) {
-      if (mismoRecolector(f.nombre, nombre)) {
-        fila = f;
-        break;
-      }
-    }
-    if (!fila) {
-      const id = `credito:${normNombre(nombre) || c.id || 'sin-nombre'}`;
-      fila = asegurar(id, nombre || 'Sin recolector');
-    }
-    if (!fila) continue;
-    fila.ventas.creditoCount += 1;
-    fila.ventas.creditoNuevo = r2(fila.ventas.creditoNuevo + (Number(c.monto) || 0));
   }
 
   const lista = [...filas.values()].map((f) => {
