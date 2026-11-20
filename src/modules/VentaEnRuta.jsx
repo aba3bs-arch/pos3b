@@ -93,6 +93,7 @@ import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
 import CreditoFinAnioRuta from './CreditoFinAnioRuta.jsx';
 import CobroServiciosRuta from './CobroServiciosRuta.jsx';
+import ReporteVentasRuta from './ReporteVentasRuta.jsx';
 import GastosRuta from './GastosRuta.jsx';
 import './VentaEnRuta.css';
 
@@ -529,6 +530,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
             <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
           )}
         </div>
+      )}
+      {vista === 'reporte_ventas' && puede('ruta_reporte_ventas') && (
+        <ReporteVentasRuta supabase={supabase} />
       )}
       {vista === 'consultas' && puede('ruta_consultas') && (
         <VistaConsultas
