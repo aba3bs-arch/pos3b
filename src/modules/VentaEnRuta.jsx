@@ -5,6 +5,7 @@ import Icon from '../components/Icon.jsx';
 import PortalFlotante from '../components/PortalFlotante.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
+import CaratulaRcServicios from '../components/CaratulaRcServicios.jsx';
 import InputPin from '../components/InputPin.jsx';
 import VentasRutaPorTienda from '../components/VentasRutaPorTienda.jsx';
 import PanelPurgaVentaEnRuta from '../components/PanelPurgaVentaEnRuta.jsx';
@@ -496,6 +497,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           setAviso={setAviso}
           onVolver={() => ir('hub')}
         />
+      )}
+      {vista === 'rcservicios' && puede('ruta_rc_servicios') && (
+        <CaratulaRcServicios supabase={supabase} />
       )}
       {vista === 'liquidacion' && puede('ruta_liquidacion') && (
         <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>

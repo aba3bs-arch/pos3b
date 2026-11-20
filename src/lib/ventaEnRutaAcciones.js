@@ -46,6 +46,14 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   },
   { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios', icon: 'register', grupo: 'admin' },
   {
+    id: 'ruta_rc_servicios',
+    vista: 'rcservicios',
+    label: 'RC Servicios',
+    desc: 'Saldos del recolector: ventas, créditos, servicios y clientes externos',
+    icon: 'dollar',
+    grupo: 'admin',
+  },
+  {
     id: 'ruta_fin_anio',
     vista: 'finanio',
     label: 'Crédito fin de año',
