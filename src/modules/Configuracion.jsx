@@ -206,6 +206,16 @@ import {
   sincronizarCandadoPostLiquidacionDesdeNube,
   AVISO_FALTA_CANDADO_POST_LIQUIDACION,
 } from '../lib/candadoPostLiquidacionSync.js';
+import {
+  leerCandadoCancelarConsumo,
+  etiquetaCandadoCancelarConsumo,
+  EVENTO_CANDADO_CANCELAR_CONSUMO,
+} from '../lib/candadoCancelarConsumo.js';
+import {
+  aplicarCandadoCancelarConsumoNube,
+  sincronizarCandadoCancelarConsumoDesdeNube,
+  AVISO_FALTA_CANDADO_CANCELAR_CONSUMO,
+} from '../lib/candadoCancelarConsumoSync.js';
 import PanelBonosConfig from '../components/PanelBonosConfig.jsx';
 
 export default function Configuracion({
@@ -265,6 +275,8 @@ export default function Configuracion({
   const [ventanaGuardando, setVentanaGuardando] = useState(false);
   const [candadoPostLiq, setCandadoPostLiq] = useState(() => leerCandadoPostLiquidacion());
   const [candadoGuardando, setCandadoGuardando] = useState(false);
+  const [candadoConsumo, setCandadoConsumo] = useState(() => leerCandadoCancelarConsumo());
+  const [candadoConsumoGuardando, setCandadoConsumoGuardando] = useState(false);
   const [diasArchivo, setDiasArchivo] = useState(() => leerDiasArchivoOperativo());
   const [panelCfg, setPanelCfg] = useState(null);
   const esAdmin = puedeGestionarUsuarios(user?.rol);
@@ -473,10 +485,12 @@ export default function Configuracion({
     };
     const onHoraVale = () => setHoraLimiteValeCfg(etiquetaHoraLimiteVale());
     const onCandado = () => setCandadoPostLiq(leerCandadoPostLiquidacion());
+    const onCandadoConsumo = () => setCandadoConsumo(leerCandadoCancelarConsumo());
     window.addEventListener(EVENTO_BRANDING, onBrand);
     window.addEventListener(EVENTO_PERIFERICOS, onPeriph);
     window.addEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
     window.addEventListener(EVENTO_CANDADO_POST_LIQUIDACION, onCandado);
+    window.addEventListener(EVENTO_CANDADO_CANCELAR_CONSUMO, onCandadoConsumo);
     if (supabase) {
       sincronizarHoraLimiteValeDesdeNube(supabase).then((r) => {
         if (r.cambio) setHoraLimiteValeCfg(etiquetaHoraLimiteVale());
@@ -484,12 +498,16 @@ export default function Configuracion({
       sincronizarCandadoPostLiquidacionDesdeNube(supabase).then((r) => {
         if (r.cambio) setCandadoPostLiq(leerCandadoPostLiquidacion());
       });
+      sincronizarCandadoCancelarConsumoDesdeNube(supabase).then((r) => {
+        if (r.cambio) setCandadoConsumo(leerCandadoCancelarConsumo());
+      });
     }
     return () => {
       window.removeEventListener(EVENTO_BRANDING, onBrand);
       window.removeEventListener(EVENTO_PERIFERICOS, onPeriph);
       window.removeEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
       window.removeEventListener(EVENTO_CANDADO_POST_LIQUIDACION, onCandado);
+      window.removeEventListener(EVENTO_CANDADO_CANCELAR_CONSUMO, onCandadoConsumo);
     };
   }, [supabase]);
 
@@ -1047,8 +1065,8 @@ export default function Configuracion({
       {
         id: 'operacion',
         label: 'Operación',
-        desc: 'Tipo de cambio, archivo, recolección, candado y tienda',
-        ayuda: 'Configura tipo de cambio USD→MXN, días de retención del Archivo, ventana de recolección, candado post-liquidación y la tienda activa de esta caja.',
+        desc: 'Tipo de cambio, archivo, recolección, candados y tienda',
+        ayuda: 'Configura tipo de cambio USD→MXN, días de retención del Archivo, ventana de recolección, candado post-liquidación, candado para cancelar consumo y la tienda activa de esta caja.',
         icon: 'settings',
         color: 'var(--brand-blue)',
       },
@@ -1591,6 +1609,95 @@ export default function Configuracion({
           Actual: <strong>{etiquetaCandadoPostLiquidacion(candadoPostLiq)}</strong>
           {candadoGuardando ? ' · Guardando…' : ''}
         </p>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1.25rem 0' }} />
+        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cancelar consumo</h4>
+        <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+          <strong>ON</strong> deja cancelar el consumo de ese grupo (vale o gasto del corte).
+          <strong> OFF</strong> lo deja firme: no se borra. Un candado para empleados directos de tienda
+          y otro para indirectos de MAIN. Se sincroniza en todas las cajas.
+        </p>
+        {[
+          ['directos', 'Empleados directos'],
+          ['indirectos', 'Empleados indirectos'],
+        ].map(([lado, titulo]) => {
+          const activo = Boolean(candadoConsumo[lado]);
+          const cambiar = async (next) => {
+            if (activo === next) return;
+            if (!next) {
+              const quien = lado === 'directos' ? 'directos (tienda)' : 'indirectos (MAIN)';
+              if (!confirm(`¿Apagar cancelar consumo para empleados ${quien}?\n\nEse consumo ya no se podrá borrar.`)) return;
+            }
+            setCandadoConsumoGuardando(true);
+            try {
+              const r = await aplicarCandadoCancelarConsumoNube(supabase, { [lado]: next });
+              setCandadoConsumo(leerCandadoCancelarConsumo());
+              if (r.sinTabla) alert(AVISO_FALTA_CANDADO_CANCELAR_CONSUMO);
+              else if (r.soloLocal) alert(r.aviso || 'Guardado solo en este equipo.');
+              else if (!r.ok) alert(r.error || 'No se pudo guardar.');
+              else alert(`${titulo}: ${etiquetaCandadoCancelarConsumo(next)}. Sincronizado en todas las cajas.`);
+            } finally {
+              setCandadoConsumoGuardando(false);
+            }
+          };
+          return (
+            <div
+              key={lado}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                alignItems: 'center',
+                marginTop: '0.65rem',
+                padding: '0.85rem',
+                borderRadius: 8,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <strong style={{ fontSize: '0.9rem', minWidth: '12rem' }}>
+                {titulo}: {activo ? 'ON' : 'OFF'}
+              </strong>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={activo ? 'btn btn-success' : 'btn btn-ghost'}
+                  style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', fontWeight: 700 }}
+                  disabled={candadoConsumoGuardando}
+                  onClick={() => cambiar(true)}
+                >
+                  ON
+                </button>
+                <button
+                  type="button"
+                  className={!activo ? 'btn btn-danger' : 'btn btn-ghost'}
+                  style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', fontWeight: 700 }}
+                  disabled={candadoConsumoGuardando}
+                  onClick={() => cambiar(false)}
+                >
+                  OFF
+                </button>
+              </div>
+              <span className="muted" style={{ fontSize: '0.8rem' }}>{etiquetaCandadoCancelarConsumo(activo)}</span>
+            </div>
+          );
+        })}
+        {supabase && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', marginTop: '0.65rem' }}
+            disabled={candadoConsumoGuardando}
+            onClick={async () => {
+              const r = await sincronizarCandadoCancelarConsumoDesdeNube(supabase);
+              if (r.aviso) alert(r.aviso);
+              setCandadoConsumo(leerCandadoCancelarConsumo());
+              alert(r.cambio ? 'Candado de consumo actualizado desde la nube.' : 'Sin cambios en la nube.');
+            }}
+          >
+            Descargar de la nube
+          </button>
+        )}
 
         <div style={{ marginTop: '0.75rem' }}>
           <label className="muted" style={{ display: 'block' }}>
