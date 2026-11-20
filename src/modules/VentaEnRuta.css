@@ -1496,3 +1496,282 @@
     grid-template-columns: 1fr;
   }
 }
+
+.consulta-tienda {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.consulta-tienda-barra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.consulta-tienda-barra label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.consulta-tienda-barra select {
+  min-width: 220px;
+  font-size: 0.95rem;
+}
+
+.consulta-tienda-error {
+  margin: 0;
+  color: var(--brand-red);
+  font-size: 0.85rem;
+}
+
+.consulta-tienda-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.8fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.consulta-tienda-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.7rem;
+}
+
+.consulta-tienda-kpi {
+  border-radius: 14px;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid transparent;
+}
+
+.consulta-tienda-kpi--carga { background: #ecfdf3; border-color: #86efac; }
+.consulta-tienda-kpi--disp { background: #eff6ff; border-color: #93c5fd; }
+.consulta-tienda-kpi--venta { background: #fffbeb; border-color: #fcd34d; }
+
+.consulta-tienda-kpi-top {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.consulta-tienda-kpi-titulo {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.consulta-tienda-kpi-monto {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.consulta-tienda-kpi-pie {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.consulta-tienda-pills {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+}
+
+.consulta-tienda-pill {
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.consulta-tienda-pill--efe { background: #16a34a; }
+.consulta-tienda-pill--cre { background: #dc2626; }
+
+.consulta-tienda-tabla tfoot td {
+  font-weight: 800;
+  background: #f8fafc;
+}
+
+.consulta-tienda-nombre {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  color: #1d4ed8;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0;
+}
+
+.consulta-tienda-mov {
+  min-width: 1.8rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #64748b;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.consulta-tienda-mov--on {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+.consulta-tienda-tabla td:nth-child(n + 2),
+.consulta-tienda-tabla th:nth-child(n + 2) { text-align: right; }
+
+.consulta-tienda-num { font-weight: 800; font-variant-numeric: tabular-nums; }
+.consulta-tienda-num--venta { color: #ea580c; }
+.consulta-tienda-num--efe { color: #16a34a; }
+.consulta-tienda-num--cre { color: #dc2626; }
+
+.consulta-tienda-fila--abierta td { background: #eff6ff; }
+
+.consulta-tienda-liquidar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.7rem;
+  padding: 0.7rem;
+  border-radius: 14px;
+  background: #ecfdf3;
+  border: 1px solid #86efac;
+}
+
+.consulta-tienda-liquidar > button {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.consulta-tienda-liquidar strong { display: block; color: #166534; }
+.consulta-tienda-liquidar small { color: #64748b; }
+
+.consulta-tienda-total-liq {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #16a34a;
+  color: #fff;
+  border-radius: 12px;
+  padding: 0.45rem 0.7rem;
+}
+
+.consulta-tienda-total-liq small { display: block; font-size: 0.72rem; }
+.consulta-tienda-total-liq strong { font-size: 1.15rem; }
+
+.consulta-tienda-mixto {
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  padding: 0.75rem;
+}
+
+.consulta-tienda-mixto-head,
+.consulta-tienda-mixto-tienda {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.consulta-tienda-mixto-head strong,
+.consulta-tienda-mixto-tienda strong { display: block; color: #1d4ed8; }
+
+.consulta-tienda-mixto-head span,
+.consulta-tienda-mixto-tienda span { color: #64748b; font-size: 0.8rem; }
+
+.consulta-tienda-mixto-tienda {
+  margin-top: 0.7rem;
+  background: #eff6ff;
+  border-radius: 12px;
+  padding: 0.45rem 0.55rem;
+}
+
+.consulta-tienda-atras,
+.consulta-tienda-cerrar,
+.consulta-tienda-ticket button {
+  border: 1px solid #93c5fd;
+  background: #fff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.consulta-tienda-mini {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.55rem 0;
+}
+
+.consulta-tienda-mini div {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 0.35rem;
+}
+
+.consulta-tienda-mini small { display: block; color: #64748b; font-size: 0.68rem; }
+
+.consulta-tienda-ticket {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.45rem;
+}
+
+.consulta-tienda-ticket header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.consulta-tienda-ticket em {
+  color: #fff;
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 0.12rem 0.4rem;
+}
+
+.consulta-tienda-ticket p { margin: 0.15rem 0; font-size: 0.82rem; }
+
+.consulta-tienda-ticket ul,
+.consulta-tienda-transito {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+}
+
+.consulta-tienda-cerrar { width: 100%; margin-top: 0.4rem; padding: 0.45rem; }
+
+@media (max-width: 900px) {
+  .consulta-tienda-layout,
+  .consulta-tienda-kpis {
+    grid-template-columns: 1fr;
+  }
+}

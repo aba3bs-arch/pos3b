@@ -14,6 +14,11 @@ const hub = subcomandosVentaRutaVisibles('Administrador', '1');
 assert.ok(!hub.some((s) => s.id === 'ruta_limpiar_consultas'), 'no debe aparecer en el hub');
 assert.ok(hub.some((s) => s.id === 'ruta_consultas'));
 assert.ok(hub.some((s) => s.id === 'ruta_reporte_ventas' && s.vista === 'reporte_ventas'));
+assert.ok(hub.some((s) => s.id === 'ruta_consulta_tienda' && s.vista === 'consulta_tienda'));
+assert.ok((ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Gerente || []).includes('ruta_consulta_tienda'));
+assert.ok((ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Auditor || []).includes('ruta_consulta_tienda'));
+assert.ok(!(ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Cajero || []).includes('ruta_consulta_tienda'));
+assert.ok(!(ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Repartidor || []).includes('ruta_consulta_tienda'));
 assert.ok(hub.some((s) => s.id === 'ruta_servicios'), 'admin ve cobro servicios');
 assert.ok(
   (ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL.Repartidor || []).includes('ruta_servicios'),

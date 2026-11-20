@@ -94,6 +94,7 @@ import CobranzaRuta from './CobranzaRuta.jsx';
 import CreditoFinAnioRuta from './CreditoFinAnioRuta.jsx';
 import CobroServiciosRuta from './CobroServiciosRuta.jsx';
 import ReporteVentasRuta from './ReporteVentasRuta.jsx';
+import ConsultaPorTienda from './ConsultaPorTienda.jsx';
 import GastosRuta from './GastosRuta.jsx';
 import './VentaEnRuta.css';
 
@@ -533,6 +534,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
       {vista === 'reporte_ventas' && puede('ruta_reporte_ventas') && (
         <ReporteVentasRuta supabase={supabase} />
+      )}
+      {vista === 'consulta_tienda' && puede('ruta_consulta_tienda') && (
+        <ConsultaPorTienda supabase={supabase} inventario={inventario} />
       )}
       {vista === 'consultas' && puede('ruta_consultas') && (
         <VistaConsultas
