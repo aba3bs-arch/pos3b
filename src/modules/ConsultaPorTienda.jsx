@@ -27,143 +27,206 @@ function fmtFecha(iso) {
   return `${p('day')}/${p('month')}/${p('year')} ${p('hour')}:${p('minute')}:${p('second')}`;
 }
 
-function IconoBarras() {
+function CuboOro({ x, y, s = 14 }) {
+  const h = s * 0.78;
+  const top = `${x + s},${y} ${x + 2 * s},${y + s * 0.46} ${x + s},${y + s * 0.92} ${x},${y + s * 0.46}`;
+  const izq = `${x},${y + s * 0.46} ${x + s},${y + s * 0.92} ${x + s},${y + s * 0.92 + h} ${x},${y + s * 0.46 + h}`;
+  const der = `${x + s},${y + s * 0.92} ${x + 2 * s},${y + s * 0.46} ${x + 2 * s},${y + s * 0.46 + h} ${x + s},${y + s * 0.92 + h}`;
   return (
-    <svg width="46" height="40" viewBox="0 0 64 56" aria-hidden="true">
-      <polygon points="6,34 22,26 50,26 34,34" fill="#ffe56a" />
-      <polygon points="6,34 6,44 22,52 22,42" fill="#e2a61c" />
-      <polygon points="22,42 22,52 50,44 50,34" fill="#f6c43a" />
-      <polygon points="14,24 30,16 58,16 42,24" fill="#fff1a3" />
-      <polygon points="14,24 14,34 30,42 30,32" fill="#f0be34" />
-      <polygon points="30,32 30,42 58,34 58,24" fill="#ffe27a" />
-      <polygon points="10,16 26,8 54,8 38,16" fill="#fff8d0" />
-      <polygon points="10,16 10,24 26,32 26,24" fill="#f8d35a" />
-      <polygon points="26,24 26,32 54,24 54,16" fill="#fff0b0" />
+    <g>
+      <polygon points={top} fill="#ffe14a" stroke="#e6ae00" strokeWidth="0.8" strokeLinejoin="round" />
+      <polygon points={izq} fill="#f6c31a" stroke="#d9a000" strokeWidth="0.8" strokeLinejoin="round" />
+      <polygon points={der} fill="#e39a00" stroke="#c78400" strokeWidth="0.8" strokeLinejoin="round" />
+    </g>
+  );
+}
+
+function IconoBarras() {
+  const s = 13;
+  const dy = s * 0.78 + 1.5;
+  const dx = s * 1.72;
+  return (
+    <svg width="58" height="50" viewBox="0 0 92 72" aria-hidden="true">
+      <CuboOro x={dx} y={1} s={s} />
+      <CuboOro x={dx * 0.15} y={1 + dy} s={s} />
+      <CuboOro x={dx * 0.15 + dx} y={1 + dy} s={s} />
+      <CuboOro x={0} y={1 + dy * 2} s={s} />
+      <CuboOro x={dx} y={1 + dy * 2} s={s} />
+      <CuboOro x={dx * 2} y={1 + dy * 2} s={s} />
     </svg>
   );
 }
 
-function IconoCarrito({ size = 34 }) {
+function IconoCarrito({ size = 36, linea = false }) {
+  if (linea) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 5h2.2l1.8 9.2h10.2l1.8-6.2H8" fill="none" stroke="#64748b" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx="10" cy="18.2" r="1.35" fill="#64748b" />
+        <circle cx="16.5" cy="18.2" r="1.35" fill="#64748b" />
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M8 10h6l2 4h22l-4 14H18L14 14" fill="#fb923c" stroke="#ea580c" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M8 10h6l2 4" fill="none" stroke="#ea580c" strokeWidth="2.4" strokeLinecap="round" />
-      <circle cx="20" cy="36" r="3.2" fill="#9a3412" />
-      <circle cx="34" cy="36" r="3.2" fill="#9a3412" />
-      <path d="M18 28h16" stroke="#fff7ed" strokeWidth="2" />
+      <path d="M7 9h8l2.4 5.2" fill="none" stroke="#1f2937" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="M15.5 15h23.5l-4.4 15.2H18.4z" fill="#facc15" stroke="#eab308" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M18.5 21h17M19.4 26h14.2" stroke="#fde68a" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="22" cy="36.5" r="3.1" fill="#111827" />
+      <circle cx="34" cy="36.5" r="3.1" fill="#111827" />
     </svg>
   );
 }
 
 function IconoTienda({ size = 36 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M6 20 L24 8 L42 20 V23 H6 Z" fill="#ef4444" />
-      <path d="M8 16.5 h6.2 l-1.6 6.5 H6.6z M16.2 15.2 h6.2 l-1.2 7.8 h-6.2z M24.4 14.4 h6.2 l-.6 8.6 h-6.2z M32.4 15.2 h6.2 l.8 7.8 h-6.2z" fill="#fff" />
-      <rect x="10" y="23" width="28" height="17" rx="1.5" fill="#3b82f6" />
-      <rect x="14" y="27" width="7" height="6" rx="1" fill="#dbeafe" />
-      <rect x="20.5" y="28" width="7" height="12" rx="1" fill="#f8fafc" />
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M4 20h56l-3 16H7z" fill="#ef3b3b" />
+      <path d="M8 20h10l-1 16H7zM22 20h10l-1 16H21zM36 20h10l-1 16H35zM50 20h8l-1 16H49z" fill="#fff" />
+      <path d="M4 33c5 8 9 8 14 0s9-8 14 0 9 8 14 0 9 8 14 0v5H4z" fill="#ef3b3b" />
+      <rect x="8" y="38" width="48" height="16" fill="#3b82f6" />
+      <rect x="13" y="42" width="16" height="12" rx="1.5" fill="#7dd3fc" />
+      <path d="M21 42v12" stroke="#fff" strokeWidth="1.3" />
+      <path d="M13 48h16" stroke="#e0f2fe" strokeWidth="1" />
+      <rect x="36" y="43" width="14" height="11" rx="1.2" fill="#dbeafe" />
+      <rect x="6" y="54" width="52" height="6" rx="1.5" fill="#94a3b8" />
     </svg>
   );
 }
 
-function IconoCalendario({ color = '#16a34a', size = 18 }) {
+function IconoCalendario({ color = '#16a34a', size = 20, linea = false }) {
+  if (linea) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="#64748b" strokeWidth="1.7" />
+        <path d="M4 9.5h16M8 3.2v4M16 3.2v4" stroke="#64748b" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  const celdas = [];
+  for (let r = 0; r < 3; r += 1) {
+    for (let c = 0; c < 3; c += 1) {
+      celdas.push(<rect key={`${r}-${c}`} x={6.4 + c * 3.9} y={10.3 + r * 2.7} width="2.3" height="1.7" rx="0.3" fill={color} />);
+    }
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="5" width="18" height="16" rx="3" fill={color} />
-      <rect x="3" y="5" width="18" height="5" rx="2" fill="#166534" opacity="0.25" />
-      <rect x="7" y="3" width="2" height="4" rx="1" fill={color} />
-      <rect x="15" y="3" width="2" height="4" rx="1" fill={color} />
-      <circle cx="8" cy="14" r="1" fill="#fff" />
-      <circle cx="12" cy="14" r="1" fill="#fff" />
-      <circle cx="16" cy="14" r="1" fill="#fff" />
-      <circle cx="8" cy="17.5" r="1" fill="#fff" />
-      <circle cx="12" cy="17.5" r="1" fill="#fff" />
+      <rect x="3" y="4.5" width="18" height="16.5" rx="3" fill={color} />
+      <rect x="5" y="8.6" width="14" height="10.4" rx="1.4" fill="#fff" />
+      <rect x="7" y="2.4" width="2.2" height="4" rx="1" fill={color} />
+      <rect x="14.8" y="2.4" width="2.2" height="4" rx="1" fill={color} />
+      {celdas}
     </svg>
   );
 }
 
 function IconoRefresh() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M19 12a7 7 0 1 1-2-4.9" fill="none" stroke="#2563eb" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M19 4.5V9h-4.5" fill="none" stroke="#2563eb" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M19.5 11.2A7.6 7.6 0 0 0 6.8 6.2" fill="none" stroke="#2563eb" strokeWidth="3.2" strokeLinecap="round" />
+      <path d="M4.5 12.8A7.6 7.6 0 0 0 17.2 17.8" fill="none" stroke="#2563eb" strokeWidth="3.2" strokeLinecap="round" />
+      <path d="M19.2 4.2v5.2h-5.2" fill="none" stroke="#2563eb" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4.8 19.8v-5.2h5.2" fill="none" stroke="#2563eb" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
 function IconoBilletes() {
+  const billete = (y, claro, medio, oscuro) => (
+    <g key={y} transform={`translate(2,${y})`}>
+      <polygon points="10,14 28,5 58,14 40,23" fill={claro} stroke="#16a34a" strokeWidth="0.6" />
+      <polygon points="10,14 10,24 40,33 40,23" fill={medio} />
+      <polygon points="40,23 40,33 58,24 58,14" fill={oscuro} />
+      <ellipse cx="34" cy="18" rx="6" ry="3.2" fill="none" stroke="#f0fdf4" strokeWidth="1.5" />
+    </g>
+  );
   return (
-    <svg width="28" height="22" viewBox="0 0 36 28" aria-hidden="true">
-      <rect x="6" y="8" width="24" height="14" rx="2" fill="#86efac" stroke="#166534" transform="rotate(-8 18 15)" />
-      <rect x="4" y="10" width="24" height="14" rx="2" fill="#4ade80" stroke="#166534" />
-      <circle cx="16" cy="17" r="3" fill="none" stroke="#166534" strokeWidth="1.4" />
+    <svg width="44" height="36" viewBox="0 0 68 52" aria-hidden="true">
+      {billete(14, '#86efac', '#4ade80', '#16a34a')}
+      {billete(7, '#bbf7d0', '#4ade80', '#22c55e')}
+      {billete(0, '#dcfce7', '#86efac', '#4ade80')}
+      <polygon points="30,6 36,4 40,36 34,38" fill="#f5c518" />
+      <polygon points="36,4 40,8 44,40 40,36" fill="#e0a800" />
     </svg>
   );
 }
 
 function IconoBolsa() {
   return (
-    <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
-      <path d="M12 12c0-3 2-6 4-6s4 3 4 6" fill="none" stroke="#14532d" strokeWidth="1.8" />
-      <path d="M7 13h18l-2 14H9z" fill="#4ade80" stroke="#14532d" strokeWidth="1.4" />
-      <text x="16" y="24" textAnchor="middle" fontSize="10" fontWeight="700" fill="#14532d">$</text>
+    <svg width="34" height="34" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M24 3c-1 4-6 6-6 8 0 1 2 1 6 1s6 0 6-1c0-2-5-4-6-8z" fill="#f8d34a" />
+      <path d="M16 11c-6 2-10 10-10 18 0 9 6 15 18 15s18-6 18-15c0-8-4-16-10-18-2 2-4 3-8 3s-6-1-8-3z" fill="#f6c431" stroke="#e0a800" strokeWidth="0.7" />
+      <ellipse cx="24" cy="13" rx="8" ry="2.6" fill="#e8b000" />
+      <path d="M18 12c2 3 10 3 12 0" fill="none" stroke="#c88800" strokeWidth="1" />
+      <circle cx="24" cy="28" r="7.2" fill="#16a34a" />
+      <text x="24" y="32.2" textAnchor="middle" fontSize="12" fontWeight="800" fill="#f6c431">$</text>
     </svg>
   );
 }
 
-function IconoLista() {
+function Azulejo({ color, size = 28, children }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="5" y="3" width="14" height="18" rx="2" fill="#dbeafe" stroke="#2563eb" strokeWidth="1.6" />
-      <path d="M8 8h8M8 12h8M8 16h5" stroke="#2563eb" strokeWidth="1.6" strokeLinecap="round" />
+    <svg width={size} height={size} viewBox="0 0 28 28" aria-hidden="true">
+      <rect x="1" y="1" width="26" height="26" rx="6" fill={color} />
+      {children}
     </svg>
   );
 }
 
-function IconoBilleteMini() {
+function IconoLista({ size = 28 }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="2" y="6" width="20" height="12" rx="2" fill="#dcfce7" stroke="#16a34a" strokeWidth="1.6" />
-      <circle cx="12" cy="12" r="2.4" fill="none" stroke="#16a34a" strokeWidth="1.4" />
-    </svg>
+    <Azulejo color="#3b82f6" size={size}>
+      <rect x="7" y="6" width="14" height="16" rx="2" fill="#fff" />
+      <path d="M9.5 11h9M9.5 14.5h9M9.5 18h6" stroke="#3b82f6" strokeWidth="1.4" strokeLinecap="round" />
+    </Azulejo>
   );
 }
 
-function IconoTarjeta() {
+function IconoBilleteMini({ size = 28 }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="2" y="5" width="20" height="14" rx="2" fill="#fee2e2" stroke="#dc2626" strokeWidth="1.6" />
-      <path d="M2 9h20" stroke="#dc2626" strokeWidth="1.6" />
-      <path d="M6 14h5" stroke="#dc2626" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
+    <Azulejo color="#22c55e" size={size}>
+      <rect x="5" y="8" width="18" height="12" rx="2" fill="#fff" />
+      <circle cx="14" cy="14" r="2.6" fill="none" stroke="#22c55e" strokeWidth="1.5" />
+    </Azulejo>
   );
 }
 
-function IconoCasa() {
+function IconoTarjeta({ size = 28 }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 11 L12 4 L20 11 V20 H4 Z" fill="#dbeafe" stroke="#2563eb" strokeWidth="1.6" strokeLinejoin="round" />
-      <rect x="10" y="14" width="4" height="6" fill="#2563eb" />
-    </svg>
+    <Azulejo color="#ef4444" size={size}>
+      <rect x="5" y="7" width="18" height="14" rx="2" fill="#fff" />
+      <path d="M5 12h18" stroke="#ef4444" strokeWidth="1.6" />
+      <path d="M8 16.5h5" stroke="#ef4444" strokeWidth="1.4" strokeLinecap="round" />
+    </Azulejo>
   );
 }
 
-function IconoDocumento({ color = '#2563eb', size = 18 }) {
+function IconoCasa({ size = 18, linea = false }) {
+  if (linea) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 11.2 12 4.5 20 11.2V20H4z" fill="none" stroke="#64748b" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M10 20v-5h4v5" fill="none" stroke="#64748b" strokeWidth="1.5" />
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7 3h7l5 5v13H7z" fill="#eff6ff" stroke={color} strokeWidth="1.6" />
-      <path d="M14 3v5h5" fill="none" stroke={color} strokeWidth="1.6" />
-      <path d="M10 13h6M10 17h4" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M2.5 11.5 12 3.2 21.5 11.5V21H2.5z" fill="#3b82f6" />
+      <rect x="10" y="14" width="4" height="7" fill="#fff" />
     </svg>
   );
+}
+
+function IconoDocumento({ size = 22 }) {
+  return <IconoLista size={size} />;
 }
 
 function IconoOjo() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z" fill="none" stroke="#fff" strokeWidth="1.8" />
-      <circle cx="12" cy="12" r="2.4" fill="#fff" />
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 12s4-6.5 10-6.5S22 12 22 12s-4 6.5-10 6.5S2 12 2 12z" fill="none" stroke="#fff" strokeWidth="2" />
+      <circle cx="12" cy="12" r="2.6" fill="#fff" />
     </svg>
   );
 }
@@ -196,7 +259,7 @@ export default function ConsultaPorTienda({ supabase, inventario = [] }) {
   const [error, setError] = useState('');
   const [repartidorId, setRepartidorId] = useState('');
   const [marcas, setMarcas] = useState(null);
-  const [tiendaId, setTiendaId] = useState('');
+  const [tiendaId, setTiendaId] = useState(null);
   const [ticketId, setTicketId] = useState('');
   const [ahora, setAhora] = useState(null);
 
@@ -243,6 +306,12 @@ export default function ConsultaPorTienda({ supabase, inventario = [] }) {
     };
   }, [paquete, repartidorId, inventario, ahora, marcas]);
 
+  useEffect(() => {
+    if (tiendaId != null) return;
+    const primera = tablero?.tiendas?.[0]?.id;
+    if (primera) setTiendaId(primera);
+  }, [tablero, tiendaId]);
+
   const tienda = tablero?.tiendas.find((t) => t.id === tiendaId) || null;
   const marcado = totalMarcado(tablero);
   const ticket = tienda?.tickets.find((t) => t.id === ticketId) || null;
@@ -250,7 +319,7 @@ export default function ConsultaPorTienda({ supabase, inventario = [] }) {
   const cambiarRepartidor = (id) => {
     setRepartidorId(id);
     setMarcas(null);
-    setTiendaId('');
+    setTiendaId(null);
     setTicketId('');
   };
 
@@ -298,7 +367,7 @@ export default function ConsultaPorTienda({ supabase, inventario = [] }) {
               icono={<IconoBarras />}
               titulo="Cargado en ruta"
               monto={tablero.cargado}
-              pie={<><IconoCalendario /> Última carga: {fmtFecha(tablero.ultimaCarga)}</>}
+              pie={<><IconoCalendario size={18} /> <span>Última carga: {fmtFecha(tablero.ultimaCarga)}</span></>}
             />
             <Kpi
               clase="consulta-tienda-kpi--disp"
@@ -331,7 +400,7 @@ export default function ConsultaPorTienda({ supabase, inventario = [] }) {
           </div>
 
           <div className="consulta-tienda-main">
-            <div className="table-wrap">
+            <div className="table-wrap consulta-tienda-tabla-wrap">
               <table className="consultas-table consulta-tienda-tabla">
                 <thead>
                   <tr>
@@ -386,6 +455,7 @@ export default function ConsultaPorTienda({ supabase, inventario = [] }) {
                   <small>Todas las tiendas de este recolector (solo lo marcado).</small>
                 </span>
               </button>
+              <span className="consulta-tienda-liq-div" aria-hidden="true" />
               <div className="consulta-tienda-total-liq">
                 <IconoBolsa />
                 <span>
@@ -431,9 +501,9 @@ export default function ConsultaPorTienda({ supabase, inventario = [] }) {
                     </header>
                     <div className="consulta-tienda-ticket-cuerpo">
                       <div>
-                        <p><IconoCalendario size={15} /> {fmtFecha(tk.fecha)}</p>
-                        <p><IconoCarrito size={15} /> Productos: {tk.productos}</p>
-                        <p><IconoCasa /> Subtotal: {fmtMonto(tk.subtotal)}</p>
+                        <p><IconoCalendario linea size={16} /> {fmtFecha(tk.fecha)}</p>
+                        <p><IconoCarrito linea size={16} /> Productos: {tk.productos}</p>
+                        <p><IconoCasa linea size={16} /> Subtotal: {fmtMonto(tk.subtotal)}</p>
                       </div>
                       <button type="button" onClick={() => setTicketId(abierto ? '' : tk.id)}>
                         <IconoOjo /> Ver ticket
