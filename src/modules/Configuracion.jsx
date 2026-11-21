@@ -210,6 +210,7 @@ import {
   leerCandadoCancelarConsumo,
   etiquetaCandadoCancelarConsumo,
   etiquetaLimiteConsumo,
+  quitarEmpleadoCandadoConsumo,
   EVENTO_CANDADO_CANCELAR_CONSUMO,
 } from '../lib/candadoCancelarConsumo.js';
 import { resolverTipoEmpleado } from '../lib/empleadosVisibles.js';
@@ -1644,9 +1645,10 @@ export default function Configuracion({
         <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cancelar consumo</h4>
         <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
           Elige al empleado. <strong>ON</strong> deja cancelar su consumo (vale o gasto del corte).
-          <strong> OFF</strong> lo deja firme.           El límite es lo máximo que se le puede cargar de consumo hoy;
+          <strong> OFF</strong> lo deja firme. El límite es lo máximo que se le puede cargar de consumo hoy;
           vacío significa sin límite. Si al meter el gasto se pasa de ese límite, no se guarda
           y la pantalla abierta avisa en ese momento que no tiene consumo aprobado.
+          <strong>Quitar</strong> lo saca de la lista: vuelve a poder recibir consumo sin tope.
           Se sincroniza en todas las cajas.
         </p>
         <label className="muted" style={{ display: 'block', marginTop: '0.65rem' }}>
@@ -1792,19 +1794,63 @@ export default function Configuracion({
             <p className="muted" style={{ margin: '0 0 0.35rem', fontSize: '0.82rem' }}>Ya configurados</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
               {Object.values(candadoConsumo.empleados).map((row) => (
-                <button
+                <span
                   key={row.id}
-                  type="button"
-                  className="btn btn-ghost"
-                  style={{ fontSize: '0.78rem', padding: '0.25rem 0.5rem' }}
-                  onClick={() => {
-                    setEmpleadoConsumoId(row.id);
-                    setCancelarEmpConsumo(row.cancelar !== false);
-                    setLimiteEmpConsumo(row.limite == null ? '' : String(row.limite));
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.15rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: '0.1rem 0.15rem 0.1rem 0.35rem',
                   }}
                 >
-                  {row.nombre || row.id} · {row.cancelar === false ? 'OFF' : 'ON'} · {etiquetaLimiteConsumo(row.limite)}
-                </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '0.78rem', padding: '0.2rem 0.35rem' }}
+                    disabled={candadoConsumoGuardando}
+                    onClick={() => {
+                      setEmpleadoConsumoId(row.id);
+                      setCancelarEmpConsumo(row.cancelar !== false);
+                      setLimiteEmpConsumo(row.limite == null ? '' : String(row.limite));
+                    }}
+                  >
+                    {row.nombre || row.id} · {row.cancelar === false ? 'OFF' : 'ON'} · {etiquetaLimiteConsumo(row.limite)}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem', color: 'var(--danger, #c62828)', fontWeight: 700 }}
+                    disabled={candadoConsumoGuardando}
+                    onClick={async () => {
+                      const nombre = row.nombre || 'este empleado';
+                      if (!confirm(`¿Quitar a ${nombre} de la lista de consumo?\n\nVolverá a poder recibir consumo sin límite y se podrá cancelar.`)) return;
+                      setCandadoConsumoGuardando(true);
+                      try {
+                        const previo = leerCandadoCancelarConsumo();
+                        const r = await aplicarCandadoCancelarConsumoNube(
+                          supabase,
+                          quitarEmpleadoCandadoConsumo(previo, row.id),
+                        );
+                        setCandadoConsumo(leerCandadoCancelarConsumo());
+                        if (String(empleadoConsumoId) === String(row.id)) {
+                          setEmpleadoConsumoId('');
+                          setCancelarEmpConsumo(true);
+                          setLimiteEmpConsumo('');
+                        }
+                        if (r.sinTabla) alert(AVISO_FALTA_CANDADO_CANCELAR_CONSUMO);
+                        else if (r.soloLocal) alert(r.aviso || 'Quitado solo en este equipo.');
+                        else if (!r.ok) alert(r.error || 'No se pudo quitar.');
+                        else alert(`${nombre} ya no está en la lista de consumo.`);
+                      } finally {
+                        setCandadoConsumoGuardando(false);
+                      }
+                    }}
+                  >
+                    Quitar
+                  </button>
+                </span>
               ))}
             </div>
           </div>

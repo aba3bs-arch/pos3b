@@ -78,6 +78,14 @@ export function guardarCandadoCancelarConsumo(parcial, opts = {}) {
   return next;
 }
 
+/** Saca a una persona de la lista. Sin ficha vuelve al comportamiento de siempre: se puede cancelar y no tiene tope. */
+export function quitarEmpleadoCandadoConsumo(cfg, id) {
+  const empleados = { ...normalizarCandadoCancelarConsumo(cfg).empleados };
+  const clave = String(id || '').trim();
+  if (clave) delete empleados[clave];
+  return { empleados };
+}
+
 /** La nube vacía no borra una ficha local más nueva. La nube más nueva sí reemplaza. */
 export function debeTomarCandadoRemoto(local, remoto, { localAt = null, remotoAt = null } = {}) {
   const localTiene = Object.keys(local?.empleados || {}).length > 0;

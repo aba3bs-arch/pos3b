@@ -8,6 +8,7 @@ import {
   evaluarLimiteConsumo,
   normalizarCandadoCancelarConsumo,
   notificacionConsumoLimiteParaUsuario,
+  quitarEmpleadoCandadoConsumo,
 } from './candadoCancelarConsumo.js';
 
 assert.equal(esRegistroConsumo({ categoria: 'EMPLEADO', subcategoria: 'CONSUMO' }), true);
@@ -62,5 +63,14 @@ const remoto = { empleados: { a: { id: 'a', nombre: 'Frania', limite: 100 } } };
 assert.equal(debeTomarCandadoRemoto(local, vacio, { localAt: '2026-11-21T01:00:00Z', remotoAt: '2026-11-21T00:00:00Z' }), false);
 assert.equal(debeTomarCandadoRemoto(vacio, remoto, { localAt: null, remotoAt: '2026-11-21T01:00:00Z' }), true);
 assert.equal(debeTomarCandadoRemoto(local, remoto, { localAt: '2026-11-21T02:00:00Z', remotoAt: '2026-11-21T01:00:00Z' }), false);
+
+const sinFrania = quitarEmpleadoCandadoConsumo(cfg, 'u-luz');
+assert.equal(sinFrania.empleados['u-luz'], undefined);
+assert.equal(sinFrania.empleados['u-gaby'].nombre, 'Gabriela Janette');
+assert.equal(evaluarLimiteConsumo({
+  limite: configEmpleadoConsumo(sinFrania, { usuarioId: 'u-luz' })?.limite ?? null,
+  acumulado: 0,
+  monto: 500,
+}).ok, true);
 
 console.log('candadoCancelarConsumo.test.mjs ok');
