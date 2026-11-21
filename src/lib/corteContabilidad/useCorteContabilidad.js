@@ -384,8 +384,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       });
     }
     if (!res.ok) {
-      alert(res.error);
-      return { ok: false, error: res.error };
+      if (!res.limite) alert(res.error);
+      return { ok: false, error: res.error, limite: Boolean(res.limite) };
     }
     await cargar();
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
@@ -403,7 +403,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const editarGasto = async (id, patch) => {
     if (!puedeEditarCorteCampo(perm, 'gastos')) return;
     const res = await actualizarGastoTurno(supabase, id, patch, sucursal, modulo);
-    if (!res.ok) return alert(res.error);
+    if (!res.ok) {
+      if (!res.limite) alert(res.error);
+      return;
+    }
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gas.data || []);
   };

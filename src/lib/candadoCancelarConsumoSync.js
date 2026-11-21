@@ -3,6 +3,7 @@
  * Nube: pos_candado_cancelar_consumo.empleados (json de la fila GLOBAL).
  */
 import {
+  debeTomarCandadoRemoto,
   guardarCandadoCancelarConsumo,
   leerCandadoCancelarConsumo,
   normalizarCandadoCancelarConsumo,
@@ -39,7 +40,18 @@ export async function sincronizarCandadoCancelarConsumoDesdeNube(supabase) {
   const remoto = normalizarCandadoCancelarConsumo(data);
   const local = leerCandadoCancelarConsumo();
   const cambio = JSON.stringify(local.empleados) !== JSON.stringify(remoto.empleados);
-  if (cambio) guardarCandadoCancelarConsumo({ empleados: remoto.empleados });
+  if (
+    cambio
+    && debeTomarCandadoRemoto(local, remoto, {
+      localAt: local.updatedAt,
+      remotoAt: data.updated_at,
+    })
+  ) {
+    guardarCandadoCancelarConsumo(
+      { empleados: remoto.empleados },
+      { updatedAt: data.updated_at || new Date().toISOString() },
+    );
+  }
   return { ok: true, cambio, ...remoto };
 }
 

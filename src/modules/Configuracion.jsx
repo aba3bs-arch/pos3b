@@ -1644,8 +1644,10 @@ export default function Configuracion({
         <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cancelar consumo</h4>
         <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
           Elige al empleado. <strong>ON</strong> deja cancelar su consumo (vale o gasto del corte).
-          <strong> OFF</strong> lo deja firme. El límite es lo máximo que se le puede cargar de consumo hoy;
-          vacío significa sin límite. Se sincroniza en todas las cajas.
+          <strong> OFF</strong> lo deja firme.           El límite es lo máximo que se le puede cargar de consumo hoy;
+          vacío significa sin límite. Si al meter el gasto se pasa de ese límite, no se guarda
+          y la pantalla abierta avisa en ese momento que no tiene consumo aprobado.
+          Se sincroniza en todas las cajas.
         </p>
         <label className="muted" style={{ display: 'block', marginTop: '0.65rem' }}>
           Buscar empleado
