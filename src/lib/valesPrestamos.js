@@ -33,6 +33,8 @@ import {
   TOKEN_PRESTAMO_SUC,
 } from './cargosContabilidad.js';
 import { asegurarCamposSinReservadoOPin } from './reservadoAdminPrincipal.js';
+import { ESTADOS_PRESTAMO_EMPLEADO_LISTA, ESTADO_VISTO_BUENO, registrarReingresoNomina } from './fondoPrestamos.js';
+import { esPrestamoArrendatario } from './beneficiariosExternos.js';
 
 /**
  * ¿La tabla realmente no existe? (no confundir con columna faltante).
@@ -660,9 +662,9 @@ export async function listarPrestamos(supabase, opts = {}) {
   if (soloActivos && !incluirPendientes) q = q.eq('estado', 'activo');
   else if (incluirHistorial) {
     // Activos, pendientes y liquidados (control de pagos). Excluye rechazados.
-    q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
+    q = q.in('estado', ESTADOS_PRESTAMO_EMPLEADO_LISTA);
   } else if (incluirPendientes) {
-    q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
+    q = q.in('estado', ESTADOS_PRESTAMO_EMPLEADO_LISTA);
   }
   if (!incluirArchivados) q = q.is('archived_at', null);
   let { data, error } = await q;
@@ -670,8 +672,8 @@ export async function listarPrestamos(supabase, opts = {}) {
     q = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(limit);
     if (sucursal) q = q.eq('sucursal_id', String(sucursal).toUpperCase());
     if (soloActivos && !incluirPendientes) q = q.eq('estado', 'activo');
-    else if (incluirHistorial) q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
-    else if (incluirPendientes) q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
+    else if (incluirHistorial) q = q.in('estado', ESTADOS_PRESTAMO_EMPLEADO_LISTA);
+    else if (incluirPendientes) q = q.in('estado', ESTADOS_PRESTAMO_EMPLEADO_LISTA);
     ({ data, error } = await q);
   }
   if (error && faltaTablaPrestamos(error)) return { data: [], error: null, aviso: AVISO_FALTA_CONTABILIDAD };
@@ -738,10 +740,14 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
   }
 
   const monto = Number(row.monto_original) || 0;
-  const omitirCorte = Boolean(opts.omitirCorte || row.omitir_corte);
-  const areaCorte = omitirCorte
+  let omitirCorte = Boolean(opts.omitirCorte || row.omitir_corte);
+  let areaCorte = omitirCorte
     ? null
     : normalizarAreaCorte(row.area_corte || opts.areaCorte, 'virtual');
+  if (opts.cadenaFondo) {
+    omitirCorte = true;
+    areaCorte = null;
+  }
   const necesitaSocio = prestamoRequiereSocio(monto);
   const cuotaFija = cuotaSemanalPrestamo(monto);
   const rolActor = normalizarRol(opts.rolActor);
@@ -750,10 +756,13 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
 
   // Usuario MAIN: lo registra el admin; no va a corte; sí a nómina ($500/sem).
   // Si no requiere socio, queda activo de inmediato.
+  // cadenaFondo: empleado. Visto bueno → ABB/FJBB → aviso a JLBB. Nunca a corte.
   let estado = 'pendiente_admin';
   let aprobadoAdminPor = null;
   let aprobadoAdminAt = null;
-  if (omitirCorte && esAdminActor) {
+  if (opts.cadenaFondo) {
+    estado = ESTADO_VISTO_BUENO;
+  } else if (omitirCorte && esAdminActor) {
     if (necesitaSocio) {
       estado = 'pendiente_socio';
       aprobadoAdminPor = opts.nombreActor || null;
@@ -776,7 +785,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
     saldo: monto,
     abono: 0,
     estado,
-    requiere_aprobacion_socio: necesitaSocio,
+    requiere_aprobacion_socio: opts.cadenaFondo ? false : necesitaSocio,
     cuota_semanal: cuotaFija,
     cargado_corte: false,
     omitir_corte: omitirCorte,
@@ -791,6 +800,25 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
   if (error) return { ok: false, error: error.message };
 
   const prestamo = { ...data, omitir_corte: omitirCorte, area_corte: data.area_corte ?? areaCorte };
+
+  if (estado === ESTADO_VISTO_BUENO) {
+    await crearNotificacion(supabase, {
+      sucursal_id: row.sucursal_id,
+      tipo: TIPOS_NOTIF.PRESTAMO_VISTO_BUENO,
+      ref_tabla: 'prestamos',
+      ref_id: prestamo.id,
+      titulo: `Préstamo · visto bueno · ${row.nombre_empleado}`,
+      mensaje: `$${monto.toFixed(2)} · no va a corte ni a contabilidad. Falta visto bueno del gerente o del administrador principal.`,
+    });
+    return {
+      ok: true,
+      prestamo,
+      pendiente: true,
+      mensaje: 'Préstamo registrado. No va a corte ni a contabilidad. Falta el visto bueno del gerente o del administrador principal.',
+      areaCorte: null,
+      omitirCorte: true,
+    };
+  }
 
   if (estado === 'pendiente_admin') {
     await crearNotificacion(supabase, {
@@ -918,16 +946,16 @@ export async function aprobarPrestamoAdmin(supabase, prestamoId, { nombreAprobad
   }
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, nombreAprobador);
-  const debeCargarCorte = cargarCorte && !omitirCorte;
+  const debeCargarCorte = cargarCorte && !omitirCorte && esPrestamoArrendatario(p);
   if (debeCargarCorte) await cargarPrestamoEmpleadoACorte(supabase, { ...data, area_corte: area }, area);
   const prestamoOut = { ...data, area_corte: area ?? data.area_corte, omitir_corte: omitirCorte };
   return {
     ok: true,
     prestamo: prestamoOut,
     cuota,
-    mensaje: omitirCorte
-      ? `Préstamo activo (solo nómina, sin corte). Cuota $${CUOTA_SEMANAL_MINIMA}/semana. Ya puede imprimir el ticket.`
-      : `Préstamo activo y cargado al corte de ${area}. Ya puede imprimir el ticket.`,
+    mensaje: debeCargarCorte
+      ? `Préstamo activo y cargado al corte de ${area}. Ya puede imprimir el ticket.`
+      : `Préstamo activo (sin corte). Cuota $${CUOTA_SEMANAL_MINIMA}/semana. Ya puede imprimir el ticket.`,
   };
 }
 
@@ -961,7 +989,7 @@ export async function aprobarPrestamoSocio(supabase, prestamoId, { pin, sucursal
     .single();
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, auth.nombre);
-  const debeCargarCorte = cargarCorte && !omitirCorte;
+  const debeCargarCorte = cargarCorte && !omitirCorte && esPrestamoArrendatario(p);
   if (debeCargarCorte) await cargarPrestamoEmpleadoACorte(supabase, data, area);
   return {
     ok: true,
@@ -1011,6 +1039,13 @@ export async function abonarPrestamo(supabase, prestamo, montoAbono) {
     })
     .eq('id', prestamo.id);
   if (error) return { ok: false, error: error.message };
+  const reingreso = await registrarReingresoNomina(supabase, {
+    prestamo,
+    monto: abono,
+    createdBy: 'Nómina',
+    notas: 'Reingreso de nómina. La cuota se restó del préstamo y se sumó al capital.',
+  });
+  if (reingreso && reingreso.ok === false) return reingreso;
   return { ok: true, saldo, liquidado: saldo <= 0 };
 }
 

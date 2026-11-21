@@ -177,6 +177,9 @@ export const TIPOS_NOTIF = {
   VALE_PENDIENTE: 'vale_pendiente_admin',
   PRESTAMO_ADMIN: 'prestamo_pendiente_admin',
   PRESTAMO_SOCIO: 'prestamo_pendiente_socio',
+  PRESTAMO_VISTO_BUENO: 'prestamo_visto_bueno',
+  PRESTAMO_ABB_FJBB: 'prestamo_abb_fjbb',
+  PRESTAMO_TESORERO: 'prestamo_tesorero',
   PRESTAMO_INTERAREA: 'prestamo_interarea',
   PRESTAMO_SUCURSAL: 'prestamo_sucursal',
   INCIDENCIA: 'incidencia_tienda',
@@ -242,6 +245,12 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Préstamo pendiente';
     case TIPOS_NOTIF.PRESTAMO_SOCIO:
       return 'Préstamo (socio)';
+    case TIPOS_NOTIF.PRESTAMO_VISTO_BUENO:
+      return 'Préstamo · visto bueno';
+    case TIPOS_NOTIF.PRESTAMO_ABB_FJBB:
+      return 'Préstamo · ABB / FJBB';
+    case TIPOS_NOTIF.PRESTAMO_TESORERO:
+      return 'Fondo de préstamos · JLBB';
     case TIPOS_NOTIF.PRESTAMO_INTERAREA:
       return 'Préstamo entre áreas';
     case TIPOS_NOTIF.PRESTAMO_SUCURSAL:

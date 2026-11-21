@@ -439,8 +439,10 @@ export function prestamoInterareaEstaAbierto(p) {
 
 export function etiquetaEstadoPrestamo(p) {
   const e = p?.estado;
-  if (e === 'pendiente_admin') return 'Pendiente admin';
-  if (e === 'pendiente_socio') return 'Pendiente socio (+$1,000)';
+  if (e === 'pendiente_admin' || e === 'pendiente_visto_bueno') return 'Visto bueno pendiente';
+  if (e === 'pendiente_abb_fjbb') return 'Pendiente ABB / FJBB';
+  if (e === 'pendiente_desembolso') return 'Por desembolsar';
+  if (e === 'pendiente_socio') return 'Pendiente ABB / FJBB';
   if (e === 'pendiente_cobro') return 'Pendiente de cobro';
   if (e === 'rechazado') return 'Rechazado';
   if (e === 'cancelado') return 'Cancelado';

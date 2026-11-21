@@ -154,6 +154,7 @@ import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOver
 import AlertaAprobacionCobroRutaOverlay from './components/AlertaAprobacionCobroRutaOverlay.jsx';
 import AlertaAbonoFinAnioOverlay from './components/AlertaAbonoFinAnioOverlay.jsx';
 import AlertaExtensionTurnoOverlay from './components/AlertaExtensionTurnoOverlay.jsx';
+import AlertaPrestamoOverlay from './components/AlertaPrestamoOverlay.jsx';
 import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
 import ReleaseAvisoOverlay from './components/ReleaseAvisoOverlay.jsx';
@@ -2221,6 +2222,9 @@ function App() {
             supabase={supabase}
             user={user}
           />
+        ) : null}
+        {user && !user.esCtMovil ? (
+          <AlertaPrestamoOverlay supabase={supabase} user={user} sucursal={sucursal} />
         ) : null}
         {/* Overlay de asalto: también sin sesión (push persistente / ?alerta=asalto). */}
         {!user?.esCtMovil ? (
