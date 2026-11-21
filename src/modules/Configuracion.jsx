@@ -208,8 +208,7 @@ import {
 } from '../lib/candadoPostLiquidacionSync.js';
 import {
   leerCandadoCancelarConsumo,
-  etiquetaCandadoCancelarConsumo,
-  etiquetaLimiteConsumo,
+  etiquetaRegistroConsumo,
   quitarEmpleadoCandadoConsumo,
   EVENTO_CANDADO_CANCELAR_CONSUMO,
 } from '../lib/candadoCancelarConsumo.js';
@@ -283,7 +282,7 @@ export default function Configuracion({
   const [empleadosConsumo, setEmpleadosConsumo] = useState([]);
   const [empleadoConsumoId, setEmpleadoConsumoId] = useState('');
   const [filtroEmpleadoConsumo, setFiltroEmpleadoConsumo] = useState('');
-  const [cancelarEmpConsumo, setCancelarEmpConsumo] = useState(true);
+  const [modoRegistroEmp, setModoRegistroEmp] = useState('bloqueado');
   const [limiteEmpConsumo, setLimiteEmpConsumo] = useState('');
   const [diasArchivo, setDiasArchivo] = useState(() => leerDiasArchivoOperativo());
   const [panelCfg, setPanelCfg] = useState(null);
@@ -1097,7 +1096,7 @@ export default function Configuracion({
         id: 'operacion',
         label: 'Operación',
         desc: 'Tipo de cambio, archivo, recolección, candados y tienda',
-        ayuda: 'Configura tipo de cambio USD→MXN, días de retención del Archivo, ventana de recolección, candado post-liquidación, candado para cancelar consumo y la tienda activa de esta caja.',
+        ayuda: 'Configura tipo de cambio USD→MXN, días de retención del Archivo, ventana de recolección, candado post-liquidación, quién puede registrar consumo y la tienda activa de esta caja.',
         icon: 'settings',
         color: 'var(--brand-blue)',
       },
@@ -1642,13 +1641,12 @@ export default function Configuracion({
         </p>
 
         <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1.25rem 0' }} />
-        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cancelar consumo</h4>
+        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Registrar consumo</h4>
         <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-          Elige al empleado. <strong>ON</strong> deja cancelar su consumo (vale o gasto del corte).
-          <strong> OFF</strong> lo deja firme. El límite es lo máximo que se le puede cargar de consumo hoy;
-          vacío significa sin límite. Si al meter el gasto se pasa de ese límite, no se guarda
-          y la pantalla abierta avisa en ese momento que no tiene consumo aprobado.
-          <strong>Quitar</strong> lo saca de la lista: vuelve a poder recibir consumo sin tope.
+          Elige al empleado. <strong>No registrar</strong> no le deja cargar consumo.
+          <strong> Con límite</strong> solo deja hasta ese monto de hoy.
+          Si intentan registrarlo, sale un aviso flotante: no tiene permiso, o su consumo excede el límite permitido.
+          <strong> Quitar</strong> lo saca de la lista y vuelve a poder registrar sin tope.
           Se sincroniza en todas las cajas.
         </p>
         <label className="muted" style={{ display: 'block', marginTop: '0.65rem' }}>
@@ -1671,7 +1669,7 @@ export default function Configuracion({
               const id = e.target.value;
               setEmpleadoConsumoId(id);
               const guardado = (candadoConsumo.empleados || {})[id];
-              setCancelarEmpConsumo(guardado ? guardado.cancelar !== false : true);
+              setModoRegistroEmp(guardado?.registrar === 'limite' ? 'limite' : 'bloqueado');
               setLimiteEmpConsumo(guardado?.limite == null ? '' : String(guardado.limite));
             }}
           >
@@ -1706,42 +1704,42 @@ export default function Configuracion({
               border: '1px solid var(--border)',
             }}
           >
-            <strong style={{ fontSize: '0.9rem' }}>
-              Cancelar: {cancelarEmpConsumo ? 'ON' : 'OFF'}
-            </strong>
+            <strong style={{ fontSize: '0.9rem' }}>Registro</strong>
             <div style={{ display: 'flex', gap: '0.35rem' }}>
               <button
                 type="button"
-                className={cancelarEmpConsumo ? 'btn btn-success' : 'btn btn-ghost'}
+                className={modoRegistroEmp === 'bloqueado' ? 'btn btn-danger' : 'btn btn-ghost'}
                 style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', fontWeight: 700 }}
                 disabled={candadoConsumoGuardando}
-                onClick={() => setCancelarEmpConsumo(true)}
+                onClick={() => setModoRegistroEmp('bloqueado')}
               >
-                ON
+                No registrar
               </button>
               <button
                 type="button"
-                className={!cancelarEmpConsumo ? 'btn btn-danger' : 'btn btn-ghost'}
+                className={modoRegistroEmp === 'limite' ? 'btn btn-primary' : 'btn btn-ghost'}
                 style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', fontWeight: 700 }}
                 disabled={candadoConsumoGuardando}
-                onClick={() => setCancelarEmpConsumo(false)}
+                onClick={() => setModoRegistroEmp('limite')}
               >
-                OFF
+                Con límite
               </button>
             </div>
-            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              Límite de hoy
-              <input
-                className="input"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Sin límite"
-                style={{ width: 120 }}
-                value={limiteEmpConsumo}
-                onChange={(e) => setLimiteEmpConsumo(e.target.value)}
-              />
-            </label>
+            {modoRegistroEmp === 'limite' && (
+              <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                Límite de hoy
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  style={{ width: 120 }}
+                  value={limiteEmpConsumo}
+                  onChange={(e) => setLimiteEmpConsumo(e.target.value)}
+                />
+              </label>
+            )}
             <button
               type="button"
               className="btn btn-primary"
@@ -1750,36 +1748,33 @@ export default function Configuracion({
               onClick={async () => {
                 const emp = empleadosConsumo.find((u) => String(u.id) === String(empleadoConsumoId));
                 if (!emp) return;
-                if (!cancelarEmpConsumo && !confirm(`¿Apagar cancelar consumo de ${emp.nombre}?\n\nSu consumo ya no se podrá borrar.`)) return;
-                const limite = String(limiteEmpConsumo).trim() === '' ? null : Number(limiteEmpConsumo);
-                if (limite != null && (!(limite >= 0) || !Number.isFinite(limite))) {
-                  alert('El límite tiene que ser un monto en cero o mayor, o déjalo vacío.');
+                const conLimite = modoRegistroEmp === 'limite';
+                const limite = conLimite ? Number(String(limiteEmpConsumo).trim()) : null;
+                if (conLimite && (!(limite >= 0) || !Number.isFinite(limite))) {
+                  alert('Escribe el límite de hoy, en cero o mayor.');
                   return;
                 }
+                if (!conLimite && !confirm(`¿No dejar que ${emp.nombre} registre consumo?`)) return;
                 setCandadoConsumoGuardando(true);
                 try {
                   const previo = leerCandadoCancelarConsumo();
+                  const ficha = {
+                    id: emp.id,
+                    nombre: emp.nombre,
+                    registrar: conLimite ? 'limite' : 'bloqueado',
+                    limite: conLimite ? limite : null,
+                  };
                   const r = await aplicarCandadoCancelarConsumoNube(supabase, {
                     empleados: {
                       ...previo.empleados,
-                      [emp.id]: {
-                        id: emp.id,
-                        nombre: emp.nombre,
-                        cancelar: cancelarEmpConsumo,
-                        limite,
-                      },
+                      [emp.id]: ficha,
                     },
                   });
                   setCandadoConsumo(leerCandadoCancelarConsumo());
                   if (r.sinTabla) alert(AVISO_FALTA_CANDADO_CANCELAR_CONSUMO);
                   else if (r.soloLocal) alert(r.aviso || 'Guardado solo en este equipo.');
                   else if (!r.ok) alert(r.error || 'No se pudo guardar.');
-                  else {
-                    alert(
-                      `${emp.nombre}: ${etiquetaCandadoCancelarConsumo(cancelarEmpConsumo)}. `
-                      + `Límite: ${etiquetaLimiteConsumo(limite)}.`,
-                    );
-                  }
+                  else alert(`${emp.nombre}: ${etiquetaRegistroConsumo(ficha)}.`);
                 } finally {
                   setCandadoConsumoGuardando(false);
                 }
@@ -1812,11 +1807,11 @@ export default function Configuracion({
                     disabled={candadoConsumoGuardando}
                     onClick={() => {
                       setEmpleadoConsumoId(row.id);
-                      setCancelarEmpConsumo(row.cancelar !== false);
+                      setModoRegistroEmp(row.registrar === 'limite' ? 'limite' : 'bloqueado');
                       setLimiteEmpConsumo(row.limite == null ? '' : String(row.limite));
                     }}
                   >
-                    {row.nombre || row.id} · {row.cancelar === false ? 'OFF' : 'ON'} · {etiquetaLimiteConsumo(row.limite)}
+                    {row.nombre || row.id} · {etiquetaRegistroConsumo(row)}
                   </button>
                   <button
                     type="button"
@@ -1825,7 +1820,7 @@ export default function Configuracion({
                     disabled={candadoConsumoGuardando}
                     onClick={async () => {
                       const nombre = row.nombre || 'este empleado';
-                      if (!confirm(`¿Quitar a ${nombre} de la lista de consumo?\n\nVolverá a poder recibir consumo sin límite y se podrá cancelar.`)) return;
+                      if (!confirm(`¿Quitar a ${nombre} de la lista de consumo?\n\nVolverá a poder registrar consumo sin límite.`)) return;
                       setCandadoConsumoGuardando(true);
                       try {
                         const previo = leerCandadoCancelarConsumo();
@@ -1836,7 +1831,7 @@ export default function Configuracion({
                         setCandadoConsumo(leerCandadoCancelarConsumo());
                         if (String(empleadoConsumoId) === String(row.id)) {
                           setEmpleadoConsumoId('');
-                          setCancelarEmpConsumo(true);
+                          setModoRegistroEmp('bloqueado');
                           setLimiteEmpConsumo('');
                         }
                         if (r.sinTabla) alert(AVISO_FALTA_CANDADO_CANCELAR_CONSUMO);

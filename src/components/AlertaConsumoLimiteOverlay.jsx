@@ -126,7 +126,7 @@ export default function AlertaConsumoLimiteOverlay({ supabase, user }) {
             {actual.titulo || 'Consumo no aprobado'}
           </h2>
           <p style={{ margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-            {actual.mensaje || 'No tiene consumo aprobado. Su consumo excedió el límite.'}
+            {actual.mensaje || 'No tiene permiso de registrar consumo.'}
           </p>
           <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.8rem' }}>
             Este aviso queda en la pantalla abierta hasta que lo atiendas.
