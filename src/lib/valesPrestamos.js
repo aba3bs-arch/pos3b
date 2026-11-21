@@ -334,6 +334,17 @@ export async function registrarVale(supabase, row, opts = {}) {
     }
   }
 
+  {
+    const { esRegistroConsumo, revisarLimiteConsumo } = await import('./candadoCancelarConsumo.js');
+    if (esRegistroConsumo(row)) {
+      const tope = await revisarLimiteConsumo(supabase, {
+        ...row,
+        usuario_nombre: row.nombre_empleado,
+      });
+      if (!tope.ok) return tope;
+    }
+  }
+
   const folio = row.folio || (await siguienteFolioVale(supabase, row.sucursal_id));
   const sucursalIe = String(row.sucursal_ie || 'MAIN').trim().toUpperCase() || 'MAIN';
   const payload = {
@@ -488,6 +499,12 @@ export async function editarVale(supabase, vale, patch = {}, { nombre, user, suc
   if (patch.monto != null && patch.monto !== '') {
     const m = Number(patch.monto);
     if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
+    const propuesto = { ...vale, ...patch, monto: m, usuario_nombre: patch.nombre_empleado || vale.nombre_empleado };
+    const { esRegistroConsumo, revisarLimiteConsumo } = await import('./candadoCancelarConsumo.js');
+    if (esRegistroConsumo(propuesto)) {
+      const tope = await revisarLimiteConsumo(supabase, propuesto, { excluirValeId: vale.id });
+      if (!tope.ok) return tope;
+    }
     upd.monto = m;
   }
   if (patch.categoria != null && String(patch.categoria).trim()) {
@@ -575,6 +592,9 @@ export async function liquidarVale(supabase, vale, { nombre } = {}) {
 /** Elimina vale solo si el corte está abierto (o aún no cargó). */
 export async function eliminarVale(supabase, vale, { nombre, motivo } = {}) {
   if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
+  const { revisarCancelarConsumo } = await import('./candadoCancelarConsumo.js');
+  const revConsumo = await revisarCancelarConsumo(supabase, vale);
+  if (!revConsumo.ok) return revConsumo;
   const check = await corteDocumentoEliminable(supabase, {
     cargadoCorte: Boolean(vale.cargado_corte),
     sucursal_id: vale.sucursal_id,
@@ -604,6 +624,9 @@ export async function cancelarVale(supabase, valeId, { nombre, motivo } = {}) {
   if (!supabase || !valeId) return { ok: false, error: 'Vale inválido.' };
   const { data: vale, error: e0 } = await supabase.from('vales').select('*').eq('id', valeId).single();
   if (e0 || !vale) return { ok: false, error: 'Vale no encontrado.' };
+  const { revisarCancelarConsumo } = await import('./candadoCancelarConsumo.js');
+  const revConsumo = await revisarCancelarConsumo(supabase, vale);
+  if (!revConsumo.ok) return revConsumo;
   const est = vale.estado_aprobacion || 'aprobado';
   if (est === 'cancelado') return { ok: true, vale };
   if (est === 'rechazado') return { ok: false, error: 'El vale ya fue rechazado.' };

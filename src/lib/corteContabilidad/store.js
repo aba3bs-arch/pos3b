@@ -32,6 +32,7 @@ import {
   esEmpleadoConsumoPinCorte,
 } from '../empleadosVisibles.js';
 import { limiteHistorialCierresCorte } from '../archivo.js';
+import { esRegistroConsumo, revisarCancelarConsumo, revisarLimiteConsumo } from '../candadoCancelarConsumo.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -656,6 +657,11 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     }
   }
 
+  if (esRegistroConsumo(gasto)) {
+    const tope = await revisarLimiteConsumo(supabase, gasto);
+    if (!tope.ok) return tope;
+  }
+
   // Abarrotes: mercancía / venta en ruta no se captura a mano como «Otros» (fuga).
   if (!opts.folioCompraPropio && !opts.omitirValidacionFuga) {
     const fuga = await validarGastoManualSinFuga(supabase, { sucursal, modulo, gasto });
@@ -931,9 +937,25 @@ export function gastoCuentaEnCorte(gasto) {
 export async function eliminarGastoTurno(supabase, id, sucursal, modulo) {
   if (!supabase) {
     const { data: prev } = await listarGastosTurno(null, sucursal, modulo);
+    const actual = (prev || []).find((g) => String(g.id) === String(id));
+    if (actual) {
+      const rev = await revisarCancelarConsumo(null, actual);
+      if (!rev.ok) return rev;
+    }
     const next = (prev || []).filter((g) => String(g.id) !== String(id));
     localStorage.setItem(lsKey(sucursal, modulo, 'gastos'), JSON.stringify(next));
     return { ok: true };
+  }
+  {
+    const { data: actual } = await supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id, categoria, subcategoria, usuario_id, usuario_nombre, comentario')
+      .eq('id', id)
+      .maybeSingle();
+    if (actual) {
+      const rev = await revisarCancelarConsumo(supabase, actual);
+      if (!rev.ok) return rev;
+    }
   }
   // Si el gasto venía de un RIF vencido, marcar el RIF (corte se ajusta solo al borrar).
   try {

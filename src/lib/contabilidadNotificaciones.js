@@ -181,6 +181,7 @@ export const TIPOS_NOTIF = {
   PRESTAMO_SUCURSAL: 'prestamo_sucursal',
   INCIDENCIA: 'incidencia_tienda',
   CONSUMO_CORTE: 'consumo_corte_pendiente',
+  CONSUMO_LIMITE: 'consumo_limite_excedido',
   RECOLECCION_POST_LIQ: 'recoleccion_post_liquidacion',
   RECOLECCION_CORTE_IE: 'recoleccion_corte_pendiente_ie',
   RECOLECCION_REPARTIDOR: 'recoleccion_repartidor',
@@ -249,6 +250,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Incidencia';
     case TIPOS_NOTIF.CONSUMO_CORTE:
       return 'Consumo en corte';
+    case TIPOS_NOTIF.CONSUMO_LIMITE:
+      return 'Consumo no aprobado';
     case TIPOS_NOTIF.RECOLECCION_POST_LIQ:
       return 'Cobro post-liquidación';
     case TIPOS_NOTIF.RECOLECCION_CORTE_IE:

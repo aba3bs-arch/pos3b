@@ -78,6 +78,7 @@ import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
 import { sincronizarTipoCambioDesdeNube } from './lib/tipoCambioSync.js';
 import { sincronizarVentanaRecoleccionDesdeNube } from './lib/ventanaRecoleccionSync.js';
 import { sincronizarCandadoPostLiquidacionDesdeNube } from './lib/candadoPostLiquidacionSync.js';
+import { sincronizarCandadoCancelarConsumoDesdeNube } from './lib/candadoCancelarConsumoSync.js';
 import { sincronizarTurnosDesdeNube } from './lib/turnosSync.js';
 import { sincronizarHoraLimiteValeDesdeNube } from './lib/horaLimiteValeSync.js';
 import { sincronizarBonosConfigDesdeNube } from './lib/bonosConfig.js';
@@ -147,6 +148,7 @@ import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
+import AlertaConsumoLimiteOverlay from './components/AlertaConsumoLimiteOverlay.jsx';
 import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
 import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOverlay.jsx';
 import AlertaAprobacionCobroRutaOverlay from './components/AlertaAprobacionCobroRutaOverlay.jsx';
@@ -658,6 +660,7 @@ function App() {
     sincronizarTipoCambioDesdeNube(supabase);
     sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
     sincronizarCandadoPostLiquidacionDesdeNube(supabase);
+    sincronizarCandadoCancelarConsumoDesdeNube(supabase);
     sincronizarTurnosDesdeNube(supabase, sucursal).catch(() => {});
     sincronizarHoraLimiteValeDesdeNube(supabase);
     sincronizarBonosConfigDesdeNube(supabase);
@@ -682,6 +685,7 @@ function App() {
         sincronizarTipoCambioDesdeNube(supabase);
         sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
         sincronizarCandadoPostLiquidacionDesdeNube(supabase);
+        sincronizarCandadoCancelarConsumoDesdeNube(supabase);
         sincronizarHoraLimiteValeDesdeNube(supabase);
         sincronizarBonosConfigDesdeNube(supabase);
       }
@@ -2176,6 +2180,9 @@ function App() {
         {user ? <ReleaseAvisoOverlay user={user} /> : null}
         {user ? <ActualizacionPendienteOverlay /> : null}
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
+        {user && !user.esCtMovil ? (
+          <AlertaConsumoLimiteOverlay supabase={supabase} user={user} />
+        ) : null}
         {user && !user.esCtMovil ? (
           <AlertaCtOverlay
             supabase={supabase}

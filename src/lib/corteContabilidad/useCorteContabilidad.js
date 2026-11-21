@@ -1208,6 +1208,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const idx = listaPrev.findIndex((g, i) => claveGastoDetalle(g, i) === String(gastoKey));
     if (idx < 0) return alert('Gasto no encontrado en el cierre.');
     const quitado = listaPrev[idx];
+    const { revisarCancelarConsumo } = await import('../candadoCancelarConsumo.js');
+    const revConsumo = await revisarCancelarConsumo(supabase, quitado);
+    if (!revConsumo.ok) return alert(revConsumo.error);
     const lista = listaPrev.filter((_, i) => i !== idx);
 
     const gastosTotal = round2(lista.reduce((a, g) => a + (Number(g.monto) || 0), 0));
