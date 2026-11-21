@@ -11,6 +11,8 @@ import { normalizarNombreMatch } from './contabilidadConstants.js';
 
 const LS_CANDADO = 'pos3b_candado_cancelar_consumo';
 export const EVENTO_CANDADO_CANCELAR_CONSUMO = 'pos3b-candado-cancelar-consumo-updated';
+export const EVENTO_CONSUMO_LIMITE = 'pos3b-consumo-limite-excedido';
+export const TIPO_NOTIF_CONSUMO_LIMITE = 'consumo_limite_excedido';
 const TZ = 'America/Hermosillo';
 
 export function hoyConsumoClave(fecha = new Date()) {
@@ -144,8 +146,48 @@ export function evaluarLimiteConsumo({ limite, acumulado = 0, monto = 0, nombre 
   return {
     ok: false,
     disponible,
-    error: `${quien} tiene límite de consumo de $${lim.toFixed(2)} hoy. Ya lleva $${lleva.toFixed(2)}. Disponible: $${disponible.toFixed(2)}.`,
+    error: `${quien} no tiene consumo aprobado. Su consumo excedió el límite de $${lim.toFixed(2)}. Ya lleva $${lleva.toFixed(2)}. Disponible: $${disponible.toFixed(2)}.`,
   };
+}
+
+export function notificacionConsumoLimiteParaUsuario(n, user) {
+  if (!n || String(n.tipo || '') !== TIPO_NOTIF_CONSUMO_LIMITE || !user) return false;
+  if (n.ref_id && user.id && String(n.ref_id) === String(user.id)) return true;
+  const nom = normalizarNombreMatch(user.nombre);
+  if (!nom) return false;
+  const blob = normalizarNombreMatch(`${n.titulo || ''} ${n.mensaje || ''}`);
+  return blob.startsWith(nom) || blob.includes(` ${nom}`);
+}
+
+async function avisarConsumoSinAprobar(supabase, { nombre, usuarioId, sucursalId, mensaje }) {
+  const detail = {
+    tipo: TIPO_NOTIF_CONSUMO_LIMITE,
+    titulo: 'Consumo no aprobado',
+    mensaje: mensaje || `${nombre || 'El empleado'} no tiene consumo aprobado. Su consumo excedió el límite.`,
+    sucursal_id: sucursalId || 'MAIN',
+    ref_tabla: 'usuarios',
+    ref_id: usuarioId || null,
+  };
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENTO_CONSUMO_LIMITE, { detail }));
+  }
+  if (!supabase) return;
+  try {
+    const { crearNotificacion, listarNotificacionesPendientes } = await import('./contabilidadNotificaciones.js');
+    if (usuarioId) {
+      const prev = await listarNotificacionesPendientes(supabase, {
+        todasTiendas: true,
+        tipos: [TIPO_NOTIF_CONSUMO_LIMITE],
+        limit: 20,
+      });
+      const reciente = (prev.data || []).find((n) => String(n.ref_id || '') === String(usuarioId));
+      const edad = reciente?.created_at ? Date.now() - Date.parse(reciente.created_at) : Infinity;
+      if (reciente && edad < 90_000) return;
+    }
+    await crearNotificacion(supabase, detail, { silenciosoLocal: true, skipPush: true });
+  } catch {
+    /* el aviso local de la pantalla abierta ya se disparó */
+  }
 }
 
 function registroDeEstaPersona(registro, ref) {
@@ -226,5 +268,13 @@ export async function revisarLimiteConsumo(supabase, registro = {}, extra = {}) 
     monto: registro.monto,
     nombre: row.nombre || ref.nombre,
   });
+  if (!res.ok) {
+    await avisarConsumoSinAprobar(supabase, {
+      nombre: row.nombre || ref.nombre,
+      usuarioId: row.id || ref.usuarioId,
+      sucursalId: registro.sucursal_id || registro.sucursalId,
+      mensaje: res.error,
+    });
+  }
   return { ...res, consumo: true };
 }

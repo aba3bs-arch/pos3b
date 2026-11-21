@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {
+  TIPO_NOTIF_CONSUMO_LIMITE,
   configEmpleadoConsumo,
   esRegistroConsumo,
   evaluarCandadoCancelarConsumo,
   evaluarLimiteConsumo,
   normalizarCandadoCancelarConsumo,
+  notificacionConsumoLimiteParaUsuario,
 } from './candadoCancelarConsumo.js';
 
 assert.equal(esRegistroConsumo({ categoria: 'EMPLEADO', subcategoria: 'CONSUMO' }), true);
@@ -36,9 +38,21 @@ assert.equal(evaluarCandadoCancelarConsumo(cfg, { nombre: 'Nadie' }).ok, true);
 const tope = evaluarLimiteConsumo({ limite: 150, acumulado: 100, monto: 80, nombre: 'Luz Zazueta' });
 assert.equal(tope.ok, false);
 assert.equal(tope.disponible, 50);
+assert.match(tope.error, /no tiene consumo aprobado/);
+assert.match(tope.error, /excedió el límite/);
 assert.match(tope.error, /150\.00/);
 assert.equal(evaluarLimiteConsumo({ limite: 150, acumulado: 100, monto: 40 }).ok, true);
 assert.equal(evaluarLimiteConsumo({ limite: null, acumulado: 999, monto: 1 }).ok, true);
 assert.equal(evaluarLimiteConsumo({ limite: 0, acumulado: 0, monto: 1, nombre: 'Ana' }).ok, false);
+
+const aviso = {
+  tipo: TIPO_NOTIF_CONSUMO_LIMITE,
+  ref_id: 'u-luz',
+  titulo: 'Consumo no aprobado',
+  mensaje: 'Luz Zazueta no tiene consumo aprobado. Su consumo excedió el límite.',
+};
+assert.equal(notificacionConsumoLimiteParaUsuario(aviso, { id: 'u-luz', nombre: 'Otra' }), true);
+assert.equal(notificacionConsumoLimiteParaUsuario(aviso, { id: 'caja', nombre: 'Luz Zazueta' }), true);
+assert.equal(notificacionConsumoLimiteParaUsuario(aviso, { id: 'caja', nombre: 'Ana Ruiz' }), false);
 
 console.log('candadoCancelarConsumo.test.mjs ok');

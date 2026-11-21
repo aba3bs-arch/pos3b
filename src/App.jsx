@@ -148,6 +148,7 @@ import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
+import AlertaConsumoLimiteOverlay from './components/AlertaConsumoLimiteOverlay.jsx';
 import AlertaFondoServicioOverlay from './components/AlertaFondoServicioOverlay.jsx';
 import AlertaCancelacionRutaOverlay from './components/AlertaCancelacionRutaOverlay.jsx';
 import AlertaAprobacionCobroRutaOverlay from './components/AlertaAprobacionCobroRutaOverlay.jsx';
@@ -2179,6 +2180,9 @@ function App() {
         {user ? <ReleaseAvisoOverlay user={user} /> : null}
         {user ? <ActualizacionPendienteOverlay /> : null}
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
+        {user && !user.esCtMovil ? (
+          <AlertaConsumoLimiteOverlay supabase={supabase} user={user} />
+        ) : null}
         {user && !user.esCtMovil ? (
           <AlertaCtOverlay
             supabase={supabase}
