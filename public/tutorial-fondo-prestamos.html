@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tesorería · Fondo de préstamos</title>
+  <style>
+    :root {
+      --paper: #f6f3e8;
+      --ink: #1a2332;
+      --muted: #5c6570;
+      --line: #e0dcc8;
+      --gold: #e19929;
+      --gold-deep: #b45309;
+      --olive: #8a7a2a;
+      --blue: #3b66b5;
+      --navy: #243044;
+      --green: #1f7a43;
+      --green-deep: #145c32;
+      --card: #fffdf8;
+      --shadow: 0 16px 40px rgba(26, 35, 50, 0.1);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      min-height: 100vh;
+      font-family: "Segoe UI", "DM Sans", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(900px 420px at 10% -10%, rgba(225, 153, 41, 0.18), transparent 60%),
+        radial-gradient(700px 380px at 100% 0%, rgba(59, 102, 181, 0.12), transparent 55%),
+        var(--paper);
+    }
+    .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .app { max-width: 1040px; margin: 0 auto; padding: 1.1rem 1rem 5.5rem; }
+    header.top {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: flex-end;
+      margin-bottom: 0.85rem;
+    }
+    .marca { font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold-deep); font-weight: 800; margin: 0 0 0.2rem; }
+    h1 { margin: 0; font-size: clamp(1.45rem, 2.4vw, 2rem); line-height: 1.1; }
+    .frase { margin: 0.35rem 0 0; color: var(--muted); max-width: 46rem; }
+    .modo { display: flex; gap: 0.4rem; flex-shrink: 0; }
+    button { font: inherit; cursor: pointer; }
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .btn.on, .btn.primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .riel {
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+      padding-bottom: 0.35rem;
+      margin-bottom: 0.85rem;
+    }
+    .chip {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.7);
+      border-radius: 999px;
+      padding: 0.28rem 0.65rem 0.28rem 0.28rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .chip.on { background: #fff; color: var(--gold-deep); border-color: #f0d3a4; box-shadow: 0 4px 14px rgba(180, 83, 9, 0.12); }
+    .chip .n {
+      width: 1.45rem; height: 1.45rem; border-radius: 50%;
+      display: grid; place-items: center;
+      background: #efe8d4; color: var(--navy); font-size: 0.75rem;
+    }
+    .chip.on .n { background: var(--gold-deep); color: #fff; }
+    .paso[hidden] { display: none !important; }
+    .escenario {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+      gap: 1rem;
+      align-items: stretch;
+    }
+    .lienzo {
+      background: linear-gradient(180deg, #fff 0%, #fbf6ea 100%);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      min-height: 360px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .lienzo::after {
+      content: "";
+      position: absolute;
+      width: 220px; height: 220px; right: -70px; top: -80px;
+      background: radial-gradient(circle, rgba(225,153,41,0.2), transparent 68%);
+      pointer-events: none;
+    }
+    .ficha {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 1rem 1.05rem 1.1rem;
+      border-top: 4px solid var(--gold);
+    }
+    .kicker { margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--olive); }
+    h2 { margin: 0.25rem 0 0.55rem; font-size: 1.35rem; }
+    .ficha p { margin: 0 0 0.55rem; line-height: 1.5; }
+    .ficha ul { margin: 0.2rem 0 0; padding-left: 1.1rem; }
+    .ficha li { margin: 0.28rem 0; line-height: 1.4; }
+    .fila { display: flex; align-items: center; justify-content: center; gap: 0.8rem; flex-wrap: wrap; position: relative; z-index: 1; }
+    .puerta {
+      width: min(220px, 46%);
+      min-width: 148px;
+      background: #fff;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 24px rgba(26,35,50,0.08);
+      padding: 0.9rem 0.7rem 0.85rem;
+      text-align: center;
+    }
+    .puerta strong { display: block; margin-top: 0.35rem; }
+    .puerta span, .persona span, .nota { display: block; color: var(--muted); font-size: 0.82rem; }
+    .puerta em, .monto { font-style: normal; font-weight: 800; color: var(--gold-deep); font-size: 1.15rem; }
+    .puerta--oro { border-color: #f0d3a4; background: linear-gradient(180deg, #fff, #fff8ec); }
+    .o, .flecha {
+      font-weight: 800;
+      color: var(--gold-deep);
+      font-size: 1.3rem;
+    }
+    .ico { width: 92px; height: 92px; display: block; margin: 0 auto; }
+    .ico-sm { width: 64px; height: 64px; }
+    .ico-lg { width: 112px; height: 112px; }
+    .alas { animation: flotar 2.4s ease-in-out infinite; }
+    @keyframes flotar {
+      0%, 100% { transform: translateY(0) rotate(-6deg); }
+      50% { transform: translateY(-10px) rotate(4deg); }
+    }
+    .ventana {
+      width: min(420px, 100%);
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 16px;
+      border-top: 6px solid var(--gold-deep);
+      box-shadow: 0 18px 40px rgba(26,35,50,0.16);
+      padding: 0.9rem 1rem 1rem;
+      position: relative;
+      z-index: 1;
+    }
+    .ventana h3 { margin: 0 0 0.65rem; color: var(--gold-deep); font-size: 1.05rem; }
+    .campo { display: flex; justify-content: space-between; gap: 0.5rem; background: #f7f4ea; border-radius: 8px; padding: 0.4rem 0.6rem; margin: 0.35rem 0; font-size: 0.88rem; }
+    .campo b { font-weight: 700; }
+    .tiempos { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.7rem; }
+    .tiempos span, .sello-txt {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.25rem 0.55rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--navy);
+      background: #fff;
+    }
+    .equis {
+      position: absolute; top: 8px; right: 8px;
+      width: 28px; height: 28px; border-radius: 8px;
+      display: grid; place-items: center;
+      background: #f6f3e8; font-weight: 800;
+    }
+    .formula {
+      display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; justify-content: center;
+      margin-top: 0.8rem; position: relative; z-index: 1;
+    }
+    .formula label, .formula output {
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      padding: 0.45rem 0.55rem; min-width: 108px; text-align: center;
+    }
+    .formula span { display: block; font-size: 0.68rem; color: var(--muted); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    .formula input {
+      width: 100%; border: 0; background: transparent; text-align: center;
+      font: inherit; font-weight: 800; font-size: 1rem; color: var(--ink);
+    }
+    .formula output { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 800; font-size: 1.05rem; }
+    .op { font-weight: 800; color: var(--gold-deep); }
+    .persona {
+      text-align: center; background: #fff; border-radius: 16px; border: 1px solid var(--line);
+      padding: 0.7rem 0.8rem; min-width: 120px;
+    }
+    .aviso {
+      margin: 0.8rem auto 0; max-width: 440px; text-align: center;
+      background: #fff7e8; border: 1px solid #f0d3a4; border-radius: 12px;
+      padding: 0.55rem 0.7rem; font-size: 0.86rem; position: relative; z-index: 1;
+    }
+    .dos-caminos { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; position: relative; z-index: 1; }
+    .camino { border-radius: 16px; padding: 0.8rem; background: #fff; border: 1px solid var(--line); text-align: center; }
+    .camino.no { background: #fff5f5; border-color: #f0c2c2; }
+    .camino.si { background: #f3faf5; border-color: #b7e0c4; }
+    .tag { display: inline-block; margin-top: 0.35rem; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+    .si .tag { color: var(--green-deep); }
+    .no .tag { color: #a32020; }
+    .quiz { display: flex; flex-direction: column; gap: 0.75rem; }
+    .q {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 0.8rem 0.9rem;
+    }
+    .q strong { display: block; margin-bottom: 0.45rem; }
+    .opts { display: flex; flex-direction: column; gap: 0.35rem; }
+    .opts button {
+      text-align: left; border-radius: 10px; border: 1px solid var(--line); background: #fff; padding: 0.45rem 0.6rem;
+    }
+    .opts button.ok { background: #e8f7ee; border-color: #1f7a43; }
+    .opts button.bad { background: #fdecec; border-color: #c44747; }
+    .feedback { margin: 0.45rem 0 0; font-size: 0.86rem; }
+    .score {
+      border-radius: 16px; padding: 1rem; text-align: center; background: var(--navy); color: #fff;
+    }
+    .score.mal { background: #6b2a2a; }
+    .score b { font-size: 2.4rem; display: block; line-height: 1; }
+    .pie {
+      display: flex; justify-content: space-between; gap: 0.6rem;
+      padding: 0.15rem 0 0.8rem;
+    }
+    .progreso { height: 6px; background: #e7e1d0; border-radius: 99px; margin: 0 0 0.8rem; overflow: hidden; }
+    .progreso i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--gold), var(--blue)); }
+    body.todo .escenario { margin-bottom: 1rem; }
+    body.todo .pie, body.todo .riel { display: none; }
+    @media (max-width: 800px) {
+      .app { display: flex; flex-direction: column; }
+      .escenario { grid-template-columns: 1fr; }
+      header.top { flex-direction: column; align-items: flex-start; }
+      .puerta { width: 100%; }
+      .dos-caminos { grid-template-columns: 1fr; }
+      .lienzo { min-height: 0; }
+      .pie { order: 4; padding-top: 0; }
+      .paso { order: 5; }
+    }
+  </style>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="pila" viewBox="0 0 96 96">
+      <rect x="16" y="50" width="64" height="22" rx="5" fill="#146b38"/>
+      <rect x="14" y="38" width="68" height="22" rx="5" fill="#1f8a46"/>
+      <rect x="12" y="24" width="72" height="26" rx="6" fill="#2ea85a"/>
+      <rect x="12" y="24" width="72" height="26" rx="6" fill="none" stroke="#d7b15a" stroke-width="2"/>
+      <circle cx="48" cy="37" r="8" fill="#f4e2a8" stroke="#b45309" stroke-width="1.5"/>
+      <text x="48" y="41" text-anchor="middle" font-size="11" font-weight="700" fill="#b45309" font-family="Segoe UI,sans-serif">$</text>
+    </symbol>
+    <symbol id="boveda" viewBox="0 0 96 96">
+      <rect x="18" y="16" width="60" height="66" rx="10" fill="#2c3544"/>
+      <rect x="24" y="22" width="48" height="54" rx="8" fill="#3d4858"/>
+      <circle cx="48" cy="48" r="16" fill="#e19929"/>
+      <circle cx="48" cy="48" r="11" fill="#f6e2b0"/>
+      <circle cx="48" cy="48" r="3.5" fill="#b45309"/>
+      <rect x="46.2" y="34" width="3.6" height="28" rx="1" fill="#b45309"/>
+      <rect x="34" y="46.2" width="28" height="3.6" rx="1" fill="#b45309"/>
+      <circle cx="30" cy="30" r="2" fill="#d7b15a"/>
+      <circle cx="66" cy="30" r="2" fill="#d7b15a"/>
+      <circle cx="30" cy="66" r="2" fill="#d7b15a"/>
+      <circle cx="66" cy="66" r="2" fill="#d7b15a"/>
+      <rect x="34" y="78" width="28" height="6" rx="2" fill="#1a2030"/>
+    </symbol>
+    <symbol id="alas" viewBox="0 0 120 72">
+      <path d="M46 36c-16-2-28-14-34-24 10 2 22 8 30 18 4-8 6-16 6-22-2 12-6 22-14 30 6 2 12 2 12-2z" fill="#e7eef8" stroke="#8aa0c2" stroke-width="1.2"/>
+      <path d="M74 36c16-2 28-14 34-24-10 2-22 8-30 18-4-8-6-16-6-22 2 12 6 22 14 30-6 2-12 2-12-2z" fill="#e7eef8" stroke="#8aa0c2" stroke-width="1.2"/>
+      <rect x="38" y="24" width="44" height="26" rx="5" fill="#2ea85a" stroke="#d7b15a" stroke-width="2"/>
+      <circle cx="60" cy="37" r="7" fill="#f4e2a8" stroke="#b45309"/>
+      <text x="60" y="41" text-anchor="middle" font-size="10" font-weight="700" fill="#b45309" font-family="Segoe UI,sans-serif">$</text>
+    </symbol>
+    <symbol id="sello" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="30" fill="#b45309"/>
+      <circle cx="48" cy="48" r="24" fill="none" stroke="#f6e2b0" stroke-width="2" stroke-dasharray="3 3"/>
+      <path d="M34 49l8 8 20-22" fill="none" stroke="#fff8e8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="llave" viewBox="0 0 96 96">
+      <circle cx="34" cy="40" r="14" fill="none" stroke="#e19929" stroke-width="6"/>
+      <circle cx="34" cy="40" r="4" fill="#b45309"/>
+      <rect x="46" y="36" width="32" height="8" rx="2" fill="#e19929"/>
+      <rect x="66" y="44" width="6" height="10" fill="#e19929"/>
+      <rect x="56" y="44" width="6" height="8" fill="#e19929"/>
+    </symbol>
+    <symbol id="reloj" viewBox="0 0 96 96">
+      <circle cx="48" cy="50" r="28" fill="#fff" stroke="#243044" stroke-width="4"/>
+      <circle cx="48" cy="50" r="3" fill="#b45309"/>
+      <path d="M48 50 V30" stroke="#243044" stroke-width="3" stroke-linecap="round"/>
+      <path d="M48 50 L64 56" stroke="#b45309" stroke-width="3" stroke-linecap="round"/>
+      <rect x="40" y="14" width="16" height="6" rx="2" fill="#243044"/>
+    </symbol>
+    <symbol id="persona" viewBox="0 0 96 96">
+      <circle cx="48" cy="30" r="14" fill="#3b66b5"/>
+      <path d="M22 78c4-18 14-26 26-26s22 8 26 26" fill="#2d4f8c"/>
+    </symbol>
+    <symbol id="campana" viewBox="0 0 96 96">
+      <path d="M48 18a6 6 0 0 1 6 6v2c12 4 18 16 18 28H24c0-12 6-24 18-28v-2a6 6 0 0 1 6-6z" fill="#e19929"/>
+      <rect x="28" y="54" width="40" height="6" rx="3" fill="#b45309"/>
+      <circle cx="48" cy="68" r="5" fill="#b45309"/>
+    </symbol>
+    <symbol id="corte" viewBox="0 0 96 96">
+      <rect x="22" y="18" width="52" height="64" rx="6" fill="#fff" stroke="#a32020" stroke-width="3"/>
+      <path d="M32 34h32M32 46h32M32 58h20" stroke="#a32020" stroke-width="3" stroke-linecap="round"/>
+      <path d="M30 28l36 44" stroke="#a32020" stroke-width="4" stroke-linecap="round"/>
+    </symbol>
+  </svg>
+
+  <div class="app">
+    <header class="top">
+      <div>
+        <p class="marca">Contabilidad → Tesorería</p>
+        <h1>Fondo de préstamos</h1>
+        <p class="frase">Se pide, se visa, se autoriza, JLBB suelta el capital y la nómina lo devuelve. No va al corte.</p>
+      </div>
+      <div class="modo">
+        <button type="button" class="btn on" id="btn-pasos">Paso a paso</button>
+        <button type="button" class="btn" id="btn-todo">Ver todo</button>
+      </div>
+    </header>
+    <div class="progreso" aria-hidden="true"><i id="barra"></i></div>
+    <nav class="riel" id="riel" aria-label="Pasos"></nav>
+
+    <section class="paso" data-titulo="Las dos puertas">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="fila">
+            <div class="puerta">
+              <svg class="ico ico-lg"><use href="#boveda"/></svg>
+              <strong>Servicios</strong>
+              <span>La bóveda de Cheche</span>
+            </div>
+            <div class="o">+</div>
+            <div class="puerta puerta--oro">
+              <svg class="ico ico-lg"><use href="#pila"/></svg>
+              <strong>Fondo de préstamos</strong>
+              <span>La pila de capital</span>
+            </div>
+          </div>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 1</p>
+          <h2>Al entrar se abren dos</h2>
+          <p><strong>Contabilidad → Tesorería</strong> no abre una sola pantalla. Elige una puerta.</p>
+          <ul>
+            <li><strong>Servicios</strong> es el panel de Cheche: transferir y egresos.</li>
+            <li><strong>Fondo de préstamos</strong> es el dinero del que salen los préstamos a empleados.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="La solicitud">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="ventana">
+            <div class="fila" style="justify-content:flex-start;gap:0.7rem;margin-bottom:0.4rem">
+              <svg class="ico ico-sm"><use href="#pila"/></svg>
+              <div>
+                <strong>Vales y préstamos</strong>
+                <span class="nota">Solicitar préstamo (visto bueno)</span>
+              </div>
+            </div>
+            <div class="campo"><span>Empleado</span><b>Nombre</b></div>
+            <div class="campo"><span>Monto</span><b>Lo que se pide</b></div>
+            <div class="campo"><span>Cuotas</span><b>Semanas</b></div>
+            <div class="campo"><span>Método</span><b>Descuento en nómina</b></div>
+          </div>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 2</p>
+          <h2>Se pide en Vales</h2>
+          <p>El préstamo a empleado se captura en <strong>Vales y préstamos</strong>. Queda esperando visto bueno.</p>
+          <ul>
+            <li>No se carga al corte ni a contabilidad.</li>
+            <li>La cuota semanal mínima es <strong>$500</strong>, o lo que quede de saldo.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="Visto bueno">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="fila">
+            <svg class="ico ico-lg"><use href="#sello"/></svg>
+            <div class="puerta puerta--oro">
+              <svg class="ico ico-sm"><use href="#persona"/></svg>
+              <strong>Gerente</strong>
+              <span>o Andrés, o el admin principal</span>
+            </div>
+          </div>
+          <p class="aviso">El sello pasa el préstamo a ABB y FJBB.</p>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 3</p>
+          <h2>El sello de visto bueno</h2>
+          <p>Llega una <strong>ventana flotante</strong>. También está en la bandeja de Vales.</p>
+          <ul>
+            <li>Lo dan el <strong>gerente</strong>, Andrés Marrero o el administrador principal.</li>
+            <li>Al darlo, se avisa a ABB y a FJBB.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="Autorizan">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="fila">
+            <div class="puerta">
+              <svg class="ico"><use href="#llave"/></svg>
+              <strong>ABB</strong>
+              <span>Antonio</span>
+            </div>
+            <div class="o">o</div>
+            <div class="puerta">
+              <svg class="ico"><use href="#llave"/></svg>
+              <strong>FJBB</strong>
+              <span>Francisco</span>
+            </div>
+          </div>
+          <p class="aviso"><svg class="ico ico-sm" style="display:inline-block;vertical-align:middle;width:28px;height:28px"><use href="#campana"/></svg> Se avisa a JLBB para el desembolso.</p>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 4</p>
+          <h2>Una de las dos llaves</h2>
+          <p>Autorizan <strong>ABB o FJBB</strong>. Con una basta.</p>
+          <ul>
+            <li>Andrés y el administrador principal también pueden, para que no se quede trabado.</li>
+            <li>Después el préstamo espera a que JLBB suelte el dinero.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="La bóveda">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="fila">
+            <svg class="ico ico-lg"><use href="#boveda"/></svg>
+            <div>
+              <strong style="font-size:1.4rem" id="capital-visto">$12,500</strong>
+              <span class="nota">Capital disponible</span>
+            </div>
+          </div>
+          <div class="formula">
+            <label><span>Aportado</span><input id="aportado" type="number" min="0" step="0.01" value="20000"></label>
+            <span class="op">−</span>
+            <label><span>Desembolsado</span><input id="desembolso" type="number" min="0" step="0.01" value="8000"></label>
+            <span class="op">+</span>
+            <label><span>Cuotas que volvieron</span><input id="reingreso" type="number" min="0" step="0.01" value="500"></label>
+            <span class="op">=</span>
+            <output id="capital-out">$12,500</output>
+          </div>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 5</p>
+          <h2>JLBB llena la bóveda</h2>
+          <p>En <strong>Fondo de préstamos</strong>, JLBB registra el capital con <strong>Registrar capital</strong>.</p>
+          <ul>
+            <li>Capital = aportado − desembolsado + cuotas que ya reingresaron.</li>
+            <li>Mueve los números de la escena: así se calcula en pantalla.</li>
+            <li>Andrés y el administrador principal también pueden registrar capital.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="Desembolso">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="fila">
+            <div class="puerta">
+              <svg class="ico"><use href="#boveda"/></svg>
+              <strong>Bóveda</strong>
+              <em>$10,000</em>
+            </div>
+            <div>
+              <svg class="ico ico-lg alas" style="width:140px;height:84px"><use href="#alas"/></svg>
+              <div class="flecha" style="text-align:center;font-size:0.8rem">sale</div>
+            </div>
+            <div class="persona">
+              <svg class="ico ico-sm"><use href="#persona"/></svg>
+              <strong>Empleado</strong>
+              <span class="monto">$4,000</span>
+            </div>
+          </div>
+          <p class="aviso">Si la bóveda no alcanza, el botón Desembolsar no deja pasar.</p>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 6</p>
+          <h2>El billete con alas sale</h2>
+          <p><strong>JLBB</strong> confirma el desembolso en el fondo, en la ventana flotante o en Vales.</p>
+          <ul>
+            <li>El monto sale del capital. No del corte.</li>
+            <li>El préstamo pasa a <strong>activo</strong>.</li>
+            <li>En el fondo queda a quién se prestó, el saldo y las cuotas.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="La cuota vuelve">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="fila">
+            <div class="persona">
+              <svg class="ico ico-sm"><use href="#persona"/></svg>
+              <strong>Nómina</strong>
+              <span>descuenta la cuota</span>
+            </div>
+            <div style="transform:scaleX(-1)">
+              <svg class="ico ico-lg alas" style="width:140px;height:84px"><use href="#alas"/></svg>
+              <div class="flecha" style="text-align:center;font-size:0.8rem;transform:scaleX(-1)">regresa</div>
+            </div>
+            <div class="puerta puerta--oro">
+              <svg class="ico"><use href="#boveda"/></svg>
+              <strong>Otra vez capital</strong>
+              <em>+ cuota</em>
+            </div>
+          </div>
+          <p class="aviso">El mismo monto se resta del saldo del préstamo. En cero, queda liquidado.</p>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 7</p>
+          <h2>La nómina devuelve el dinero</h2>
+          <p>Cuando nómina descuenta la cuota, en el fondo aparece un <strong>reingreso</strong>.</p>
+          <ul>
+            <li>Resta el saldo del empleado.</li>
+            <li>Suma otra vez al capital de la bóveda.</li>
+            <li>JLBB puede editar o eliminar el préstamo y cada registro.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="Recuérdame">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="ventana">
+            <div class="equis" title="Recuérdame en 15 min">×</div>
+            <div class="fila" style="justify-content:flex-start">
+              <svg class="ico ico-sm"><use href="#reloj"/></svg>
+              <h3 style="margin:0">La ventana puede esperar</h3>
+            </div>
+            <div class="campo"><span>Empleado</span><b>Sigue pendiente</b></div>
+            <div class="campo"><span>Monto</span><b>No se pierde</b></div>
+            <div class="tiempos">
+              <span>15 min</span>
+              <span>30 min</span>
+              <span>1 hora</span>
+            </div>
+          </div>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 8</p>
+          <h2>Si hay otra cosa pendiente</h2>
+          <p>Quien debe aprobar puede posponer la ventana. Vuelve sola al cumplirse el tiempo.</p>
+          <ul>
+            <li><strong>Recuérdame en 15 min</strong>, 30 min o 1 hora.</li>
+            <li>La <strong>×</strong> también la pospone 15 minutos.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="Qué no entra">
+      <div class="escenario">
+        <div class="lienzo">
+          <div class="dos-caminos">
+            <div class="camino si">
+              <svg class="ico"><use href="#pila"/></svg>
+              <strong>Empleado</strong>
+              <span class="tag">Fondo · sin corte</span>
+            </div>
+            <div class="camino no">
+              <svg class="ico"><use href="#corte"/></svg>
+              <strong>Arrendatario</strong>
+              <span class="tag">Sigue al corte</span>
+            </div>
+          </div>
+        </div>
+        <div class="ficha">
+          <p class="kicker">Paso 9</p>
+          <h2>No mezcles los caminos</h2>
+          <ul>
+            <li>El préstamo a <strong>empleado</strong> vive en el fondo.</li>
+            <li>El fiado de <strong>arrendatario</strong> no entra: sigue al corte y no se descuenta en nómina.</li>
+            <li>Servicios (Cheche) y el fondo son puertas distintas. No se pagan uno con el otro.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="paso" data-titulo="Evaluación">
+      <div class="escenario" style="grid-template-columns:1fr">
+        <div class="ficha quiz" id="quiz"></div>
+      </div>
+    </section>
+
+    <div class="pie">
+      <button type="button" class="btn" id="prev">← Anterior</button>
+      <button type="button" class="btn primary" id="next">Siguiente →</button>
+    </div>
+  </div>
+
+  <script>
+    const pasos = [...document.querySelectorAll('.paso')];
+    const riel = document.getElementById('riel');
+    const barra = document.getElementById('barra');
+    let idx = 0;
+    let todo = false;
+
+    pasos.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.innerHTML = '<span class="n">' + (i + 1) + '</span>' + p.dataset.titulo;
+      b.addEventListener('click', () => mostrar(i));
+      riel.appendChild(b);
+    });
+
+    function mostrar(n) {
+      idx = Math.max(0, Math.min(pasos.length - 1, n));
+      pasos.forEach((p, i) => { p.hidden = todo ? false : i !== idx; });
+      [...riel.children].forEach((c, i) => c.classList.toggle('on', !todo && i === idx));
+      barra.style.width = todo ? '100%' : (((idx + 1) / pasos.length) * 100) + '%';
+      document.getElementById('prev').disabled = todo || idx === 0;
+      document.getElementById('next').disabled = todo || idx === pasos.length - 1;
+      if (!todo) window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    document.getElementById('prev').onclick = () => mostrar(idx - 1);
+    document.getElementById('next').onclick = () => mostrar(idx + 1);
+    document.getElementById('btn-pasos').onclick = () => {
+      todo = false;
+      document.body.classList.remove('todo');
+      document.getElementById('btn-pasos').classList.add('on');
+      document.getElementById('btn-todo').classList.remove('on');
+      mostrar(idx);
+    };
+    document.getElementById('btn-todo').onclick = () => {
+      todo = true;
+      document.body.classList.add('todo');
+      document.getElementById('btn-todo').classList.add('on');
+      document.getElementById('btn-pasos').classList.remove('on');
+      mostrar(idx);
+    };
+
+    const money = (n) => (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+    function recalc() {
+      const c = Math.round(((Number(aportado.value) || 0) - (Number(desembolso.value) || 0) + (Number(reingreso.value) || 0)) * 100) / 100;
+      capitalOut.textContent = money(c);
+      capitalVisto.textContent = money(c);
+    }
+    const aportado = document.getElementById('aportado');
+    const desembolso = document.getElementById('desembolso');
+    const reingreso = document.getElementById('reingreso');
+    const capitalOut = document.getElementById('capital-out');
+    const capitalVisto = document.getElementById('capital-visto');
+    [aportado, desembolso, reingreso].forEach((el) => el.addEventListener('input', recalc));
+    recalc();
+
+    const preguntas = [
+      ['Al abrir Tesorería, ¿qué dos puertas aparecen?', ['Servicios y Fondo de préstamos', 'Corte y Nómina', 'ABB y el camión', 'Solo Cheche'], 0, 'Servicios es Cheche. Fondo de préstamos es el capital.'],
+      ['El préstamo a un empleado, ¿va al corte?', ['Sí, al corte del día', 'No. Sale del capital del fondo', 'Solo si pasa de $1,000', 'Va a mercancía de Francisco'], 1, 'El empleado no carga corte ni contabilidad.'],
+      ['¿Quién pone el visto bueno?', ['Cualquier cajero', 'El gerente, Andrés o el administrador principal', 'Solo el repartidor', 'Nómina, al descontar'], 1, 'Ese sello avisa a ABB y FJBB.'],
+      ['Después del visto bueno, ¿quién autoriza?', ['ABB o FJBB', 'El cajero de la tienda', 'El recolector', 'Nadie: se desembolsa solo'], 0, 'Con una de las dos llaves basta. Luego se avisa a JLBB.'],
+      ['¿De dónde sale el dinero al desembolsar?', ['Del corte de abarrotes', 'Del capital del fondo', 'De la cuenta de Francisco', 'De Servicios de Cheche'], 1, 'Si el capital no alcanza, no deja desembolsar.'],
+      ['Cuando nómina descuenta la cuota, ¿qué pasa?', ['Se pierde el registro', 'Resta el saldo y el monto vuelve al capital', 'Se manda al corte', 'Se le presta otra vez solo'], 1, 'Es un reingreso: sale del saldo y entra a la bóveda.'],
+      ['Si quien aprueba está ocupado, ¿qué hace?', ['Rechaza el préstamo', 'Recuérdame en 15 min, 30 min o 1 hora', 'Lo manda a corte', 'Borra el capital'], 1, 'La ventana vuelve sola. La × espera 15 minutos.'],
+      ['El fiado de un arrendatario, ¿entra al fondo?', ['Sí, igual que el empleado', 'No. Sigue al corte y no va a nómina', 'Solo si JLBB lo pide', 'Entra a Servicios de Cheche'], 1, 'Arrendatario y empleado no comparten camino.'],
+    ];
+
+    const quiz = document.getElementById('quiz');
+    const respuestas = {};
+    preguntas.forEach((q, i) => {
+      const box = document.createElement('div');
+      box.className = 'q';
+      const titulo = document.createElement('strong');
+      titulo.textContent = (i + 1) + '. ' + q[0];
+      const opts = document.createElement('div');
+      opts.className = 'opts';
+      q[1].forEach((op, oi) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = op;
+        b.onclick = () => {
+          if (respuestas[i] != null) return;
+          respuestas[i] = oi;
+          pintar();
+        };
+        opts.appendChild(b);
+      });
+      const fb = document.createElement('p');
+      fb.className = 'feedback';
+      box.append(titulo, opts, fb);
+      quiz.appendChild(box);
+    });
+    const score = document.createElement('div');
+    score.className = 'score';
+    score.hidden = true;
+    quiz.appendChild(score);
+
+    function grado(pct) {
+      if (pct >= 90) return ['A', 'Excelente', true];
+      if (pct >= 80) return ['B', 'Muy bien', true];
+      if (pct >= 70) return ['C', 'Aprobado', true];
+      if (pct >= 60) return ['D', 'Regular — repasa', false];
+      return ['F', 'Reprobado — vuelve a estudiar', false];
+    }
+
+    function pintar() {
+      [...quiz.querySelectorAll('.q')].forEach((box, i) => {
+        const elegida = respuestas[i];
+        const btns = [...box.querySelectorAll('button')];
+        const fb = box.querySelector('.feedback');
+        if (elegida == null) return;
+        btns.forEach((b, oi) => {
+          b.disabled = true;
+          b.classList.toggle('ok', oi === preguntas[i][2]);
+          b.classList.toggle('bad', oi === elegida && oi !== preguntas[i][2]);
+        });
+        const bien = elegida === preguntas[i][2];
+        fb.textContent = (bien ? 'Correcto. ' : 'Incorrecto. ') + preguntas[i][3];
+      });
+      if (Object.keys(respuestas).length === preguntas.length) {
+        const ok = preguntas.filter((q, i) => respuestas[i] === q[2]).length;
+        const pct = Math.round((ok / preguntas.length) * 100);
+        const g = grado(pct);
+        score.hidden = false;
+        score.classList.toggle('mal', !g[2]);
+        score.innerHTML = '<b>' + g[0] + '</b>' + ok + ' de ' + preguntas.length + ' · ' + pct + '% · ' + g[1]
+          + '<p>Se pide, se visa, se autoriza, JLBB suelta el capital y la nómina lo devuelve.</p>';
+      }
+    }
+
+    const pedido = Number(new URLSearchParams(location.search).get('paso'));
+    mostrar(Number.isFinite(pedido) && pedido > 0 ? pedido - 1 : 0);
+  </script>
+</body>
+</html>

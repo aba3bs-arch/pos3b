@@ -374,7 +374,7 @@ export default function Tutorial({ tutorialIdInicial = null, soloIds = null } = 
   const progreso = secciones.length ? Math.round(((pasoActual + 1) / secciones.length) * 100) : 0;
 
   return (
-    <div className="tut-root">
+    <div className={`tut-root${tutorial.pagina ? ' tut-root--pagina' : ''}`}>
       <header>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Icon name="file" size={22} />
@@ -428,7 +428,13 @@ export default function Tutorial({ tutorialIdInicial = null, soloIds = null } = 
         ) : null}
       </div>
 
-      {modoPaso && esInteractivo ? (
+      {tutorial.pagina ? (
+        <iframe
+          className="tut-html-frame"
+          src={tutorial.pagina}
+          title={tutorial.titulo}
+        />
+      ) : modoPaso && esInteractivo ? (
         <>
           <div className="card" style={{ padding: '0.75rem 1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.45rem' }}>
