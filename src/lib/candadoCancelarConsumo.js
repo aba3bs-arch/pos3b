@@ -54,24 +54,41 @@ export function normalizarCandadoCancelarConsumo(raw) {
 export function leerCandadoCancelarConsumo() {
   try {
     const raw = localStorage.getItem(LS_CANDADO);
-    if (raw == null || raw === '') return { empleados: {} };
-    return normalizarCandadoCancelarConsumo(JSON.parse(raw));
+    if (raw == null || raw === '') return { empleados: {}, updatedAt: null };
+    const parsed = JSON.parse(raw);
+    return { ...normalizarCandadoCancelarConsumo(parsed), updatedAt: parsed?.updatedAt || null };
   } catch {
-    return { empleados: {} };
+    return { empleados: {}, updatedAt: null };
   }
 }
 
-export function guardarCandadoCancelarConsumo(parcial) {
+export function guardarCandadoCancelarConsumo(parcial, opts = {}) {
   const previo = leerCandadoCancelarConsumo();
   const empleados = parcial?.empleados
     ? parcial.empleados
     : previo.empleados;
-  const next = normalizarCandadoCancelarConsumo({ empleados });
+  const next = {
+    ...normalizarCandadoCancelarConsumo({ empleados }),
+    updatedAt: opts.updatedAt || new Date().toISOString(),
+  };
   localStorage.setItem(LS_CANDADO, JSON.stringify(next));
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(EVENTO_CANDADO_CANCELAR_CONSUMO, { detail: next }));
   }
   return next;
+}
+
+/** La nube vacía no borra una ficha local más nueva. La nube más nueva sí reemplaza. */
+export function debeTomarCandadoRemoto(local, remoto, { localAt = null, remotoAt = null } = {}) {
+  const localTiene = Object.keys(local?.empleados || {}).length > 0;
+  const remotoTiene = Object.keys(remoto?.empleados || {}).length > 0;
+  const rAt = remotoAt ? Date.parse(remotoAt) : 0;
+  const lAt = localAt ? Date.parse(localAt) : 0;
+  const remotoMs = Number.isFinite(rAt) ? rAt : 0;
+  const localMs = Number.isFinite(lAt) ? lAt : 0;
+  if (!remotoTiene && localTiene && remotoMs <= localMs) return false;
+  if (!remotoTiene && !localTiene) return false;
+  return remotoMs >= localMs;
 }
 
 export function etiquetaCandadoCancelarConsumo(activo) {
@@ -242,13 +259,25 @@ export async function acumuladoConsumoHoy(supabase, ref = {}, { excluirValeId, e
   return Math.round(total * 100) / 100;
 }
 
+async function candadoVigente(supabase) {
+  if (supabase) {
+    try {
+      const { sincronizarCandadoCancelarConsumoDesdeNube } = await import('./candadoCancelarConsumoSync.js');
+      await sincronizarCandadoCancelarConsumoDesdeNube(supabase);
+    } catch {
+      /* sigue el candado de este equipo */
+    }
+  }
+  return leerCandadoCancelarConsumo();
+}
+
 export async function revisarCancelarConsumo(supabase, registro = {}) {
   if (!esRegistroConsumo(registro)) return { ok: true, consumo: false };
   const ref = {
     usuarioId: registro.usuario_id || registro.usuarioId,
     nombre: registro.usuario_nombre || registro.nombre_empleado || registro.nombre,
   };
-  const res = evaluarCandadoCancelarConsumo(leerCandadoCancelarConsumo(), ref);
+  const res = evaluarCandadoCancelarConsumo(await candadoVigente(supabase), ref);
   return { ...res, consumo: true };
 }
 
@@ -259,7 +288,7 @@ export async function revisarLimiteConsumo(supabase, registro = {}, extra = {}) 
     usuarioId: registro.usuario_id || registro.usuarioId,
     nombre: registro.usuario_nombre || registro.nombre_empleado || registro.nombre,
   };
-  const row = configEmpleadoConsumo(leerCandadoCancelarConsumo(), ref);
+  const row = configEmpleadoConsumo(await candadoVigente(supabase), ref);
   if (!row || row.limite == null) return { ok: true, consumo: true };
   const acumulado = await acumuladoConsumoHoy(supabase, { ...ref, nombre: ref.nombre || row.nombre }, extra);
   const res = evaluarLimiteConsumo({
@@ -276,5 +305,5 @@ export async function revisarLimiteConsumo(supabase, registro = {}, extra = {}) 
       mensaje: res.error,
     });
   }
-  return { ...res, consumo: true };
+  return { ...res, consumo: true, limite: !res.ok };
 }

@@ -658,7 +658,10 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   }
 
   if (esRegistroConsumo(gasto)) {
-    const tope = await revisarLimiteConsumo(supabase, gasto);
+    const tope = await revisarLimiteConsumo(supabase, {
+      ...gasto,
+      sucursal_id: gasto.sucursal_id || sucursal,
+    });
     if (!tope.ok) return tope;
   }
 
@@ -988,9 +991,31 @@ export async function actualizarGastoTurno(supabase, id, patch, sucursal, modulo
 
   if (!supabase) {
     const { data: prev } = await listarGastosTurno(null, sucursal, modulo);
+    const actual = (prev || []).find((g) => String(g.id) === String(id));
+    if (actual && patch.monto != null) {
+      const propuesto = { ...actual, ...row, sucursal_id: sucursal };
+      if (esRegistroConsumo(propuesto)) {
+        const tope = await revisarLimiteConsumo(null, propuesto, { excluirGastoId: id });
+        if (!tope.ok) return tope;
+      }
+    }
     const next = (prev || []).map((g) => (String(g.id) === String(id) ? { ...g, ...row } : g));
     localStorage.setItem(lsKey(sucursal, modulo, 'gastos'), JSON.stringify(next));
     return { ok: true };
+  }
+  if (patch.monto != null) {
+    const { data: actual } = await supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id, categoria, subcategoria, usuario_id, usuario_nombre, comentario, monto')
+      .eq('id', id)
+      .maybeSingle();
+    if (actual) {
+      const propuesto = { ...actual, ...row, sucursal_id: sucursal };
+      if (esRegistroConsumo(propuesto)) {
+        const tope = await revisarLimiteConsumo(supabase, propuesto, { excluirGastoId: id });
+        if (!tope.ok) return tope;
+      }
+    }
   }
   const { error } = await supabase.from('cortes_contabilidad_gastos').update(row).eq('id', id);
   if (error) return { ok: false, error: error.message };

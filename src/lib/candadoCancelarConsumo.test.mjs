@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   TIPO_NOTIF_CONSUMO_LIMITE,
   configEmpleadoConsumo,
+  debeTomarCandadoRemoto,
   esRegistroConsumo,
   evaluarCandadoCancelarConsumo,
   evaluarLimiteConsumo,
@@ -54,5 +55,12 @@ const aviso = {
 assert.equal(notificacionConsumoLimiteParaUsuario(aviso, { id: 'u-luz', nombre: 'Otra' }), true);
 assert.equal(notificacionConsumoLimiteParaUsuario(aviso, { id: 'caja', nombre: 'Luz Zazueta' }), true);
 assert.equal(notificacionConsumoLimiteParaUsuario(aviso, { id: 'caja', nombre: 'Ana Ruiz' }), false);
+
+const local = { empleados: { a: { id: 'a', nombre: 'Frania' } } };
+const vacio = { empleados: {} };
+const remoto = { empleados: { a: { id: 'a', nombre: 'Frania', limite: 100 } } };
+assert.equal(debeTomarCandadoRemoto(local, vacio, { localAt: '2026-11-21T01:00:00Z', remotoAt: '2026-11-21T00:00:00Z' }), false);
+assert.equal(debeTomarCandadoRemoto(vacio, remoto, { localAt: null, remotoAt: '2026-11-21T01:00:00Z' }), true);
+assert.equal(debeTomarCandadoRemoto(local, remoto, { localAt: '2026-11-21T02:00:00Z', remotoAt: '2026-11-21T01:00:00Z' }), false);
 
 console.log('candadoCancelarConsumo.test.mjs ok');

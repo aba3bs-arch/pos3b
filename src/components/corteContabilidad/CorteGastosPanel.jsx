@@ -345,6 +345,25 @@ export default function CorteGastosPanel({
     const esPlaceholder = !uid
       || uid.startsWith('indirect:')
       || uid.startsWith('consumo-pin:');
+    const gastoIntentado = {
+      categoria: cat.trim().toUpperCase(),
+      subcategoria: sub.trim().toUpperCase(),
+      monto: m,
+      comentario: [comentarioTrim, sufijoAutorizacion].filter(Boolean).join(' · ').toUpperCase(),
+      usuario_id: requiereEmpleado && !esPlaceholder ? uid : null,
+      usuario_nombre: usuarioNombreFinal || emp?.nombre || '',
+      sucursal_id: sucursal,
+    };
+    // El aviso sale en este clic, antes de guardar el gasto.
+    try {
+      const { esRegistroConsumo, revisarLimiteConsumo } = await import('../../lib/candadoCancelarConsumo.js');
+      if (esRegistroConsumo(gastoIntentado)) {
+        const tope = await revisarLimiteConsumo(supabase, gastoIntentado);
+        if (!tope.ok) return;
+      }
+    } catch (e) {
+      return alert(e?.message || 'No se pudo revisar el límite de consumo.');
+    }
     // Nómina toma gastos EMPLEADO·CONSUMO con descontado_nomina = false (pendiente de periodo).
     try {
       const res = await onAgregar?.({
