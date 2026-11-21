@@ -1,9 +1,9 @@
 /**
- * Candado de consumo por empleado.
- * Cada persona tiene:
- * - cancelar ON: se puede borrar su consumo (vale o gasto de corte).
- * - cancelar OFF: ese consumo queda firme.
- * - límite: máximo de consumo que se le puede cargar hoy (vacío = sin límite).
+ * Registro de consumo por empleado.
+ * Quien no está en la lista puede registrar consumo.
+ * En la lista:
+ * - bloqueado: no se le puede registrar consumo.
+ * - límite: solo hasta ese monto de hoy.
  */
 import { esValeConsumo, resolverBeneficiarioConsumoPin } from './pinBeneficiarioConsumo.js';
 import { esEmpleadoConsumoPinCorte } from './empleadosVisibles.js';
@@ -17,12 +17,6 @@ const TZ = 'America/Hermosillo';
 
 export function hoyConsumoClave(fecha = new Date()) {
   return fecha.toLocaleDateString('en-CA', { timeZone: TZ });
-}
-
-function normalizarLado(val, fallback) {
-  if (val === false || val === 0 || val === '0' || val === 'false') return false;
-  if (val === true || val === 1 || val === '1' || val === 'true') return true;
-  return fallback;
 }
 
 function normalizarLimite(val) {
@@ -41,11 +35,17 @@ export function normalizarCandadoCancelarConsumo(raw) {
   for (const [claveRaw, row] of Object.entries(mapa)) {
     const id = String(row?.id || claveRaw || '').trim();
     if (!id) continue;
+    const limite = normalizarLimite(row?.limite);
+    const modo = String(row?.registrar || '').toLowerCase();
+    let registrar = modo === 'limite' || modo === 'bloqueado'
+      ? modo
+      : (limite != null ? 'limite' : 'bloqueado');
+    if (registrar === 'limite' && limite == null) registrar = 'bloqueado';
     empleados[id] = {
       id,
       nombre: String(row?.nombre || '').trim(),
-      cancelar: normalizarLado(row?.cancelar, true),
-      limite: normalizarLimite(row?.limite),
+      registrar,
+      limite: registrar === 'limite' ? limite : null,
     };
   }
   return { empleados };
@@ -78,6 +78,14 @@ export function guardarCandadoCancelarConsumo(parcial, opts = {}) {
   return next;
 }
 
+/** Saca a una persona de la lista. Sin ficha vuelve al comportamiento de siempre: se puede cancelar y no tiene tope. */
+export function quitarEmpleadoCandadoConsumo(cfg, id) {
+  const empleados = { ...normalizarCandadoCancelarConsumo(cfg).empleados };
+  const clave = String(id || '').trim();
+  if (clave) delete empleados[clave];
+  return { empleados };
+}
+
 /** La nube vacía no borra una ficha local más nueva. La nube más nueva sí reemplaza. */
 export function debeTomarCandadoRemoto(local, remoto, { localAt = null, remotoAt = null } = {}) {
   const localTiene = Object.keys(local?.empleados || {}).length > 0;
@@ -91,8 +99,9 @@ export function debeTomarCandadoRemoto(local, remoto, { localAt = null, remotoAt
   return remotoMs >= localMs;
 }
 
-export function etiquetaCandadoCancelarConsumo(activo) {
-  return activo ? 'ON (se puede cancelar)' : 'OFF (no se puede cancelar)';
+export function etiquetaRegistroConsumo(row) {
+  if (!row || row.registrar !== 'limite') return 'No registra';
+  return etiquetaLimiteConsumo(row.limite);
 }
 
 export function etiquetaLimiteConsumo(limite) {
@@ -140,13 +149,31 @@ export function configEmpleadoConsumo(cfg, { usuarioId, nombre } = {}) {
   return null;
 }
 
-export function evaluarCandadoCancelarConsumo(cfg, ref = {}) {
+export function evaluarRegistroConsumo(cfg, ref = {}, { acumulado = 0, monto = 0 } = {}) {
   const row = configEmpleadoConsumo(cfg, ref);
-  if (!row || row.cancelar !== false) return { ok: true, empleado: row };
+  if (!row) return { ok: true, empleado: null };
+  const quien = row.nombre || ref.nombre || 'Este empleado';
+  if (row.registrar !== 'limite') {
+    return {
+      ok: false,
+      empleado: row,
+      motivo: 'permiso',
+      titulo: 'Sin permiso de consumo',
+      error: `${quien} no tiene permiso de registrar consumo.`,
+    };
+  }
+  const tope = evaluarLimiteConsumo({
+    limite: row.limite,
+    acumulado,
+    monto,
+    nombre: quien,
+  });
+  if (tope.ok) return { ...tope, empleado: row, motivo: 'limite' };
   return {
-    ok: false,
+    ...tope,
     empleado: row,
-    error: `El candado de ${row.nombre || 'este empleado'} está apagado. No se puede cancelar su consumo. Enciéndelo en Configuración → Operación.`,
+    motivo: 'limite',
+    titulo: 'Límite de consumo',
   };
 }
 
@@ -163,7 +190,7 @@ export function evaluarLimiteConsumo({ limite, acumulado = 0, monto = 0, nombre 
   return {
     ok: false,
     disponible,
-    error: `${quien} no tiene consumo aprobado. Su consumo excedió el límite de $${lim.toFixed(2)}. Ya lleva $${lleva.toFixed(2)}. Disponible: $${disponible.toFixed(2)}.`,
+    error: `${quien}: su consumo excede el límite permitido de $${lim.toFixed(2)}. Ya lleva $${lleva.toFixed(2)}. Disponible: $${disponible.toFixed(2)}.`,
   };
 }
 
@@ -176,11 +203,11 @@ export function notificacionConsumoLimiteParaUsuario(n, user) {
   return blob.startsWith(nom) || blob.includes(` ${nom}`);
 }
 
-async function avisarConsumoSinAprobar(supabase, { nombre, usuarioId, sucursalId, mensaje }) {
+async function avisarConsumoSinAprobar(supabase, { nombre, usuarioId, sucursalId, mensaje, titulo }) {
   const detail = {
     tipo: TIPO_NOTIF_CONSUMO_LIMITE,
-    titulo: 'Consumo no aprobado',
-    mensaje: mensaje || `${nombre || 'El empleado'} no tiene consumo aprobado. Su consumo excedió el límite.`,
+    titulo: titulo || 'Consumo no aprobado',
+    mensaje: mensaje || `${nombre || 'El empleado'} no tiene permiso de registrar consumo.`,
     sucursal_id: sucursalId || 'MAIN',
     ref_tabla: 'usuarios',
     ref_id: usuarioId || null,
@@ -271,16 +298,6 @@ async function candadoVigente(supabase) {
   return leerCandadoCancelarConsumo();
 }
 
-export async function revisarCancelarConsumo(supabase, registro = {}) {
-  if (!esRegistroConsumo(registro)) return { ok: true, consumo: false };
-  const ref = {
-    usuarioId: registro.usuario_id || registro.usuarioId,
-    nombre: registro.usuario_nombre || registro.nombre_empleado || registro.nombre,
-  };
-  const res = evaluarCandadoCancelarConsumo(await candadoVigente(supabase), ref);
-  return { ...res, consumo: true };
-}
-
 export async function revisarLimiteConsumo(supabase, registro = {}, extra = {}) {
   if (!esRegistroConsumo(registro)) return { ok: true, consumo: false };
   if (String(registro.comentario || '').toUpperCase().includes('VALE ')) return { ok: true, consumo: true, omitido: true };
@@ -288,20 +305,22 @@ export async function revisarLimiteConsumo(supabase, registro = {}, extra = {}) 
     usuarioId: registro.usuario_id || registro.usuarioId,
     nombre: registro.usuario_nombre || registro.nombre_empleado || registro.nombre,
   };
-  const row = configEmpleadoConsumo(await candadoVigente(supabase), ref);
-  if (!row || row.limite == null) return { ok: true, consumo: true };
-  const acumulado = await acumuladoConsumoHoy(supabase, { ...ref, nombre: ref.nombre || row.nombre }, extra);
-  const res = evaluarLimiteConsumo({
-    limite: row.limite,
+  const cfg = await candadoVigente(supabase);
+  const row = configEmpleadoConsumo(cfg, ref);
+  if (!row) return { ok: true, consumo: true };
+  const acumulado = row.registrar === 'limite'
+    ? await acumuladoConsumoHoy(supabase, { ...ref, nombre: ref.nombre || row.nombre }, extra)
+    : 0;
+  const res = evaluarRegistroConsumo(cfg, { ...ref, nombre: ref.nombre || row.nombre }, {
     acumulado,
     monto: registro.monto,
-    nombre: row.nombre || ref.nombre,
   });
   if (!res.ok) {
     await avisarConsumoSinAprobar(supabase, {
       nombre: row.nombre || ref.nombre,
       usuarioId: row.id || ref.usuarioId,
       sucursalId: registro.sucursal_id || registro.sucursalId,
+      titulo: res.titulo,
       mensaje: res.error,
     });
   }

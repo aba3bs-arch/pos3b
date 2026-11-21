@@ -592,9 +592,6 @@ export async function liquidarVale(supabase, vale, { nombre } = {}) {
 /** Elimina vale solo si el corte está abierto (o aún no cargó). */
 export async function eliminarVale(supabase, vale, { nombre, motivo } = {}) {
   if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
-  const { revisarCancelarConsumo } = await import('./candadoCancelarConsumo.js');
-  const revConsumo = await revisarCancelarConsumo(supabase, vale);
-  if (!revConsumo.ok) return revConsumo;
   const check = await corteDocumentoEliminable(supabase, {
     cargadoCorte: Boolean(vale.cargado_corte),
     sucursal_id: vale.sucursal_id,
@@ -624,9 +621,6 @@ export async function cancelarVale(supabase, valeId, { nombre, motivo } = {}) {
   if (!supabase || !valeId) return { ok: false, error: 'Vale inválido.' };
   const { data: vale, error: e0 } = await supabase.from('vales').select('*').eq('id', valeId).single();
   if (e0 || !vale) return { ok: false, error: 'Vale no encontrado.' };
-  const { revisarCancelarConsumo } = await import('./candadoCancelarConsumo.js');
-  const revConsumo = await revisarCancelarConsumo(supabase, vale);
-  if (!revConsumo.ok) return revConsumo;
   const est = vale.estado_aprobacion || 'aprobado';
   if (est === 'cancelado') return { ok: true, vale };
   if (est === 'rechazado') return { ok: false, error: 'El vale ya fue rechazado.' };
