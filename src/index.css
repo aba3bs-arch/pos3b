@@ -5437,6 +5437,18 @@ table.data th {
   gap: 1rem;
   max-width: 960px;
 }
+.tut-root--pagina {
+  max-width: 1100px;
+}
+.tut-html-frame {
+  width: 100%;
+  min-height: 78vh;
+  height: 820px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
 .tut-hero {
   border-left: 4px solid #b5a642;
   background: linear-gradient(135deg, #fff 0%, rgba(181, 166, 66, 0.08) 100%);
