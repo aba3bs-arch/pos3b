@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import BrandLogo from '../components/BrandLogo.jsx';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 import ContratacionEstatus from './ContratacionEstatus.jsx';
 import { esModoConsultaEstatus, urlEstatusContratacion } from '../lib/contratacionEstatus.js';
 import { leerNombreNegocio } from '../lib/branding.js';
@@ -65,6 +66,7 @@ function FormularioPostulacion({ supabase }) {
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
   const [fotoBusy, setFotoBusy] = useState(false);
+  const [infoAbierta, setInfoAbierta] = useState(false);
   const fileRef = useRef(null);
   // Solo tiendas con vacante (las del enlace). Las demás se ocultan.
   const sucursales = useMemo(
@@ -301,7 +303,17 @@ function FormularioPostulacion({ supabase }) {
 
       {paso === 1 && (
         <section className="card" style={{ padding: '1rem', display: 'grid', gap: '0.85rem' }}>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>¿Qué tipo de plaza buscas?</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>¿Qué tipo de plaza buscas?</h2>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setInfoAbierta(true)}
+              style={{ flexShrink: 0, fontWeight: 700, borderColor: 'var(--brand-gold, #d4af37)' }}
+            >
+              Información
+            </button>
+          </div>
           <div style={{ display: 'grid', gap: '0.5rem' }}>
             {TIPOS_CONTRATACION.map((t) => (
               <button
@@ -874,6 +886,62 @@ function FormularioPostulacion({ supabase }) {
           </section>
         );
       })()}
+
+      {infoAbierta && (
+        <PortalFlotante>
+          <div
+            className="anuncio-pos-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="info-puesto-titulo"
+            style={{ zIndex: 12000 }}
+            onClick={() => setInfoAbierta(false)}
+          >
+            <div
+              className="card"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: 560,
+                width: '100%',
+                maxHeight: 'min(86vh, 720px)',
+                overflow: 'auto',
+                textAlign: 'left',
+                boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
+              }}
+            >
+              <h2 id="info-puesto-titulo" style={{ margin: '0 0 0.6rem', fontSize: '1.2rem', color: 'var(--brand-blue)' }}>
+                ¡Únete al equipo de Abarrotes Las 3B!
+              </h2>
+              <p style={{ margin: '0 0 0.75rem', lineHeight: 1.5 }}>
+                Si te interesa formar parte de nuestro equipo, te contamos en qué consiste el puesto:
+              </p>
+              <p style={{ margin: '0 0 0.75rem', lineHeight: 1.5 }}>
+                Contamos con más de 7 sucursales ubicadas en el sector oriente de la ciudad, operando las 24 horas bajo un sistema estandarizado que facilita el trabajo diario. Nuestro giro combina tienda de abarrotes con máquinas tragamonedas y virtuales.
+              </p>
+              <p style={{ margin: '0 0 0.35rem', fontWeight: 700 }}>Funciones principales como dependiente de tienda:</p>
+              <ul style={{ margin: '0 0 0.85rem', paddingLeft: '1.15rem', lineHeight: 1.5 }}>
+                <li>Brindar una excelente atención al cliente.</li>
+                <li>Atender la caja de abarrotes.</li>
+                <li>Cargar crédito en las máquinas virtuales y atender el área de garage.</li>
+                <li>Mantener las instalaciones limpias y ordenadas.</li>
+              </ul>
+              <p style={{ margin: '0 0 0.35rem', fontWeight: 700 }}>Horarios y condiciones:</p>
+              <ul style={{ margin: '0 0 0.85rem', paddingLeft: '1.15rem', lineHeight: 1.5 }}>
+                <li>Jornada: turnos de 12 horas, 6 días a la semana con 1 día de descanso. Las actividades son sencillas, aunque la duración del turno requiere buena disposición.</li>
+                <li>Pago: semanal y sin semana de fondo.</li>
+                <li>Bonos adicionales: bono por recolección de valores que va desde $100 hasta $600 pesos por recolección, según el monto acumulado de ventas. Estas recolecciones pueden ser diarias dependiendo del flujo de clientes y ventas.</li>
+                <li>Salario base: se detalla directamente en entrevista.</li>
+              </ul>
+              <p style={{ margin: 0, lineHeight: 1.5, fontWeight: 700 }}>¡Te esperamos!</p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-gold" onClick={() => setInfoAbierta(false)}>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </PortalFlotante>
+      )}
 
       <p className="muted" style={{ textAlign: 'center', fontSize: '0.75rem', marginTop: '1.5rem' }}>
         <a href={urlEstatusContratacion()}>¿Ya te postulaste? Consulta tu estatus</a>
