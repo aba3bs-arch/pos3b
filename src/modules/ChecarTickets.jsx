@@ -18,7 +18,7 @@ export default function ChecarTickets({ supabase, user }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
         <h2 style={{ margin: 0, color: '#0f766e' }}>Checar tickets</h2>
-        <p className="muted" style={{ margin: '0.35rem 0 0' }}>
+        <p className="muted checar-ayuda" style={{ margin: '0.35rem 0 0' }}>
           Elige los días y la tienda. Cada proveedor va a la izquierda — puede repetirse si hubo más de un ticket —
           la siguiente columna es el gasto ingresado y cada día trae las piezas del ticket para compararlas con el físico.
         </p>

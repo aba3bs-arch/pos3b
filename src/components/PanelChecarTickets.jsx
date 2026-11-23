@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import PortalFlotante from './PortalFlotante.jsx';
+import { useMobileLayout } from '../hooks/useMobileLayout.js';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import {
   cargarConsolidacionComprasInventario,
@@ -77,7 +78,7 @@ function imprimirElectronico(fila) {
   });
 }
 
-function ModalTicket({ row, onCerrar }) {
+function ModalTicket({ row, onCerrar, movil }) {
   const fila = row?.fuente;
   const lineas = useMemo(() => (fila ? lineasComparacionRevision(fila) : []), [fila]);
   const meta = GASTO_META[row?.gastoEstado] || GASTO_META.sin_gasto;
@@ -98,25 +99,37 @@ function ModalTicket({ row, onCerrar }) {
         role="dialog"
         aria-modal="true"
         aria-label="Ticket electrónico"
+        className="checar-modal"
         style={{
           position: 'fixed',
           inset: 0,
           zIndex: 9000,
           background: 'rgba(15, 23, 42, 0.45)',
           display: 'flex',
-          alignItems: 'flex-start',
+          alignItems: movil ? 'stretch' : 'flex-start',
           justifyContent: 'center',
-          padding: '1.25rem',
-          overflow: 'auto',
+          padding: movil
+            ? 'env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px)'
+            : '1.25rem',
+          overflow: movil ? 'hidden' : 'auto',
         }}
         onClick={onCerrar}
       >
         <div
-          className="card"
-          style={{ width: 'min(860px, 100%)', marginTop: '1.5rem', borderTop: `4px solid ${COLOR}` }}
+          className="card checar-modal-card"
+          style={{
+            width: movil ? '100%' : 'min(860px, 100%)',
+            marginTop: movil ? 0 : '1.5rem',
+            maxHeight: movil ? '100%' : 'calc(100dvh - 3rem)',
+            overflow: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            borderRadius: movil ? 0 : undefined,
+            borderTop: `4px solid ${COLOR}`,
+            paddingBottom: movil ? 'calc(1rem + env(safe-area-inset-bottom, 0px))' : undefined,
+          }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div className="checar-modal-head" style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <div>
               <h3 style={{ margin: 0, color: COLOR }}>{row.proveedor}</h3>
               <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.82rem' }}>
@@ -129,7 +142,7 @@ function ModalTicket({ row, onCerrar }) {
                 entraron al inventario.
               </p>
             </div>
-            <button type="button" className="btn btn-ghost" onClick={onCerrar}>
+            <button type="button" className="btn btn-ghost checar-cerrar" onClick={onCerrar}>
               Cerrar
             </button>
           </div>
@@ -178,6 +191,24 @@ function ModalTicket({ row, onCerrar }) {
 
           {!lineas.length ? (
             <p className="muted">Este registro no trae productos. Compara el total con el ticket físico.</p>
+          ) : movil ? (
+            <div className="checar-lineas">
+              {lineas.map((l) => (
+                <div key={l.clave} className="checar-linea">
+                  <div style={{ fontWeight: 800 }}>{l.nombre}</div>
+                  <div className="checar-linea-nums">
+                    <span>Ticket <strong>{l.qty_ticket}</strong></span>
+                    <span>Ingresada <strong>{l.qty_inventario}</strong></span>
+                    <span style={{ color: l.qty_diff === 0 ? undefined : COLOR_LINEA[l.estado], fontWeight: 700 }}>
+                      {l.qty_diff > 0 ? `+${l.qty_diff}` : l.qty_diff}
+                    </span>
+                    <span style={{ color: COLOR_LINEA[l.estado] || '#64748b', fontWeight: 700 }}>
+                      {ETIQUETA_LINEA[l.estado] || l.estado}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="table-wrap">
               <table className="data" style={{ fontSize: '0.82rem' }}>
@@ -209,8 +240,8 @@ function ModalTicket({ row, onCerrar }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.9rem' }}>
-            <button type="button" className="btn" style={{ background: COLOR, color: '#fff' }} onClick={() => imprimirElectronico(fila)}>
+          <div className="checar-modal-acciones" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.9rem' }}>
+            <button type="button" className="btn checar-imprimir" style={{ background: COLOR, color: '#fff' }} onClick={() => imprimirElectronico(fila)}>
               Imprimir ticket electrónico
             </button>
           </div>
@@ -251,6 +282,90 @@ function CeldaTicket({ row, ymd, onVer }) {
   );
 }
 
+function DiaChip({ dia, piezas, activo, aviso, onClick }) {
+  const contenido = (
+    <>
+      <span className="checar-dia-dow">{dia.dow}</span>
+      <span className="checar-dia-num">{dia.dia}</span>
+      <span className={`checar-dia-pzas${aviso ? ' checar-dia-pzas--aviso' : ''}`}>
+        {piezas == null ? '·' : piezas}
+      </span>
+    </>
+  );
+  if (!onClick) {
+    return <div className={`checar-dia${activo ? ' checar-dia--on' : ''}`}>{contenido}</div>;
+  }
+  return (
+    <button
+      type="button"
+      className={`checar-dia checar-dia--btn${activo ? ' checar-dia--on' : ''}`}
+      onClick={onClick}
+      aria-label={`Ver ticket del ${dia.etiqueta}`}
+    >
+      {contenido}
+    </button>
+  );
+}
+
+function piezasChip(celda) {
+  if (!celda) return { piezas: null, aviso: false, activo: false };
+  if (celda.piezas > 0) {
+    const aviso = celda.piezasTicket > 0 && Math.abs(celda.piezas - celda.piezasTicket) > 0.001;
+    return { piezas: Number.isInteger(celda.piezas) ? String(celda.piezas) : celda.piezas.toFixed(1), aviso, activo: true };
+  }
+  return { piezas: '0', aviso: true, activo: true };
+}
+
+function TarjetaMovil({ row, dias, onVer }) {
+  const meta = GASTO_META[row.gastoEstado] || GASTO_META.sin_gasto;
+  return (
+    <article className="checar-card">
+      <header className="checar-card-head">
+        <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>{row.proveedor}</div>
+        {row.tienda ? <div className="muted" style={{ fontSize: '0.78rem' }}>{row.tienda}</div> : null}
+      </header>
+      <div
+        className="checar-card-gasto"
+        style={{
+          color: meta.color,
+          background: row.gastoEstado === 'sin_gasto' ? 'rgba(180, 83, 9, 0.1)' : 'transparent',
+        }}
+      >
+        <span className="checar-card-gasto-label">Gasto</span>
+        <strong>{row.montoGasto > 0 ? fmtMonto(row.montoGasto) : meta.texto}</strong>
+        {row.montoGasto > 0 ? (
+          <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>
+            {row.nGastos > 1 ? `${row.nGastos} gastos` : meta.texto}
+            {row.gastos?.[0]?.fecha_ymd ? ` · ${fechaCorta(row.gastos[0].fecha_ymd)}` : ''}
+          </span>
+        ) : null}
+        {!row.tieneTicket ? <span style={{ fontSize: '0.78rem', color: '#7c3aed', fontWeight: 700 }}>Sin ticket</span> : null}
+        {row.ticketFuera ? (
+          <button type="button" className="btn checar-ver" style={{ background: COLOR, color: '#fff' }} onClick={() => onVer(row)}>
+            Ver ticket
+          </button>
+        ) : null}
+      </div>
+      <div className={`checar-dias${dias.length > 7 ? ' checar-dias--scroll' : ''}`} aria-label="Días del rango">
+        {dias.map((d) => {
+          const celda = row.celdas?.[d.ymd];
+          const chip = piezasChip(celda);
+          return (
+            <DiaChip
+              key={d.ymd}
+              dia={d}
+              piezas={chip.piezas}
+              activo={chip.activo}
+              aviso={chip.aviso}
+              onClick={celda ? () => onVer(row) : undefined}
+            />
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
 function CeldaGasto({ row, onVer }) {
   const meta = GASTO_META[row.gastoEstado] || GASTO_META.sin_gasto;
   return (
@@ -282,6 +397,7 @@ function CeldaGasto({ row, onVer }) {
 }
 
 export default function PanelChecarTickets({ supabase }) {
+  const movil = useMobileLayout();
   const [preset, setPreset] = useState('semana_completa');
   const ini = rangoSemanaCompleta();
   const [desde, setDesde] = useState(ini.desde || '');
@@ -347,8 +463,9 @@ export default function PanelChecarTickets({ supabase }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
+      <div className="card checar-panel" style={{ borderTop: `4px solid ${COLOR}` }}>
+        <div className="checar-filtros">
+          <div className="checar-filtro-ancho">
           <FiltroPeriodo
             preset={preset}
             onPresetChange={aplicarPreset}
@@ -364,7 +481,8 @@ export default function PanelChecarTickets({ supabase }) {
             }}
             presets={PRESETS}
           />
-          <label className="muted" style={{ display: 'block', minWidth: 160 }}>
+          </div>
+          <label className="muted checar-filtro" style={{ display: 'block', minWidth: 160 }}>
             Tienda
             <select className="select" style={{ marginTop: '0.35rem' }} value={tienda} onChange={(e) => setTienda(e.target.value)}>
               {tiendas.map((t) => (
@@ -374,7 +492,7 @@ export default function PanelChecarTickets({ supabase }) {
               ))}
             </select>
           </label>
-          <label className="muted" style={{ display: 'block', minWidth: 160 }}>
+          <label className="muted checar-filtro" style={{ display: 'block', minWidth: 160 }}>
             Ver
             <select className="select" style={{ marginTop: '0.35rem' }} value={filtro} onChange={(e) => setFiltro(e.target.value)}>
               <option value="todos">Todos</option>
@@ -383,7 +501,7 @@ export default function PanelChecarTickets({ supabase }) {
               <option value="con_ticket">Con ticket</option>
             </select>
           </label>
-          <button type="button" className="btn" style={{ background: COLOR, color: '#fff' }} disabled={cargando} onClick={() => void cargar()}>
+          <button type="button" className="btn checar-actualizar" style={{ background: COLOR, color: '#fff' }} disabled={cargando} onClick={() => void cargar()}>
             {cargando ? 'Cargando…' : 'Actualizar'}
           </button>
         </div>
@@ -396,7 +514,7 @@ export default function PanelChecarTickets({ supabase }) {
         ) : null}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem' }}>
+      <div className={movil ? 'checar-kpis checar-kpis--movil' : 'checar-kpis'}>
         <Kpi label="Registros" value={resumen?.registros ?? 0} />
         <Kpi label="Piezas ingresadas" value={resumen ? piezasTexto(resumen.piezas) : '0 pzas'} accent={COLOR} />
         <Kpi label="Gastos ingresados" value={resumen?.gastos ?? 0} accent="#15803d" sub={resumen ? fmtMonto(resumen.montoGasto) : ''} />
@@ -404,12 +522,42 @@ export default function PanelChecarTickets({ supabase }) {
         <Kpi label="Gasto sin ticket" value={resumen?.sinTicket ?? 0} accent="#7c3aed" />
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {!rows.length ? (
+      {!rows.length ? (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <p className="muted" style={{ padding: '0.9rem' }}>
             {cargando ? 'Cargando…' : 'No hay tickets ni gastos de proveedores en este rango.'}
           </p>
-        ) : (
+        </div>
+      ) : movil ? (
+          <div className="checar-lista">
+            <p className="muted checar-desliza">
+              Toca el día para ver el ticket.{dias.length > 7 ? ' Desliza para ver el resto de los días.' : ''}
+            </p>
+            {rows.map((r, i) => (
+              <TarjetaMovil key={`${r.id}-${i}`} row={r} dias={dias} onVer={setAbierto} />
+            ))}
+            <article className="checar-card checar-card-total">
+              <header className="checar-card-head">
+                <div style={{ fontWeight: 800 }}>Total</div>
+                <strong>{fmtMonto(gastoVisible)}</strong>
+              </header>
+              <div className={`checar-dias${dias.length > 7 ? ' checar-dias--scroll' : ''}`}>
+                {dias.map((d) => {
+                  const n = piezasDia[d.ymd] || 0;
+                  return (
+                    <DiaChip
+                      key={d.ymd}
+                      dia={d}
+                      piezas={n > 0 ? (Number.isInteger(n) ? String(n) : n.toFixed(1)) : null}
+                      activo={n > 0}
+                    />
+                  );
+                })}
+              </div>
+            </article>
+          </div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="table-wrap table-wrap-sticky-head checar-tickets-wrap">
             <table className="data checar-tickets" style={{ fontSize: '0.8rem' }}>
               <thead>
@@ -455,12 +603,18 @@ export default function PanelChecarTickets({ supabase }) {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {abierto ? <ModalTicket row={abierto} onCerrar={() => setAbierto(null)} /> : null}
+      {abierto ? <ModalTicket row={abierto} movil={movil} onCerrar={() => setAbierto(null)} /> : null}
 
       <style>{`
+        .checar-filtros {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+          align-items: flex-end;
+        }
         .checar-tickets { border-collapse: separate; border-spacing: 0; }
         .checar-tickets .checar-prov { width: 168px; min-width: 168px; max-width: 168px; left: 0; }
         .checar-tickets .checar-gasto { width: 132px; min-width: 132px; max-width: 132px; left: 168px; box-shadow: 1px 0 0 var(--border, #e2e8f0); }
@@ -475,6 +629,126 @@ export default function PanelChecarTickets({ supabase }) {
           background: linear-gradient(180deg, #faf6eb 0%, #f0ead8 100%);
         }
         .checar-tickets-wrap { max-height: min(72vh, 760px); }
+        .checar-kpis {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+          gap: 0.65rem;
+        }
+        .checar-kpis--movil {
+          display: flex;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scroll-snap-type: x mandatory;
+          gap: 0.5rem;
+          padding-bottom: 0.15rem;
+        }
+        .checar-kpis--movil .card {
+          flex: 0 0 8.4rem;
+          scroll-snap-align: start;
+          padding: 0.55rem 0.7rem;
+        }
+        .checar-kpis--movil .card > div:nth-child(2) { font-size: 1.05rem; }
+        .checar-lista { display: flex; flex-direction: column; gap: 0.65rem; }
+        .checar-desliza { margin: 0 0 0.15rem; font-size: 0.78rem; }
+        .checar-card {
+          background: var(--card, #fff);
+          border: 1px solid var(--border, #e2e8f0);
+          border-radius: 14px;
+          padding: 0.75rem 0.7rem 0.65rem;
+        }
+        .checar-card-head { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+        .checar-card-gasto {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: baseline;
+          gap: 0.35rem 0.65rem;
+          margin: 0.45rem 0 0.55rem;
+          padding: 0.45rem 0.55rem;
+          border-radius: 10px;
+        }
+        .checar-card-gasto-label {
+          font-size: 0.68rem;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          font-weight: 700;
+        }
+        .checar-dias {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 0.3rem;
+        }
+        .checar-dias--scroll {
+          display: flex;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scroll-snap-type: x mandatory;
+          padding-bottom: 0.15rem;
+        }
+        .checar-dias--scroll .checar-dia { flex: 0 0 3.35rem; scroll-snap-align: start; }
+        .checar-dia {
+          min-height: 4.5rem;
+          border-radius: 12px;
+          border: 1px solid var(--border, #e2e8f0);
+          background: transparent;
+          color: inherit;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 0.05rem;
+          padding: 0.3rem 0.15rem;
+          font: inherit;
+        }
+        .checar-dia--btn { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .checar-dia--on {
+          border-color: #0f766e;
+          background: rgba(15, 118, 110, 0.1);
+        }
+        .checar-dia-dow { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted, #64748b); }
+        .checar-dia-num { font-size: 0.95rem; font-weight: 800; line-height: 1.1; }
+        .checar-dia-pzas { font-size: 0.78rem; font-weight: 800; color: #0f766e; }
+        .checar-dia-pzas--aviso { color: #b45309; }
+        .checar-ver { min-height: 44px; padding: 0.45rem 0.8rem; }
+        .checar-lineas { display: flex; flex-direction: column; gap: 0.45rem; }
+        .checar-linea {
+          border: 1px solid var(--border, #e2e8f0);
+          border-radius: 12px;
+          padding: 0.6rem 0.7rem;
+        }
+        .checar-linea-nums {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.25rem 0.6rem;
+          margin-top: 0.35rem;
+          font-size: 0.82rem;
+        }
+        @media (max-width: 720px) {
+          .checar-ayuda { font-size: 0.8rem; }
+          .checar-filtros {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.65rem;
+            align-items: end;
+          }
+          .checar-filtro-ancho,
+          .checar-filtro,
+          .checar-actualizar { grid-column: 1 / -1; }
+          .checar-filtro,
+          .checar-filtro .select,
+          .checar-actualizar { width: 100%; }
+          .checar-actualizar { min-height: 48px; }
+          .checar-panel { padding: 0.85rem; }
+          .checar-modal-head {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: var(--card, #fff);
+            padding-bottom: 0.45rem;
+          }
+          .checar-cerrar { min-height: 44px; }
+          .checar-imprimir { width: 100%; min-height: 48px; }
+          .checar-modal-acciones { display: block; }
+        }
       `}</style>
     </div>
   );
