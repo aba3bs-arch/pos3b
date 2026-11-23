@@ -12,6 +12,7 @@ export const MODULOS_IDS = [
   'Consolidación',
   'Compras vs inventario',
   'Revisión de compras',
+  'Checar tickets',
   'Registro de gastos',
   'Socio 3B',
   'Corte Virtual',
@@ -138,6 +139,23 @@ function aplicarMigraRcAbarrotes(lista) {
   return MODULOS_IDS.filter((m) => set.has(m));
 }
 
+/** Quien ya cuadra compras o gastos de contabilidad ve el tablero de tickets. */
+function aplicarMigraChecarTickets(lista) {
+  const set = new Set(lista);
+  if (
+    set.has('Revisión de compras')
+    || set.has('Compras vs inventario')
+    || set.has('IE ABARROTES')
+    || set.has('IE VIRTUAL')
+    || set.has('Conciliaciones')
+    || set.has('Consolidación')
+    || set.has('Panel RT')
+  ) {
+    set.add('Checar tickets');
+  }
+  return MODULOS_IDS.filter((m) => set.has(m));
+}
+
 export function sanitizarPrivilegios(data) {
   const porRol = {};
   const porUsuario = {};
@@ -147,6 +165,7 @@ export function sanitizarPrivilegios(data) {
   const faltaMigra = MODULOS_MIGRA_PRIVILEGIOS.some((m) => !migrados.has(m));
   const faltaRcGarage = !migrados.has('RC Garage');
   const faltaRcAbarrotes = !migrados.has('RC Abarrotes');
+  const faltaChecarTickets = !migrados.has('Checar tickets');
 
   if (data?.porRol && typeof data.porRol === 'object') {
     for (const [rol, lista] of Object.entries(data.porRol)) {
@@ -154,6 +173,7 @@ export function sanitizarPrivilegios(data) {
         let base = faltaMigra ? conModulosMigrados(lista) : normalizarListaModulos(lista);
         if (faltaRcGarage) base = aplicarMigraRcGarage(base);
         if (faltaRcAbarrotes) base = aplicarMigraRcAbarrotes(base);
+        if (faltaChecarTickets) base = aplicarMigraChecarTickets(base);
         porRol[rol] = base;
       }
     }
@@ -166,6 +186,7 @@ export function sanitizarPrivilegios(data) {
           : normalizarListaModulos(lista);
         if (faltaRcGarage) base = aplicarMigraRcGarage(base);
         if (faltaRcAbarrotes) base = aplicarMigraRcAbarrotes(base);
+        if (faltaChecarTickets) base = aplicarMigraChecarTickets(base);
         porUsuario[String(uid)] = base;
       }
     }
@@ -173,6 +194,7 @@ export function sanitizarPrivilegios(data) {
   for (const m of MODULOS_MIGRA_PRIVILEGIOS) migrados.add(m);
   migrados.add('RC Garage');
   migrados.add('RC Abarrotes');
+  migrados.add('Checar tickets');
   return {
     porRol,
     porUsuario,

@@ -240,6 +240,15 @@ export const GUIAS_MODULOS = [
     texto: 'Contabilidad → «Revisión de compras». Filtra por rango, tienda y «Pendientes», «Con diferencias», «Revisados» o «Todos», y pulsa «Actualizar». Abre un folio y compara «Cant. ticket» contra «Cant. ingresada». Pulsa «Marcar OK» o «Marcar con diferencias»; «Quitar revisión» deshace la marca.',
   },
   {
+    id: 'checar_tickets',
+    tema: 'checar tickets de compra por día',
+    modulos: ['Checar tickets'],
+    claves: [
+      ['checar tickets', 12], ['checar ticket', 8], ['tickets de compra', 8], ['ticket de compra', 7], ['ticket electronico', 7], ['comparar con el fisico', 8], ['gasto de proveedor', 6], ['gastos de proveedores', 7],
+    ],
+    texto: 'Contabilidad → «Checar tickets». Elige el rango de fechas y la tienda y pulsa «Actualizar». Los proveedores quedan a la izquierda (pueden salir más de una vez), la siguiente columna es el gasto ingresado y cada día trae las piezas del ticket. «Ver ticket» abre el ticket electrónico para compararlo con el físico. «Sin gasto» es mercancía sin gasto de proveedor; «Sin ticket» es un gasto sin mercancía ligada.',
+  },
+  {
     id: 'registro_gastos',
     tema: 'registro y aprobación de gastos',
     modulos: ['Registro de gastos'],

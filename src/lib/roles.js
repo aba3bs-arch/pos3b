@@ -117,6 +117,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Consolidación',
   'Compras vs inventario',
   'Revisión de compras',
+  'Checar tickets',
   'Registro de gastos',
   'Socio 3B',
   'RC Virtual',
