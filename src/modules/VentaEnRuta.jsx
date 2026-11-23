@@ -5,6 +5,7 @@ import Icon from '../components/Icon.jsx';
 import PortalFlotante from '../components/PortalFlotante.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
+import TableroInventarioCamion from '../components/TableroInventarioCamion.jsx';
 import InputPin from '../components/InputPin.jsx';
 import VentasRutaPorTienda from '../components/VentasRutaPorTienda.jsx';
 import PanelPurgaVentaEnRuta from '../components/PanelPurgaVentaEnRuta.jsx';
@@ -343,6 +344,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           supabase={supabase}
           setAviso={setAviso}
         />
+      )}
+      {vista === 'invcamion' && puede('ruta_inv_camion') && (
+        <TableroInventarioCamion supabase={supabase} user={user} />
       )}
       {vista === 'carga' && puede('ruta_carga') && (
         <VistaCarga

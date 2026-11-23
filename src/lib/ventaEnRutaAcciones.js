@@ -9,6 +9,7 @@ import { normalizarRol, puedeVerModulo, sesionConPrivilegiosAdmin } from './role
 export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_consolidacion', vista: 'consolidacion', label: 'Conciliación', desc: 'Por repartidor · mercancía, efectivo y créditos · alertas', icon: 'search', grupo: 'admin' },
   { id: 'ruta_camiones', vista: 'camiones', label: 'Camiones', desc: 'Alta y asignación a repartidor', icon: 'truck', grupo: 'admin' },
+  { id: 'ruta_inv_camion', vista: 'invcamion', label: 'Inventario camión', desc: 'Carga, disponible, ventas y tickets por tienda', icon: 'truck', grupo: 'oper' },
   { id: 'ruta_carga', vista: 'carga', label: 'Carga de camión', desc: `Repartidor · descuenta CEDIS`, icon: 'package', grupo: 'admin' },
   { id: 'ruta_precios', vista: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar', grupo: 'admin' },
   { id: 'ruta_clientes', vista: 'clientes', label: 'Clientes externos', desc: 'Clientes no propios', icon: 'users', grupo: 'admin' },
@@ -77,10 +78,10 @@ export const SUBCOMANDOS_VENTA_RUTA = [
 export const ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL = {
   // Gerente: todo el hub, excepto limpiar consultas (solo Admin por defecto).
   Gerente: SUBCOMANDOS_VENTA_RUTA.filter((s) => s.hub !== false).map((s) => s.id),
-  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_mercancia'],
+  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_inv_camion', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_mercancia'],
   Cajero: ['ruta_creditos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_abono'],
-  Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
-  Auditor: ['ruta_consolidacion', 'ruta_auditorias', 'ruta_consultas', 'ruta_preinventario'],
+  Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_inv_camion', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
+  Auditor: ['ruta_consolidacion', 'ruta_auditorias', 'ruta_consultas', 'ruta_preinventario', 'ruta_inv_camion'],
 };
 
 function lecturaExplicitaAccion(data, accionId, rol, userId) {
