@@ -1,6 +1,9 @@
+.icam, .icam * { box-sizing: border-box; }
 .icam {
   --icam-ink: #0b1b4a;
   --icam-gold: #f6c445;
+  width: 100%;
+  max-width: 100%;
   background:
     radial-gradient(120% 80% at 10% 0%, rgba(56, 120, 255, 0.35), transparent 45%),
     linear-gradient(180deg, #07184f 0%, #0b2f86 48%, #071433 100%);
@@ -125,7 +128,8 @@
 .icam-sec-head h3 { margin: 0; font-size: 1rem; color: #123a9c; }
 .icam-sec-head p { margin: 0.1rem 0 0; font-size: 0.72rem; color: #4b5e86; }
 
-.icam-tabla-wrap { overflow-x: auto; }
+.icam-fichas { display: none; }
+.icam-tabla-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .icam-tabla {
   width: 100%;
   border-collapse: separate;
@@ -530,4 +534,81 @@
 @media (max-width: 980px) {
   .icam-layout, .icam-kpis, .icam-liq { grid-template-columns: 1fr; }
   .icam-titulo { font-size: 1.25rem; }
+}
+
+/* iPhone y Android: sin tabla ancha, fichas tocables y sin recorte. */
+@media (max-width: 720px) {
+  .icam {
+    border-width: 2px;
+    border-radius: 16px;
+    padding: 0.55rem;
+    padding-left: max(0.55rem, env(safe-area-inset-left));
+    padding-right: max(0.55rem, env(safe-area-inset-right));
+  }
+  .icam-head { align-items: flex-start; gap: 0.55rem; }
+  .icam-titulo { font-size: 1.2rem; line-height: 1.15; }
+  .icam-sub { font-size: 0.72rem; line-height: 1.3; }
+  .icam-kpi { min-height: 0; padding: 0.75rem; }
+  .icam-kpi-monto { font-size: 1.45rem; }
+  .icam-kpi-label { font-size: 0.95rem; }
+  .icam-sec { padding: 0.55rem; }
+  .icam-sec-head { flex-direction: column; align-items: stretch; }
+  .icam-sec-head h3 { font-size: 0.98rem; line-height: 1.25; }
+  .icam-btn-lite, .icam-acciones button, .icam-liq-btn, .icam-camion-btn {
+    min-height: 44px;
+  }
+  .icam-btn-lite { justify-content: center; width: 100%; }
+  .icam-tabla-wrap { display: none; }
+  .icam-fichas {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .icam-fichas > li {
+    background: #fff;
+    border-radius: 12px;
+    padding: 0.55rem 0.6rem;
+    border: 2px solid transparent;
+  }
+  .icam-fichas > li.is-on { border-color: #2457d6; background: #e8f1ff; }
+  .icam-ficha-vacia { color: #4b5e86; font-weight: 700; }
+  .icam-ficha-top { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+  .icam-ficha-top .icam-tienda { min-height: 44px; font-size: 1rem; }
+  .icam-ficha-top .icam-mov { min-width: 44px; min-height: 36px; font-size: 1rem; }
+  .icam-check { width: 1.35rem; height: 1.35rem; }
+  .icam-ficha-nums {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+  }
+  .icam-ficha-nums span { display: flex; flex-direction: column; min-width: 0; }
+  .icam-ficha-nums small { color: #4b5e86; font-size: 0.68rem; font-weight: 700; }
+  .icam-ficha-nums b { font-size: 0.82rem; overflow-wrap: anywhere; }
+  .icam-ficha-total {
+    background: #123a9c !important;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .icam-ficha-total b { font-size: 1.15rem; }
+  .icam-ficha-total small { opacity: 0.9; }
+  .icam-liq-btn strong { font-size: 0.95rem; line-height: 1.25; }
+  .icam-liq-btn span, .icam-liq-total span { line-height: 1.3; }
+  .icam-panel { min-height: 0; }
+  .icam-panel-tienda, .icam-ticket-top { flex-wrap: wrap; gap: 0.35rem; }
+  .icam-ticket { overflow-wrap: anywhere; }
+  .icam-acciones { flex-direction: column; }
+  .icam-share-ico { margin: 0 10px; }
+}
+
+@media (max-width: 360px) {
+  .icam-titulo { font-size: 1.05rem; }
+  .icam-kpi-monto, .icam-liq-total b { font-size: 1.2rem; }
+  .icam-ficha-nums b { font-size: 0.74rem; }
+  .icam-truck { transform: scale(0.86); transform-origin: left center; }
 }

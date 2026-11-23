@@ -147,6 +147,51 @@ export default function TableroInventarioCamionVista({
                 <span className="icam-print-ico" aria-hidden="true" /> Imprimir reporte
               </button>
             </div>
+            <ul className="icam-fichas">
+              {tiendas.length === 0 && (
+                <li className="icam-ficha-vacia">
+                  {sinCamiones
+                    ? 'No hay camiones activos.'
+                    : sinCargas
+                      ? 'Sin carga abierta en este camión.'
+                      : 'Sin ventas en la carga abierta.'}
+                </li>
+              )}
+              {tiendas.map((fila) => (
+                <li key={fila.id} className={fila.id === tiendaId ? 'is-on' : ''}>
+                  <div className="icam-ficha-top">
+                    <span className="icam-tienda">
+                      <input
+                        className="icam-check"
+                        type="checkbox"
+                        checked={marcadas?.[fila.id] !== false}
+                        onChange={(ev) => onMarcar?.(fila.id, ev.target.checked)}
+                        aria-label={`Marcar ${fila.etiqueta}`}
+                      />
+                      <button type="button" className="icam-tienda" onClick={() => onElegirTienda?.(fila.id)}>
+                        <span className="icam-store" aria-hidden="true" />
+                        {fila.etiqueta}
+                      </button>
+                    </span>
+                    <button type="button" className="icam-mov" onClick={() => onElegirTienda?.(fila.id)} aria-label={`${fila.mov} movimientos de ${fila.etiqueta}`}>
+                      {fila.mov}
+                    </button>
+                  </div>
+                  <div className="icam-ficha-nums">
+                    <span><small>Venta</small><b className="icam-venta">{dineroTablero(fila.venta)}</b></span>
+                    <span><small>Efectivo</small><b className="icam-efe">{dineroTablero(fila.efectivo)}</b></span>
+                    <span><small>Crédito</small><b className="icam-cre">{dineroTablero(fila.credito)}</b></span>
+                  </div>
+                </li>
+              ))}
+              {tiendas.length > 0 && (
+                <li className="icam-ficha-total">
+                  <span>Total · {marcado.mov} mov.</span>
+                  <b>{dineroTablero(marcado.total)}</b>
+                  <small>Efectivo {dineroTablero(marcado.efectivo)} · Crédito {dineroTablero(marcado.credito)}</small>
+                </li>
+              )}
+            </ul>
             <div className="icam-tabla-wrap" id="icam-reporte">
               <table className="icam-tabla">
                 <thead>
