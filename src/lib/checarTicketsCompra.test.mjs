@@ -192,35 +192,35 @@ describe('consolidar + tablero', () => {
 });
 
 describe('privilegios Checar tickets', () => {
-  it('lo agrega a quien ya revisa compras y no a un cajero de mostrador', () => {
-    const oficina = sanitizarPrivilegios({
-      porRol: { Gerente: ['Inicio', 'Revisión de compras'] },
-      _migratedModulos: [
-        'Mensajes', 'Check List', 'Evaluación operativa', 'Consolidación',
-        'Compras vs inventario', 'Revisión de compras', 'Conciliaciones',
-        'Registro de gastos', 'Socio 3B', 'RC Garage', 'RC Abarrotes',
-      ],
+  const migrados = [
+    'Mensajes', 'Check List', 'Evaluación operativa', 'Consolidación',
+    'Compras vs inventario', 'Revisión de compras', 'Conciliaciones',
+    'Registro de gastos', 'Socio 3B', 'RC Garage', 'RC Abarrotes',
+  ];
+
+  it('lo deja en el menú del auditor y no en contabilidad ni en el cajero', () => {
+    const auditor = sanitizarPrivilegios({
+      porRol: { Auditor: ['Inicio', 'Compras'] },
+      _migratedModulos: migrados,
     });
-    assert.ok(oficina.porRol.Gerente.includes('Checar tickets'));
+    assert.ok(auditor.porRol.Auditor.includes('Checar tickets'));
+
+    const gerente = sanitizarPrivilegios({
+      porRol: { Gerente: ['Inicio', 'Revisión de compras'] },
+      _migratedModulos: migrados,
+    });
+    assert.equal(gerente.porRol.Gerente.includes('Checar tickets'), false);
 
     const cajero = sanitizarPrivilegios({
       porRol: { Cajero: ['Inicio', 'Ventas'] },
-      _migratedModulos: [
-        'Mensajes', 'Check List', 'Evaluación operativa', 'Consolidación',
-        'Compras vs inventario', 'Revisión de compras', 'Conciliaciones',
-        'Registro de gastos', 'Socio 3B', 'RC Garage', 'RC Abarrotes',
-      ],
+      _migratedModulos: migrados,
     });
     assert.equal(cajero.porRol.Cajero.includes('Checar tickets'), false);
 
     const ya = sanitizarPrivilegios({
-      porRol: { Gerente: ['Inicio', 'Revisión de compras'] },
-      _migratedModulos: [
-        'Mensajes', 'Check List', 'Evaluación operativa', 'Consolidación',
-        'Compras vs inventario', 'Revisión de compras', 'Conciliaciones',
-        'Registro de gastos', 'Socio 3B', 'RC Garage', 'RC Abarrotes', 'Checar tickets',
-      ],
+      porRol: { Auditor: ['Inicio', 'Compras'] },
+      _migratedModulos: [...migrados, 'Checar tickets'],
     });
-    assert.equal(ya.porRol.Gerente.includes('Checar tickets'), false);
+    assert.equal(ya.porRol.Auditor.includes('Checar tickets'), false);
   });
 });

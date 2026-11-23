@@ -1896,10 +1896,7 @@ function App() {
             </>
           )}
           {vista === 'Checar tickets' && (
-            <>
-              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <ChecarTickets supabase={supabase} user={user} />
-            </>
+            <ChecarTickets supabase={supabase} user={user} />
           )}
           {vista === 'Registro de gastos' && (
             <>

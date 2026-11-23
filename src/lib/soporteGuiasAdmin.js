@@ -246,7 +246,7 @@ export const GUIAS_MODULOS = [
     claves: [
       ['checar tickets', 12], ['checar ticket', 8], ['tickets de compra', 8], ['ticket de compra', 7], ['ticket electronico', 7], ['comparar con el fisico', 8], ['gasto de proveedor', 6], ['gastos de proveedores', 7],
     ],
-    texto: 'Contabilidad → «Checar tickets». Elige el rango de fechas y la tienda y pulsa «Actualizar». Los proveedores quedan a la izquierda (pueden salir más de una vez), la siguiente columna es el gasto ingresado y cada día trae las piezas del ticket. «Ver ticket» abre el ticket electrónico para compararlo con el físico. «Sin gasto» es mercancía sin gasto de proveedor; «Sin ticket» es un gasto sin mercancía ligada.',
+    texto: 'Menú → «Checar tickets» (auditor y administrador). Elige el rango de fechas y la tienda y pulsa «Actualizar». Los proveedores quedan a la izquierda (pueden salir más de una vez), la siguiente columna es el gasto ingresado y cada día trae las piezas del ticket. «Ver ticket» abre el ticket electrónico para compararlo con el físico. «Sin gasto» es mercancía sin gasto de proveedor; «Sin ticket» es un gasto sin mercancía ligada.',
   },
   {
     id: 'registro_gastos',

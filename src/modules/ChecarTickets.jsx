@@ -8,8 +8,7 @@ export default function ChecarTickets({ supabase, user }) {
     return (
       <div className="card">
         <p>
-          No tienes acceso a Checar tickets. Pide al administrador que active el submódulo en Configuración →
-          Privilegios → Contabilidad.
+          No tienes acceso a Checar tickets. Está en el menú para auditor y administrador.
         </p>
       </div>
     );

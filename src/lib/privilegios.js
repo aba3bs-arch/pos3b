@@ -12,7 +12,6 @@ export const MODULOS_IDS = [
   'Consolidación',
   'Compras vs inventario',
   'Revisión de compras',
-  'Checar tickets',
   'Registro de gastos',
   'Socio 3B',
   'Corte Virtual',
@@ -21,6 +20,7 @@ export const MODULOS_IDS = [
   'Productos',
   'Venta en Ruta',
   'Compras',
+  'Checar tickets',
   'Checador',
   'Check List',
   'Evaluación operativa',
@@ -139,20 +139,19 @@ function aplicarMigraRcAbarrotes(lista) {
   return MODULOS_IDS.filter((m) => set.has(m));
 }
 
-/** Quien ya cuadra compras o gastos de contabilidad ve el tablero de tickets. */
+function esRolAuditorPrivilegio(rol) {
+  const n = String(rol || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return n === 'auditor';
+}
+
+/** El tablero vive en el menú del auditor, no en Contabilidad. */
 function aplicarMigraChecarTickets(lista) {
   const set = new Set(lista);
-  if (
-    set.has('Revisión de compras')
-    || set.has('Compras vs inventario')
-    || set.has('IE ABARROTES')
-    || set.has('IE VIRTUAL')
-    || set.has('Conciliaciones')
-    || set.has('Consolidación')
-    || set.has('Panel RT')
-  ) {
-    set.add('Checar tickets');
-  }
+  set.add('Checar tickets');
   return MODULOS_IDS.filter((m) => set.has(m));
 }
 
@@ -173,7 +172,7 @@ export function sanitizarPrivilegios(data) {
         let base = faltaMigra ? conModulosMigrados(lista) : normalizarListaModulos(lista);
         if (faltaRcGarage) base = aplicarMigraRcGarage(base);
         if (faltaRcAbarrotes) base = aplicarMigraRcAbarrotes(base);
-        if (faltaChecarTickets) base = aplicarMigraChecarTickets(base);
+        if (faltaChecarTickets && esRolAuditorPrivilegio(rol)) base = aplicarMigraChecarTickets(base);
         porRol[rol] = base;
       }
     }
@@ -186,7 +185,6 @@ export function sanitizarPrivilegios(data) {
           : normalizarListaModulos(lista);
         if (faltaRcGarage) base = aplicarMigraRcGarage(base);
         if (faltaRcAbarrotes) base = aplicarMigraRcAbarrotes(base);
-        if (faltaChecarTickets) base = aplicarMigraChecarTickets(base);
         porUsuario[String(uid)] = base;
       }
     }

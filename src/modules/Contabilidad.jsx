@@ -36,10 +36,6 @@ const DESCRIPCIONES = {
     desc: 'Ticket por ticket · cantidades vs inventario',
     ayuda: 'Elige un rango de fechas y revisa cada compra: productos del ticket contra lo ingresado. Marca OK o con diferencias.',
   },
-  'Checar tickets': {
-    desc: 'Proveedores por día · gasto ingresado · ticket electrónico',
-    ayuda: 'Elige el rango y la tienda. A la izquierda van los proveedores (pueden repetirse), la siguiente columna es el gasto y cada día trae el ingreso del ticket para compararlo con el físico.',
-  },
   'Registro de gastos': {
     desc: 'Evidencia · aprobar → IE · AMR marca pago recibido',
     ayuda: 'Empleados registran gastos con evidencia. Al aprobar van a IE VIRTUAL y quedan en el espacio de AMR como «Gasto aprobado» para marcar Pago recibido.',
