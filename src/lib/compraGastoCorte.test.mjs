@@ -10,6 +10,7 @@ import {
   metaPagoMixtoDesdeArticulos,
   pagoTicketRecepcionCompra,
   armarPayloadTicketRecepcion,
+  resolverVentaRutaDeCompra,
 } from './compraGastoCorte.js';
 
 assert.equal(
@@ -209,5 +210,60 @@ assert.equal(dNormal.monto, 80);
 const m = montosPagoDesdeVentaRuta({ metodo_pago: 'credito', total: 12 });
 assert.equal(m.montoEfectivo, 0);
 assert.equal(m.montoCredito, 12);
+
+// Al recibir, la venta se busca sin la columna notas (no existe en ruta_ventas).
+// Si el schema rechaza una columna opcional, se reintenta y igual regresa cliente y tránsito.
+{
+  const venta = {
+    id: 'v1',
+    folio: 'VR-1-C',
+    metodo_pago: 'credito',
+    total: 126,
+    articulos: [{ producto_id: 'p', cantidad: 60 }],
+    cliente_id: '3B2',
+    cliente_tipo: 'sucursal',
+    cliente_nombre: '3B2 Pueblo Nuevo',
+    transito_id: null,
+    carga_id: 'c1',
+    vendedor_nombre: 'Luis',
+    estado_credito: null,
+    compra_id: 'compra-1',
+  };
+  const selects = [];
+  const sb = {
+    from(tabla) {
+      assert.equal(tabla, 'ruta_ventas');
+      return {
+        select(cols) {
+          selects.push(cols);
+          const q = {
+            eq() { return q; },
+            order() { return q; },
+            limit() { return q; },
+            maybeSingle: async () => {
+              if (cols.split(',').map((s) => s.trim()).includes('notas')) {
+                return { data: null, error: { message: 'column ruta_ventas.notas does not exist' } };
+              }
+              if (cols.includes('estado_credito') && selects.filter((s) => s.includes('estado_credito')).length === 1) {
+                return { data: null, error: { message: 'column ruta_ventas.estado_credito does not exist' } };
+              }
+              return { data: venta, error: null };
+            },
+          };
+          return q;
+        },
+      };
+    },
+  };
+  const hallada = await resolverVentaRutaDeCompra(sb, {
+    id: 'compra-1',
+    notas: 'Venta en ruta VR-1-C · metodo credito',
+  });
+  assert.equal(hallada?.id, 'v1');
+  assert.equal(hallada?.cliente_id, '3B2');
+  assert.ok(selects.length >= 1);
+  assert.equal(selects.some((s) => s.split(',').map((x) => x.trim()).includes('notas')), false);
+  assert.equal(hallada?.cliente_nombre, '3B2 Pueblo Nuevo');
+}
 
 console.log('compraGastoCorte.test.mjs ok');
