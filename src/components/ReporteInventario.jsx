@@ -1157,7 +1157,7 @@ export default function ReporteInventario({
                 disabled={guardandoResultado || !tiendaResultado || !puedeCapturarBono}
               />
               <span style={{ display: 'block', fontSize: '0.68rem', marginTop: 2 }}>
-                En nómina: este monto ÷ 3 se descuenta a cada empleado de la tienda
+                En nómina, desde el 24 nov 2026: 50% turno diurno y 50% turno nocturno (empleados directos). Semanas anteriores: este monto ÷ 3 por empleado de la tienda.
               </span>
             </label>
             <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>

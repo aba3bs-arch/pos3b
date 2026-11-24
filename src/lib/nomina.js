@@ -282,6 +282,8 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas, cuotaReporte?.nota),
       cuota_inventario: cuotaReporte?.cuota || 0,
       faltante_inventario_tienda: cuotaReporte?.faltante || 0,
+      formula_inventario: cuotaReporte?.formula || '',
+      turno_inventario: cuotaReporte?.turno || '',
       pagador_manual: false,
       dias_manual: false,
       sueldo_manual: false,

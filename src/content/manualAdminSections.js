@@ -420,7 +420,7 @@ Pedido y recepción desde el módulo si la impresión está activa en Configurac
 
 Gráficas, descarga CSV de inventario, listados imprimibles.
 
-En **Reportes → Reporte de inventario**, el **faltante neto** (campo 2 − bonificación) se divide entre **3** y se descuenta en **Nómina** a cada empleado de esa tienda (la tercera parte corresponde al cubre turnos). La bonificación **no** se descuenta. Hay que **guardar** el resultado en el reporte para que la nómina de esa semana lo tome.
+En **Reportes → Reporte de inventario**, el **faltante neto** (campo 2 − bonificación) se descuenta en **Nómina** de los empleados directos. Desde el **24 nov 2026** es **50% turno diurno y 50% turno nocturno**. En semanas anteriores se divide entre **3** (dos de tienda y el cubre turnos). La bonificación **no** se descuenta. Hay que **guardar** el resultado en el reporte para que la nómina de esa semana lo tome.
 
 ### 11.3 Checador
 

@@ -337,6 +337,8 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       merged.deduccion_inventario = ant.deduccion_inventario;
       merged.cuota_inventario = ant.cuota_inventario ?? nueva.cuota_inventario;
       merged.faltante_inventario_tienda = ant.faltante_inventario_tienda ?? nueva.faltante_inventario_tienda;
+      merged.formula_inventario = ant.formula_inventario || nueva.formula_inventario;
+      merged.turno_inventario = ant.turno_inventario || nueva.turno_inventario;
       merged.inventario_manual = true;
     } else {
       merged.inventario_manual = false;
