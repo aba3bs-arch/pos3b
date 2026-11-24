@@ -1946,7 +1946,12 @@ export async function liberarCargosVentaRutaAlRecibir(supabase, { compra, usuari
   if (!supabase || !compra?.id) return { ok: false, error: 'Sin compra.' };
   if (!esCompraVentaEnRuta(compra)) return { ok: true, omitido: 'no_ruta' };
   const venta = await resolverVentaRutaDeCompra(supabase, compra);
-  if (!venta?.id) return { ok: true, omitido: 'sin_venta' };
+  if (!venta?.id) {
+    return {
+      ok: false,
+      error: 'No se encontró la venta en ruta de este pedido. El inventario entró; el efectivo y el crédito no se cargaron.',
+    };
+  }
 
   const pago = montosPagoDesdeVentaRuta(venta);
   const avisos = [];

@@ -165,30 +165,57 @@ export function montosPagoDesdeVentaRuta(venta, totalFallback = 0) {
   return { metodo: mp || 'efectivo', montoEfectivo: total, montoCredito: 0, venta: venta || null };
 }
 
-const SELECT_VENTA_RUTA_FULL =
-  'id, folio, metodo_pago, total, articulos, estado_credito, compra_id, notas';
-const SELECT_VENTA_RUTA_MIN =
-  'id, folio, metodo_pago, total, articulos, notas';
+// ruta_ventas no tiene columna notas. Pedirla hacía fallar la consulta
+// (el reintento mínimo también la pedía) y Recibir no encontraba la venta:
+// el inventario sí entraba, pero el efectivo y el crédito no se cargaban.
+const SELECT_VENTA_RUTA_FULL = [
+  'id',
+  'folio',
+  'metodo_pago',
+  'total',
+  'articulos',
+  'estado_credito',
+  'compra_id',
+  'carga_id',
+  'cliente_tipo',
+  'cliente_id',
+  'cliente_nombre',
+  'transito_id',
+  'vendedor_nombre',
+].join(', ');
+const SELECT_VENTA_RUTA_MIN = 'id, folio, metodo_pago, total, articulos';
+
+function columnaInexistente(error) {
+  const msg = String(error?.message || '');
+  const m = msg.match(/column\s+[\w."]+\.(\w+)\s+does not exist/i);
+  return m ? m[1] : null;
+}
 
 async function fetchVentaRutaRow(supabase, filterCol, filterVal) {
-  let q = await supabase
-    .from('ruta_ventas')
-    .select(SELECT_VENTA_RUTA_FULL)
-    .eq(filterCol, filterVal)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!q.error && q.data) return q.data;
-  // Schema viejo / columnas opcionales: reintentar select mínimo.
-  if (q.error) {
-    q = await supabase
+  let cols = SELECT_VENTA_RUTA_FULL.split(',').map((s) => s.trim()).filter(Boolean);
+  const vistos = new Set();
+  while (cols.length && !vistos.has(cols.join(','))) {
+    const select = cols.join(', ');
+    vistos.add(select);
+    const q = await supabase
       .from('ruta_ventas')
-      .select(SELECT_VENTA_RUTA_MIN)
+      .select(select)
       .eq(filterCol, filterVal)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!q.error && q.data) return q.data;
+    if (!q.error) return q.data || null;
+    const falta = columnaInexistente(q.error);
+    if (falta && cols.includes(falta)) {
+      cols = cols.filter((c) => c !== falta);
+      continue;
+    }
+    const min = SELECT_VENTA_RUTA_MIN.split(',').map((s) => s.trim());
+    if (cols.join(',') !== min.join(',')) {
+      cols = min;
+      continue;
+    }
+    return null;
   }
   return null;
 }
