@@ -33,6 +33,7 @@ import {
 } from '../empleadosVisibles.js';
 import { limiteHistorialCierresCorte } from '../archivo.js';
 import { esRegistroConsumo, revisarLimiteConsumo } from '../candadoCancelarConsumo.js';
+import { unificarEstadosAlias } from './unificarEstadoAlias.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -254,13 +255,12 @@ function estadoTieneCajaChica(estado) {
 }
 
 /**
- * Si la fila canónica está vacía pero hay una variante histórica (Fusión/FUSIÓN)
- * con caja chica, usa ese estado y lo reclama a la clave canónica.
+ * Fusión / FUSIÓN / Fusion / fusion y FUSION son la misma tienda.
+ * Deja un solo estado (el más reciente; no suma ventas) en la clave canónica
+ * y borra las filas con el nombre viejo para que no vuelvan a divergir.
  */
-async function reclamarEstadoHuerfano(supabase, sid, modulo, estadoCanonico) {
-  if (!supabase || estadoTieneCajaChica(estadoCanonico)) {
-    return { estado: estadoCanonico, reclamado: false };
-  }
+async function reclamarEstadoHuerfano(supabase, sid, modulo, estadoCanonico, updatedAtCanonico = null) {
+  if (!supabase) return { estado: estadoCanonico, reclamado: false };
   const vars = sucursalesIdCorteQuery(sid).filter((v) => v !== sid);
   if (!vars.length) return { estado: estadoCanonico, reclamado: false };
 
@@ -268,34 +268,44 @@ async function reclamarEstadoHuerfano(supabase, sid, modulo, estadoCanonico) {
     .from('cortes_contabilidad_estado')
     .select('sucursal_id, estado, updated_at')
     .eq('modulo', modulo)
-    .in('sucursal_id', vars)
-    .order('updated_at', { ascending: false });
+    .in('sucursal_id', vars);
   if (error || !data?.length) return { estado: estadoCanonico, reclamado: false };
 
-  const huerfano = data.find((r) => estadoTieneCajaChica(r.estado));
-  if (!huerfano?.estado) return { estado: estadoCanonico, reclamado: false };
+  const unificado = unificarEstadosAlias(sid, [
+    { sucursal_id: sid, estado: estadoCanonico, updated_at: updatedAtCanonico },
+    ...data,
+  ]);
+  const estado = unificado.estado
+    ? { ...estadoCanonico, ...unificado.estado }
+    : estadoCanonico;
+  const adoptoOtro = Boolean(unificado.desde && unificado.desde !== sid);
+  const cajaAjena = Boolean(unificado.cajaDesde && unificado.cajaDesde !== sid && unificado.cajaDesde !== unificado.desde);
 
-  const merged = { ...estadoCanonico, ...huerfano.estado };
-  // Persistir en clave canónica y limpiar huérfano para no duplicar.
-  await supabase.from('cortes_contabilidad_estado').upsert(
-    {
-      sucursal_id: sid,
-      modulo,
-      estado: merged,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'sucursal_id,modulo' },
-  );
+  if (adoptoOtro || cajaAjena) {
+    await supabase.from('cortes_contabilidad_estado').upsert(
+      {
+        sucursal_id: sid,
+        modulo,
+        estado,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'sucursal_id,modulo' },
+    );
+  }
   try {
     await supabase
       .from('cortes_contabilidad_estado')
       .delete()
-      .eq('sucursal_id', huerfano.sucursal_id)
-      .eq('modulo', modulo);
+      .eq('modulo', modulo)
+      .in('sucursal_id', unificado.variantes);
   } catch {
     /* ignore */
   }
-  return { estado: merged, reclamado: true, desde: huerfano.sucursal_id };
+  return {
+    estado,
+    reclamado: adoptoOtro || cajaAjena,
+    desde: adoptoOtro ? unificado.desde : (cajaAjena ? unificado.cajaDesde : null),
+  };
 }
 
 function round2Store(n) {
@@ -431,16 +441,29 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   const def = estadoDefault(modulo);
   if (!supabase) {
     try {
-      // Intentar clave canónica y luego variantes locales antiguas.
-      let raw = localStorage.getItem(lsKey(sid, modulo, 'estado'));
-      if (!raw) {
-        for (const v of sucursalesIdCorteQuery(sid)) {
-          if (v === sid) continue;
-          raw = localStorage.getItem(`pos3b_corte_estado_${modulo}_${v}`);
-          if (raw) break;
+      const filas = [];
+      const rawCanon = localStorage.getItem(lsKey(sid, modulo, 'estado'));
+      if (rawCanon) {
+        filas.push({
+          sucursal_id: sid,
+          estado: JSON.parse(rawCanon),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      for (const v of sucursalesIdCorteQuery(sid)) {
+        if (v === sid) continue;
+        const alt = localStorage.getItem(`pos3b_corte_estado_${modulo}_${v}`);
+        if (!alt) continue;
+        filas.push({ sucursal_id: v, estado: JSON.parse(alt), updated_at: null });
+      }
+      const unificado = unificarEstadosAlias(sid, filas);
+      let estado = unificado.estado ? { ...def, ...unificado.estado } : def;
+      if (unificado.variantes.length) {
+        localStorage.setItem(lsKey(sid, modulo, 'estado'), JSON.stringify(estado));
+        for (const v of unificado.variantes) {
+          localStorage.removeItem(`pos3b_corte_estado_${modulo}_${v}`);
         }
       }
-      let estado = raw ? { ...def, ...JSON.parse(raw) } : def;
       if (modulo === 'virtual') estado = normalizarEstadoVirtual(estado);
       return { estado, soloLocal: true };
     } catch {
@@ -449,7 +472,7 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   }
   const { data, error } = await supabase
     .from('cortes_contabilidad_estado')
-    .select('estado')
+    .select('estado, updated_at')
     .eq('sucursal_id', sid)
     .eq('modulo', modulo)
     .maybeSingle();
@@ -459,7 +482,7 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   if (error) return { estado: def, error: error.message, lecturaFallida: true };
 
   let estado = { ...def, ...(data?.estado || {}) };
-  const reclamo = await reclamarEstadoHuerfano(supabase, sid, modulo, estado);
+  const reclamo = await reclamarEstadoHuerfano(supabase, sid, modulo, estado, data?.updated_at || null);
   estado = reclamo.estado;
   let avisoRecupero = null;
   if (reclamo.reclamado) {
