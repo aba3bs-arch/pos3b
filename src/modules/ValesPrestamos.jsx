@@ -48,6 +48,7 @@ import {
   puedeDarVistoBuenoPrestamo,
 } from '../lib/fondoPrestamos.js';
 import { DesembolsosPrestamo } from '../components/FormularioDesembolsoPrestamo.jsx';
+import { EvaluacionVistoBuenoResumen, VentanaVistoBuenoPrestamo } from '../components/EvaluacionVistoBueno.jsx';
 import { esPrestamoArrendatario } from '../lib/beneficiariosExternos.js';
 import {
   AREAS_CONTABILIDAD,
@@ -210,6 +211,9 @@ function hoyISO() {
 
 export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes, onPendientesVisto, navOpts, onNavOptsVisto, retornoModulo, onRegresarCorte }) {
   const [pestana, setPestana] = useState('vales');
+  const [prestamoEnEvaluacion, setPrestamoEnEvaluacion] = useState(null);
+  const [evalProcesando, setEvalProcesando] = useState(false);
+  const [evalError, setEvalError] = useState('');
   const [aviso, setAviso] = useState('');
   const [vales, setVales] = useState([]);
   const [prestamosArea, setPrestamosArea] = useState([]);
@@ -983,9 +987,26 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     recargarTodo();
   };
 
-  const vistoBuenoPrestamo = async (id) => {
-    const res = await darVistoBuenoPrestamo(supabase, id, { user, nombre: user?.nombre });
-    if (!res.ok) return alert(res.error);
+  const abrirVistoBuenoPrestamo = (prestamo) => {
+    setEvalError('');
+    setPrestamoEnEvaluacion(prestamo);
+  };
+
+  const confirmarVistoBuenoPrestamo = async (evaluacion) => {
+    if (!prestamoEnEvaluacion || evalProcesando) return;
+    setEvalProcesando(true);
+    setEvalError('');
+    const res = await darVistoBuenoPrestamo(supabase, prestamoEnEvaluacion.id, {
+      user,
+      nombre: user?.nombre,
+      evaluacion,
+    });
+    setEvalProcesando(false);
+    if (!res.ok) {
+      setEvalError(res.error || 'No se pudo registrar el visto bueno.');
+      return;
+    }
+    setPrestamoEnEvaluacion(null);
     alert(res.mensaje);
     recargarTodo();
   };
@@ -2167,7 +2188,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   {esPrestamoArrendatario(p) ? (
                     <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarPAdmin(p.id)}>Aprobar</button>
                   ) : puedeVistoBueno ? (
-                    <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => vistoBuenoPrestamo(p.id)}>Visto bueno</button>
+                    <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => abrirVistoBuenoPrestamo(p)}>Visto bueno</button>
                   ) : null}
                   {esAdmin && (
                     <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => rechazarPrestamo(supabase, p.id, { nombre: user?.nombre }).then(recargarTodo)}>Rechazar</button>
@@ -2184,6 +2205,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   <span>
                     <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(p.sucursal_id)}</strong>
                     {p.nombre_empleado} · {fmt(p.monto_original)} · sin corte
+                    <EvaluacionVistoBuenoResumen evaluacion={p.evaluacion_visto_bueno} />
                   </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => autorizarPrestamoFondo(p.id)}>Autorizar</button>
                 </div>
@@ -3364,12 +3386,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               <div className="muted" style={{ fontSize: '0.7rem' }}>{textoCuotaPrestamo(p)}</div>
                             )}
                           </td>
-                          <td className="muted">{p.aprobado_admin_por || '—'}</td>
+                          <td className="muted">
+                            {p.aprobado_admin_por || '—'}
+                            {p.evaluacion_visto_bueno ? <EvaluacionVistoBuenoResumen evaluacion={p.evaluacion_visto_bueno} /> : null}
+                          </td>
                           <td className="muted">{p.aprobado_socio_por || '—'}</td>
                           <td className="muted">{p.desembolsado_por || '—'}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             {!esPrestamoArrendatario(p) && puedeVistoBueno && (p.estado === 'pendiente_visto_bueno' || p.estado === 'pendiente_admin') && (
-                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => vistoBuenoPrestamo(p.id)}>Visto bueno</button>
+                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => abrirVistoBuenoPrestamo(p)}>Visto bueno</button>
                             )}
                             {!esPrestamoArrendatario(p) && puedeAbbFjbb && (p.estado === 'pendiente_abb_fjbb' || p.estado === 'pendiente_socio') && (
                               <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => autorizarPrestamoFondo(p.id)}>Autorizar</button>
@@ -3433,6 +3458,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           </div>
         </>
       )}
+      <VentanaVistoBuenoPrestamo
+        prestamo={prestamoEnEvaluacion}
+        procesando={evalProcesando}
+        error={evalError}
+        onCerrar={() => { if (!evalProcesando) setPrestamoEnEvaluacion(null); }}
+        onConfirmar={(evaluacion) => { void confirmarVistoBuenoPrestamo(evaluacion); }}
+      />
     </div>
   );
 }

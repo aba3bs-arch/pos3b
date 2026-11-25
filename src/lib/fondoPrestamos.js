@@ -1,6 +1,11 @@
 import { esAndresMarrero, normalizarRol } from './roles.js';
 import { esAbb, esFjbb, nombreCoincidePatrones } from './contabilidadConstants.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
+import {
+  MINIMO_VISTO_BUENO,
+  calificarEvaluacionPrestamo,
+  textoEvaluacionPrestamo,
+} from './evaluacionPrestamo.js';
 
 /** Esperando visto bueno del gerente o del administrador principal. */
 export const ESTADO_VISTO_BUENO = 'pendiente_visto_bueno';
@@ -149,40 +154,68 @@ async function actualizarPrestamo(supabase, id, patch) {
   return { data, error };
 }
 
-export async function darVistoBuenoPrestamo(supabase, prestamoId, { user, nombre } = {}) {
+export async function darVistoBuenoPrestamo(supabase, prestamoId, { user, nombre, evaluacion } = {}) {
   if (!puedeDarVistoBuenoPrestamo(user)) {
     return { ok: false, error: 'El visto bueno lo da el gerente o el administrador principal.' };
   }
   if (!supabase || !prestamoId) return { ok: false, error: 'Préstamo inválido.' };
+  const cal = calificarEvaluacionPrestamo(evaluacion?.factores || evaluacion || {});
+  if (!cal.completo) {
+    return { ok: false, error: 'Califica los 5 factores para dar el visto bueno.' };
+  }
+  if (!cal.aprobado) {
+    return {
+      ok: false,
+      error: `La evaluación es ${cal.porcentaje}%. El visto bueno pide al menos ${MINIMO_VISTO_BUENO}%.`,
+    };
+  }
   const { data: p, error: e0 } = await supabase.from('prestamos').select('*').eq('id', prestamoId).single();
   if (e0 || !p) return { ok: false, error: 'Préstamo no encontrado.' };
   if (p.estado !== ESTADO_VISTO_BUENO && p.estado !== 'pendiente_admin') {
     return { ok: false, error: 'Este préstamo no está esperando visto bueno.' };
   }
   const quien = nombre || user?.nombre || 'Gerente';
+  const evaluacionGuardada = {
+    factores: cal.factores,
+    porcentaje: cal.porcentaje,
+    minimo: MINIMO_VISTO_BUENO,
+  };
   const { data, error } = await actualizarPrestamo(supabase, prestamoId, {
     estado: ESTADO_ABB_FJBB,
     aprobado_admin_por: quien,
     aprobado_admin_at: new Date().toISOString(),
     omitir_corte: true,
     cargado_corte: false,
+    evaluacion_visto_bueno: evaluacionGuardada,
   });
   if (error) return { ok: false, error: error.message };
+  if (!data?.evaluacion_visto_bueno) {
+    await actualizarPrestamo(supabase, prestamoId, {
+      estado: p.estado,
+      aprobado_admin_por: p.aprobado_admin_por || null,
+      aprobado_admin_at: p.aprobado_admin_at || null,
+    });
+    return {
+      ok: false,
+      error: 'No se guardó la evaluación. Ejecuta supabase/fix_prestamo_evaluacion_visto_bueno.sql en Supabase.',
+    };
+  }
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, quien);
   const monto = Number(p.monto_original) || 0;
   const usuarioIds = await idsUsuarios(supabase, [...PATRONES_ABB, ...PATRONES_FJBB]);
+  const detalle = textoEvaluacionPrestamo(evaluacionGuardada);
   await crearNotificacion(supabase, {
     sucursal_id: p.sucursal_id,
     tipo: TIPOS_NOTIF.PRESTAMO_ABB_FJBB,
     ref_tabla: 'prestamos',
     ref_id: p.id,
     titulo: `Préstamo para autorizar · ${p.nombre_empleado}`,
-    mensaje: `$${monto.toFixed(2)} · visto bueno de ${quien}. Falta autorización de ABB o FJBB. No va a corte.`,
+    mensaje: `$${monto.toFixed(2)} · visto bueno de ${quien} · ${cal.porcentaje}%.\n${detalle}\nFalta autorización de ABB o FJBB. No va a corte.`,
   }, { usuarioIds });
   return {
     ok: true,
     prestamo: data,
-    mensaje: 'Visto bueno registrado. Se avisó a ABB y FJBB para que autoricen el préstamo.',
+    mensaje: `Visto bueno registrado (${cal.porcentaje}%). Se avisó a ABB y FJBB para que autoricen el préstamo.`,
   };
 }
 

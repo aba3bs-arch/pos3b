@@ -931,6 +931,7 @@ alter table public.prestamos add column if not exists solicitud_monto numeric(12
 alter table public.prestamos add column if not exists solicitud_por text;
 alter table public.prestamos add column if not exists solicitud_at timestamptz;
 alter table public.prestamos add column if not exists solicitud_notas text;
+alter table public.prestamos add column if not exists evaluacion_visto_bueno jsonb;
 
 comment on column public.prestamos.solicitud_tipo is 'abono | descuento | liquidacion | null';
 comment on column public.prestamos.solicitud_monto is 'Monto solicitado pendiente de aprobación admin';

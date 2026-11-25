@@ -85,6 +85,7 @@ alter table public.prestamos add column if not exists solicitud_monto numeric(12
 alter table public.prestamos add column if not exists solicitud_por text;
 alter table public.prestamos add column if not exists solicitud_at timestamptz;
 alter table public.prestamos add column if not exists solicitud_notas text;
+alter table public.prestamos add column if not exists evaluacion_visto_bueno jsonb;
 
 alter table public.prestamos enable row level security;
 drop policy if exists "prestamos_anon_rw" on public.prestamos;
