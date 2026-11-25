@@ -20,6 +20,8 @@ import {
   resumenFondoPrestamos,
 } from '../lib/fondoPrestamos.js';
 import { fmtMonto } from '../lib/consultasUi.js';
+import { calificarEvaluacionPrestamo } from '../lib/evaluacionPrestamo.js';
+import { EvaluacionVistoBuenoForm, EvaluacionVistoBuenoResumen } from './EvaluacionVistoBueno.jsx';
 import PortalFlotante from './PortalFlotante.jsx';
 
 function pasoDe(prestamo, user) {
@@ -49,6 +51,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
   const [capital, setCapital] = useState(0);
   const [procesando, setProcesando] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [respuestas, setRespuestas] = useState({});
   const timerRef = useRef(null);
   const puede = puedeDarVistoBuenoPrestamo(user)
     || puedeAutorizarPrestamoAbbFjbb(user)
@@ -109,9 +112,16 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
     };
   }, [cargar, puede]);
 
+  const prestamoId = prestamo?.id || '';
+  useEffect(() => {
+    setRespuestas({});
+    setErrorMsg('');
+  }, [prestamoId]);
+
   if (!prestamo) return null;
   const paso = pasoDe(prestamo, user);
   if (!paso) return null;
+  const calificacion = calificarEvaluacionPrestamo(respuestas);
   const monto = Number(prestamo.monto_original) || 0;
   const alcanza = capital + 0.001 >= monto;
 
@@ -128,7 +138,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
     if (procesando) return;
     setErrorMsg('');
     setProcesando(true);
-    const opts = { user, nombre: user?.nombre };
+    const opts = { user, nombre: user?.nombre, evaluacion: respuestas };
     const res = paso === 'visto'
       ? await darVistoBuenoPrestamo(supabase, prestamo.id, opts)
       : paso === 'autorizar'
@@ -146,7 +156,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
   return (
     <PortalFlotante>
       <div className="anuncio-pos-backdrop" role="dialog" aria-modal="true" aria-labelledby="alerta-prestamo-titulo" style={{ zIndex: 12020 }}>
-        <div className="card" style={{ maxWidth: 460, width: '100%', borderTop: '5px solid #b45309', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', position: 'relative' }}>
+        <div className="card" style={{ maxWidth: 520, width: '100%', maxHeight: '92vh', overflow: 'auto', borderTop: '5px solid #b45309', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', position: 'relative' }}>
           <button type="button" className="btn btn-ghost" aria-label="Recuérdame en 15 min" onClick={() => recordar(15)} style={{ position: 'absolute', top: 8, right: 8, minWidth: 36, padding: '0.25rem 0.5rem' }}>
             ×
           </button>
@@ -174,6 +184,12 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
               <input className="input" value={METODO_PAGO_NOMINA} readOnly />
             </label>
           </div>
+          {paso === 'visto' && (
+            <div style={{ marginTop: '0.75rem' }}>
+              <EvaluacionVistoBuenoForm value={respuestas} onChange={setRespuestas} />
+            </div>
+          )}
+          {paso === 'autorizar' && <EvaluacionVistoBuenoResumen evaluacion={prestamo.evaluacion_visto_bueno} />}
           {paso === 'desembolso' && (
             <p className="muted" style={{ margin: '0.6rem 0 0', fontSize: '0.82rem' }}>
               Capital disponible: <strong>{fmtMonto(capital)}</strong>
@@ -185,7 +201,7 @@ export default function AlertaPrestamoOverlay({ supabase, user, sucursal }) {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={procesando || (paso === 'desembolso' && !alcanza)}
+              disabled={procesando || (paso === 'desembolso' && !alcanza) || (paso === 'visto' && !calificacion.aprobado)}
               onClick={() => void confirmar()}
             >
               {paso === 'visto' ? 'Dar visto bueno' : paso === 'autorizar' ? 'Autorizar' : 'Desembolsar'}
