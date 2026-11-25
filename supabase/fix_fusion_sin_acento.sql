@@ -19,6 +19,20 @@ update public.usuarios
 set sucursal_id = 'FUSION'
 where sucursal_id in ('Fusión', 'FUSIÓN', 'Fusion', 'fusion');
 
+-- Corte de caja: un solo registro por tienda/fecha/turno.
+-- Si ya hay fila FUSION para ese turno, la variante se deja (la app la trata como el mismo corte).
+update public.cortes_caja a
+set sucursal_id = 'FUSION'
+where a.sucursal_id in ('Fusión', 'FUSIÓN', 'Fusion', 'fusion')
+  and not exists (
+    select 1
+    from public.cortes_caja c
+    where c.sucursal_id = 'FUSION'
+      and c.fecha is not distinct from a.fecha
+      and c.turno_id is not distinct from a.turno_id
+      and c.id <> a.id
+  );
+
 -- Folios: si ya hay fila FUSION, subir ultimo al máximo y borrar huérfanos.
 update public.cortes_contabilidad_folios f
 set ultimo = greatest(

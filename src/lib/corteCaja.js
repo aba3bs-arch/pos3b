@@ -1,5 +1,5 @@
 import { consultarVentas } from './ventasQuery.js';
-import { equivalentesCodigoTienda } from '../constants/sucursales.js';
+import { equivalentesCodigoTienda, mismaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { textoEsRecarga } from './corteCajaRecargasMp.js';
 
 function filtrarSucursalNube(q, sucursal) {
@@ -278,7 +278,7 @@ export function filtrarCortesLocales(cortes, opts = {}) {
     const h = String(hasta).slice(0, 10);
     list = list.filter((c) => String(c.fecha || '').slice(0, 10) <= h);
   }
-  if (sucursal) list = list.filter((c) => String(c.sucursal || c.sucursal_id || '') === sucursal);
+  if (sucursal) list = list.filter((c) => mismaTienda(c.sucursal || c.sucursal_id, sucursal));
   if (usuario?.trim()) {
     const u = usuario.trim().toLowerCase();
     list = list.filter((c) => String(c.usuario || '').toLowerCase().includes(u));
@@ -297,7 +297,7 @@ export function filtrarCortesLocales(cortes, opts = {}) {
 export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) {
   if (!turnoId) return { existe: false };
   const locales = leerCortesLocales().filter(
-    (c) => String(c.sucursal || c.sucursal_id) === String(sucursal) && String(c.fecha).slice(0, 10) === String(fecha).slice(0, 10) && String(c.turno_id) === String(turnoId),
+    (c) => mismaTienda(c.sucursal || c.sucursal_id, sucursal) && String(c.fecha).slice(0, 10) === String(fecha).slice(0, 10) && String(c.turno_id) === String(turnoId),
   );
   if (locales.length) {
     const c = locales[0];
@@ -325,15 +325,17 @@ export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) 
 
   if (!supabase) return { existe: false };
 
-  const { data, error } = await supabase
+  let q = supabase
     .from('cortes_caja')
     .select(
-      'id,usuario,created_at,turno_nombre,efectivo_contado,diferencia,notas,corroboracion,total_ventas,tickets,efectivo_esperado,electronico,grupos,detalle_metodos',
+      'id,usuario,created_at,turno_nombre,efectivo_contado,diferencia,notas,corroboracion,total_ventas,tickets,efectivo_esperado,electronico,grupos,detalle_metodos,sucursal_id',
     )
-    .eq('sucursal_id', sucursal)
     .eq('fecha', String(fecha).slice(0, 10))
     .eq('turno_id', turnoId)
-    .maybeSingle();
+    .order('created_at', { ascending: false })
+    .limit(8);
+  q = filtrarSucursalNube(q, sucursal);
+  const { data, error } = await q;
 
   if (error) {
     if (String(error.message).includes('turno_id') || String(error.message).includes('schema cache')) {
@@ -341,13 +343,15 @@ export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) 
     }
     return { existe: false, error: error.message };
   }
-  if (data) return { existe: true, corte: data, origen: 'nube' };
+  const sid = normalizarCodigoTienda(sucursal);
+  const row = (data || []).find((r) => r.sucursal_id === sid) || (data || [])[0];
+  if (row) return { existe: true, corte: row, origen: 'nube' };
   return { existe: false };
 }
 
 function rowCorteDesdePayload(corte, usuarioId = null) {
   return {
-    sucursal_id: corte.sucursal,
+    sucursal_id: normalizarCodigoTienda(corte.sucursal || corte.sucursal_id) || corte.sucursal,
     usuario: corte.usuario,
     usuario_id: usuarioId || null,
     fecha: corte.fecha,
@@ -394,7 +398,13 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
       cloudId = data.id;
     }
   }
-  const local = guardarCorteLocal({ ...corte, id: cloudId || corte.id || `corte_${Date.now()}`, cloudId });
+  const sidLocal = normalizarCodigoTienda(corte.sucursal || corte.sucursal_id) || corte.sucursal;
+  const local = guardarCorteLocal({
+    ...corte,
+    sucursal: sidLocal,
+    id: cloudId || corte.id || `corte_${Date.now()}`,
+    cloudId,
+  });
   let syncAbarrotes = null;
   try {
     const { sincronizarVentaAbarrotesDesdeCorteCaja } = await import('./corteCajaSyncAbarrotes.js');
@@ -421,8 +431,10 @@ export async function corregirCorte(supabase, corte, usuarioId = null, corteId =
   }
 
   const row = rowCorteDesdePayload(corte, usuarioId);
-  // No cambiar sucursal/fecha/turno al corregir: solo montos y notas.
+  // Fecha y turno se quedan. La tienda sí pasa al código canónico (Fusión → FUSION)
+  // para que no queden dos cortes de la misma caja.
   const patch = {
+    sucursal_id: row.sucursal_id,
     usuario: row.usuario,
     usuario_id: row.usuario_id,
     total_ventas: row.total_ventas,
@@ -438,21 +450,31 @@ export async function corregirCorte(supabase, corte, usuarioId = null, corteId =
   };
 
   if (supabase && String(id).includes('-')) {
-    const { error } = await supabase.from('cortes_caja').update(patch).eq('id', id);
+    let { error } = await supabase.from('cortes_caja').update(patch).eq('id', id);
+    if (error && (error.code === '23505' || /duplicate|unique/i.test(String(error.message || '')))) {
+      const { sucursal_id: _sid, ...sinTienda } = patch;
+      ({ error } = await supabase.from('cortes_caja').update(sinTienda).eq('id', id));
+    }
     if (error) {
       // Fallback si falta columna corroboracion
       if (String(error.message).includes('corroboracion')) {
         const { corroboracion: _c, ...sinCorr } = patch;
         const r2 = await supabase.from('cortes_caja').update(sinCorr).eq('id', id);
-        if (r2.error) return { ok: false, error: r2.error.message };
+        if (r2.error && (r2.error.code === '23505' || /duplicate|unique/i.test(String(r2.error.message || '')))) {
+          const { sucursal_id: _s, ...sinTienda } = sinCorr;
+          const r3 = await supabase.from('cortes_caja').update(sinTienda).eq('id', id);
+          if (r3.error) return { ok: false, error: r3.error.message };
+        } else if (r2.error) return { ok: false, error: r2.error.message };
       } else {
         return { ok: false, error: error.message };
       }
     }
   }
 
+  const sidLocal = normalizarCodigoTienda(corte.sucursal || corte.sucursal_id) || corte.sucursal;
   const local = actualizarCorteLocal({
     ...corte,
+    sucursal: sidLocal,
     id,
     cloudId: String(id).includes('-') ? id : corte.cloudId || null,
     hora: new Date().toISOString(),
@@ -698,12 +720,15 @@ export async function tarjetaAbarrotesDelDia(supabase, { sucursal, fecha } = {})
   // Corte abierto (aún no cerrado): también cuenta para el día en curso.
   if (supabase && suc) {
     try {
-      const { data } = await supabase
+      const varsEstado = equivalentesCodigoTienda(suc);
+      let qEstado = supabase
         .from('cortes_contabilidad_estado')
-        .select('estado,updated_at')
-        .eq('sucursal_id', suc)
-        .eq('modulo', 'abarrotes')
-        .maybeSingle();
+        .select('sucursal_id,estado,updated_at')
+        .eq('modulo', 'abarrotes');
+      qEstado = varsEstado.length > 1 ? qEstado.in('sucursal_id', varsEstado) : qEstado.eq('sucursal_id', suc);
+      const { data: filasEstado } = await qEstado;
+      const sidEstado = normalizarCodigoTienda(suc);
+      const data = (filasEstado || []).find((r) => r.sucursal_id === sidEstado) || (filasEstado || [])[0];
       const tarjetaAbierta = montoTarjetaAbarrotesDetalle(data?.estado);
       if (tarjetaAbierta > 0) {
         const ya = items.some((i) => Math.abs(Number(i.tarjetaAbarrotes) - tarjetaAbierta) < 0.01);
@@ -728,7 +753,10 @@ export async function tarjetaAbarrotesDelDia(supabase, { sucursal, fecha } = {})
     }
   } else if (suc) {
     try {
-      const raw = localStorage.getItem(`pos3b_corte_estado_abarrotes_${suc}`);
+      const sidLocal = normalizarCodigoTienda(suc) || suc;
+      const claveLocal = [`pos3b_corte_estado_abarrotes_${sidLocal}`]
+        .concat(equivalentesCodigoTienda(sidLocal).filter((v) => v !== sidLocal).map((v) => `pos3b_corte_estado_abarrotes_${v}`));
+      const raw = claveLocal.map((k) => localStorage.getItem(k)).find(Boolean);
       const estado = raw ? JSON.parse(raw) : null;
       const tarjetaAbierta = montoTarjetaAbarrotesDetalle(estado);
       if (tarjetaAbierta > 0) {

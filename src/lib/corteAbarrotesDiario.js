@@ -155,40 +155,17 @@ export async function listarGastosAbarrotesDelDia(supabase, { sucursal, fecha } 
   if (!supabase || !suc || !fecha) return { data: [], error: null };
   const desdeIso = inicioDia(fecha).toISOString();
   const hastaIso = finDia(fecha).toISOString();
+  const vars = equivalentesCodigoTienda(suc);
   const { data, error } = await supabase
     .from('cortes_contabilidad_gastos')
     .select('*')
     .eq('modulo', 'abarrotes')
-    .eq('sucursal_id', suc)
+    .in('sucursal_id', vars.length ? vars : [suc])
     .gte('created_at', desdeIso)
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: true })
     .limit(5000);
-  if (error) {
-    // Variantes de código de tienda
-    const { equivalentesCodigoTienda } = await import('../constants/sucursales.js');
-    const vars = equivalentesCodigoTienda(suc);
-    if (vars.length > 1) {
-      const r2 = await supabase
-        .from('cortes_contabilidad_gastos')
-        .select('*')
-        .eq('modulo', 'abarrotes')
-        .in('sucursal_id', vars)
-        .gte('created_at', desdeIso)
-        .lte('created_at', hastaIso)
-        .order('created_at', { ascending: true })
-        .limit(5000);
-      if (r2.error) return { data: [], error: r2.error.message };
-      return {
-        data: (r2.data || []).filter((g) => {
-          const est = g.estado_aprobacion;
-          return !est || est === 'aprobado';
-        }),
-        error: null,
-      };
-    }
-    return { data: [], error: error.message };
-  }
+  if (error) return { data: [], error: error.message };
   return {
     data: (data || []).filter((g) => {
       const est = g.estado_aprobacion;

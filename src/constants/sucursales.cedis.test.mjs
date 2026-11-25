@@ -7,6 +7,8 @@ import {
   esSucursalNoVenta,
   etiquetaTienda,
   normalizarCodigoTienda,
+  mismaTienda,
+  equivalentesCodigoTienda,
   codigoTiendaValido,
   listarSucursales,
   listarSucursalesOperativas,
@@ -24,6 +26,14 @@ assert.equal(ALMACEN_CENTRAL, 'CEDIS');
 assert.equal(normalizarCodigoTienda('CEDIS'), 'CEDIS');
 assert.equal(normalizarCodigoTienda('MAIN'), 'MAIN');
 assert.equal(normalizarCodigoTienda('ALMACEN'), 'CEDIS');
+for (const alias of ['Fusión', 'FUSIÓN', 'Fusion', 'fusion', 'FUSION']) {
+  assert.equal(normalizarCodigoTienda(alias), 'FUSION');
+  assert.equal(mismaTienda(alias, 'FUSION'), true);
+}
+assert.equal(mismaTienda('Fusión', 'fusion'), true);
+assert.equal(mismaTienda('FUSION', '3B5'), false);
+assert.ok(equivalentesCodigoTienda('Fusión').includes('FUSION'));
+assert.ok(equivalentesCodigoTienda('fusion').includes('FUSIÓN'));
 assert.equal(esCentralAdmin('MAIN'), true);
 assert.equal(esCentralAdmin('CEDIS'), false);
 assert.equal(esAlmacenCentral('CEDIS'), true);

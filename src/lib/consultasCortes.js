@@ -1,7 +1,13 @@
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
+
 /**
  * Desglose de ventas por forma de pago de un corte (Consultas → Cajas de cobro → Cortes de caja).
  * Efectivo = venta cobrada en efectivo; tarjeta; otros electrónicos = transferencia, QR y demás.
  */
+
+function sucursalCorte(c) {
+  return normalizarCodigoTienda(c?.sucursal_id || c?.sucursal) || '';
+}
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 export function desgloseCorte(corte) {
@@ -30,11 +36,11 @@ export function marcarCierresAbarrotesDuplicados(cortes) {
   const usados = new Set();
   return lista.map((c) => {
     if (c?.tipoCaja !== 'abarrotes_tarjeta' || !(Number(c.ventasCierre) > 0)) return c;
-    const suc = String(c.sucursal_id || c.sucursal || '').toUpperCase();
+    const suc = sucursalCorte(c);
     const t = new Date(c.created_at || c.hora || 0).getTime();
     const par = pos.find((p) => {
       if (usados.has(p.id)) return false;
-      if (String(p.sucursal_id || p.sucursal || '').toUpperCase() !== suc) return false;
+      if (sucursalCorte(p) !== suc) return false;
       if (Math.abs(r2(p.totalVentas ?? p.total_ventas) - r2(c.ventasCierre)) >= 0.01) return false;
       const tp = new Date(p.created_at || p.hora || 0).getTime();
       return Math.abs(tp - t) <= VENTANA_DUPLICADO_MS;

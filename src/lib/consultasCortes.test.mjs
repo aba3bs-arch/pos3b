@@ -34,6 +34,12 @@ assert.equal(totalesCortes(marcados).cortes, 1);
 const otraTienda = marcarCierresAbarrotesDuplicados([ab, { ...pos291, sucursal_id: 'FUSION' }]);
 assert.equal(otraTienda[0].incluidoEnId, undefined);
 assert.equal(totalesCortes(otraTienda).total, 1735 + 1735);
+
+const mismaFusion = marcarCierresAbarrotesDuplicados([
+  { ...ab, sucursal_id: 'Fusión' },
+  { ...pos291, sucursal_id: 'FUSION' },
+]);
+assert.equal(mismaFusion[0].incluidoEnId, 'c291');
 const montoDistinto = marcarCierresAbarrotesDuplicados([ab, { ...pos291, totalVentas: 900 }]);
 assert.equal(montoDistinto[0].incluidoEnId, undefined);
 

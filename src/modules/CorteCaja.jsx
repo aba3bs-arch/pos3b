@@ -27,7 +27,7 @@ import {
   registrarCancelacion,
   resumirMovimientosCaja,
 } from '../lib/movimientosCaja.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, mismaTienda } from '../constants/sucursales.js';
 import { imprimirCorte } from '../lib/impresion.js';
 import { leerConfigImpresion } from '../lib/posConfig.js';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
@@ -499,7 +499,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   }, [supabase, sucursal, fecha, corteExistente?.corte?.id, msg]);
 
   const historialFiltrado = historial
-    .filter((c) => String(c.fecha || '').slice(0, 10) === String(fecha).slice(0, 10) && (!sucursal || String(c.sucursal || c.sucursal_id || '') === String(sucursal)))
+    .filter((c) => String(c.fecha || '').slice(0, 10) === String(fecha).slice(0, 10) && (!sucursal || mismaTienda(c.sucursal || c.sucursal_id, sucursal)))
     .sort((a, b) => new Date(b.hora || b.created_at || 0) - new Date(a.hora || a.created_at || 0))
     .slice(0, 20);
 

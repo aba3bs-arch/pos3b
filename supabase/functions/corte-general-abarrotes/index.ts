@@ -72,6 +72,7 @@ var corteGeneral = (() => {
     listarSucursales: () => listarSucursales,
     listarSucursalesOperativas: () => listarSucursalesOperativas,
     listarSucursalesParaUI: () => listarSucursalesParaUI,
+    mismaTienda: () => mismaTienda,
     nombreUbicacionSucursal: () => nombreUbicacionSucursal,
     normalizarCodigoTienda: () => normalizarCodigoTienda,
     quitarSucursalExtra: () => quitarSucursalExtra,
@@ -113,6 +114,12 @@ var corteGeneral = (() => {
       out.add("3B7_DEL_VALLE");
     }
     return [...out];
+  }
+  function mismaTienda(a, b) {
+    const na = normalizarCodigoTienda(a);
+    const nb = normalizarCodigoTienda(b);
+    if (!na || !nb) return false;
+    return na === nb;
   }
   function esCentralAdmin(codigo) {
     return normalizarCodigoTienda(codigo) === CENTRAL_ADMIN;
@@ -687,6 +694,7 @@ var corteGeneral = (() => {
         "Productos",
         "Venta en Ruta",
         "Compras",
+        "Checar tickets",
         "Checador",
         "Check List",
         "Evaluaci\xF3n operativa",
@@ -751,6 +759,9 @@ var corteGeneral = (() => {
         { id: "ruta_gastos", label: "Venta en Ruta \u2014 Gastos (foto ticket \u2192 RC)" },
         { id: "ruta_cancelacion", label: "Venta en Ruta \u2014 Cancelaci\xF3n / Devoluci\xF3n" },
         { id: "ruta_liquidacion", label: "Venta en Ruta \u2014 RC/VentaRuta" },
+        { id: "ruta_fin_anio", label: "Venta en Ruta \u2014 Cr\xE9dito fin de a\xF1o" },
+        { id: "ruta_fin_anio_abono", label: "Venta en Ruta \u2014 Abono fin de a\xF1o (solo cajero)" },
+        { id: "ruta_fin_anio_mercancia", label: "Venta en Ruta \u2014 Ingresar y retirar fin de a\xF1o (recolector)" },
         { id: "prod_alta", label: "Productos \u2014 Nuevo producto" },
         { id: "prod_ajuste", label: "Productos \u2014 Ajuste de inventario" },
         { id: "prod_traspaso", label: "Productos \u2014 Traspasos" },
@@ -765,7 +776,8 @@ var corteGeneral = (() => {
         { id: "prod_consolidar", label: "Productos \u2014 Inventario vs ventas del d\xEDa" },
         { id: "prod_negativos", label: "Productos \u2014 Ver inventario negativo" },
         { id: "prod_eliminar", label: "Productos \u2014 Eliminar productos" },
-        { id: "chec_plan_horario", label: "Checador \u2014 Plan horario (calendario)" }
+        { id: "chec_plan_horario", label: "Checador \u2014 Plan horario (calendario)" },
+        { id: "cuadre_ajustar", label: "Consultas \u2014 Ajustar cuadre de piezas" }
       ];
       ACCIONES_PRIVILEGIO_PANEL_RT = ACCIONES_PRIVILEGIO.filter(
         (a) => a.id === "recoleccion_cortes" || a.id.startsWith("recol_ctb_")
@@ -904,6 +916,7 @@ var corteGeneral = (() => {
         "Productos",
         "Venta en Ruta",
         "Compras",
+        "Checar tickets",
         "Checador",
         "Check List",
         "Evaluaci\xF3n operativa",
@@ -941,6 +954,7 @@ var corteGeneral = (() => {
           "Reportes",
           "Vales y Pr\xE9stamos",
           "Cobranza",
+          "Venta en Ruta",
           "Checador",
           "Check List",
           "Tutorial",
@@ -955,6 +969,7 @@ var corteGeneral = (() => {
           "Productos",
           "Venta en Ruta",
           "Compras",
+          "Checar tickets",
           "Checador",
           "Check List",
           "Evaluaci\xF3n operativa",
@@ -1308,10 +1323,14 @@ var corteGeneral = (() => {
         VALE_PENDIENTE: "vale_pendiente_admin",
         PRESTAMO_ADMIN: "prestamo_pendiente_admin",
         PRESTAMO_SOCIO: "prestamo_pendiente_socio",
+        PRESTAMO_VISTO_BUENO: "prestamo_visto_bueno",
+        PRESTAMO_ABB_FJBB: "prestamo_abb_fjbb",
+        PRESTAMO_TESORERO: "prestamo_tesorero",
         PRESTAMO_INTERAREA: "prestamo_interarea",
         PRESTAMO_SUCURSAL: "prestamo_sucursal",
         INCIDENCIA: "incidencia_tienda",
         CONSUMO_CORTE: "consumo_corte_pendiente",
+        CONSUMO_LIMITE: "consumo_limite_excedido",
         RECOLECCION_POST_LIQ: "recoleccion_post_liquidacion",
         RECOLECCION_CORTE_IE: "recoleccion_corte_pendiente_ie",
         RECOLECCION_REPARTIDOR: "recoleccion_repartidor",
@@ -1496,6 +1515,23 @@ var corteGeneral = (() => {
     }
   });
 
+  // src/lib/candadoCancelarConsumo.js
+  var init_candadoCancelarConsumo = __esm({
+    "src/lib/candadoCancelarConsumo.js"() {
+      init_define_import_meta_env();
+      init_pinBeneficiarioConsumo();
+      init_empleadosVisibles();
+      init_contabilidadConstants();
+    }
+  });
+
+  // src/lib/corteContabilidad/unificarEstadoAlias.js
+  var init_unificarEstadoAlias = __esm({
+    "src/lib/corteContabilidad/unificarEstadoAlias.js"() {
+      init_define_import_meta_env();
+    }
+  });
+
   // src/lib/corteContabilidad/store.js
   function lsKey(sucursal, modulo, tipo) {
     const sid = normalizarCodigoTienda(sucursal) || "MAIN";
@@ -1548,6 +1584,8 @@ var corteGeneral = (() => {
       init_traspasosInventario();
       init_empleadosVisibles();
       init_archivo();
+      init_candadoCancelarConsumo();
+      init_unificarEstadoAlias();
       AVISO_FALTA_CORTES = "Faltan tablas de cortes contabilidad. En Supabase \u2192 SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (o solo fix_cortes_contabilidad.sql).";
     }
   });
@@ -2061,23 +2099,9 @@ var corteGeneral = (() => {
     if (!supabase || !suc || !fecha) return { data: [], error: null };
     const desdeIso = inicioDia(fecha).toISOString();
     const hastaIso = finDia(fecha).toISOString();
-    const { data, error } = await supabase.from("cortes_contabilidad_gastos").select("*").eq("modulo", "abarrotes").eq("sucursal_id", suc).gte("created_at", desdeIso).lte("created_at", hastaIso).order("created_at", { ascending: true }).limit(5e3);
-    if (error) {
-      const { equivalentesCodigoTienda: equivalentesCodigoTienda2 } = await Promise.resolve().then(() => (init_sucursales(), sucursales_exports));
-      const vars = equivalentesCodigoTienda2(suc);
-      if (vars.length > 1) {
-        const r2 = await supabase.from("cortes_contabilidad_gastos").select("*").eq("modulo", "abarrotes").in("sucursal_id", vars).gte("created_at", desdeIso).lte("created_at", hastaIso).order("created_at", { ascending: true }).limit(5e3);
-        if (r2.error) return { data: [], error: r2.error.message };
-        return {
-          data: (r2.data || []).filter((g) => {
-            const est = g.estado_aprobacion;
-            return !est || est === "aprobado";
-          }),
-          error: null
-        };
-      }
-      return { data: [], error: error.message };
-    }
+    const vars = equivalentesCodigoTienda(suc);
+    const { data, error } = await supabase.from("cortes_contabilidad_gastos").select("*").eq("modulo", "abarrotes").in("sucursal_id", vars.length ? vars : [suc]).gte("created_at", desdeIso).lte("created_at", hastaIso).order("created_at", { ascending: true }).limit(5e3);
+    if (error) return { data: [], error: error.message };
     return {
       data: (data || []).filter((g) => {
         const est = g.estado_aprobacion;

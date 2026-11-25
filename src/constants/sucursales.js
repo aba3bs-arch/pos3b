@@ -89,6 +89,16 @@ export function equivalentesCodigoTienda(codigo) {
   return [...out];
 }
 
+/**
+ * Misma tienda aunque el texto histórico cambie (Fusión, FUSIÓN, Fusion, fusion → FUSION).
+ */
+export function mismaTienda(a, b) {
+  const na = normalizarCodigoTienda(a);
+  const nb = normalizarCodigoTienda(b);
+  if (!na || !nb) return false;
+  return na === nb;
+}
+
 /** Central de administración (MAIN). */
 export function esCentralAdmin(codigo) {
   return normalizarCodigoTienda(codigo) === CENTRAL_ADMIN;
