@@ -28,5 +28,10 @@ assert.equal(normalizarCodigoTienda('DEL_VALLE'), '3B7');
 assert.equal(normalizarCodigoTienda('3B7 Del Valle'), '3B7');
 assert.equal(normalizarCodigoTienda('3B7_DEL_VALLE'), '3B7');
 assert.ok(equivalentesCodigoTienda('3B7').includes('Del Valle'));
+assert.ok(equivalentesCodigoTienda('3B10').includes('El Mezquite'));
+assert.ok(equivalentesCodigoTienda('El Mezquite').includes('3B10'));
+assert.ok(equivalentesCodigoTienda('MEZQUITE').includes('3B10'));
+assert.equal(normalizarCodigoTienda('El Mezquite'), '3B10');
+assert.equal(normalizarCodigoTienda('3B10 El Mezquite'), '3B10');
 
 console.log('sucursales.ubicacion.test.mjs ok');

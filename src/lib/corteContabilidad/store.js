@@ -436,6 +436,31 @@ function faltaColumnaDeletedAt(error) {
   );
 }
 
+async function repararVentaPosAbarrotesSiAplica(supabase, sid, modulo, estado, persistir) {
+  if (String(modulo || '').toLowerCase() !== 'abarrotes') return estado;
+  try {
+    const { repararVentaPosEnEstado } = await import('../corteCajaSyncAbarrotes.js');
+    const { estado: next, cambio } = repararVentaPosEnEstado(estado);
+    if (!cambio) return next;
+    if (persistir && supabase) {
+      await supabase.from('cortes_contabilidad_estado').upsert(
+        {
+          sucursal_id: sid,
+          modulo,
+          estado: next,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'sucursal_id,modulo' },
+      );
+    } else if (persistir && !supabase) {
+      localStorage.setItem(lsKey(sid, modulo, 'estado'), JSON.stringify(next));
+    }
+    return next;
+  } catch {
+    return estado;
+  }
+}
+
 export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   const sid = sucursalIdCorte(sucursal);
   const def = estadoDefault(modulo);
@@ -465,6 +490,7 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
         }
       }
       if (modulo === 'virtual') estado = normalizarEstadoVirtual(estado);
+      estado = await repararVentaPosAbarrotesSiAplica(null, sid, modulo, estado, true);
       return { estado, soloLocal: true };
     } catch {
       return { estado: def, soloLocal: true };
@@ -527,6 +553,7 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
     const prev = estado.maquinas || {};
     estado.maquinas = Object.fromEntries(Object.keys(defM).map((k) => [k, Number(prev[k]) || 0]));
   }
+  estado = await repararVentaPosAbarrotesSiAplica(supabase, sid, modulo, estado, true);
   return { estado, soloLocal: false, aviso: avisoRecupero || undefined };
 }
 

@@ -4,6 +4,10 @@ import {
   claveVentaPosCorteCaja,
   aplicarVentaPosEnEstadoAbarrotes,
   aplicarAjusteRecargaMpEnVentaAbarrotes,
+  compactarMapaVentaPos,
+  repararVentaPosEnEstado,
+  mapaVentaPosDesdeCortes,
+  turnoCanonVentaPos,
 } from './corteCajaSyncAbarrotes.js';
 
 test('clave estable por fecha y turno', () => {
@@ -73,4 +77,94 @@ test('candado opción 1: sin mapa, solo suma a venta', () => {
     turnoId: 'mat',
   });
   assert.equal(adj.venta, 468);
+});
+
+test('turno diurno y «Turno diurno» son la misma clave', () => {
+  assert.equal(turnoCanonVentaPos('diurno'), 'diurno');
+  assert.equal(turnoCanonVentaPos('Turno diurno', 'Turno diurno'), 'diurno');
+  assert.equal(
+    claveVentaPosCorteCaja({ fecha: '2026-11-25', turnoId: 'diurno' }),
+    claveVentaPosCorteCaja({ fecha: '2026-11-25', turnoId: 'Turno diurno', turnoNombre: 'Turno diurno' }),
+  );
+});
+
+test('corregir con alias de turno: reemplaza, no suma (Fusión / Mezquite)', () => {
+  const base = aplicarVentaPosEnEstadoAbarrotes(
+    {},
+    { clave: '2026-11-25|diurno', totalVentas: 518 },
+  );
+  const corr = aplicarVentaPosEnEstadoAbarrotes(
+    base,
+    { clave: '2026-11-25|Turno diurno', totalVentas: 518, turnoNombre: 'Turno diurno' },
+  );
+  assert.equal(corr.venta, 518);
+  assert.equal(Object.keys(corr.venta_pos_por_corte).length, 1);
+  assert.equal(corr.venta_pos_por_corte['2026-11-25|diurno'], 518);
+});
+
+test('compactar mapa: alias del mismo turno no se suman', () => {
+  const compact = compactarMapaVentaPos({
+    '2026-11-25|diurno': 518,
+    '2026-11-25|Turno diurno': 518,
+  });
+  assert.equal(Object.keys(compact).length, 1);
+  assert.equal(compact['2026-11-25|diurno'], 518);
+});
+
+test('reparar estado: venta duplicada de un solo turno vuelve al Total sistema', () => {
+  const { estado, cambio } = repararVentaPosEnEstado({
+    venta: 1036,
+    venta_pos_por_corte: {
+      '2026-11-25|diurno': 518,
+      '2026-11-25|Turno diurno': 518,
+    },
+  });
+  assert.equal(cambio, true);
+  assert.equal(estado.venta, 518);
+  assert.equal(Object.keys(estado.venta_pos_por_corte).length, 1);
+});
+
+test('reparar estado: venta = 2× mapa de un turno (sin clave alias)', () => {
+  const { estado, cambio } = repararVentaPosEnEstado({
+    venta: 1036,
+    venta_pos_por_corte: { '2026-11-25|diurno': 518 },
+  });
+  assert.equal(cambio, true);
+  assert.equal(estado.venta, 518);
+});
+
+test('mapa desde cortes: dos filas del mismo turno dejan el más reciente', () => {
+  const map = mapaVentaPosDesdeCortes([
+    { fecha: '2026-11-25', turno_id: 'diurno', total_ventas: 518, created_at: '2026-11-25T18:00:00Z' },
+    { fecha: '2026-11-25', turno_id: 'diurno', turno_nombre: 'Turno diurno', total_ventas: 518, created_at: '2026-11-25T20:00:00Z' },
+  ]);
+  assert.equal(map['2026-11-25|diurno'], 518);
+  assert.equal(Object.keys(map).length, 1);
+});
+
+test('mapa desde cortes: diurno y nocturno sí se acumulan', () => {
+  const map = mapaVentaPosDesdeCortes([
+    { fecha: '2026-11-25', turno_id: 'diurno', total_ventas: 518, created_at: '2026-11-25T18:00:00Z' },
+    { fecha: '2026-11-25', turno_id: 'nocturno', total_ventas: 200, created_at: '2026-11-26T02:00:00Z' },
+  ]);
+  assert.equal(map['2026-11-25|diurno'], 518);
+  assert.equal(map['2026-11-25|nocturno'], 200);
+});
+
+test('clavesReemplazar quita la clave vieja al corregir', () => {
+  const base = aplicarVentaPosEnEstadoAbarrotes(
+    {},
+    { clave: '2026-11-25|uuid-viejo', totalVentas: 400 },
+  );
+  const corr = aplicarVentaPosEnEstadoAbarrotes(
+    base,
+    {
+      clave: '2026-11-25|diurno',
+      totalVentas: 518,
+      clavesReemplazar: ['2026-11-25|uuid-viejo'],
+    },
+  );
+  assert.equal(corr.venta, 518);
+  assert.equal(corr.venta_pos_por_corte['2026-11-25|uuid-viejo'], undefined);
+  assert.equal(corr.venta_pos_por_corte['2026-11-25|diurno'], 518);
 });

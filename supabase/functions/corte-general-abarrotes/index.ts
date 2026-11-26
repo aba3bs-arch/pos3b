@@ -113,6 +113,15 @@ var corteGeneral = (() => {
       out.add("3B7 Del Valle");
       out.add("3B7_DEL_VALLE");
     }
+    if (c === "3B10") {
+      out.add("El Mezquite");
+      out.add("EL MEZQUITE");
+      out.add("EL_MEZQUITE");
+      out.add("ELMEZQUITE");
+      out.add("MEZQUITE");
+      out.add("3B10 El Mezquite");
+      out.add("3B10_EL_MEZQUITE");
+    }
     return [...out];
   }
   function mismaTienda(a, b) {
