@@ -45,7 +45,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
     grupo: 'oper',
   },
   { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios', icon: 'register', grupo: 'admin' },
-  { id: 'ruta_rc_clientes_ext', vista: 'rcclientes', label: 'RC/Clientes ext.', desc: 'Crédito dejado a clientes externos y lo cobrado', icon: 'users', grupo: 'admin' },
+  { id: 'ruta_rc_clientes_ext', vista: 'rcclientes', label: 'RC/Clientes ext.', desc: 'Ticket de cada venta, abono parcial y cancelación de cobro', icon: 'users', grupo: 'admin' },
   {
     id: 'ruta_fin_anio',
     vista: 'finanio',
