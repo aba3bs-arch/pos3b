@@ -45,6 +45,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
     grupo: 'oper',
   },
   { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo · RC Servicios', icon: 'register', grupo: 'admin' },
+  { id: 'ruta_rc_clientes_ext', vista: 'rcclientes', label: 'RC/Clientes ext.', desc: 'Crédito dejado a clientes externos y lo cobrado', icon: 'users', grupo: 'admin' },
   {
     id: 'ruta_fin_anio',
     vista: 'finanio',
@@ -77,10 +78,10 @@ export const SUBCOMANDOS_VENTA_RUTA = [
 export const ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL = {
   // Gerente: todo el hub, excepto limpiar consultas (solo Admin por defecto).
   Gerente: SUBCOMANDOS_VENTA_RUTA.filter((s) => s.hub !== false).map((s) => s.id),
-  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_mercancia'],
+  Repartidor: ['ruta_pos', 'ruta_preinventario', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_mercancia', 'ruta_rc_clientes_ext'],
   Cajero: ['ruta_creditos', 'ruta_cancelacion', 'ruta_fin_anio', 'ruta_fin_anio_abono'],
   Supervisor: ['ruta_pos', 'ruta_preinventario', 'ruta_auditorias', 'ruta_creditos', 'ruta_servicios', 'ruta_gastos', 'ruta_cancelacion'],
-  Auditor: ['ruta_consolidacion', 'ruta_auditorias', 'ruta_consultas', 'ruta_preinventario'],
+  Auditor: ['ruta_consolidacion', 'ruta_auditorias', 'ruta_consultas', 'ruta_preinventario', 'ruta_rc_clientes_ext'],
 };
 
 function lecturaExplicitaAccion(data, accionId, rol, userId) {
