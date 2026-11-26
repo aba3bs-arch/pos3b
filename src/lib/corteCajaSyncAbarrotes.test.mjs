@@ -151,6 +151,95 @@ test('mapa desde cortes: diurno y nocturno sí se acumulan', () => {
   assert.equal(map['2026-11-25|nocturno'], 200);
 });
 
+test('segundo turno con el campo alineado: sigue sumando, no se borra el diurno', () => {
+  const next = aplicarVentaPosEnEstadoAbarrotes(
+    {
+      venta: 1500,
+      venta_pos_por_corte: {
+        '2026-11-25|diurno': 1500,
+        '2026-11-25|nocturno': 2003,
+      },
+    },
+    {
+      fecha: '2026-11-25',
+      turnoId: 'nocturno',
+      turnoNombre: 'Turno nocturno',
+      totalVentas: 2003,
+    },
+  );
+  assert.equal(next.venta, 3503);
+  assert.equal(next.venta_pos_por_corte['2026-11-25|diurno'], 1500);
+  assert.equal(next.venta_pos_por_corte['2026-11-25|nocturno'], 2003);
+});
+
+test('venta ya capturada en el campo: guardar actualiza, no suma', () => {
+  const next = aplicarVentaPosEnEstadoAbarrotes(
+    {
+      venta: 2003,
+      tarjeta: 158,
+      venta_pos_por_corte: { '2026-11-25|diurno': 1500 },
+    },
+    {
+      fecha: '2026-11-25',
+      turnoId: 'nocturno',
+      turnoNombre: 'Turno nocturno',
+      totalVentas: 2003,
+    },
+  );
+  assert.equal(next.venta, 2003);
+  assert.equal(next.tarjeta, 158);
+  assert.equal(next.venta_pos_por_corte['2026-11-25|nocturno'], 2003);
+  assert.equal(next.venta_pos_por_corte['2026-11-25|diurno'], undefined);
+});
+
+test('mismo nocturno en dos fechas: corregir reemplaza, no suma', () => {
+  const next = aplicarVentaPosEnEstadoAbarrotes(
+    {
+      venta: 2003,
+      venta_pos_por_corte: { '2026-11-26|nocturno': 2003 },
+    },
+    {
+      fecha: '2026-11-25',
+      turnoId: 'nocturno',
+      turnoNombre: 'Turno nocturno',
+      totalVentas: 2100,
+    },
+  );
+  assert.equal(next.venta, 2100);
+  assert.equal(next.venta_pos_por_corte['2026-11-26|nocturno'], undefined);
+  assert.equal(next.venta_pos_por_corte['2026-11-25|nocturno'], 2100);
+});
+
+test('cierre temprano del mismo turno: el final lo actualiza', () => {
+  const next = aplicarVentaPosEnEstadoAbarrotes(
+    {
+      venta: 800,
+      venta_pos_por_corte: { '2026-11-25|nocturno': 800 },
+    },
+    {
+      fecha: '2026-11-25',
+      turnoId: 'nocturno',
+      turnoNombre: 'Turno nocturno',
+      totalVentas: 2003,
+    },
+  );
+  assert.equal(next.venta, 2003);
+  assert.equal(Object.keys(next.venta_pos_por_corte).length, 1);
+});
+
+test('reparar: el mismo turno en dos fechas no deja la venta duplicada', () => {
+  const { estado, cambio } = repararVentaPosEnEstado({
+    venta: 4006,
+    venta_pos_por_corte: {
+      '2026-11-25|nocturno': 2003,
+      '2026-11-26|nocturno': 2003,
+    },
+  });
+  assert.equal(cambio, true);
+  assert.equal(estado.venta, 2003);
+  assert.equal(Object.keys(estado.venta_pos_por_corte).length, 1);
+});
+
 test('clavesReemplazar quita la clave vieja al corregir', () => {
   const base = aplicarVentaPosEnEstadoAbarrotes(
     {},
