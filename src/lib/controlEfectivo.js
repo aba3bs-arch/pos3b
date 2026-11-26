@@ -1048,7 +1048,7 @@ export async function listarTodoEnTransito(supabase, { repartidorId } = {}) {
   let q = supabase
     .from('transito_efectivo')
     .select(
-      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto',
+      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, foto_url',
     )
     .eq('estatus', 'En Tránsito')
     .order('fecha_hora', { ascending: false })
