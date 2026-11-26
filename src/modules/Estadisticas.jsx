@@ -7,7 +7,7 @@ import { AREAS_ESTADISTICA, FECHA_INICIO_ESTADISTICAS } from '../lib/estadistica
 const DESCRIPCIONES = {
   'Estadísticas Abarrotes': {
     desc: AREAS_ESTADISTICA.abarrotes.desc,
-    ayuda: 'Ventas de corte Abarrotes (incluye pago con tarjeta), tráfico de clientes (tickets POS por tienda/hora), gastos, inventario y mermas en todas las sucursales.',
+    ayuda: 'Ventas de corte Abarrotes (incluye pago con tarjeta), tráfico de clientes (tickets POS por tienda/hora), gastos, inventario y mermas. En «Depto. ABARROTES» ves compras vs ventas del catálogo por tienda, Pareto y si se ha estado surtiendo.',
   },
   'Estadísticas Virtual': {
     desc: AREAS_ESTADISTICA.virtual.desc,
