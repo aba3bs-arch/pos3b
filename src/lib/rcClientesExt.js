@@ -1,7 +1,9 @@
 /**
  * Registro de clientes externos.
- * El inventario del camión no se parte: aquí solo queda el crédito dejado
- * y lo cobrado (abono o crédito cobrado). Las sucursales 3B no entran.
+ * Cada venta (efectivo, crédito o mixto) queda como ticket.
+ * El crédito se abona completo o por partes. Si se cancela un cobro,
+ * ese monto regresa a la deuda. Las sucursales 3B no entran.
+ * El inventario del camión no se parte.
  */
 
 import { montosPagoDesdeVentaRuta, ventaPendienteRecepcion } from './compraGastoCorte.js';
@@ -19,6 +21,80 @@ function esExterno(row) {
   if (!row) return false;
   if (String(row.cliente_tipo || '').toLowerCase() === 'externo') return true;
   return Boolean(tiendaDeVentaRuta(row).externo);
+}
+
+function abonoCancelado(mov) {
+  const est = String(mov?.estatus || '').toLowerCase();
+  if (est === 'cancelado' || est === 'anulado') return true;
+  return /^\s*cancelado\b/i.test(String(mov?.notas || ''));
+}
+
+function esCobroSintetico(id) {
+  return String(id || '').startsWith('cobro:');
+}
+
+/** Líneas vendidas, sin las marcas internas del ticket. */
+export function lineasDeArticulos(articulos) {
+  let arts = articulos;
+  if (typeof arts === 'string') {
+    try { arts = JSON.parse(arts); } catch { return []; }
+  }
+  if (!Array.isArray(arts)) return [];
+  return arts
+    .filter((a) => a && !a._pago_mixto && !a._recepcion_pendiente && !a._lineas_camion && !a._cancelada)
+    .map((a) => {
+      const cantidad = Number(a.cantidad ?? a.qty ?? 0) || 0;
+      const precio = round2(a.precio);
+      const importe = round2(a.importe ?? a.subtotal ?? precio * cantidad);
+      const nombre = String(a.nombre || a.descripcion || a.producto_id || a.productoId || a.id || '').trim();
+      return { nombre: nombre || 'Producto', cantidad, precio, importe };
+    })
+    .filter((a) => a.nombre && (a.cantidad > 0 || a.importe > 0));
+}
+
+function partirCobros(movs) {
+  const cobros = [];
+  const cobrosCancelados = [];
+  let suma = 0;
+  for (const a of movs || []) {
+    const monto = round2(a.monto);
+    if (!(monto > 0)) continue;
+    const limpia = String(a.notas || 'Abono').replace(/^\s*cancelado\s*[·.-]\s*/i, '').trim();
+    const item = {
+      id: String(a.id || ''),
+      monto,
+      fecha: a.created_at || a.pagado_at || null,
+      nota: limpia || 'Abono',
+    };
+    if (abonoCancelado(a)) cobrosCancelados.push(item);
+    else {
+      cobros.push(item);
+      suma = round2(suma + monto);
+    }
+  }
+  return { cobros, cobrosCancelados, suma };
+}
+
+function ticketVenta({
+  id, origen, clienteId, folio, fecha, metodo, total, efectivo, credito, cobrado, pendiente, vendedor, lineas, cobros, cobrosCancelados,
+}) {
+  return {
+    id: String(id),
+    origen,
+    clienteId: String(clienteId || ''),
+    folio: folio || '',
+    fecha: fecha || null,
+    metodo: metodo || (credito > 0 && efectivo > 0 ? 'mixto' : credito > 0 ? 'credito' : 'efectivo'),
+    total: round2(total || (Number(efectivo) || 0) + (Number(credito) || 0)),
+    efectivo: round2(efectivo),
+    credito: round2(credito),
+    cobrado: round2(cobrado),
+    pendiente: round2(pendiente),
+    vendedor: vendedor || '',
+    lineas: lineas || [],
+    cobros: cobros || [],
+    cobrosCancelados: cobrosCancelados || [],
+  };
 }
 
 /**
@@ -81,20 +157,11 @@ export function armarRegistroClientesExt(ventas = [], movimientos = []) {
     if (!(efectivo > 0) && !(credito > 0)) continue;
     const g = grupo(tienda.clave, tienda.nombre);
     g.efectivo = round2(g.efectivo + efectivo);
-    if (!(credito > 0)) continue;
-    const deVenta = abonosPorVenta.get(String(venta.id)) || [];
-    const sumaAbonos = round2(deVenta.reduce((s, a) => s + (Number(a.monto) || 0), 0));
+    const partido = partirCobros(abonosPorVenta.get(String(venta.id)) || []);
     const cargo = cargoPorVenta.get(String(venta.id));
-    let cobrado = Math.min(credito, sumaAbonos);
-    const cobros = deVenta
-      .filter((a) => Number(a.monto) > 0)
-      .map((a) => ({
-        id: String(a.id || ''),
-        monto: round2(a.monto),
-        fecha: a.created_at || null,
-        nota: a.notas || 'Abono',
-      }));
-    if (pagado(venta, cargo) && cobrado + 0.009 < credito) {
+    let cobrado = Math.min(credito, partido.suma);
+    const cobros = partido.cobros;
+    if (credito > 0 && pagado(venta, cargo) && cobrado + 0.009 < credito) {
       const resto = round2(credito - cobrado);
       cobrado = credito;
       cobros.push({
@@ -105,20 +172,28 @@ export function armarRegistroClientesExt(ventas = [], movimientos = []) {
       });
     }
     const pendiente = round2(Math.max(0, credito - cobrado));
-    g.credito = round2(g.credito + credito);
-    g.cobrado = round2(g.cobrado + cobrado);
-    g.pendiente = round2(g.pendiente + pendiente);
-    g.tickets.push({
-      id: String(venta.id),
+    if (credito > 0) {
+      g.credito = round2(g.credito + credito);
+      g.cobrado = round2(g.cobrado + cobrado);
+      g.pendiente = round2(g.pendiente + pendiente);
+    }
+    g.tickets.push(ticketVenta({
+      id: venta.id,
       origen: 'venta',
-      clienteId: String(venta.cliente_id || ''),
-      folio: venta.folio || '',
-      fecha: venta.created_at || null,
+      clienteId: venta.cliente_id,
+      folio: venta.folio,
+      fecha: venta.created_at,
+      metodo: pago.metodo,
+      total: round2(efectivo + credito) || round2(venta.total),
+      efectivo,
       credito,
-      cobrado,
+      cobrado: credito > 0 ? cobrado : 0,
       pendiente,
-      cobros,
-    });
+      vendedor: venta.vendedor_nombre,
+      lineas: lineasDeArticulos(venta.articulos),
+      cobros: credito > 0 ? cobros : [],
+      cobrosCancelados: credito > 0 ? partido.cobrosCancelados : [],
+    }));
   }
 
   for (const cargo of cargosSueltos) {
@@ -130,17 +205,9 @@ export function armarRegistroClientesExt(ventas = [], movimientos = []) {
     const g = grupo(tienda.clave, cargo.cliente_nombre || tienda.nombre);
     const monto = round2(cargo.monto);
     if (!(monto > 0)) continue;
-    const deCargo = abonosPorCargo.get(String(cargo.id)) || [];
-    const sumaAbonos = round2(deCargo.reduce((s, a) => s + (Number(a.monto) || 0), 0));
-    let cobrado = Math.min(monto, sumaAbonos);
-    const cobros = deCargo
-      .filter((a) => Number(a.monto) > 0)
-      .map((a) => ({
-        id: String(a.id || ''),
-        monto: round2(a.monto),
-        fecha: a.created_at || a.pagado_at || null,
-        nota: a.notas || 'Abono',
-      }));
+    const partido = partirCobros(abonosPorCargo.get(String(cargo.id)) || []);
+    let cobrado = Math.min(monto, partido.suma);
+    const cobros = partido.cobros;
     const ya = pagado(null, cargo);
     if (ya && cobrado + 0.009 < monto) {
       const resto = round2(monto - cobrado);
@@ -156,20 +223,26 @@ export function armarRegistroClientesExt(ventas = [], movimientos = []) {
     g.credito = round2(g.credito + monto);
     g.cobrado = round2(g.cobrado + cobrado);
     g.pendiente = round2(g.pendiente + pendiente);
-    g.tickets.push({
-      id: String(cargo.id || cargo.folio_venta || g.tickets.length),
+    g.tickets.push(ticketVenta({
+      id: cargo.id || cargo.folio_venta || g.tickets.length,
       origen: 'cargo',
-      clienteId: String(cargo.cliente_id || ''),
-      folio: cargo.folio_venta || '',
-      fecha: cargo.created_at || null,
+      clienteId: cargo.cliente_id,
+      folio: cargo.folio_venta,
+      fecha: cargo.created_at,
+      metodo: 'credito',
+      total: monto,
+      efectivo: 0,
       credito: monto,
       cobrado,
       pendiente,
+      lineas: [],
       cobros,
-    });
+      cobrosCancelados: partido.cobrosCancelados,
+    }));
   }
 
   for (const abono of abonosSueltos) {
+    if (abonoCancelado(abono)) continue;
     const tienda = tiendaDeVentaRuta({
       cliente_tipo: 'externo',
       cliente_id: abono.cliente_id,
@@ -180,17 +253,21 @@ export function armarRegistroClientesExt(ventas = [], movimientos = []) {
     if (!(monto > 0)) continue;
     g.cobrado = round2(g.cobrado + monto);
     g.pendiente = round2(Math.max(0, g.credito - g.cobrado));
-    g.tickets.push({
+    g.tickets.push(ticketVenta({
       id: `abono:${abono.id}`,
       origen: 'abono',
-      clienteId: String(abono.cliente_id || ''),
-      folio: abono.folio_venta || '',
-      fecha: abono.created_at || null,
+      clienteId: abono.cliente_id,
+      folio: abono.folio_venta,
+      fecha: abono.created_at,
+      metodo: 'efectivo',
+      total: monto,
+      efectivo: 0,
       credito: 0,
       cobrado: monto,
       pendiente: 0,
+      lineas: [],
       cobros: [{ id: String(abono.id || ''), monto, fecha: abono.created_at || null, nota: abono.notas || 'Abono' }],
-    });
+    }));
   }
 
   const lista = [...clientes.values()]
@@ -224,12 +301,12 @@ async function paginar(supabase, tabla, select, afinar) {
 export async function listarRegistroClientesExt(supabase) {
   const vacio = armarRegistroClientesExt([], []);
   if (!supabase) return { ok: false, error: 'Sin conexión.', registro: vacio };
-  const ventas = await paginar(
-    supabase,
-    'ruta_ventas',
-    'id,folio,cliente_id,cliente_tipo,cliente_nombre,metodo_pago,total,estado,estado_credito,created_at,articulos',
-    (q) => q.eq('cliente_tipo', 'externo').order('created_at', { ascending: false }),
-  );
+  const filtroVentas = (q) => q.eq('cliente_tipo', 'externo').order('created_at', { ascending: false });
+  const columnasVenta = 'id,folio,cliente_id,cliente_tipo,cliente_nombre,metodo_pago,total,estado,estado_credito,created_at,articulos';
+  let ventas = await paginar(supabase, 'ruta_ventas', `${columnasVenta},vendedor_nombre`, filtroVentas);
+  if (ventas.error && /vendedor_nombre/i.test(ventas.error)) {
+    ventas = await paginar(supabase, 'ruta_ventas', columnasVenta, filtroVentas);
+  }
   if (ventas.error) return { ok: false, error: ventas.error, registro: vacio };
   const columnas = 'id,venta_id,folio_venta,cliente_id,cliente_tipo,cliente_nombre,monto,created_at,tipo,estatus,pagado_at,notas,cargo_id';
   let movimientos = await paginar(
@@ -264,6 +341,8 @@ export function cobrosDelRegistro(registro) {
           folio: ticket.folio || '',
           cliente: cliente.nombre,
           clienteClave: cliente.clave,
+          ticketId: ticket.id,
+          origen: ticket.origen,
         });
       }
     }
@@ -421,6 +500,8 @@ export async function registrarCobroClienteExt(supabase, {
           pagado_at: ahora,
         }).eq('id', ticket.id);
       }
+    } else if (ticket.origen === 'venta') {
+      await ajustarSaldoCargoVenta(supabase, ticket.id, round2(ticket.pendiente - parte.monto));
     }
     aplicados.push({
       id: parte.id,
@@ -435,5 +516,151 @@ export async function registrarCobroClienteExt(supabase, {
     aplicados,
     monto: plan.montoAplicado,
     cliente: elegidos[0].clienteNombre,
+  };
+}
+
+async function cargosDeVenta(supabase, ventaId) {
+  const q = await supabase
+    .from('ruta_cxc_movimientos')
+    .select('id,estatus,pagado_at,tipo,monto')
+    .eq('venta_id', String(ventaId))
+    .eq('tipo', 'cargo');
+  if (q.error || !q.data) return [];
+  return q.data;
+}
+
+function cargoSigueAbierto(cargo) {
+  if (!cargo) return false;
+  if (cargo.pagado_at) return false;
+  const est = String(cargo.estatus || 'pendiente').toLowerCase();
+  return est === 'pendiente' || est === '' || est === 'null';
+}
+
+/** El cargo de Cobranza queda en el saldo que este registro todavía debe. */
+async function ajustarSaldoCargoVenta(supabase, ventaId, pendiente) {
+  const cargos = await cargosDeVenta(supabase, ventaId);
+  const vivos = cargos.filter(cargoSigueAbierto);
+  if (vivos.length !== 1) return;
+  await supabase.from('ruta_cxc_movimientos').update({
+    monto: round2(Math.max(0, pendiente)),
+  }).eq('id', vivos[0].id);
+}
+
+async function marcarAbonoCancelado(supabase, id, nota) {
+  let res = await supabase.from('ruta_cxc_movimientos').update({
+    estatus: 'cancelado',
+    notas: nota,
+  }).eq('id', id);
+  if (res.error && /estatus|notas|schema cache/i.test(res.error.message || '')) {
+    res = await supabase.from('ruta_cxc_movimientos').update({ notas: nota }).eq('id', id);
+  }
+  if (res.error) return { ok: false, error: res.error.message || 'No se canceló el cobro.' };
+  return { ok: true };
+}
+
+async function reabrirCargo(supabase, cargoId, monto) {
+  const patch = {
+    estatus: 'pendiente',
+    pagado_por: null,
+    pagado_at: null,
+  };
+  // En un cargo suelto el monto ES el crédito: no se recorta.
+  // En la venta el crédito vive en ruta_ventas y aquí solo se alinea Cobranza.
+  if (monto > 0) patch.monto = round2(monto);
+  let res = await supabase.from('ruta_cxc_movimientos').update(patch).eq('id', cargoId);
+  if (res.error) {
+    res = await supabase.from('ruta_cxc_movimientos').update({ estatus: 'pendiente' }).eq('id', cargoId);
+  }
+  if (res.error) return { ok: false, error: res.error.message || 'No se reabrió la deuda.' };
+  return { ok: true };
+}
+
+async function reabrirDeudaVenta(supabase, ventaId, pendiente) {
+  const ventaUpd = await supabase.from('ruta_ventas').update({ estado_credito: 'pendiente' }).eq('id', ventaId);
+  if (ventaUpd.error) return { ok: false, error: ventaUpd.error.message || 'No se reabrió la deuda.' };
+  const cargos = await cargosDeVenta(supabase, ventaId);
+  if (cargos.length === 1) return reabrirCargo(supabase, cargos[0].id, pendiente);
+  for (const cargo of cargos) {
+    if (cargoSigueAbierto(cargo)) continue;
+    const re = await reabrirCargo(supabase, cargo.id, 0);
+    if (!re.ok) return re;
+  }
+  return { ok: true };
+}
+
+/**
+ * Anula un cobro de este registro. El monto deja de contar como cobrado
+ * y vuelve al pendiente del mismo crédito.
+ */
+export async function cancelarCobroClienteExt(supabase, { cobroId, usuarioNombre } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const id = String(cobroId || '').trim();
+  if (!id) return { ok: false, error: 'Falta el cobro a cancelar.' };
+  const reg = await listarRegistroClientesExt(supabase);
+  if (!reg.ok) return { ok: false, error: reg.error || 'No se pudo leer el registro.' };
+
+  let hallado = null;
+  for (const cliente of reg.registro.clientes) {
+    for (const ticket of cliente.tickets || []) {
+      const cobro = (ticket.cobros || []).find((c) => String(c.id) === id);
+      if (!cobro) continue;
+      hallado = { cliente, ticket, cobro };
+      break;
+    }
+    if (hallado) break;
+  }
+  if (!hallado) return { ok: false, error: 'Ese cobro ya no está activo. Actualiza la pantalla.' };
+
+  const quien = String(usuarioNombre || '').trim() || 'RC/Clientes ext.';
+  const { ticket, cobro, cliente } = hallado;
+  const sintetico = esCobroSintetico(cobro.id);
+  const sint = (ticket.cobros || []).find((c) => esCobroSintetico(c.id) && round2(c.monto) > 0 && String(c.id) !== id);
+
+  if (!sintetico && sint && String(ticket.clienteId || '').trim()) {
+    const preserva = await insertarAbono(supabase, {
+      cliente_tipo: 'externo',
+      cliente_id: String(ticket.clienteId),
+      cliente_nombre: cliente.nombre,
+      tipo: 'abono',
+      monto: sint.monto,
+      saldo_despues: 0,
+      venta_id: ticket.origen === 'venta' ? String(ticket.id) : null,
+      cargo_id: ticket.origen === 'cargo' ? String(ticket.id) : null,
+      folio_venta: ticket.folio || null,
+      metodo_pago: 'efectivo',
+      estatus: 'pagado',
+      notas: 'Crédito cobrado',
+      usuario_nombre: quien,
+      pagado_por: quien,
+      pagado_at: sint.fecha || new Date().toISOString(),
+    });
+    if (!preserva.ok) return { ok: false, error: preserva.error || 'No se pudo conservar el resto cobrado.' };
+  }
+
+  if (!sintetico) {
+    const notaPrevia = String(cobro.nota || 'Cobro').replace(/^\s*cancelado\s*[·.-]\s*/i, '');
+    const marca = await marcarAbonoCancelado(supabase, id, `CANCELADO · ${notaPrevia} · ${quien}`);
+    if (!marca.ok) return marca;
+  }
+
+  const otros = (ticket.cobros || []).filter((c) => String(c.id) !== id && !esCobroSintetico(c.id));
+  const preservado = sintetico || !sint ? 0 : round2(sint.monto);
+  const cobradoRestante = round2(otros.reduce((s, c) => s + round2(c.monto), 0) + preservado);
+  const pendiente = round2(Math.max(0, round2(ticket.credito) - cobradoRestante));
+
+  if (pendiente > 0.009 && ticket.origen === 'venta') {
+    const re = await reabrirDeudaVenta(supabase, ticket.id, pendiente);
+    if (!re.ok) return re;
+  } else if (pendiente > 0.009 && ticket.origen === 'cargo') {
+    const re = await reabrirCargo(supabase, ticket.id);
+    if (!re.ok) return re;
+  }
+
+  return {
+    ok: true,
+    monto: round2(cobro.monto),
+    cliente: cliente.nombre,
+    folio: ticket.folio || '',
+    pendiente,
   };
 }

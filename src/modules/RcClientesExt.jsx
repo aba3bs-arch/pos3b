@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { fmtMonto } from '../lib/consultasUi.js';
 import {
+  cancelarCobroClienteExt,
   cobrosDelRegistro,
   listarRegistroClientesExt,
   planCobroClienteExt,
@@ -36,6 +37,151 @@ function esCreditoCobrar(ticket) {
   return (ticket?.origen === 'venta' || ticket?.origen === 'cargo') && Number(ticket?.pendiente) > 0;
 }
 
+function etiquetaMetodo(metodo) {
+  if (metodo === 'efectivo') return 'Efectivo';
+  if (metodo === 'mixto') return 'Mixto';
+  if (metodo === 'credito') return 'Crédito';
+  return 'Venta';
+}
+
+function fmtCant(n) {
+  const x = Number(n) || 0;
+  if (Number.isInteger(x)) return String(x);
+  return String(Math.round(x * 1000) / 1000);
+}
+
+function TicketVenta({
+  ticket: t,
+  cliente,
+  abierto,
+  onToggle,
+  monto,
+  onMonto,
+  nota,
+  onNota,
+  ocupado,
+  onCobrar,
+  onCancelar,
+}) {
+  const total = t.total || t.credito || t.efectivo || t.cobrado;
+  return (
+    <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.55rem' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', minHeight: 44 }}
+      >
+        <span style={{ minWidth: 0 }}>
+          <strong>{t.folio || 'Sin folio'}</strong>
+          <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+            {etiquetaMetodo(t.metodo)} · {fecha(t.fecha)}
+          </span>
+        </span>
+        <span style={{ flexShrink: 0 }}>
+          <strong>{fmtMonto(total)}</strong>
+          <span className="muted" style={{ marginLeft: 8, fontSize: '0.78rem' }}>{abierto ? 'Ocultar' : 'Ver'}</span>
+        </span>
+      </button>
+      {t.credito > 0 && (
+        <p className="muted" style={{ margin: '0.15rem 0 0', fontSize: '0.78rem' }}>
+          Cobrado {fmtMonto(t.cobrado)} · pendiente {fmtMonto(t.pendiente)}
+        </p>
+      )}
+      {abierto && (
+        <div style={{ marginTop: '0.55rem', padding: '0.75rem', border: '1px dashed var(--border, #cbd5e1)', borderRadius: 8, display: 'grid', gap: '0.45rem' }}>
+          <strong style={{ color: COLOR }}>{`Ticket · ${etiquetaMetodo(t.metodo)}`}</strong>
+          {t.vendedor ? <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Vendedor: {t.vendedor}</p> : null}
+          {(t.lineas || []).length > 0 && (
+            <div style={{ display: 'grid', gap: '0.25rem' }}>
+              {t.lineas.map((linea, i) => (
+                <div key={`${t.id}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', fontSize: '0.88rem' }}>
+                  <span style={{ minWidth: 0 }}>
+                    {linea.nombre}
+                    <span className="muted"> · {fmtCant(linea.cantidad)} × {fmtMonto(linea.precio)}</span>
+                  </span>
+                  <strong style={{ flexShrink: 0 }}>{fmtMonto(linea.importe)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+          {(t.lineas || []).length === 0 && t.origen !== 'abono' && (
+            <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Esta venta no trae el detalle de productos.</p>
+          )}
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            {t.efectivo > 0 && <Cifra label="Efectivo" valor={t.efectivo} />}
+            {t.credito > 0 && <Cifra label="Crédito" valor={t.credito} />}
+            {t.credito > 0 && <Cifra label="Cobrado" valor={t.cobrado} />}
+            {t.credito > 0 && <Cifra label="Pendiente" valor={t.pendiente} color={COLOR} />}
+          </div>
+          {t.credito > 0 && (t.cobros || []).map((c) => (
+            <div key={c.id || `${t.id}-${c.fecha}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.65rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.85rem', minWidth: 0 }}>
+                {c.nota} · {fmtMonto(c.monto)}
+                {c.fecha ? <span className="muted"> · {fecha(c.fecha)}</span> : null}
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ minHeight: 44, color: '#b91c1c', flexShrink: 0 }}
+                disabled={ocupado}
+                onClick={() => onCancelar(c, cliente)}
+              >
+                Cancelar
+              </button>
+            </div>
+          ))}
+          {t.credito > 0 && (t.cobros || []).length === 0 && (
+            <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Sin cobros. El crédito sigue en la deuda.</p>
+          )}
+          {(t.cobrosCancelados || []).map((c) => (
+            <p key={`x-${c.id}`} className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+              Cancelado · {c.nota} · {fmtMonto(c.monto)}. Regresó a la deuda.
+            </p>
+          ))}
+          {t.pendiente > 0 && (
+            <div style={{ display: 'grid', gap: '0.45rem', marginTop: '0.2rem' }}>
+              <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
+                Abono a este ticket
+                <input
+                  className="input"
+                  inputMode="decimal"
+                  style={campo}
+                  value={monto}
+                  onChange={(e) => onMonto(e.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
+              <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
+                Pendiente {fmtMonto(t.pendiente)}. Un monto menor queda como abono y el resto sigue en la deuda.
+              </p>
+              <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
+                Nota
+                <input
+                  className="input"
+                  style={campo}
+                  value={nota}
+                  onChange={(e) => onNota(e.target.value)}
+                  placeholder="Abono o crédito cobrado"
+                  maxLength={120}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ minHeight: 44 }}
+                disabled={ocupado || !(Number(monto) > 0)}
+                onClick={() => onCobrar(t, cliente)}
+              >
+                {ocupado ? 'Guardando…' : 'Cobrar abono'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const campo = {
   width: '100%',
   boxSizing: 'border-box',
@@ -53,6 +199,8 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
   const [marcados, setMarcados] = useState([]);
   const [monto, setMonto] = useState('');
   const [nota, setNota] = useState('');
+  const [montoTicket, setMontoTicket] = useState('');
+  const [notaTicket, setNotaTicket] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
@@ -134,6 +282,96 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
     setMonto(suma > 0 ? String(Math.round(suma * 100) / 100) : '');
   };
 
+  const prepararTicket = (t) => {
+    setMontoTicket(t?.pendiente > 0 ? String(Math.round(t.pendiente * 100) / 100) : '');
+    setNotaTicket('');
+  };
+
+  const alternarVistaTicket = (t) => {
+    if (ticket === t.id) {
+      setTicket('');
+      return;
+    }
+    setTicket(t.id);
+    prepararTicket(t);
+  };
+
+  const verTicketDeCobro = (cobro) => {
+    const cliente = clientes.find((c) => c.clave === cobro.clienteClave);
+    const elegido = (cliente?.tickets || []).find((t) => t.id === cobro.ticketId);
+    setPestana('registro');
+    setAbierto(cobro.clienteClave || '');
+    setTicket(cobro.ticketId || '');
+    if (elegido) prepararTicket(elegido);
+  };
+
+  const cobrarEsteTicket = async (t, cliente) => {
+    if (guardando) return;
+    const plan = planCobroClienteExt([t], montoTicket);
+    if (!plan.ok) {
+      setMensaje(plan.error);
+      return;
+    }
+    const parte = plan.partes[0];
+    const resto = Math.round((Number(t.pendiente) - parte.monto) * 100) / 100;
+    const pregunta = resto > 0.009
+      ? `¿Abonar ${fmtMonto(parte.monto)} al ticket ${t.folio || 'sin folio'}?\nQuedan ${fmtMonto(resto)} en la deuda.`
+      : `¿Cobrar ${fmtMonto(parte.monto)} del ticket ${t.folio || 'sin folio'}?\nEl crédito queda saldado.`;
+    if (!window.confirm(pregunta)) return;
+    setGuardando(true);
+    setMensaje('');
+    const res = await registrarCobroClienteExt(supabase, {
+      ticketIds: [t.id],
+      monto: plan.montoAplicado,
+      nota: notaTicket,
+      usuarioNombre: user?.nombre || '',
+    });
+    setGuardando(false);
+    if (!res.ok) {
+      setMensaje(res.error || 'No se registró el abono.');
+      if (res.aplicados?.length) await cargar();
+      return;
+    }
+    setNotaTicket('');
+    setMensaje(parte.parcial
+      ? `Abono de ${fmtMonto(res.monto)} registrado. El resto sigue en la deuda de ${cliente.nombre}.`
+      : `Crédito cobrado: ${fmtMonto(res.monto)} de ${cliente.nombre}.`);
+    const fresco = await cargar();
+    const sigue = ((fresco?.clientes || []).find((c) => c.clave === cliente.clave)?.tickets || []).find((x) => x.id === t.id);
+    setMontoTicket(sigue?.pendiente > 0 ? String(Math.round(sigue.pendiente * 100) / 100) : '');
+  };
+
+  const cancelarCobro = async (cobro, clienteNombre) => {
+    if (guardando) return;
+    const quien = clienteNombre || cobro.cliente || 'este cliente';
+    if (!window.confirm(`¿Cancelar el cobro de ${fmtMonto(cobro.monto)} de ${quien}?\nEl monto regresa a la deuda.`)) return;
+    setGuardando(true);
+    setMensaje('');
+    const res = await cancelarCobroClienteExt(supabase, {
+      cobroId: cobro.id,
+      usuarioNombre: user?.nombre || '',
+    });
+    setGuardando(false);
+    if (!res.ok) {
+      setMensaje(res.error || 'No se canceló el cobro.');
+      return;
+    }
+    setMensaje(`Cobro cancelado: ${fmtMonto(res.monto)} regresó a la deuda de ${res.cliente}.`);
+    const fresco = await cargar();
+    if (clienteClave) {
+      const elegido = (fresco?.clientes || []).find((c) => c.clave === clienteClave);
+      const siguientes = (elegido?.tickets || []).filter(esCreditoCobrar);
+      setMarcados(siguientes.map((t) => t.id));
+      const suma = siguientes.reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
+      setMonto(suma > 0 ? String(Math.round(suma * 100) / 100) : '');
+    }
+    if (ticket) {
+      const dueño = (fresco?.clientes || []).find((c) => (c.tickets || []).some((t) => t.id === ticket));
+      const sigue = (dueño?.tickets || []).find((t) => t.id === ticket);
+      setMontoTicket(sigue?.pendiente > 0 ? String(Math.round(sigue.pendiente * 100) / 100) : '');
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
       <div>
@@ -142,7 +380,8 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <h3 style={{ margin: 0, color: COLOR }}>RC/Clientes ext.</h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Registro de lo que se deja a crédito a clientes externos y de lo que se cobra después.
+          Cada venta a un cliente externo, en efectivo o a crédito, tiene su ticket.
+          Un crédito se puede abonar por partes. Si el cobro se cancela, el monto regresa a la deuda.
           El inventario sigue en el camión, el mismo de las sucursales.
         </p>
         <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
@@ -175,6 +414,11 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
         <Cifra label="Cobrado" valor={totales.cobrado} />
         <Cifra label="Pendiente" valor={totales.pendiente} color={COLOR} />
       </div>
+      {mensaje && (
+        <div className="card" style={{ borderLeft: `4px solid ${COLOR}` }}>
+          <p style={{ margin: 0 }}>{mensaje}</p>
+        </div>
+      )}
       {pestana === 'cobro' && (
         <div style={{ display: 'grid', gap: '0.85rem' }}>
           <div className="card" style={{ borderTop: `4px solid ${COLOR}`, display: 'grid', gap: '0.75rem' }}>
@@ -270,7 +514,6 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
                 )}
               </>
             )}
-            {mensaje && <p style={{ margin: 0 }}>{mensaje}</p>}
           </div>
           <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'baseline' }}>
@@ -281,14 +524,28 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
               <p className="muted" style={{ margin: 0 }}>Todavía no hay abonos ni créditos cobrados.</p>
             )}
             {cobros.map((c) => (
-              <div key={`${c.id}-${c.folio}-${c.fecha}`} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem' }}>
+              <div key={`${c.id}-${c.folio}-${c.fecha}`} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem', display: 'grid', gap: '0.35rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
                   <strong>{c.cliente}</strong>
                   <strong>{fmtMonto(c.monto)}</strong>
                 </div>
-                <p className="muted" style={{ margin: '0.15rem 0 0', fontSize: '0.78rem' }}>
+                <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
                   {c.nota}{c.folio ? ` · ${c.folio}` : ''}{c.fecha ? ` · ${fecha(c.fecha)}` : ''}
                 </p>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => verTicketDeCobro(c)}>
+                    Ver ticket
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ minHeight: 44, color: '#b91c1c' }}
+                    disabled={guardando}
+                    onClick={() => { void cancelarCobro(c); }}
+                  >
+                    Cancelar cobro
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -296,7 +553,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
       )}
       {pestana === 'registro' && clientes.length === 0 && (
         <div className="card">
-          <p className="muted" style={{ margin: 0 }}>Todavía no hay crédito ni cobros de clientes externos.</p>
+          <p className="muted" style={{ margin: 0 }}>Todavía no hay ventas de clientes externos.</p>
         </div>
       )}
       {pestana === 'registro' && clientes.map((cliente) => {
@@ -317,39 +574,22 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
               <Cifra label="Cobrado" valor={cliente.cobrado} />
               <Cifra label="Pendiente" valor={cliente.pendiente} color={COLOR} />
             </div>
-            {abiertoCliente && cliente.tickets.map((t) => {
-              const abiertoTicket = ticket === t.id;
-              return (
-                <div key={t.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.55rem' }}>
-                  <button
-                    type="button"
-                    onClick={() => setTicket(abiertoTicket ? '' : t.id)}
-                    style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
-                  >
-                    <span>
-                      <strong>{t.folio || 'Sin folio'}</strong>
-                      <span className="muted" style={{ marginLeft: 8, fontSize: '0.8rem' }}>{fecha(t.fecha)}</span>
-                    </span>
-                    <span>
-                      <strong>{fmtMonto(t.credito || t.cobrado)}</strong>
-                      <span className="muted" style={{ marginLeft: 8, fontSize: '0.78rem' }}>{abiertoTicket ? 'Ocultar' : 'Ver'}</span>
-                    </span>
-                  </button>
-                  <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.78rem' }}>
-                    Crédito {fmtMonto(t.credito)} · cobrado {fmtMonto(t.cobrado)} · pendiente {fmtMonto(t.pendiente)}
-                  </p>
-                  {abiertoTicket && t.cobros.map((c) => (
-                    <p key={c.id || `${t.id}-${c.fecha}`} style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-                      {c.nota} · {fmtMonto(c.monto)}
-                      {c.fecha ? <span className="muted"> · {fecha(c.fecha)}</span> : null}
-                    </p>
-                  ))}
-                  {abiertoTicket && t.cobros.length === 0 && (
-                    <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Sin cobros.</p>
-                  )}
-                </div>
-              );
-            })}
+            {abiertoCliente && cliente.tickets.map((t) => (
+              <TicketVenta
+                key={t.id}
+                ticket={t}
+                cliente={cliente}
+                abierto={ticket === t.id}
+                onToggle={() => alternarVistaTicket(t)}
+                monto={montoTicket}
+                onMonto={setMontoTicket}
+                nota={notaTicket}
+                onNota={setNotaTicket}
+                ocupado={guardando}
+                onCobrar={(venta, dueno) => { void cobrarEsteTicket(venta, dueno); }}
+                onCancelar={(cobro, dueno) => { void cancelarCobro(cobro, dueno?.nombre); }}
+              />
+            ))}
           </div>
         );
       })}

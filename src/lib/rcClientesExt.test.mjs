@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   armarRegistroClientesExt,
+  cancelarCobroClienteExt,
   cobrosDelRegistro,
   planCobroClienteExt,
   registrarCobroClienteExt,
@@ -67,6 +68,14 @@ assert.equal(reg.totales.pendiente, 600);
 assert.equal(reg.totales.efectivo, 200);
 assert.equal(reg.clientes[0].tickets[0].origen, 'venta');
 assert.equal(reg.clientes[0].tickets[0].clienteId, 'cli-1');
+assert.equal(reg.clientes[0].tickets[0].metodo, 'credito');
+assert.equal(reg.clientes[0].tickets[0].lineas[0].nombre, 'Cuete');
+assert.equal(reg.clientes[0].tickets[0].lineas[0].cantidad, 40);
+assert.equal(reg.clientes[0].tickets[0].lineas[0].importe, 1000);
+assert.equal(reg.clientes[1].tickets[0].metodo, 'mixto');
+assert.equal(reg.clientes[1].tickets[0].efectivo, 200);
+assert.equal(reg.clientes[1].tickets[0].lineas.length, 1);
+assert.equal(reg.clientes[1].tickets[0].lineas[0].nombre, '93');
 
 const cargoSuelto = {
   id: 'c9',
@@ -102,6 +111,8 @@ const cobros = cobrosDelRegistro(reg);
 assert.equal(cobros.length, 2);
 assert.equal(cobros[0].cliente, 'Don Pepe');
 assert.equal(cobros[0].monto, 400);
+assert.equal(cobros[0].ticketId, 'v1');
+assert.equal(cobros[0].origen, 'venta');
 
 const viejo = { id: 't1', folio: 'A', fecha: '2026-11-01T00:00:00Z', pendiente: 100 };
 const nuevo = { id: 't2', folio: 'B', fecha: '2026-11-02T00:00:00Z', pendiente: 300 };
@@ -183,6 +194,7 @@ assert.equal(parcial.ok, true);
 assert.equal(parcial.monto, 400);
 assert.equal(parcial.aplicados[0].parcial, true);
 assert.equal(ventasDb[0].estado_credito, 'pendiente');
+assert.equal(movsDb.find((m) => m.tipo === 'cargo').monto, 600);
 assert.equal(movsDb.find((m) => m.tipo === 'abono').monto, 400);
 assert.equal(movsDb.find((m) => m.tipo === 'abono').notas, 'Abono atrasado');
 assert.equal(db.updates.some((u) => u.table === 'ruta_ventas'), false);
@@ -202,5 +214,158 @@ assert.equal(despues.totales.pendiente, 0);
 
 const deMas = await registrarCobroClienteExt(db, { ticketIds: ['v1'], monto: 10, usuarioNombre: 'Luis' });
 assert.equal(deMas.ok, false);
+
+const contado = {
+  id: 'v-efe',
+  folio: 'EXT-EFE',
+  cliente_tipo: 'externo',
+  cliente_id: 'cli-1',
+  cliente_nombre: 'Don Pepe',
+  metodo_pago: 'efectivo',
+  total: 80,
+  created_at: '2026-11-22T20:00:00Z',
+  articulos: [{ producto_id: '10', nombre: 'Leche', cantidad: 2, precio: 40, importe: 80 }],
+};
+const regEfe = armarRegistroClientesExt([pepe, contado], []);
+const ticketEfe = regEfe.clientes[0].tickets.find((t) => t.folio === 'EXT-EFE');
+assert.equal(regEfe.clientes[0].efectivo, 80);
+assert.equal(regEfe.clientes[0].credito, 1000);
+assert.equal(regEfe.clientes[0].tickets.length, 2);
+assert.equal(ticketEfe.metodo, 'efectivo');
+assert.equal(ticketEfe.pendiente, 0);
+assert.equal(ticketEfe.lineas[0].nombre, 'Leche');
+assert.equal(ticketEfe.lineas[0].cantidad, 2);
+assert.equal(ticketEfe.lineas[0].importe, 80);
+
+const regCancelado = armarRegistroClientesExt([pepe], [{
+  id: 'a-x',
+  tipo: 'abono',
+  venta_id: 'v1',
+  cliente_tipo: 'externo',
+  cliente_id: 'cli-1',
+  cliente_nombre: 'Don Pepe',
+  monto: 250,
+  notas: 'CANCELADO · Abono · Luis',
+  estatus: 'pagado',
+  created_at: '2026-11-21T18:00:00Z',
+}]);
+assert.equal(regCancelado.clientes[0].cobrado, 0);
+assert.equal(regCancelado.clientes[0].pendiente, 1000);
+assert.equal(regCancelado.clientes[0].tickets[0].cobros.length, 0);
+assert.equal(regCancelado.clientes[0].tickets[0].cobrosCancelados.length, 1);
+
+function ventaCredito(estado = 'pendiente') {
+  return {
+    id: 'v1',
+    folio: 'EXT-1',
+    cliente_tipo: 'externo',
+    cliente_id: 'cli-1',
+    cliente_nombre: 'Don Pepe',
+    metodo_pago: 'credito',
+    total: 1000,
+    estado_credito: estado,
+    created_at: '2026-11-18T20:00:00Z',
+    articulos: [{ nombre: 'Cuete', cantidad: 40, precio: 25, importe: 1000 }],
+  };
+}
+function cargoDe(estado = 'pendiente') {
+  return {
+    id: 'cargo-1',
+    tipo: 'cargo',
+    venta_id: 'v1',
+    cliente_tipo: 'externo',
+    cliente_id: 'cli-1',
+    cliente_nombre: 'Don Pepe',
+    monto: 1000,
+    estatus: estado,
+    pagado_at: estado === 'pagado' ? '2026-11-20T18:00:00Z' : null,
+    folio_venta: 'EXT-1',
+    created_at: '2026-11-18T20:00:00Z',
+  };
+}
+
+const ventasPar = [ventaCredito()];
+const movsPar = [cargoDe()];
+const dbPar = mockDb(ventasPar, movsPar);
+await registrarCobroClienteExt(dbPar, { ticketIds: ['v1'], monto: 250, nota: 'Abono', usuarioNombre: 'Luis' });
+const abonoParcial = movsPar.find((m) => m.tipo === 'abono');
+const cancelParcial = await cancelarCobroClienteExt(dbPar, { cobroId: abonoParcial.id, usuarioNombre: 'Ana' });
+assert.equal(cancelParcial.ok, true);
+assert.equal(cancelParcial.monto, 250);
+assert.equal(cancelParcial.pendiente, 1000);
+assert.equal(abonoParcial.estatus, 'cancelado');
+assert.equal(movsPar.find((m) => m.tipo === 'cargo').monto, 1000);
+assert.equal(movsPar.find((m) => m.tipo === 'cargo').estatus, 'pendiente');
+const deudaParcial = armarRegistroClientesExt(ventasPar, movsPar);
+assert.equal(deudaParcial.totales.cobrado, 0);
+assert.equal(deudaParcial.totales.pendiente, 1000);
+assert.equal(deudaParcial.clientes[0].tickets[0].cobrosCancelados.length, 1);
+
+const ventasFull = [ventaCredito()];
+const movsFull = [cargoDe()];
+const dbFull = mockDb(ventasFull, movsFull);
+await registrarCobroClienteExt(dbFull, { ticketIds: ['v1'], monto: 400, nota: 'Abono', usuarioNombre: 'Luis' });
+await registrarCobroClienteExt(dbFull, { ticketIds: ['v1'], monto: 600, usuarioNombre: 'Luis' });
+assert.equal(ventasFull[0].estado_credito, 'pagado');
+const abonoChico = movsFull.find((m) => m.tipo === 'abono' && m.monto === 400);
+const cancelParte = await cancelarCobroClienteExt(dbFull, { cobroId: abonoChico.id, usuarioNombre: 'Ana' });
+assert.equal(cancelParte.ok, true);
+assert.equal(cancelParte.pendiente, 400);
+assert.equal(ventasFull[0].estado_credito, 'pendiente');
+assert.equal(movsFull.find((m) => m.id === 'cargo-1').estatus, 'pendiente');
+assert.equal(movsFull.find((m) => m.id === 'cargo-1').pagado_at, null);
+assert.equal(movsFull.find((m) => m.id === 'cargo-1').monto, 400);
+const deudaParte = armarRegistroClientesExt(ventasFull, movsFull);
+assert.equal(deudaParte.totales.cobrado, 600);
+assert.equal(deudaParte.totales.pendiente, 400);
+
+const ventasSint = [ventaCredito('pagado')];
+const movsSint = [cargoDe('pagado')];
+const dbSint = mockDb(ventasSint, movsSint);
+const antesSint = armarRegistroClientesExt(ventasSint, movsSint);
+assert.equal(antesSint.totales.pendiente, 0);
+assert.equal(antesSint.clientes[0].tickets[0].cobros[0].id, 'cobro:v1');
+const cancelSint = await cancelarCobroClienteExt(dbSint, { cobroId: 'cobro:v1', usuarioNombre: 'Ana' });
+assert.equal(cancelSint.ok, true);
+assert.equal(cancelSint.monto, 1000);
+assert.equal(ventasSint[0].estado_credito, 'pendiente');
+assert.equal(movsSint[0].estatus, 'pendiente');
+assert.equal(movsSint[0].pagado_at, null);
+const deudaSint = armarRegistroClientesExt(ventasSint, movsSint);
+assert.equal(deudaSint.totales.cobrado, 0);
+assert.equal(deudaSint.totales.pendiente, 1000);
+
+const ventasMix = [ventaCredito('pagado')];
+const movsMix = [cargoDe('pagado'), {
+  id: 'ab-real',
+  tipo: 'abono',
+  venta_id: 'v1',
+  cliente_tipo: 'externo',
+  cliente_id: 'cli-1',
+  cliente_nombre: 'Don Pepe',
+  monto: 400,
+  estatus: 'pagado',
+  notas: 'Abono',
+  folio_venta: 'EXT-1',
+  created_at: '2026-11-19T18:00:00Z',
+}];
+const dbMix = mockDb(ventasMix, movsMix);
+const antesMix = armarRegistroClientesExt(ventasMix, movsMix);
+assert.equal(antesMix.totales.cobrado, 1000);
+assert.equal(antesMix.totales.pendiente, 0);
+assert.equal(antesMix.clientes[0].tickets[0].cobros.some((c) => c.id === 'cobro:v1'), true);
+const cancelMix = await cancelarCobroClienteExt(dbMix, { cobroId: 'ab-real', usuarioNombre: 'Ana' });
+assert.equal(cancelMix.ok, true);
+assert.equal(cancelMix.monto, 400);
+assert.equal(cancelMix.pendiente, 400);
+assert.equal(ventasMix[0].estado_credito, 'pendiente');
+const deudaMix = armarRegistroClientesExt(ventasMix, movsMix);
+assert.equal(deudaMix.totales.cobrado, 600);
+assert.equal(deudaMix.totales.pendiente, 400);
+assert.equal(deudaMix.clientes[0].tickets[0].cobros.some((c) => c.nota === 'Crédito cobrado' && c.monto === 600), true);
+assert.equal(movsMix.find((m) => m.id === 'ab-real').estatus, 'cancelado');
+
+const otraVez = await cancelarCobroClienteExt(dbMix, { cobroId: 'ab-real', usuarioNombre: 'Ana' });
+assert.equal(otraVez.ok, false);
 
 console.log('rcClientesExt.test.mjs ok');
