@@ -34,6 +34,7 @@ import { cargarRentabilidadProductosFrecuentes } from '../lib/rentabilidadProduc
 import EstadisticasRutaRendimiento from './EstadisticasRutaRendimiento.jsx';
 import EstadisticasIngresosRuta from './EstadisticasIngresosRuta.jsx';
 import FiltroPeriodoRuta from './FiltroPeriodoRuta.jsx';
+import ReporteDeptoAbarrotes from './ReporteDeptoAbarrotes.jsx';
 import { rangoDePeriodo } from '../lib/rutaIngresosCxc.js';
 import {
   cargarTraficoClientes,
@@ -284,6 +285,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const [cargandoTrafico, setCargandoTrafico] = useState(false);
   const [vistaTrafico, setVistaTrafico] = useState('tienda'); // tienda | hora | dia
   const [detalleKpi, setDetalleKpi] = useState(null); // ventas | tarjeta | gastos | utilidad | promedio | merma
+  const [vistaAbarrotes, setVistaAbarrotes] = useState('corte'); // corte | depto
 
   const rango = useMemo(() => {
     if (presetFecha === 'rango') {
@@ -310,6 +312,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   useEffect(() => {
     let ok = true;
     (async () => {
+      if (area === 'abarrotes' && vistaAbarrotes === 'depto') return;
       if (!supabase || !rango?.desde || !rango?.hasta) return;
       setCargando(true);
       const ant = periodoAnterior(rango.desde, rango.hasta);
@@ -340,10 +343,10 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
     return () => {
       ok = false;
     };
-  }, [supabase, area, rango, filtroTienda, inventario]);
+  }, [supabase, area, rango, filtroTienda, inventario, vistaAbarrotes]);
 
   useEffect(() => {
-    if (area !== 'abarrotes' || !supabase || !rango?.desde || !rango?.hasta) {
+    if (area !== 'abarrotes' || vistaAbarrotes === 'depto' || !supabase || !rango?.desde || !rango?.hasta) {
       setRentab(null);
       return undefined;
     }
@@ -365,10 +368,10 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
     return () => {
       ok = false;
     };
-  }, [supabase, area, rango, filtroTienda, inventario]);
+  }, [supabase, area, rango, filtroTienda, inventario, vistaAbarrotes]);
 
   useEffect(() => {
-    if (area !== 'abarrotes' || !supabase || !rango?.desde || !rango?.hasta) {
+    if (area !== 'abarrotes' || vistaAbarrotes === 'depto' || !supabase || !rango?.desde || !rango?.hasta) {
       setTraficoPack(null);
       return undefined;
     }
@@ -387,7 +390,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
     return () => {
       ok = false;
     };
-  }, [supabase, area, rango, filtroTienda]);
+  }, [supabase, area, rango, filtroTienda, vistaAbarrotes]);
 
   const ventas = pack?.ventas || [];
   const ventasAnt = packAnt?.ventas || [];
@@ -512,6 +515,41 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {area === 'abarrotes' && (
+        <div className="card" style={{ padding: '0.5rem 0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          {[
+            { id: 'corte', label: 'Corte Abarrotes' },
+            { id: 'depto', label: 'Depto. ABARROTES' },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setVistaAbarrotes(opt.id)}
+              style={{
+                padding: '0.35rem 0.7rem',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                border: vistaAbarrotes === opt.id ? '1px solid #b5a642' : '1px solid var(--border)',
+                background: vistaAbarrotes === opt.id ? 'rgba(181,166,66,0.16)' : undefined,
+                color: vistaAbarrotes === opt.id ? '#8a7010' : undefined,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+          <span className="muted" style={{ alignSelf: 'center', fontSize: '0.75rem', marginLeft: '0.25rem' }}>
+            {vistaAbarrotes === 'depto'
+              ? 'Ventas y compras del catálogo ABARROTES por tienda'
+              : 'Ventas de corte, gastos, tráfico y rentabilidad'}
+          </span>
+        </div>
+      )}
+
+      {area === 'abarrotes' && vistaAbarrotes === 'depto' ? (
+        <ReporteDeptoAbarrotes supabase={supabase} inventario={inventario} />
+      ) : (
+      <>
       <div className="card" style={{ borderTop: `3px solid ${meta.color}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '0.75rem' }}>
           <div>
@@ -1417,6 +1455,8 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           {(pack?.cierres || []).length} cierre(s) · las ventas de {meta.label} salen de cortes_contabilidad_cierres (todas las sucursales).
         </p>
       </div>
+      </>
+      )}
     </div>
   );
 }
