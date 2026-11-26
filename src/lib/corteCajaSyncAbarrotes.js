@@ -2,7 +2,9 @@
  * Al guardar/corregir Corte de caja, empuja el Total sistema (neto registrado)
  * al campo «venta» del Corte Abarrotes abierto (misma sucursal).
  *
- * Un turno = una clave. Corregir reemplaza el monto; no suma otra vez.
+ * Un turno = una clave. Si ese monto ya está en el campo (corte previo del
+ * mismo turno, o alguien lo capturó en el celular para calcular la recolección),
+ * guardar o corregir lo actualiza. No se vuelve a sumar.
  */
 
 function round2(n) {
@@ -86,6 +88,42 @@ export function compactarMapaVentaPos(map = {}) {
   return next;
 }
 
+function turnoDeClaveVentaPos(clave) {
+  const { turnoId } = parseClaveVentaPos(clave);
+  return turnoCanonVentaPos(turnoId, turnoId);
+}
+
+function diasEntreClavesVenta(a, b) {
+  const fa = parseClaveVentaPos(a).fecha;
+  const fb = parseClaveVentaPos(b).fecha;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fa) || !/^\d{4}-\d{2}-\d{2}$/.test(fb)) return 99;
+  const da = Date.parse(`${fa}T00:00:00Z`);
+  const db = Date.parse(`${fb}T00:00:00Z`);
+  if (!Number.isFinite(da) || !Number.isFinite(db)) return 99;
+  return Math.abs(Math.round((db - da) / 86400000));
+}
+
+/**
+ * El mismo turno no se cuenta dos veces (fecha de negocio y fecha calendario,
+ * o un cierre de más temprano que dejó el mismo dinero).
+ * Se queda la clave que se está guardando.
+ */
+function quitarMismoTurnoDuplicado(map, clave, { ventaCampo = 0, monto = 0 } = {}) {
+  const next = { ...map };
+  const turno = turnoDeClaveVentaPos(clave);
+  if (!turno) return next;
+  for (const k of Object.keys(next)) {
+    if (k === clave || turnoDeClaveVentaPos(k) !== turno) continue;
+    if (diasEntreClavesVenta(clave, k) > 1) continue;
+    const otro = round2(next[k]);
+    const mismoDinero = Math.abs(otro - monto) < 0.01
+      || Math.abs(otro - ventaCampo) < 0.01
+      || Math.abs(ventaCampo - (otro + monto)) < 0.01;
+    if (mismoDinero) delete next[k];
+  }
+  return next;
+}
+
 function mapasVentaPosIguales(a, b) {
   const ka = Object.keys(a || {});
   const kb = Object.keys(b || {});
@@ -102,7 +140,23 @@ export function repararVentaPosEnEstado(estado = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length === 0) {
     return { estado: { ...estado }, cambio: false };
   }
-  const compact = compactarMapaVentaPos(raw);
+  let compact = compactarMapaVentaPos(raw);
+  const grupos = {};
+  for (const k of Object.keys(compact)) {
+    const turno = turnoDeClaveVentaPos(k);
+    if (!grupos[turno]) grupos[turno] = [];
+    grupos[turno].push(k);
+  }
+  for (const keys of Object.values(grupos)) {
+    if (keys.length < 2) continue;
+    keys.sort();
+    const conservar = keys[keys.length - 1];
+    for (const k of keys) {
+      if (k === conservar) continue;
+      if (diasEntreClavesVenta(conservar, k) > 1) continue;
+      delete compact[k];
+    }
+  }
   const sumaRaw = sumaMapa(raw);
   const suma = sumaMapa(compact);
   const prev = round2(estado.venta);
@@ -156,8 +210,10 @@ export function mapaVentaPosDesdeCortes(cortes = []) {
 }
 
 /**
- * Actualiza el mapa venta_pos_por_corte y recalcula estado.venta = suma.
- * Corregir el mismo turno reemplaza el monto; no agrega otra clave.
+ * Actualiza el mapa venta_pos_por_corte.
+ * El mismo turno se reemplaza. Si el campo ya trae una venta capturada a mano
+ * (no coincide con la suma de los cortes), esa captura se sustituye por el
+ * Total sistema: no se le suma encima.
  * @param {object} estado
  * @param {{ clave?: string, fecha?: string, turnoId?: string, turnoNombre?: string, totalVentas?: number, clavesReemplazar?: string[] }} aporte
  */
@@ -167,14 +223,34 @@ export function aplicarVentaPosEnEstadoAbarrotes(estado = {}, aporte = {}) {
     aporte.turnoNombre,
   );
   if (!clave) return { ...estado };
-  const map = compactarMapaVentaPos(estado.venta_pos_por_corte);
+  const baseMap = compactarMapaVentaPos(estado.venta_pos_por_corte);
   for (const old of aporte.clavesReemplazar || []) {
     const ck = canonicalizarClaveVentaPos(old, aporte.turnoNombre);
-    if (ck) delete map[ck];
-    if (old) delete map[old];
+    if (ck) delete baseMap[ck];
+    if (old) delete baseMap[old];
   }
-  const monto = aporte.totalVentas ?? aporte.efectivoEsperado;
-  map[clave] = round2(monto);
+  const ventaCampo = round2(estado.venta);
+  const turno = turnoDeClaveVentaPos(clave);
+  let sumaOtros = 0;
+  let sumaEste = 0;
+  for (const [k, v] of Object.entries(baseMap)) {
+    const parte = round2(v);
+    if (turnoDeClaveVentaPos(k) === turno) sumaEste = round2(sumaEste + parte);
+    else sumaOtros = round2(sumaOtros + parte);
+  }
+  const sumaAntes = round2(sumaOtros + sumaEste);
+  const monto = round2(aporte.totalVentas ?? aporte.efectivoEsperado);
+  // Captura a mano: el campo no es la suma de los cortes ni solo los otros turnos.
+  const capturaManual = ventaCampo > 0.009
+    && Math.abs(ventaCampo - sumaAntes) > 0.009
+    && Math.abs(ventaCampo - sumaOtros) > 0.009;
+  let map = quitarMismoTurnoDuplicado(baseMap, clave, { ventaCampo, monto });
+  if (capturaManual) {
+    // Lo que dejaron en el campo (celular / cálculo de recolección) se sustituye
+    // por este Total sistema. No se suma a los turnos que ya estaban.
+    map = {};
+  }
+  map[clave] = monto;
   return {
     ...estado,
     venta_pos_por_corte: map,
