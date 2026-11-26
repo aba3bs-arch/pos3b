@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { fmtMonto } from '../lib/consultasUi.js';
 import {
   crearNodoCatalogoExt,
+  editarGastoClienteExt,
   prepararGastoExt,
   puedeQuitarDelCatalogo,
   quitarGastoClienteExt,
@@ -44,6 +45,7 @@ export default function RcClientesExtGastos({
   arbol = [],
   gastos = [],
   avisoTabla = '',
+  liquidados = [],
   onCambio,
 }) {
   const resumen = resumenVentaConGastos(totales, gastos);
@@ -60,6 +62,8 @@ export default function RcClientesExtGastos({
   const [nombreDet, setNombreDet] = useState('');
   const [aviso, setAviso] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const yaLiquidados = useMemo(() => new Set((liquidados || []).map(String)), [liquidados]);
 
   const catGasto = arbol.find((c) => c.id === categoriaId) || null;
   const subsGasto = catGasto?.subcategorias || [];
@@ -127,13 +131,48 @@ export default function RcClientesExtGastos({
     });
   };
 
+  const empezarEdicion = (gasto) => {
+    setEditando({
+      id: gasto.id,
+      categoriaId: gasto.categoria_id || '',
+      subcategoriaId: gasto.subcategoria_id || '',
+      detalleId: gasto.detalle_id || '',
+      monto: String(gasto.monto ?? ''),
+      nota: gasto.notas || '',
+    });
+    setAviso('');
+  };
+
+  const guardarEdicion = async () => {
+    if (guardando || !editando) return;
+    const listo = prepararGastoExt({ ...editando, arbol });
+    if (!listo.ok) {
+      setAviso(listo.error);
+      return;
+    }
+    const ruta = `${listo.gasto.categoria_nombre} › ${listo.gasto.subcategoria_nombre} › ${listo.gasto.detalle_nombre}`;
+    const avisoLiq = yaLiquidados.has(String(editando.id))
+      ? '\nEste gasto ya entró en una liquidación. El registro cambia; esa liquidación conserva el monto anterior.'
+      : '';
+    if (!window.confirm(`¿Guardar el gasto de ${fmtMonto(listo.gasto.monto)}?\n${ruta}${avisoLiq}`)) return;
+    setGuardando(true);
+    const res = await editarGastoClienteExt(supabase, { ...editando, arbol });
+    await terminar(res, () => setEditando(null));
+  };
+
   const quitarGasto = async (gasto) => {
     const ruta = `${gasto.categoria_nombre} › ${gasto.subcategoria_nombre} › ${gasto.detalle_nombre}`;
-    if (!window.confirm(`¿Quitar el gasto de ${fmtMonto(gasto.monto)}?\n${ruta}\nVuelve a sumarse a la venta.`)) return;
+    const avisoLiq = yaLiquidados.has(String(gasto.id))
+      ? '\nYa entró en una liquidación. Se elimina del registro; esa liquidación conserva el monto.'
+      : '\nDeja de restarse de la venta y de la liquidación.';
+    if (!window.confirm(`¿Eliminar el gasto de ${fmtMonto(gasto.monto)}?\n${ruta}${avisoLiq}`)) return;
     setGuardando(true);
     const res = await quitarGastoClienteExt(supabase, { id: gasto.id });
-    await terminar(res);
+    await terminar(res, () => { if (editando?.id === gasto.id) setEditando(null); });
   };
+
+  const subsEdicion = arbol.find((c) => c.id === editando?.categoriaId)?.subcategorias || [];
+  const detsEdicion = subsEdicion.find((s) => s.id === editando?.subcategoriaId)?.detalles || [];
 
   return (
     <div style={{ display: 'grid', gap: '0.85rem' }}>
@@ -269,26 +308,60 @@ export default function RcClientesExtGastos({
 
       <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
-          <strong style={{ color: COLOR }}>Gastos registrados</strong>
+          <strong style={{ color: COLOR }}>Registro de gastos</strong>
           <strong>{fmtMonto(resumen.gastos)}</strong>
         </div>
         {gastos.length === 0 && <p className="muted" style={{ margin: 0 }}>Todavía no hay gastos.</p>}
-        {gastos.map((g) => (
-          <div key={g.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
-              <span style={{ minWidth: 0 }}>
-                <strong style={{ display: 'block' }}>{g.categoria_nombre} › {g.subcategoria_nombre} › {g.detalle_nombre}</strong>
-                <span className="muted" style={{ fontSize: '0.78rem' }}>
-                  {fecha(g.created_at)}{g.notas ? ` · ${g.notas}` : ''}{g.usuario_nombre ? ` · ${g.usuario_nombre}` : ''}
+        {gastos.map((g) => {
+          const ruta = `${g.categoria_nombre} › ${g.subcategoria_nombre} › ${g.detalle_nombre}`;
+          const edit = editando?.id === g.id;
+          return (
+            <div key={g.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem', display: 'grid', gap: '0.4rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
+                <span style={{ minWidth: 0 }}>
+                  <strong style={{ display: 'block' }}>{ruta}</strong>
+                  <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                    {fecha(g.created_at) || 'Sin fecha'} · {g.usuario_nombre || 'Sin nombre'}
+                    {g.notas ? ` · ${g.notas}` : ''}
+                    {yaLiquidados.has(String(g.id)) ? ' · Liquidado' : ''}
+                  </span>
                 </span>
-              </span>
-              <strong style={{ flexShrink: 0 }}>{fmtMonto(g.monto)}</strong>
+                <strong style={{ flexShrink: 0 }}>{fmtMonto(g.monto)}</strong>
+              </div>
+              {edit && (
+                <div style={{ display: 'grid', gap: '0.45rem' }}>
+                  <select className="input" style={campo} value={editando.categoriaId} onChange={(e) => setEditando({ ...editando, categoriaId: e.target.value, subcategoriaId: '', detalleId: '' })}>
+                    <option value="">Categoría</option>
+                    {arbol.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                  <select className="input" style={campo} value={editando.subcategoriaId} onChange={(e) => setEditando({ ...editando, subcategoriaId: e.target.value, detalleId: '' })}>
+                    <option value="">Subcategoría</option>
+                    {subsEdicion.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                  </select>
+                  <select className="input" style={campo} value={editando.detalleId} onChange={(e) => setEditando({ ...editando, detalleId: e.target.value })}>
+                    <option value="">Detalle</option>
+                    {detsEdicion.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                  </select>
+                  <input className="input" inputMode="decimal" style={campo} value={editando.monto} onChange={(e) => setEditando({ ...editando, monto: e.target.value })} />
+                  <input className="input" style={campo} maxLength={160} value={editando.nota} onChange={(e) => setEditando({ ...editando, nota: e.target.value })} placeholder="Nota" />
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {edit ? (
+                  <>
+                    <button type="button" className="btn btn-primary" style={{ minHeight: 44 }} disabled={guardando} onClick={() => { void guardarEdicion(); }}>Guardar</button>
+                    <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} disabled={guardando} onClick={() => setEditando(null)}>Cancelar</button>
+                  </>
+                ) : (
+                  <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} disabled={guardando} onClick={() => empezarEdicion(g)}>Editar</button>
+                )}
+                <button type="button" className="btn btn-ghost" style={{ minHeight: 44, color: '#b91c1c' }} disabled={guardando} onClick={() => { void quitarGasto(g); }}>
+                  Eliminar
+                </button>
+              </div>
             </div>
-            <button type="button" className="btn btn-ghost" style={{ minHeight: 44, marginTop: 4 }} disabled={guardando} onClick={() => { void quitarGasto(g); }}>
-              Quitar gasto
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

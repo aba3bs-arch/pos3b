@@ -242,6 +242,31 @@ export async function registrarGastoClienteExt(supabase, {
   return { ok: true, data };
 }
 
+export async function editarGastoClienteExt(supabase, {
+  id,
+  categoriaId,
+  subcategoriaId,
+  detalleId,
+  monto,
+  nota,
+  arbol,
+} = {}) {
+  if (!supabase || !id) return { ok: false, error: 'Gasto inválido.' };
+  const listo = prepararGastoExt({ categoriaId, subcategoriaId, detalleId, monto, nota, arbol });
+  if (!listo.ok) return listo;
+  const { data, error } = await supabase
+    .from('ruta_rc_ext_gastos')
+    .update(listo.gasto)
+    .eq('id', id)
+    .select('id,monto,categoria_nombre,subcategoria_nombre,detalle_nombre,usuario_nombre,created_at')
+    .single();
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_GASTOS_EXT };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, data };
+}
+
 export async function quitarGastoClienteExt(supabase, { id } = {}) {
   if (!supabase || !id) return { ok: false, error: 'Gasto inválido.' };
   const { error } = await supabase.from('ruta_rc_ext_gastos').delete().eq('id', id);
