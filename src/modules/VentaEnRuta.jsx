@@ -429,7 +429,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         />
       )}
       {vista === 'rcclientes' && puede('ruta_rc_clientes_ext') && (
-        <RcClientesExt supabase={supabase} onVolver={() => ir('hub')} />
+        <RcClientesExt supabase={supabase} user={user} onVolver={() => ir('hub')} />
       )}
       {vista === 'finanio' && puede('ruta_fin_anio') && (
         <CreditoFinAnioRuta
