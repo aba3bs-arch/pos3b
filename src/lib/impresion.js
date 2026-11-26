@@ -101,8 +101,11 @@ export function estilosImpresion(ancho) {
 function cabeceraDoc(titulo, meta = {}) {
   const negocio = esc(meta.negocio || leerNombreNegocio());
   const logo = meta.logo !== false ? leerLogoUrl() : null;
+  const tiendaLiteral = String(meta.tiendaTexto || '').trim();
   const rows = [
-    meta.sucursal ? `Tienda: ${esc(etiquetaTienda(meta.sucursal))}` : '',
+    tiendaLiteral
+      ? `Tienda: ${esc(tiendaLiteral)}`
+      : (meta.sucursal ? `Tienda: ${esc(etiquetaTienda(meta.sucursal))}` : ''),
     meta.fecha ? `Fecha: ${esc(meta.fecha)}` : `Fecha: ${esc(fmtFecha())}`,
     meta.usuario ? `Usuario: ${esc(meta.usuario)}` : '',
     meta.folio ? `Folio: ${esc(meta.folio)}` : '',
@@ -222,7 +225,7 @@ export function htmlTicketVenta(data) {
     ? `<div class="bold">Destino: ${esc(data.destino || data.cliente_nombre || data.tienda)}</div>`
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Ticket</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
-    ${cabeceraDoc(titulo, { sucursal: data.sucursal, usuario: data.vendedor, fecha: data.fecha, folio: data.folio })}
+    ${cabeceraDoc(titulo, { sucursal: data.sucursal, tiendaTexto: data.tiendaTexto, usuario: data.vendedor, fecha: data.fecha, folio: data.folio })}
     ${htmlBloqueTipoPagoGrande(data)}
     ${destino}
     <table>${filas}</table>

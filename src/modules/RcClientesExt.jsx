@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { entregarTicketVenta, htmlTicketVenta } from '../lib/impresion.js';
 import {
@@ -46,10 +47,9 @@ function etiquetaMetodo(metodo) {
   return 'Venta';
 }
 
-function HojaTicket({ ticket: t, cliente, sucursal }) {
+function HojaTicket({ ticket: t, cliente }) {
   const html = htmlTicketVenta(datosTicketAbarrotes(t, {
     cliente: cliente || '',
-    sucursal: sucursal || '',
     fecha: fecha(t?.fecha),
   }));
   return (
@@ -72,6 +72,62 @@ function HojaTicket({ ticket: t, cliente, sucursal }) {
   );
 }
 
+function TicketFlotante({ ticket: t, cliente, onCerrar, onImprimir }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onCerrar(); };
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previo;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onCerrar]);
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Ticket ${t?.folio || ''}`}
+      onClick={onCerrar}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 4000,
+        background: 'rgba(15, 23, 42, 0.48)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'flex-start',
+        padding: '0.75rem',
+        overflow: 'auto',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(420px, 100%)',
+          background: '#fff',
+          borderRadius: 14,
+          boxShadow: '0 22px 60px rgba(0,0,0,0.32)',
+          padding: '0.75rem',
+          margin: '3vh auto 2rem',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+          <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={onCerrar}>
+            Ocultar ticket
+          </button>
+          <button type="button" className="btn btn-primary" style={{ minHeight: 44 }} onClick={onImprimir}>
+            Imprimir
+          </button>
+        </div>
+        <HojaTicket ticket={t} cliente={cliente} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function TicketVenta({
   ticket: t,
   cliente,
@@ -84,8 +140,7 @@ function TicketVenta({
   ocupado,
   onCobrar,
   onCancelar,
-  sucursal,
-  onImprimir,
+  onVerTicket,
 }) {
   const total = t.total || t.credito || t.efectivo || t.cobrado;
   return (
@@ -113,9 +168,8 @@ function TicketVenta({
       )}
       {abierto && (
         <div style={{ marginTop: '0.55rem', display: 'grid', gap: '0.45rem' }}>
-          <HojaTicket ticket={t} cliente={cliente?.nombre || ''} sucursal={sucursal} />
-          <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => onImprimir(t, cliente)}>
-            Imprimir ticket
+          <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => onVerTicket(t, cliente)}>
+            Ver ticket
           </button>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             {t.efectivo > 0 && <Cifra label="Efectivo" valor={t.efectivo} />}
@@ -199,12 +253,12 @@ const campo = {
   minHeight: 44,
 };
 
-export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
+export default function RcClientesExt({ supabase, user, onVolver }) {
   const [registro, setRegistro] = useState(null);
   const [aviso, setAviso] = useState('');
   const [abierto, setAbierto] = useState('');
   const [ticket, setTicket] = useState('');
-  const [cobroAbierto, setCobroAbierto] = useState('');
+  const [flotante, setFlotante] = useState(null);
   const [pestana, setPestana] = useState('registro');
   const [clienteClave, setClienteClave] = useState('');
   const [monto, setMonto] = useState('');
@@ -238,7 +292,7 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
   const clienteCobro = porCobrar.find((c) => c.clave === clienteClave) || null;
   const pendienteCliente = (clienteCobro?.tickets || []).reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
   const cobros = useMemo(() => cobrosDelRegistro(registro), [registro]);
-  const tiendaTicket = sucursal || user?.sucursal_id || '';
+  const cerrarTicket = useCallback(() => setFlotante(null), []);
 
   const elegirCliente = (clave) => {
     const elegido = porCobrar.find((c) => c.clave === clave);
@@ -248,6 +302,7 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
     setNota('');
     setMensaje('');
     setTicket('');
+    setFlotante(null);
   };
 
   const registrarCobro = async () => {
@@ -283,13 +338,22 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
   };
 
   const imprimirTicket = async (t, cliente) => {
+    const nombre = typeof cliente === 'string' ? cliente : (cliente?.nombre || '');
     const datos = datosTicketAbarrotes(t, {
-      cliente: cliente?.nombre || '',
-      sucursal: tiendaTicket,
+      cliente: nombre,
       fecha: fecha(t?.fecha),
     });
     const r = await entregarTicketVenta(datos, 'imprimir', { forzar: true, titulo: 'Ticket de venta' });
     if (r && r.ok === false) setMensaje(r.error || 'No se pudo abrir el ticket.');
+  };
+
+  const abrirTicket = (t, nombre) => {
+    const cliente = String(nombre || '').trim();
+    if (flotante?.ticket?.id === t?.id) {
+      setFlotante(null);
+      return;
+    }
+    setFlotante({ ticket: t, cliente });
   };
 
   const prepararTicket = (t) => {
@@ -297,17 +361,26 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
     setNotaTicket('');
   };
 
-  const alternarVistaTicket = (t) => {
+  const alternarVistaTicket = (t, nombre) => {
     if (ticket === t.id) {
       setTicket('');
+      setFlotante((prev) => (prev?.ticket?.id === t.id ? null : prev));
       return;
     }
     setTicket(t.id);
     prepararTicket(t);
+    setFlotante({ ticket: t, cliente: nombre || '' });
   };
 
   const verTicketDeCobro = (cobro) => {
-    setCobroAbierto((prev) => (prev === cobro.id ? '' : cobro.id));
+    const hallado = clientes
+      .flatMap((cl) => (cl.tickets || []).map((t) => ({ cliente: cl, ticket: t })))
+      .find((x) => x.ticket.id === cobro.ticketId);
+    if (!hallado) {
+      setMensaje('No se encontró el ticket de esa venta.');
+      return;
+    }
+    abrirTicket(hallado.ticket, hallado.cliente.nombre);
   };
 
   const cobrarEsteTicket = async (t, cliente) => {
@@ -452,9 +525,7 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
                 </label>
                 {clienteCobro && (
                   <div style={{ display: 'grid', gap: '0.45rem' }}>
-                    {clienteCobro.tickets.map((t) => {
-                      const abiertoTicket = ticket === t.id;
-                      return (
+                    {clienteCobro.tickets.map((t) => (
                         <div key={t.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem', display: 'grid', gap: '0.4rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
                             <span style={{ minWidth: 0 }}>
@@ -467,21 +538,12 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
                             type="button"
                             className="btn btn-ghost"
                             style={{ minHeight: 44 }}
-                            onClick={() => alternarVistaTicket(t)}
+                            onClick={() => abrirTicket(t, clienteCobro.nombre)}
                           >
-                            {abiertoTicket ? 'Ocultar ticket' : 'Ver ticket'}
+                            {flotante?.ticket?.id === t.id ? 'Ocultar ticket' : 'Ver ticket'}
                           </button>
-                          {abiertoTicket && (
-                            <>
-                              <HojaTicket ticket={t} cliente={clienteCobro.nombre} sucursal={tiendaTicket} />
-                              <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => { void imprimirTicket(t, clienteCobro); }}>
-                                Imprimir ticket
-                              </button>
-                            </>
-                          )}
                         </div>
-                      );
-                    })}
+                    ))}
                     <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
                       Monto cobrado
                       <input
@@ -541,7 +603,7 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
                 </p>
                 <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                   <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => verTicketDeCobro(c)}>
-                    {cobroAbierto === c.id ? 'Ocultar ticket' : 'Ver ticket'}
+                    {flotante?.ticket?.id === c.ticketId ? 'Ocultar ticket' : 'Ver ticket'}
                   </button>
                   <button
                     type="button"
@@ -553,18 +615,6 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
                     Cancelar cobro
                   </button>
                 </div>
-                {cobroAbierto === c.id && (() => {
-                  const hallado = clientes.flatMap((cl) => (cl.tickets || []).map((t) => ({ cliente: cl, ticket: t }))).find((x) => x.ticket.id === c.ticketId);
-                  if (!hallado) return null;
-                  return (
-                    <>
-                      <HojaTicket ticket={hallado.ticket} cliente={hallado.cliente.nombre} sucursal={tiendaTicket} />
-                      <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => { void imprimirTicket(hallado.ticket, hallado.cliente); }}>
-                        Imprimir ticket
-                      </button>
-                    </>
-                  );
-                })()}
               </div>
             ))}
           </div>
@@ -581,7 +631,11 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
           <div key={cliente.clave} className="card" style={{ borderTop: `4px solid ${COLOR}`, display: 'grid', gap: '0.65rem' }}>
             <button
               type="button"
-              onClick={() => { setAbierto(abiertoCliente ? '' : cliente.clave); setTicket(''); }}
+              onClick={() => {
+                setAbierto(abiertoCliente ? '' : cliente.clave);
+                setTicket('');
+                if (abiertoCliente) setFlotante(null);
+              }}
               style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
             >
               <strong style={{ color: COLOR }}>{cliente.nombre}</strong>
@@ -599,7 +653,7 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
                 ticket={t}
                 cliente={cliente}
                 abierto={ticket === t.id}
-                onToggle={() => alternarVistaTicket(t)}
+                onToggle={() => alternarVistaTicket(t, cliente.nombre)}
                 monto={montoTicket}
                 onMonto={setMontoTicket}
                 nota={notaTicket}
@@ -607,13 +661,20 @@ export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
                 ocupado={guardando}
                 onCobrar={(venta, dueno) => { void cobrarEsteTicket(venta, dueno); }}
                 onCancelar={(cobro, dueno) => { void cancelarCobro(cobro, dueno?.nombre); }}
-                sucursal={tiendaTicket}
-                onImprimir={(venta, dueno) => { void imprimirTicket(venta, dueno); }}
+                onVerTicket={(venta, dueno) => abrirTicket(venta, dueno?.nombre)}
               />
             ))}
           </div>
         );
       })}
+      {flotante && (
+        <TicketFlotante
+          ticket={flotante.ticket}
+          cliente={flotante.cliente}
+          onCerrar={cerrarTicket}
+          onImprimir={() => { void imprimirTicket(flotante.ticket, flotante.cliente); }}
+        />
+      )}
     </div>
   );
 }

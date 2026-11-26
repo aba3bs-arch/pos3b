@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { htmlTicketVenta } from './impresion.js';
 import {
   armarRegistroClientesExt,
   cancelarCobroClienteExt,
@@ -244,7 +245,21 @@ const hoja = datosTicketAbarrotes(reg.clientes[0].tickets[0], {
 });
 assert.equal(hoja.metodo_pago, 'credito');
 assert.equal(hoja.destino, 'Don Pepe');
-assert.equal(hoja.sucursal, '3B10');
+assert.equal(hoja.tiendaTexto, 'Don Pepe');
+assert.equal(hoja.sucursal, '');
+const hojaNombre = datosTicketAbarrotes(reg.clientes[0].tickets[0], { cliente: 'fernán 2' });
+assert.equal(hojaNombre.tiendaTexto, 'fernán 2');
+assert.equal(hojaNombre.destino, 'fernán 2');
+const htmlNombre = htmlTicketVenta(hojaNombre);
+assert.match(htmlNombre, /Tienda: fernán 2/);
+assert.doesNotMatch(htmlNombre, /FERNAN_2|Central de administración|\(MAIN\)/);
+const htmlTienda = htmlTicketVenta({
+  sucursal: 'MAIN',
+  articulos: [{ nombre: 'Sal', precio: 10, qty: 1 }],
+  total: 10,
+  metodo_pago: 'efectivo',
+});
+assert.match(htmlTienda, /Tienda: Central de administración \(MAIN\)/);
 assert.equal(hoja.folio, 'EXT-1');
 assert.equal(hoja.articulos[0].nombre, 'Cuete');
 assert.equal(hoja.articulos[0].qty, 40);
