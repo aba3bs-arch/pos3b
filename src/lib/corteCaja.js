@@ -5,7 +5,8 @@ import { textoEsRecarga } from './corteCajaRecargasMp.js';
 function filtrarSucursalNube(q, sucursal) {
   if (!sucursal) return q;
   const vars = equivalentesCodigoTienda(sucursal);
-  return vars.length > 1 ? q.in('sucursal_id', vars) : q.eq('sucursal_id', sucursal);
+  if (vars.length > 1) return q.in('sucursal_id', vars);
+  return q.eq('sucursal_id', vars[0] || normalizarCodigoTienda(sucursal) || sucursal);
 }
 
 const LS_CORTES = 'pos3b_cortes_caja';
@@ -309,6 +310,8 @@ export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) 
         id,
         usuario: c.usuario,
         created_at: c.hora || c.created_at,
+        fecha: c.fecha || fecha,
+        turno_id: c.turno_id || turnoId,
         turno_nombre: c.turno_nombre,
         efectivo_contado: c.efectivoContado ?? c.efectivo_contado,
         diferencia: c.diferencia,
@@ -328,7 +331,7 @@ export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) 
   let q = supabase
     .from('cortes_caja')
     .select(
-      'id,usuario,created_at,turno_nombre,efectivo_contado,diferencia,notas,corroboracion,total_ventas,tickets,efectivo_esperado,electronico,grupos,detalle_metodos,sucursal_id',
+      'id,usuario,created_at,fecha,turno_id,turno_nombre,efectivo_contado,diferencia,notas,corroboracion,total_ventas,tickets,efectivo_esperado,electronico,grupos,detalle_metodos,sucursal_id',
     )
     .eq('fecha', String(fecha).slice(0, 10))
     .eq('turno_id', turnoId)
@@ -412,6 +415,7 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
       sucursal: corte.sucursal || corte.sucursal_id,
       fecha: corte.fecha,
       turnoId: corte.turno_id,
+      turnoNombre: corte.turno_nombre,
       totalVentas: corte.totalVentas ?? corte.total_ventas,
     });
   } catch (err) {
@@ -482,12 +486,28 @@ export async function corregirCorte(supabase, corte, usuarioId = null, corteId =
   });
   let syncAbarrotes = null;
   try {
-    const { sincronizarVentaAbarrotesDesdeCorteCaja } = await import('./corteCajaSyncAbarrotes.js');
+    const { sincronizarVentaAbarrotesDesdeCorteCaja, claveVentaPosCorteCaja } = await import('./corteCajaSyncAbarrotes.js');
+    const claveActual = claveVentaPosCorteCaja({
+      fecha: corte.fecha,
+      turnoId: corte.turno_id,
+      turnoNombre: corte.turno_nombre,
+    });
+    const clavesReemplazar = [];
+    if (corte.turno_id_original || corte.fecha_original) {
+      clavesReemplazar.push(claveVentaPosCorteCaja({
+        fecha: corte.fecha_original || corte.fecha,
+        turnoId: corte.turno_id_original || corte.turno_id,
+        turnoNombre: corte.turno_nombre_original || corte.turno_nombre,
+      }));
+    }
+    if (!clavesReemplazar.includes(claveActual)) clavesReemplazar.push(claveActual);
     syncAbarrotes = await sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
       sucursal: corte.sucursal || corte.sucursal_id,
       fecha: corte.fecha,
       turnoId: corte.turno_id,
+      turnoNombre: corte.turno_nombre,
       totalVentas: corte.totalVentas ?? corte.total_ventas,
+      clavesReemplazar,
     });
   } catch (err) {
     syncAbarrotes = { ok: false, error: err?.message || String(err) };

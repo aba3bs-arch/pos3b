@@ -73,6 +73,11 @@ export function equivalentesCodigoTienda(codigo) {
   const c = normalizarCodigoTienda(codigo);
   if (!c) return [];
   const out = new Set([c, String(codigo || '').trim()].filter(Boolean));
+  for (const [alias, canon] of Object.entries(ALIAS_A_CODIGO)) {
+    if (canon !== c) continue;
+    out.add(alias);
+    out.add(alias.replace(/_/g, ' '));
+  }
   if (c === 'FUSION') {
     out.add('Fusión');
     out.add('FUSIÓN');
@@ -85,6 +90,21 @@ export function equivalentesCodigoTienda(codigo) {
     out.add('DELVALLE');
     out.add('3B7 Del Valle');
     out.add('3B7_DEL_VALLE');
+  }
+  if (c === '3B10') {
+    out.add('El Mezquite');
+    out.add('EL MEZQUITE');
+    out.add('EL_MEZQUITE');
+    out.add('ELMEZQUITE');
+    out.add('MEZQUITE');
+    out.add('3B10 El Mezquite');
+    out.add('3B10_EL_MEZQUITE');
+  }
+  const ubi = UBICACION_SUCURSALES[c];
+  if (ubi?.nombre) {
+    out.add(ubi.nombre);
+    out.add(`${c} ${ubi.nombre}`);
+    out.add(`${c}_${sinAcentosTexto(ubi.nombre).toUpperCase().replace(/\s+/g, '_')}`);
   }
   return [...out];
 }

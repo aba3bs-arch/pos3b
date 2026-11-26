@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   etiquetaGrupoPago,
   guardarCorte,
@@ -31,6 +31,7 @@ import { etiquetaTienda, mismaTienda } from '../constants/sucursales.js';
 import { imprimirCorte } from '../lib/impresion.js';
 import { leerConfigImpresion } from '../lib/posConfig.js';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
+import { createSubmitLock } from '../lib/submitLock.js';
 
 function fmtHora(iso) {
   if (!iso) return '—';
@@ -105,6 +106,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [corteExistente, setCorteExistente] = useState(null);
   const [modoCorregir, setModoCorregir] = useState(false);
   const [bloqueoCorte, setBloqueoCorte] = useState('');
+  const guardarLock = useRef(createSubmitLock()).current;
 
   const resumen = useMemo(() => resumirMovimientosCaja(ventas, cancelaciones), [ventas, cancelaciones]);
   const movimientos = useMemo(() => listaMovimientosCaja(ventas, cancelaciones), [ventas, cancelaciones]);
@@ -305,25 +307,30 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       alert('Indica cuánto efectivo contaste en caja.');
       return;
     }
-    const corte = armarPayloadCorte(contado);
-    const r = await guardarCorte(supabase, corte, user?.id);
-    if (!r.ok) {
-      alert(r.error);
-      return;
-    }
-    setHistorial(r.local);
-    const syncOk = r.syncAbarrotes?.ok;
-    const syncVenta = Number(r.syncAbarrotes?.venta);
-    const baseMsg = r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.';
-    setMsg(
-      syncOk
-        ? `${baseMsg} Venta Abarrotes actualizada: $${(Number.isFinite(syncVenta) ? syncVenta : contado).toFixed(2)}.`
-        : `${baseMsg}${r.syncAbarrotes?.error ? ` (Aviso: no se pudo actualizar venta en Abarrotes: ${r.syncAbarrotes.error})` : ''}`,
-    );
-    setCorteExistente({ existe: true, corte: { ...corte, id: r.id, efectivo_contado: contado }, origen: r.id ? 'nube' : 'local' });
-    setNotas('');
-    if (leerConfigImpresion().autoCorte) {
-      await imprimirCorteDesdeResumen(contado);
+    if (!guardarLock.tryBegin()) return;
+    try {
+      const corte = armarPayloadCorte(contado);
+      const r = await guardarCorte(supabase, corte, user?.id);
+      if (!r.ok) {
+        alert(r.error);
+        return;
+      }
+      setHistorial(r.local);
+      const syncOk = r.syncAbarrotes?.ok;
+      const syncVenta = Number(r.syncAbarrotes?.venta);
+      const baseMsg = r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.';
+      setMsg(
+        syncOk
+          ? `${baseMsg} Venta Abarrotes actualizada: $${(Number.isFinite(syncVenta) ? syncVenta : contado).toFixed(2)}.`
+          : `${baseMsg}${r.syncAbarrotes?.error ? ` (Aviso: no se pudo actualizar venta en Abarrotes: ${r.syncAbarrotes.error})` : ''}`,
+      );
+      setCorteExistente({ existe: true, corte: { ...corte, id: r.id, efectivo_contado: contado }, origen: r.id ? 'nube' : 'local' });
+      setNotas('');
+      if (leerConfigImpresion().autoCorte) {
+        await imprimirCorteDesdeResumen(contado);
+      }
+    } finally {
+      guardarLock.end();
     }
   };
 
@@ -351,12 +358,18 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       return;
     }
 
+    if (!guardarLock.tryBegin()) return;
+    try {
+    const prev = corteExistente.corte || {};
     const corte = {
       ...armarPayloadCorte(contado),
-      id: corteExistente.corte?.id,
+      id: prev.id,
       notas: notasConStamp,
+      fecha_original: prev.fecha || fecha,
+      turno_id_original: prev.turno_id,
+      turno_nombre_original: prev.turno_nombre,
     };
-    const r = await corregirCorte(supabase, corte, user?.id, corteExistente.corte?.id);
+    const r = await corregirCorte(supabase, corte, user?.id, prev.id);
     if (!r.ok) {
       alert(r.error);
       return;
@@ -385,6 +398,9 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
         ? `Corte corregido y guardado. Venta Abarrotes actualizada: $${(Number.isFinite(syncVenta) ? syncVenta : contado).toFixed(2)}.`
         : `Corte corregido y guardado.${r.syncAbarrotes?.error ? ` (Aviso: no se pudo actualizar venta en Abarrotes: ${r.syncAbarrotes.error})` : ''}`,
     );
+    } finally {
+      guardarLock.end();
+    }
   };
 
   const ejecutarCancelacion = async () => {
