@@ -4,11 +4,13 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { entregarTicketVenta, htmlTicketVenta } from '../lib/impresion.js';
 import {
   cancelarCobroClienteExt,
+  cancelarLiquidacionClienteExt,
   cobrosDelRegistro,
   datosTicketAbarrotes,
   listarRegistroClientesExt,
   planCobroClienteExt,
   registrarCobroClienteExt,
+  registrarLiquidacionClienteExt,
 } from '../lib/rcClientesExt.js';
 
 const COLOR = '#0f766e';
@@ -246,6 +248,94 @@ function TicketVenta({
   );
 }
 
+function PestanaLiquidacion({ liquidacion, ocupado, onLiquidar, onCancelar }) {
+  const lineas = liquidacion?.lineas || [];
+  const historial = liquidacion?.historial || [];
+  const tot = liquidacion?.totales || { efectivo: 0, abonos: 0, total: 0 };
+  const grupos = [];
+  for (const linea of lineas) {
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.cliente === linea.cliente) ultimo.lineas.push(linea);
+    else grupos.push({ cliente: linea.cliente, lineas: [linea] });
+  }
+  return (
+    <div style={{ display: 'grid', gap: '0.85rem' }}>
+      <div className="card" style={{ borderTop: `4px solid ${COLOR}`, display: 'grid', gap: '0.75rem' }}>
+        <strong style={{ color: COLOR }}>Por liquidar</strong>
+        <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+          Efectivo de las ventas y cobros ya recibidos de clientes externos.
+          El crédito que sigue pendiente no entra. No se carga al corte de la sucursal.
+        </p>
+        <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
+          <Cifra label="Efectivo" valor={tot.efectivo} />
+          <Cifra label="Cobros" valor={tot.abonos} />
+          <Cifra label="Total" valor={tot.total} color={COLOR} />
+        </div>
+        {lineas.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>No hay efectivo ni cobros por liquidar.</p>
+        ) : grupos.map((g) => (
+          <div key={g.cliente} style={{ display: 'grid', gap: '0.35rem' }}>
+            <strong>{g.cliente}</strong>
+            {g.lineas.map((l) => (
+              <div key={l.ref} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.35rem' }}>
+                <span style={{ minWidth: 0 }}>
+                  <strong>{l.folio || 'Sin folio'}</strong>
+                  <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                    {l.concepto}{l.fecha ? ` · ${fecha(l.fecha)}` : ''}
+                  </span>
+                </span>
+                <strong>{fmtMonto(l.monto)}</strong>
+              </div>
+            ))}
+          </div>
+        ))}
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ minHeight: 44 }}
+          disabled={ocupado || !(tot.total > 0)}
+          onClick={onLiquidar}
+        >
+          {ocupado ? 'Guardando…' : 'Liquidar'}
+        </button>
+      </div>
+      <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
+        <strong style={{ color: COLOR }}>Liquidaciones</strong>
+        {historial.length === 0 && (
+          <p className="muted" style={{ margin: 0 }}>Todavía no hay liquidaciones.</p>
+        )}
+        {historial.map((h) => (
+          <div key={h.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem', display: 'grid', gap: '0.35rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
+              <span>
+                {fecha(h.fecha) || 'Liquidación'}
+                {h.usuario ? <span className="muted"> · {h.usuario}</span> : null}
+              </span>
+              <strong>{fmtMonto(h.total)}</strong>
+            </div>
+            <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
+              Efectivo {fmtMonto(h.efectivo)} · cobros {fmtMonto(h.abonos)}
+            </p>
+            {h.cancelada ? (
+              <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Cancelada. Los montos volvieron a por liquidar.</p>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ minHeight: 44, color: '#b91c1c' }}
+                disabled={ocupado}
+                onClick={() => onCancelar(h)}
+              >
+                Cancelar liquidación
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const campo = {
   width: '100%',
   boxSizing: 'border-box',
@@ -255,6 +345,7 @@ const campo = {
 
 export default function RcClientesExt({ supabase, user, onVolver }) {
   const [registro, setRegistro] = useState(null);
+  const [liquidacion, setLiquidacion] = useState(null);
   const [aviso, setAviso] = useState('');
   const [abierto, setAbierto] = useState('');
   const [ticket, setTicket] = useState('');
@@ -271,6 +362,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
   const cargar = useCallback(async () => {
     const res = await listarRegistroClientesExt(supabase);
     setRegistro(res.registro);
+    setLiquidacion(res.liquidacion || null);
     setAviso(res.ok ? '' : (res.error || 'No se pudo leer el registro.'));
     return res.registro;
   }, [supabase]);
@@ -449,6 +541,46 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
     }
   };
 
+  const liquidar = async () => {
+    if (guardando) return;
+    const lineas = liquidacion?.lineas || [];
+    const tot = liquidacion?.totales || { efectivo: 0, abonos: 0, total: 0 };
+    if (!(tot.total > 0) || !lineas.length) return;
+    const pregunta = `¿Liquidar ${fmtMonto(tot.total)}?\nEfectivo ${fmtMonto(tot.efectivo)} · cobros ${fmtMonto(tot.abonos)}\nEl crédito pendiente no cambia.`;
+    if (!window.confirm(pregunta)) return;
+    setGuardando(true);
+    setMensaje('');
+    const res = await registrarLiquidacionClienteExt(supabase, {
+      refs: lineas.map((l) => l.ref),
+      usuarioNombre: user?.nombre || '',
+    });
+    setGuardando(false);
+    if (!res.ok) {
+      setMensaje(res.error || 'No se liquidó.');
+      return;
+    }
+    setMensaje(`Liquidación registrada: ${fmtMonto(res.monto)}.`);
+    await cargar();
+  };
+
+  const cancelarLiquidacion = async (fila) => {
+    if (guardando || !fila) return;
+    if (!window.confirm(`¿Cancelar la liquidación de ${fmtMonto(fila.total)}?\nEsos montos vuelven a por liquidar.`)) return;
+    setGuardando(true);
+    setMensaje('');
+    const res = await cancelarLiquidacionClienteExt(supabase, {
+      liquidacionId: fila.id,
+      usuarioNombre: user?.nombre || '',
+    });
+    setGuardando(false);
+    if (!res.ok) {
+      setMensaje(res.error || 'No se canceló la liquidación.');
+      return;
+    }
+    setMensaje(`Liquidación cancelada: ${fmtMonto(res.monto)} volvió a por liquidar.`);
+    await cargar();
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
       <div>
@@ -459,6 +591,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           Cada venta a un cliente externo, en efectivo o a crédito, tiene su ticket.
           Un crédito se puede abonar por partes. Si el cobro se cancela, el monto regresa a la deuda.
+          En Liquidación se entrega el efectivo y los cobros ya recibidos.
           El inventario sigue en el camión, el mismo de las sucursales.
         </p>
         <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
@@ -477,6 +610,14 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
             onClick={() => setPestana('cobro')}
           >
             Cobro
+          </button>
+          <button
+            type="button"
+            className={`btn ${pestana === 'liquidacion' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ minHeight: 44 }}
+            onClick={() => setPestana('liquidacion')}
+          >
+            Liquidación
           </button>
         </div>
       </div>
@@ -619,6 +760,14 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
             ))}
           </div>
         </div>
+      )}
+      {pestana === 'liquidacion' && (
+        <PestanaLiquidacion
+          liquidacion={liquidacion}
+          ocupado={guardando}
+          onLiquidar={() => { void liquidar(); }}
+          onCancelar={(fila) => { void cancelarLiquidacion(fila); }}
+        />
       )}
       {pestana === 'registro' && clientes.length === 0 && (
         <div className="card">
