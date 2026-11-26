@@ -3,6 +3,7 @@ import {
   armarRegistroClientesExt,
   cancelarCobroClienteExt,
   cobrosDelRegistro,
+  datosTicketAbarrotes,
   planCobroClienteExt,
   registrarCobroClienteExt,
 } from './rcClientesExt.js';
@@ -236,6 +237,20 @@ assert.equal(ticketEfe.pendiente, 0);
 assert.equal(ticketEfe.lineas[0].nombre, 'Leche');
 assert.equal(ticketEfe.lineas[0].cantidad, 2);
 assert.equal(ticketEfe.lineas[0].importe, 80);
+const hoja = datosTicketAbarrotes(reg.clientes[0].tickets[0], {
+  cliente: 'Don Pepe',
+  sucursal: '3B10',
+  fecha: '18/11/2026',
+});
+assert.equal(hoja.metodo_pago, 'credito');
+assert.equal(hoja.destino, 'Don Pepe');
+assert.equal(hoja.sucursal, '3B10');
+assert.equal(hoja.folio, 'EXT-1');
+assert.equal(hoja.articulos[0].nombre, 'Cuete');
+assert.equal(hoja.articulos[0].qty, 40);
+assert.equal(hoja.articulos[0].precio, 25);
+assert.equal(hoja.monto_credito, 1000);
+assert.equal(hoja.total, 1000);
 
 const regCancelado = armarRegistroClientesExt([pepe], [{
   id: 'a-x',

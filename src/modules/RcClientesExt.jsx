@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { fmtMonto } from '../lib/consultasUi.js';
+import { entregarTicketVenta, htmlTicketVenta } from '../lib/impresion.js';
 import {
   cancelarCobroClienteExt,
   cobrosDelRegistro,
+  datosTicketAbarrotes,
   listarRegistroClientesExt,
   planCobroClienteExt,
   registrarCobroClienteExt,
@@ -44,10 +46,30 @@ function etiquetaMetodo(metodo) {
   return 'Venta';
 }
 
-function fmtCant(n) {
-  const x = Number(n) || 0;
-  if (Number.isInteger(x)) return String(x);
-  return String(Math.round(x * 1000) / 1000);
+function HojaTicket({ ticket: t, cliente, sucursal }) {
+  const html = htmlTicketVenta(datosTicketAbarrotes(t, {
+    cliente: cliente || '',
+    sucursal: sucursal || '',
+    fecha: fecha(t?.fecha),
+  }));
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', background: '#fff', border: '1px solid #111', padding: '0.35rem 0' }}>
+      <iframe
+        title={`Ticket ${t?.folio || ''}`}
+        srcDoc={html}
+        style={{ width: '100%', maxWidth: 380, height: 520, border: 0, background: '#fff' }}
+        onLoad={(e) => {
+          try {
+            const doc = e.currentTarget.contentDocument;
+            const alto = doc?.body?.scrollHeight || doc?.documentElement?.scrollHeight;
+            if (alto > 80) e.currentTarget.style.height = `${alto + 12}px`;
+          } catch {
+            /* el ticket se queda con la altura inicial */
+          }
+        }}
+      />
+    </div>
+  );
 }
 
 function TicketVenta({
@@ -62,6 +84,8 @@ function TicketVenta({
   ocupado,
   onCobrar,
   onCancelar,
+  sucursal,
+  onImprimir,
 }) {
   const total = t.total || t.credito || t.efectivo || t.cobrado;
   return (
@@ -88,25 +112,11 @@ function TicketVenta({
         </p>
       )}
       {abierto && (
-        <div style={{ marginTop: '0.55rem', padding: '0.75rem', border: '1px dashed var(--border, #cbd5e1)', borderRadius: 8, display: 'grid', gap: '0.45rem' }}>
-          <strong style={{ color: COLOR }}>{`Ticket · ${etiquetaMetodo(t.metodo)}`}</strong>
-          {t.vendedor ? <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Vendedor: {t.vendedor}</p> : null}
-          {(t.lineas || []).length > 0 && (
-            <div style={{ display: 'grid', gap: '0.25rem' }}>
-              {t.lineas.map((linea, i) => (
-                <div key={`${t.id}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', fontSize: '0.88rem' }}>
-                  <span style={{ minWidth: 0 }}>
-                    {linea.nombre}
-                    <span className="muted"> · {fmtCant(linea.cantidad)} × {fmtMonto(linea.precio)}</span>
-                  </span>
-                  <strong style={{ flexShrink: 0 }}>{fmtMonto(linea.importe)}</strong>
-                </div>
-              ))}
-            </div>
-          )}
-          {(t.lineas || []).length === 0 && t.origen !== 'abono' && (
-            <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Esta venta no trae el detalle de productos.</p>
-          )}
+        <div style={{ marginTop: '0.55rem', display: 'grid', gap: '0.45rem' }}>
+          <HojaTicket ticket={t} cliente={cliente?.nombre || ''} sucursal={sucursal} />
+          <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => onImprimir(t, cliente)}>
+            Imprimir ticket
+          </button>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             {t.efectivo > 0 && <Cifra label="Efectivo" valor={t.efectivo} />}
             {t.credito > 0 && <Cifra label="Crédito" valor={t.credito} />}
@@ -189,14 +199,14 @@ const campo = {
   minHeight: 44,
 };
 
-export default function RcClientesExt({ supabase, user, onVolver }) {
+export default function RcClientesExt({ supabase, user, sucursal, onVolver }) {
   const [registro, setRegistro] = useState(null);
   const [aviso, setAviso] = useState('');
   const [abierto, setAbierto] = useState('');
   const [ticket, setTicket] = useState('');
+  const [cobroAbierto, setCobroAbierto] = useState('');
   const [pestana, setPestana] = useState('registro');
   const [clienteClave, setClienteClave] = useState('');
-  const [marcados, setMarcados] = useState([]);
   const [monto, setMonto] = useState('');
   const [nota, setNota] = useState('');
   const [montoTicket, setMontoTicket] = useState('');
@@ -226,32 +236,23 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
     [clientes],
   );
   const clienteCobro = porCobrar.find((c) => c.clave === clienteClave) || null;
-  const ticketsMarcados = (clienteCobro?.tickets || []).filter((t) => marcados.includes(t.id));
-  const pendienteMarcado = ticketsMarcados.reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
+  const pendienteCliente = (clienteCobro?.tickets || []).reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
   const cobros = useMemo(() => cobrosDelRegistro(registro), [registro]);
+  const tiendaTicket = sucursal || user?.sucursal_id || '';
 
   const elegirCliente = (clave) => {
     const elegido = porCobrar.find((c) => c.clave === clave);
-    const ids = (elegido?.tickets || []).map((t) => t.id);
     const suma = (elegido?.tickets || []).reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
     setClienteClave(clave);
-    setMarcados(ids);
     setMonto(suma > 0 ? String(Math.round(suma * 100) / 100) : '');
     setNota('');
     setMensaje('');
-  };
-
-  const alternarTicket = (id) => {
-    const base = clienteCobro?.tickets || [];
-    const next = marcados.includes(id) ? marcados.filter((x) => x !== id) : [...marcados, id];
-    const suma = base.filter((t) => next.includes(t.id)).reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
-    setMarcados(next);
-    setMonto(suma > 0 ? String(Math.round(suma * 100) / 100) : '');
+    setTicket('');
   };
 
   const registrarCobro = async () => {
     if (guardando || !clienteCobro) return;
-    const plan = planCobroClienteExt(ticketsMarcados, monto);
+    const plan = planCobroClienteExt(clienteCobro.tickets, String(monto).replace(',', '.'));
     if (!plan.ok) {
       setMensaje(plan.error);
       return;
@@ -261,7 +262,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
     setGuardando(true);
     setMensaje('');
     const res = await registrarCobroClienteExt(supabase, {
-      ticketIds: ticketsMarcados.map((t) => t.id),
+      ticketIds: clienteCobro.tickets.map((t) => t.id),
       monto: plan.montoAplicado,
       nota,
       usuarioNombre: user?.nombre || '',
@@ -277,9 +278,18 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
     const fresco = await cargar();
     const elegido = (fresco?.clientes || []).find((c) => c.clave === clienteCobro.clave);
     const siguientes = (elegido?.tickets || []).filter(esCreditoCobrar);
-    setMarcados(siguientes.map((t) => t.id));
     const suma = siguientes.reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
     setMonto(suma > 0 ? String(Math.round(suma * 100) / 100) : '');
+  };
+
+  const imprimirTicket = async (t, cliente) => {
+    const datos = datosTicketAbarrotes(t, {
+      cliente: cliente?.nombre || '',
+      sucursal: tiendaTicket,
+      fecha: fecha(t?.fecha),
+    });
+    const r = await entregarTicketVenta(datos, 'imprimir', { forzar: true, titulo: 'Ticket de venta' });
+    if (r && r.ok === false) setMensaje(r.error || 'No se pudo abrir el ticket.');
   };
 
   const prepararTicket = (t) => {
@@ -297,17 +307,12 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
   };
 
   const verTicketDeCobro = (cobro) => {
-    const cliente = clientes.find((c) => c.clave === cobro.clienteClave);
-    const elegido = (cliente?.tickets || []).find((t) => t.id === cobro.ticketId);
-    setPestana('registro');
-    setAbierto(cobro.clienteClave || '');
-    setTicket(cobro.ticketId || '');
-    if (elegido) prepararTicket(elegido);
+    setCobroAbierto((prev) => (prev === cobro.id ? '' : cobro.id));
   };
 
   const cobrarEsteTicket = async (t, cliente) => {
     if (guardando) return;
-    const plan = planCobroClienteExt([t], montoTicket);
+    const plan = planCobroClienteExt([t], String(montoTicket).replace(',', '.'));
     if (!plan.ok) {
       setMensaje(plan.error);
       return;
@@ -361,7 +366,6 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
     if (clienteClave) {
       const elegido = (fresco?.clientes || []).find((c) => c.clave === clienteClave);
       const siguientes = (elegido?.tickets || []).filter(esCreditoCobrar);
-      setMarcados(siguientes.map((t) => t.id));
       const suma = siguientes.reduce((s, t) => s + (Number(t.pendiente) || 0), 0);
       setMonto(suma > 0 ? String(Math.round(suma * 100) / 100) : '');
     }
@@ -449,31 +453,33 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
                 {clienteCobro && (
                   <div style={{ display: 'grid', gap: '0.45rem' }}>
                     {clienteCobro.tickets.map((t) => {
-                      const marcado = marcados.includes(t.id);
+                      const abiertoTicket = ticket === t.id;
                       return (
-                        <label
-                          key={t.id}
-                          style={{
-                            display: 'flex',
-                            gap: '0.65rem',
-                            alignItems: 'center',
-                            minHeight: 44,
-                            padding: '0.35rem 0',
-                            borderTop: '1px solid var(--border, #e5e7eb)',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={marcado}
-                            onChange={() => alternarTicket(t.id)}
-                            style={{ width: 22, height: 22, flexShrink: 0 }}
-                          />
-                          <span style={{ flex: 1, minWidth: 0 }}>
-                            <strong>{t.folio || 'Sin folio'}</strong>
-                            <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>{fecha(t.fecha)}</span>
-                          </span>
-                          <strong>{fmtMonto(t.pendiente)}</strong>
-                        </label>
+                        <div key={t.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem', display: 'grid', gap: '0.4rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
+                            <span style={{ minWidth: 0 }}>
+                              <strong>{t.folio || 'Sin folio'}</strong>
+                              <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>{fecha(t.fecha)}</span>
+                            </span>
+                            <strong>{fmtMonto(t.pendiente)}</strong>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ minHeight: 44 }}
+                            onClick={() => alternarVistaTicket(t)}
+                          >
+                            {abiertoTicket ? 'Ocultar ticket' : 'Ver ticket'}
+                          </button>
+                          {abiertoTicket && (
+                            <>
+                              <HojaTicket ticket={t} cliente={clienteCobro.nombre} sucursal={tiendaTicket} />
+                              <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => { void imprimirTicket(t, clienteCobro); }}>
+                                Imprimir ticket
+                              </button>
+                            </>
+                          )}
+                        </div>
                       );
                     })}
                     <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
@@ -488,7 +494,8 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
                       />
                     </label>
                     <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
-                      Pendiente marcado {fmtMonto(pendienteMarcado)}. Si el monto es menor, se abona del crédito más antiguo.
+                      Pendiente {fmtMonto(pendienteCliente)}. Escribe un monto menor para abonar; el resto sigue en la deuda.
+                      {clienteCobro.tickets.length > 1 ? ' El abono entra al crédito más antiguo.' : ''}
                     </p>
                     <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
                       Nota
@@ -505,7 +512,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
                       type="button"
                       className="btn btn-primary"
                       style={{ minHeight: 44 }}
-                      disabled={guardando || !ticketsMarcados.length}
+                      disabled={guardando || !(Number(String(monto).replace(',', '.')) > 0)}
                       onClick={() => { void registrarCobro(); }}
                     >
                       {guardando ? 'Guardando…' : 'Registrar cobro'}
@@ -534,7 +541,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
                 </p>
                 <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                   <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => verTicketDeCobro(c)}>
-                    Ver ticket
+                    {cobroAbierto === c.id ? 'Ocultar ticket' : 'Ver ticket'}
                   </button>
                   <button
                     type="button"
@@ -546,6 +553,18 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
                     Cancelar cobro
                   </button>
                 </div>
+                {cobroAbierto === c.id && (() => {
+                  const hallado = clientes.flatMap((cl) => (cl.tickets || []).map((t) => ({ cliente: cl, ticket: t }))).find((x) => x.ticket.id === c.ticketId);
+                  if (!hallado) return null;
+                  return (
+                    <>
+                      <HojaTicket ticket={hallado.ticket} cliente={hallado.cliente.nombre} sucursal={tiendaTicket} />
+                      <button type="button" className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => { void imprimirTicket(hallado.ticket, hallado.cliente); }}>
+                        Imprimir ticket
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
@@ -588,6 +607,8 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
                 ocupado={guardando}
                 onCobrar={(venta, dueno) => { void cobrarEsteTicket(venta, dueno); }}
                 onCancelar={(cobro, dueno) => { void cancelarCobro(cobro, dueno?.nombre); }}
+                sucursal={tiendaTicket}
+                onImprimir={(venta, dueno) => { void imprimirTicket(venta, dueno); }}
               />
             ))}
           </div>

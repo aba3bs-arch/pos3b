@@ -33,6 +33,31 @@ function esCobroSintetico(id) {
   return String(id || '').startsWith('cobro:');
 }
 
+/** Mismos datos que el ticket de venta de abarrotes. */
+export function datosTicketAbarrotes(ticket, { cliente, sucursal, fecha } = {}) {
+  const metodo = ticket?.metodo || (Number(ticket?.credito) > 0 && Number(ticket?.efectivo) > 0
+    ? 'mixto'
+    : Number(ticket?.credito) > 0 ? 'credito' : 'efectivo');
+  return {
+    sucursal: sucursal || '',
+    vendedor: ticket?.vendedor || '',
+    folio: ticket?.folio || '',
+    destino: cliente || '',
+    fecha: fecha || '',
+    articulos: (ticket?.lineas || []).map((l) => ({
+      nombre: l.nombre,
+      precio: l.precio,
+      qty: l.cantidad,
+    })),
+    total: round2(ticket?.total || (Number(ticket?.efectivo) || 0) + (Number(ticket?.credito) || 0)),
+    metodo_pago: metodo,
+    metodo,
+    monto_efectivo: round2(ticket?.efectivo),
+    monto_credito: round2(ticket?.credito),
+    tituloTicket: 'VENTA EN RUTA',
+  };
+}
+
 /** Líneas vendidas, sin las marcas internas del ticket. */
 export function lineasDeArticulos(articulos) {
   let arts = articulos;
