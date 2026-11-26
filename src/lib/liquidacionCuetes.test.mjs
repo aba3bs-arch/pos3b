@@ -81,6 +81,17 @@ assert.equal(tiendas[0].tickets[0].folio, 'VR-1-C');
 assert.equal(tiendas[0].tickets[0].lineas[0].nombre, 'Escupidor');
 assert.equal(tiendas[0].tickets[0].lineas.length, 1);
 
+const externo = {
+  ...credito,
+  id: 'vx',
+  folio: 'EXT-1',
+  cliente_tipo: 'externo',
+  cliente_id: 'cli-1',
+  cliente_nombre: 'Don Pepe',
+};
+assert.equal(agruparCreditoPorTienda([credito, externo], ids, []).length, 1);
+assert.equal(armarLiquidacionCuetes([externo], ids, [], []).pendiente, 0);
+
 const conAbono = aplicarAbonosFinAnio(
   agruparCreditoPorTienda([credito], ids, []),
   [{ id: 'fa1', cuenta_id: 'c3', monto: 480, created_at: '2026-11-18T22:00:00Z' }],

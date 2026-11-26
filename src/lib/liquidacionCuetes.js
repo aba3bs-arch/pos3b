@@ -129,6 +129,7 @@ export function ticketCreditoCuete(venta, idsCuete, abonos = []) {
 export function agruparCreditoPorTienda(ventas, idsCuete, abonos = []) {
   const map = new Map();
   for (const venta of ventas || []) {
+    if (tiendaDeVentaRuta(venta).externo) continue;
     const t = ticketCreditoCuete(venta, idsCuete, abonos);
     if (!t) continue;
     const g = map.get(t.sucursal_id) || {
@@ -244,6 +245,7 @@ export function armarLiquidacionCuetes(ventas, idsCuete, abonos, liquidaciones, 
   };
   let pendiente = 0;
   for (const venta of ventas || []) {
+    if (tiendaDeVentaRuta(venta).externo) continue;
     const r = cobrosCueteDeVenta(venta, idsCuete, abonos);
     if (!r) continue;
     pendiente = round2(pendiente + r.pendiente);

@@ -92,6 +92,7 @@ import PreinventarioRuta from './PreinventarioRuta.jsx';
 import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
 import CreditoFinAnioRuta from './CreditoFinAnioRuta.jsx';
+import RcClientesExt from './RcClientesExt.jsx';
 import CobroServiciosRuta from './CobroServiciosRuta.jsx';
 import GastosRuta from './GastosRuta.jsx';
 import './VentaEnRuta.css';
@@ -426,6 +427,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           embedded
           titulo="Créditos por pagar"
         />
+      )}
+      {vista === 'rcclientes' && puede('ruta_rc_clientes_ext') && (
+        <RcClientesExt supabase={supabase} onVolver={() => ir('hub')} />
       )}
       {vista === 'finanio' && puede('ruta_fin_anio') && (
         <CreditoFinAnioRuta
