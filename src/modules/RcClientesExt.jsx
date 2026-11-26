@@ -8,6 +8,7 @@ import {
   datosTicketAbarrotes,
   listarRegistroClientesExt,
   planCobroClienteExt,
+  aplicarGastosEnLiquidacion,
   registrarCobroClienteExt,
   registrarLiquidacionClienteExt,
 } from '../lib/rcClientesExt.js';
@@ -261,7 +262,7 @@ function PestanaLiquidacion({ liquidacion, pendiente, ocupado, onLiquidar }) {
         <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total</p>
         <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{fmtMonto(total)}</p>
         <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-          Crédito que sigue pendiente, más el efectivo y los cobros que todavía no se liquidan.
+          Crédito que sigue pendiente, más el efectivo y los cobros, menos los gastos que todavía no se liquidan.
         </p>
       </div>
       <div>
@@ -273,22 +274,35 @@ function PestanaLiquidacion({ liquidacion, pendiente, ocupado, onLiquidar }) {
         </p>
       </div>
       <div>
+        <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Gastos</p>
+        <p style={{ margin: '0.15rem 0 0', fontSize: '1.35rem', fontWeight: 700 }}>− {fmtMonto(tot.gastos || 0)}</p>
+        <div style={{ display: 'grid', gap: '0.25rem', marginTop: '0.35rem' }}>
+          {(liquidacion?.lineas || []).filter((l) => l.tipo === 'gasto').map((l) => (
+            <p key={l.ref} className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+              {l.concepto} · {fmtMonto(l.monto)}
+              {l.fecha ? ` · ${fecha(l.fecha)}` : ''}
+              {l.quien ? ` · ${l.quien}` : ''}
+            </p>
+          ))}
+          {!(tot.gastos > 0) && <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Sin gastos por restar.</p>}
+        </div>
+      </div>
+      <div>
         <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Liquidación</p>
         <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700, color: COLOR }}>{fmtMonto(tot.total)}</p>
         <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-          {tot.total > 0
-            ? `Al liquidar, el crédito pendiente queda en ${fmtMonto(deuda)}.`
-            : 'Sin efectivo ni cobros, la liquidación queda en cero.'}
+          Efectivo y cobros, menos los gastos.
+          {deuda > 0 ? ` El crédito pendiente queda en ${fmtMonto(deuda)}.` : ''}
         </p>
       </div>
       <button
         type="button"
         className="btn btn-primary"
         style={{ minHeight: 44 }}
-        disabled={ocupado || !(tot.total > 0)}
+        disabled={ocupado || !((Number(tot.efectivo) + Number(tot.abonos)) > 0 || (tot.gastos || 0) > 0)}
         onClick={onLiquidar}
       >
-        {ocupado ? 'Guardando…' : `Liquidar${tot.total > 0 ? ` · ${fmtMonto(tot.total)}` : ''}`}
+        {ocupado ? 'Guardando…' : ((Number(tot.efectivo) + Number(tot.abonos)) > 0 || (tot.gastos || 0) > 0 ? `Liquidar · ${fmtMonto(tot.total)}` : 'Liquidar')}
       </button>
       <div>
         <h4 style={{ margin: '0.2rem 0 0.5rem' }}>Registro</h4>
@@ -332,8 +346,16 @@ function PestanaLiquidacion({ liquidacion, pendiente, ocupado, onLiquidar }) {
                       {partes.length === 0 && (
                         <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
                           Efectivo {fmtMonto(h.efectivo)} · cobros {fmtMonto(h.abonos)}
+                          {(h.gastos || 0) > 0 ? ` · gastos ${fmtMonto(h.gastos)}` : ''}
                         </p>
                       )}
+                      {(h.gastosDetalle || []).map((g) => (
+                        <p key={`${h.id}-${g.concepto}-${g.fecha}`} className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+                          Gasto {g.concepto} · {fmtMonto(g.monto)}
+                          {g.fecha ? ` · ${fecha(g.fecha)}` : ''}
+                          {g.quien ? ` · ${g.quien}` : ''}
+                        </p>
+                      ))}
                       {partes.map((p) => (
                         <p key={p.cliente} style={{ margin: 0, fontSize: '0.85rem' }}>
                           <strong>{p.cliente}</strong>
@@ -396,6 +418,20 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
 
   const totales = registro?.totales || { efectivo: 0, credito: 0, cobrado: 0, pendiente: 0 };
   const ventaNeta = resumenVentaConGastos(totales, gastosExt.gastos);
+  const liquidacionVista = useMemo(
+    () => aplicarGastosEnLiquidacion(liquidacion, gastosExt.gastos),
+    [liquidacion, gastosExt.gastos],
+  );
+  const gastosLiquidados = useMemo(() => {
+    const ids = [];
+    for (const h of liquidacion?.historial || []) {
+      if (h.cancelada) continue;
+      for (const ref of h.refs || []) {
+        if (String(ref).startsWith('gas:')) ids.push(String(ref).slice(4));
+      }
+    }
+    return ids;
+  }, [liquidacion]);
   const clientes = registro?.clientes || [];
   const porCobrar = useMemo(
     () => clientes
@@ -565,10 +601,10 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
 
   const liquidar = async () => {
     if (guardando) return;
-    const lineas = liquidacion?.lineas || [];
-    const tot = liquidacion?.totales || { efectivo: 0, abonos: 0, total: 0 };
-    if (!(tot.total > 0) || !lineas.length) return;
-    const pregunta = `¿Liquidar ${fmtMonto(tot.total)}?\nEfectivo ${fmtMonto(tot.efectivo)} · cobros ${fmtMonto(tot.abonos)}\nEl crédito pendiente no cambia.`;
+    const lineas = liquidacionVista?.lineas || [];
+    const tot = liquidacionVista?.totales || { efectivo: 0, abonos: 0, gastos: 0, total: 0 };
+    if (!lineas.length || !((tot.efectivo + tot.abonos) > 0 || tot.gastos > 0)) return;
+    const pregunta = `¿Liquidar ${fmtMonto(tot.total)}?\nEfectivo ${fmtMonto(tot.efectivo)} · cobros ${fmtMonto(tot.abonos)} · gastos ${fmtMonto(tot.gastos || 0)}\nEl crédito pendiente no cambia.`;
     if (!window.confirm(pregunta)) return;
     setGuardando(true);
     setMensaje('');
@@ -784,12 +820,13 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
           totales={totales}
           arbol={gastosExt.arbol}
           gastos={gastosExt.gastos}
+          liquidados={gastosLiquidados}
           onCambio={cargar}
         />
       )}
       {pestana === 'liquidacion' && (
         <PestanaLiquidacion
-          liquidacion={liquidacion}
+          liquidacion={liquidacionVista}
           pendiente={totales.pendiente}
           ocupado={guardando}
           onLiquidar={() => { void liquidar(); }}

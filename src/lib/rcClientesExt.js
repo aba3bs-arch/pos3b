@@ -9,6 +9,7 @@
  */
 
 import { montosPagoDesdeVentaRuta, ventaPendienteRecepcion } from './compraGastoCorte.js';
+import { listarGastosClientesExt } from './rcClientesExtGastos.js';
 import { tiendaDeVentaRuta, ventaCancelada } from './ventasRutaPorTienda.js';
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -701,19 +702,66 @@ const CLIENTE_LIQUIDACION = 'rc-liquidacion';
 function partesLiquidacion(lineas) {
   const map = new Map();
   for (const l of lineas || []) {
+    if (l?.tipo === 'gasto' || String(l?.ref || '').startsWith('gas:')) continue;
     const cliente = String(l.cliente || '').trim() || 'Cliente';
     map.set(cliente, round2((map.get(cliente) || 0) + round2(l.monto)));
   }
   return [...map.entries()].map(([cliente, monto]) => ({ cliente, monto })).filter((p) => p.monto > 0);
 }
 
-function notaLiquidacion({ efectivo, abonos, refs, usuario, partes }) {
+/** Resta los gastos todavía no liquidados del efectivo y los cobros por entregar. */
+export function aplicarGastosEnLiquidacion(liquidacion, gastos = []) {
+  const base = liquidacion || { lineas: [], historial: [], totales: { efectivo: 0, abonos: 0, total: 0 } };
+  const selladas = new Set();
+  for (const h of base.historial || []) {
+    if (h.cancelada) continue;
+    for (const ref of h.refs || []) selladas.add(String(ref));
+  }
+  const propias = (base.lineas || []).filter((l) => !String(l.ref || '').startsWith('gas:'));
+  const gastosLineas = [];
+  for (const g of gastos || []) {
+    const ref = `gas:${g.id}`;
+    if (!g?.id || selladas.has(ref)) continue;
+    const monto = round2(g.monto);
+    if (!(monto > 0)) continue;
+    const concepto = [g.categoria_nombre, g.subcategoria_nombre, g.detalle_nombre].filter(Boolean).join(' › ') || 'Gasto';
+    gastosLineas.push({
+      ref,
+      cliente: 'Gasto',
+      folio: '',
+      concepto,
+      monto,
+      fecha: g.created_at || null,
+      quien: g.usuario_nombre || '',
+      notas: g.notas || '',
+      tipo: 'gasto',
+    });
+  }
+  const efectivo = round2(propias.filter((l) => String(l.ref).startsWith('efe:')).reduce((s, l) => s + round2(l.monto), 0));
+  const abonos = round2(propias.filter((l) => String(l.ref).startsWith('abo:')).reduce((s, l) => s + round2(l.monto), 0));
+  const sumaGastos = round2(gastosLineas.reduce((s, l) => s + l.monto, 0));
+  return {
+    ...base,
+    lineas: [...propias, ...gastosLineas],
+    totales: {
+      efectivo,
+      abonos,
+      gastos: sumaGastos,
+      total: round2(efectivo + abonos - sumaGastos),
+    },
+  };
+}
+
+function notaLiquidacion({ efectivo, abonos, gastos = 0, entregado, refs, usuario, partes, gastosDetalle }) {
   return `LIQ ${JSON.stringify({
     efectivo: round2(efectivo),
     abonos: round2(abonos),
+    gastos: round2(gastos),
+    entregado: round2(entregado),
     refs: refs || [],
     usuario: usuario || '',
     partes: partes || [],
+    gastosDetalle: gastosDetalle || [],
   })}`;
 }
 
@@ -723,6 +771,9 @@ function detalleLiquidacion(mov) {
   const limpia = notas.replace(/^\s*cancelado\s*[·.-]\s*/i, '').trim();
   let efectivo = 0;
   let abonos = 0;
+  let gastos = 0;
+  let gastosDetalle = [];
+  let entregado = null;
   let refs = [];
   let partes = [];
   let usuario = mov?.usuario_nombre || '';
@@ -737,6 +788,9 @@ function detalleLiquidacion(mov) {
         ? p.partes.map((x) => ({ cliente: String(x?.cliente || '').trim(), monto: round2(x?.monto) })).filter((x) => x.cliente && x.monto > 0)
         : [];
       if (!usuario && p.usuario) usuario = String(p.usuario);
+      gastos = round2(p.gastos);
+      gastosDetalle = Array.isArray(p.gastosDetalle) ? p.gastosDetalle : [];
+      if (p && Object.prototype.hasOwnProperty.call(p, 'entregado')) entregado = round2(p.entregado);
     } catch {
       /* el monto del movimiento sigue siendo el total */
     }
@@ -747,7 +801,9 @@ function detalleLiquidacion(mov) {
     usuario,
     efectivo,
     abonos,
-    total: round2(mov?.monto || efectivo + abonos),
+    gastos,
+    gastosDetalle,
+    total: entregado == null ? round2(mov?.monto || efectivo + abonos) : entregado,
     refs,
     partes,
     cancelada,
@@ -757,6 +813,7 @@ function detalleLiquidacion(mov) {
 /**
  * Efectivo de ventas y cobros todavía no entregados.
  * El crédito pendiente no entra: sigue en la deuda del cliente.
+ * Los gastos pendientes se restan aparte, al armar la pantalla.
  */
 export function armarLiquidacionClientesExt(registro, movimientos = []) {
   const historial = (movimientos || [])
@@ -825,40 +882,53 @@ async function insertarLiquidacion(supabase, row) {
   return { ok: true, id: data?.id || null };
 }
 
-/** Sella el efectivo y los cobros que el repartidor entrega. No toca la deuda. */
+/** Sella el efectivo, los cobros y los gastos que el repartidor entrega. No toca la deuda. */
 export async function registrarLiquidacionClienteExt(supabase, { refs, usuarioNombre } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const pedidas = new Set((refs || []).map((r) => String(r || '')).filter(Boolean));
   if (!pedidas.size) return { ok: false, error: 'No hay montos por liquidar.' };
   const leido = await listarRegistroClientesExt(supabase);
   if (!leido.ok) return { ok: false, error: leido.error || 'No se pudo leer el registro.' };
-  const elegidas = (leido.liquidacion?.lineas || []).filter((l) => pedidas.has(l.ref));
+  const gas = await listarGastosClientesExt(supabase);
+  const liq = aplicarGastosEnLiquidacion(leido.liquidacion, gas.ok ? gas.gastos : []);
+  const elegidas = (liq.lineas || []).filter((l) => pedidas.has(l.ref));
   if (!elegidas.length) return { ok: false, error: 'Esos montos ya se liquidaron. Actualiza la pantalla.' };
-  const efectivo = round2(elegidas.filter((l) => l.ref.startsWith('efe:')).reduce((s, l) => s + l.monto, 0));
-  const abonos = round2(elegidas.filter((l) => l.ref.startsWith('abo:')).reduce((s, l) => s + l.monto, 0));
-  const total = round2(efectivo + abonos);
-  if (!(total > 0)) return { ok: false, error: 'No hay montos por liquidar.' };
+  const efectivo = round2(elegidas.filter((l) => String(l.ref).startsWith('efe:')).reduce((s, l) => s + l.monto, 0));
+  const abonos = round2(elegidas.filter((l) => String(l.ref).startsWith('abo:')).reduce((s, l) => s + l.monto, 0));
+  const gastos = round2(elegidas.filter((l) => l.tipo === 'gasto').reduce((s, l) => s + l.monto, 0));
+  const entregado = round2(efectivo + abonos - gastos);
+  if (!(efectivo + abonos > 0) && !(gastos > 0)) return { ok: false, error: 'No hay montos por liquidar.' };
   const quien = String(usuarioNombre || '').trim() || 'RC/Clientes ext.';
+  const gastosDetalle = elegidas.filter((l) => l.tipo === 'gasto').map((l) => ({
+    concepto: l.concepto,
+    monto: l.monto,
+    quien: l.quien || '',
+    fecha: l.fecha || null,
+    notas: l.notas || '',
+  }));
   const ins = await insertarLiquidacion(supabase, {
     cliente_tipo: 'externo',
     cliente_id: CLIENTE_LIQUIDACION,
     cliente_nombre: 'Liquidación clientes ext.',
     tipo: 'liquidacion',
-    monto: total,
+    monto: entregado > 0 ? entregado : round2(Math.max(efectivo + abonos, gastos)),
     saldo_despues: 0,
     metodo_pago: 'efectivo',
     estatus: 'cerrada',
     notas: notaLiquidacion({
       efectivo,
       abonos,
+      gastos,
+      entregado,
       refs: elegidas.map((l) => l.ref),
       usuario: quien,
       partes: partesLiquidacion(elegidas),
+      gastosDetalle,
     }),
     usuario_nombre: quien,
   });
   if (!ins.ok) return ins;
-  return { ok: true, monto: total, efectivo, abonos, id: ins.id };
+  return { ok: true, monto: entregado, efectivo, abonos, gastos, id: ins.id };
 }
 
 /** Una liquidación cancelada regresa sus montos a por liquidar. */
@@ -875,9 +945,12 @@ export async function cancelarLiquidacionClienteExt(supabase, { liquidacionId, u
   const notas = `CANCELADO · ${notaLiquidacion({
     efectivo: fila.efectivo,
     abonos: fila.abonos,
+    gastos: fila.gastos,
+    entregado: fila.total,
     refs: fila.refs,
     usuario: fila.usuario,
     partes: fila.partes,
+    gastosDetalle: fila.gastosDetalle,
   })} · ${quien}`;
   const upd = await supabase.from('ruta_cxc_movimientos').update({
     estatus: 'cancelado',

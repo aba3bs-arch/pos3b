@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   armarCatalogoGastosExt,
+  editarGastoClienteExt,
   puedeQuitarDelCatalogo,
   prepararGastoExt,
   resumenVentaConGastos,
@@ -62,5 +63,47 @@ assert.equal(puedeQuitarDelCatalogo(arbol, 's1', []).ok, false);
 assert.equal(puedeQuitarDelCatalogo(arbol, 'd1', gastos).ok, false);
 assert.equal(puedeQuitarDelCatalogo(arbol, 'd2', gastos).ok, true);
 assert.equal(puedeQuitarDelCatalogo(arbol, 'c1', []).ok, true);
+
+const fila = {
+  id: 'g1',
+  usuario_nombre: 'Luis',
+  created_at: '2026-11-25T21:30:00Z',
+  monto: 40,
+  notas: 'carga',
+  categoria_nombre: 'Camión',
+  subcategoria_nombre: 'Combustible',
+  detalle_nombre: 'Gasolina',
+};
+const db = {
+  from() {
+    const state = { patch: null };
+    const q = {
+      update(patch) { state.patch = patch; return q; },
+      eq() { return q; },
+      select() { return q; },
+      single() {
+        Object.assign(fila, state.patch);
+        return Promise.resolve({ data: { ...fila }, error: null });
+      },
+    };
+    return q;
+  },
+};
+const editado = await editarGastoClienteExt(db, {
+  id: 'g1',
+  categoriaId: 'c2',
+  subcategoriaId: 's1',
+  detalleId: 'd2',
+  monto: '55',
+  nota: 'otra',
+  arbol,
+});
+assert.equal(editado.ok, true);
+assert.equal(editado.data.detalle_nombre, 'Diésel');
+assert.equal(editado.data.monto, 55);
+assert.equal(editado.data.usuario_nombre, 'Luis');
+assert.equal(editado.data.created_at, '2026-11-25T21:30:00Z');
+assert.equal(fila.usuario_nombre, 'Luis');
+assert.equal(fila.created_at, '2026-11-25T21:30:00Z');
 
 console.log('rcClientesExtGastos.test.mjs ok');

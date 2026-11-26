@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { htmlTicketVenta } from './impresion.js';
 import {
+  aplicarGastosEnLiquidacion,
   armarLiquidacionClientesExt,
   armarRegistroClientesExt,
   cancelarCobroClienteExt,
@@ -132,17 +133,24 @@ assert.equal(plan.partes[1].parcial, true);
 assert.equal(planCobroClienteExt([viejo], 101).ok, false);
 assert.equal(planCobroClienteExt([viejo], 0).ok, false);
 
-function mockDb(ventas, movs) {
+function mockDb(ventas, movs, extras = {}) {
   const updates = [];
+  const bolsa = (table) => {
+    if (table === 'ruta_ventas') return ventas;
+    if (table === 'ruta_cxc_movimientos') return movs;
+    if (!extras[table]) extras[table] = [];
+    return extras[table];
+  };
   const from = (table) => {
     const state = { filters: [], op: 'select', payload: null, patch: null };
-    const fuente = () => (table === 'ruta_ventas' ? ventas : movs);
+    const fuente = () => bolsa(table);
     const run = () => {
       const coincide = (row) => state.filters.every(([c, v]) => String(row[c] ?? '') === String(v));
       if (state.op === 'select') return { data: fuente().filter(coincide), error: null };
       if (state.op === 'insert') {
-        const row = { id: `ab-${movs.length + 1}`, created_at: '2026-11-25T20:00:00Z', ...state.payload[0] };
-        movs.push(row);
+        const destino = bolsa(table);
+        const row = { id: `ab-${destino.length + 1}`, created_at: '2026-11-25T20:00:00Z', ...state.payload[0] };
+        destino.push(row);
         return { data: row, error: null };
       }
       updates.push({ table, patch: state.patch, filters: state.filters });
@@ -156,6 +164,7 @@ function mockDb(ventas, movs) {
       eq(col, val) { state.filters.push([col, val]); return q; },
       order() { return q; },
       range() { return q; },
+      limit() { return q; },
       maybeSingle() { return Promise.resolve(run()); },
       then(resolve, reject) { return Promise.resolve(run()).then(resolve, reject); },
     };
@@ -433,6 +442,26 @@ assert.equal(liq0.totales.efectivo, 200);
 assert.equal(liq0.totales.abonos, 100);
 assert.equal(liq0.totales.total, 300);
 assert.equal(liq0.lineas.length, 2);
+const gastoLiq = {
+  id: 'g1',
+  monto: 40,
+  categoria_nombre: 'Operación',
+  subcategoria_nombre: 'Combustible',
+  detalle_nombre: 'Gasolina',
+  usuario_nombre: 'Luis',
+  notas: 'carga',
+  created_at: '2026-11-25T21:30:00Z',
+};
+const conGasto = aplicarGastosEnLiquidacion(liq0, [gastoLiq]);
+assert.equal(conGasto.totales.gastos, 40);
+assert.equal(conGasto.totales.total, 260);
+assert.equal(conGasto.lineas.find((l) => l.tipo === 'gasto').quien, 'Luis');
+const sellado = aplicarGastosEnLiquidacion({
+  ...liq0,
+  historial: [{ id: 'h', cancelada: false, refs: ['gas:g1'], total: 0 }],
+}, [gastoLiq]);
+assert.equal(sellado.totales.gastos, 0);
+assert.equal(sellado.totales.total, 300);
 assert.equal(regLiq.totales.pendiente, 200);
 const sello = {
   id: 'liq-1',
@@ -490,5 +519,29 @@ assert.equal(guardada.estatus, 'cancelado');
 assert.equal(armarLiquidacionClientesExt(armarRegistroClientesExt(ventasLiq, movsLiq), movsLiq).lineas.length, 2);
 const otraLiq = await cancelarLiquidacionClienteExt(dbLiq, { liquidacionId: guardada.id, usuarioNombre: 'Ana' });
 assert.equal(otraLiq.ok, false);
+
+const ventasGas = [{ ...ventaMixLiq }];
+const movsGas = [{ ...abonoLiq }];
+const gastosTabla = [{ ...gastoLiq }];
+const dbGas = mockDb(ventasGas, movsGas, { ruta_rc_ext_gastos: gastosTabla });
+const baseGas = armarLiquidacionClientesExt(armarRegistroClientesExt(ventasGas, movsGas), movsGas);
+const vistaGas = aplicarGastosEnLiquidacion(baseGas, gastosTabla);
+const hechaGas = await registrarLiquidacionClienteExt(dbGas, {
+  refs: vistaGas.lineas.map((l) => l.ref),
+  usuarioNombre: 'Ana',
+});
+assert.equal(hechaGas.ok, true);
+assert.equal(hechaGas.monto, 260);
+assert.equal(hechaGas.gastos, 40);
+const guardadaGas = movsGas.find((m) => m.tipo === 'liquidacion');
+assert.equal(guardadaGas.monto, 260);
+const histGas = armarLiquidacionClientesExt(armarRegistroClientesExt(ventasGas, movsGas), movsGas);
+assert.equal(histGas.historial[0].total, 260);
+assert.equal(histGas.historial[0].gastos, 40);
+assert.equal(histGas.historial[0].gastosDetalle[0].quien, 'Luis');
+assert.equal(histGas.historial[0].gastosDetalle[0].concepto, 'Operación › Combustible › Gasolina');
+const yaNoResta = aplicarGastosEnLiquidacion(histGas, gastosTabla);
+assert.equal(yaNoResta.totales.gastos, 0);
+assert.equal(yaNoResta.lineas.some((l) => l.tipo === 'gasto'), false);
 
 console.log('rcClientesExt.test.mjs ok');
