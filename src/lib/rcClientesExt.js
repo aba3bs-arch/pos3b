@@ -2,7 +2,9 @@
  * Registro de clientes externos.
  * Cada venta (efectivo, crédito o mixto) queda como ticket.
  * El crédito se abona completo o por partes. Si se cancela un cobro,
- * ese monto regresa a la deuda. Las sucursales 3B no entran.
+ * ese monto regresa a la deuda. La liquidación entrega el efectivo
+ * y los cobros ya recibidos; el crédito pendiente no entra.
+ * Las sucursales 3B no entran.
  * El inventario del camión no se parte.
  */
 
@@ -328,33 +330,32 @@ async function paginar(supabase, tabla, select, afinar) {
   return { data: out };
 }
 
+const LIQUIDACION_VACIA = { lineas: [], historial: [], totales: { efectivo: 0, abonos: 0, total: 0 } };
+
 export async function listarRegistroClientesExt(supabase) {
   const vacio = armarRegistroClientesExt([], []);
-  if (!supabase) return { ok: false, error: 'Sin conexión.', registro: vacio };
+  if (!supabase) return { ok: false, error: 'Sin conexión.', registro: vacio, liquidacion: LIQUIDACION_VACIA };
   const filtroVentas = (q) => q.eq('cliente_tipo', 'externo').order('created_at', { ascending: false });
   const columnasVenta = 'id,folio,cliente_id,cliente_tipo,cliente_nombre,metodo_pago,total,estado,estado_credito,created_at,articulos';
   let ventas = await paginar(supabase, 'ruta_ventas', `${columnasVenta},vendedor_nombre`, filtroVentas);
   if (ventas.error && /vendedor_nombre/i.test(ventas.error)) {
     ventas = await paginar(supabase, 'ruta_ventas', columnasVenta, filtroVentas);
   }
-  if (ventas.error) return { ok: false, error: ventas.error, registro: vacio };
-  const columnas = 'id,venta_id,folio_venta,cliente_id,cliente_tipo,cliente_nombre,monto,created_at,tipo,estatus,pagado_at,notas,cargo_id';
-  let movimientos = await paginar(
-    supabase,
-    'ruta_cxc_movimientos',
-    columnas,
-    (q) => q.eq('cliente_tipo', 'externo').order('created_at', { ascending: false }),
-  );
-  if (movimientos.error && /cargo_id/i.test(movimientos.error)) {
-    movimientos = await paginar(
-      supabase,
-      'ruta_cxc_movimientos',
-      columnas.replace(',cargo_id', ''),
-      (q) => q.eq('cliente_tipo', 'externo').order('created_at', { ascending: false }),
-    );
+  if (ventas.error) return { ok: false, error: ventas.error, registro: vacio, liquidacion: LIQUIDACION_VACIA };
+  const filtroMovs = (q) => q.eq('cliente_tipo', 'externo').order('created_at', { ascending: false });
+  let columnas = 'id,venta_id,folio_venta,cliente_id,cliente_tipo,cliente_nombre,monto,created_at,tipo,estatus,pagado_at,notas,cargo_id,usuario_nombre';
+  let movimientos = await paginar(supabase, 'ruta_cxc_movimientos', columnas, filtroMovs);
+  if (movimientos.error && /usuario_nombre/i.test(movimientos.error)) {
+    columnas = columnas.replace(',usuario_nombre', '');
+    movimientos = await paginar(supabase, 'ruta_cxc_movimientos', columnas, filtroMovs);
   }
-  if (movimientos.error) return { ok: false, error: movimientos.error, registro: vacio };
-  return { ok: true, registro: armarRegistroClientesExt(ventas.data, movimientos.data) };
+  if (movimientos.error && /cargo_id/i.test(movimientos.error)) {
+    columnas = columnas.replace(',cargo_id', '');
+    movimientos = await paginar(supabase, 'ruta_cxc_movimientos', columnas, filtroMovs);
+  }
+  if (movimientos.error) return { ok: false, error: movimientos.error, registro: vacio, liquidacion: LIQUIDACION_VACIA };
+  const registro = armarRegistroClientesExt(ventas.data, movimientos.data);
+  return { ok: true, registro, liquidacion: armarLiquidacionClientesExt(registro, movimientos.data) };
 }
 
 /** Cobros ya registrados, del más reciente al más antiguo. */
@@ -693,4 +694,173 @@ export async function cancelarCobroClienteExt(supabase, { cobroId, usuarioNombre
     folio: ticket.folio || '',
     pendiente,
   };
+}
+
+const CLIENTE_LIQUIDACION = 'rc-liquidacion';
+
+function notaLiquidacion({ efectivo, abonos, refs, usuario }) {
+  return `LIQ ${JSON.stringify({
+    efectivo: round2(efectivo),
+    abonos: round2(abonos),
+    refs: refs || [],
+    usuario: usuario || '',
+  })}`;
+}
+
+function detalleLiquidacion(mov) {
+  const notas = String(mov?.notas || '');
+  const cancelada = abonoCancelado(mov);
+  const limpia = notas.replace(/^\s*cancelado\s*[·.-]\s*/i, '').trim();
+  let efectivo = 0;
+  let abonos = 0;
+  let refs = [];
+  let usuario = mov?.usuario_nombre || '';
+  const json = limpia.replace(/^LIQ\s+/i, '');
+  if (json.startsWith('{')) {
+    try {
+      const p = JSON.parse(json);
+      efectivo = round2(p.efectivo);
+      abonos = round2(p.abonos);
+      refs = Array.isArray(p.refs) ? p.refs.map((r) => String(r || '')).filter(Boolean) : [];
+      if (!usuario && p.usuario) usuario = String(p.usuario);
+    } catch {
+      /* el monto del movimiento sigue siendo el total */
+    }
+  }
+  return {
+    id: String(mov?.id || ''),
+    fecha: mov?.created_at || null,
+    usuario,
+    efectivo,
+    abonos,
+    total: round2(mov?.monto || efectivo + abonos),
+    refs,
+    cancelada,
+  };
+}
+
+/**
+ * Efectivo de ventas y cobros todavía no entregados.
+ * El crédito pendiente no entra: sigue en la deuda del cliente.
+ */
+export function armarLiquidacionClientesExt(registro, movimientos = []) {
+  const historial = (movimientos || [])
+    .filter((m) => m && m.tipo === 'liquidacion' && esExterno(m))
+    .map(detalleLiquidacion)
+    .filter((h) => h.id)
+    .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) || b.id.localeCompare(a.id));
+  const selladas = new Set();
+  for (const h of historial) {
+    if (h.cancelada) continue;
+    for (const ref of h.refs) selladas.add(ref);
+  }
+  const lineas = [];
+  for (const cliente of registro?.clientes || []) {
+    for (const ticket of cliente.tickets || []) {
+      if (round2(ticket.efectivo) > 0) {
+        const ref = `efe:${ticket.id}`;
+        if (!selladas.has(ref)) {
+          lineas.push({
+            ref,
+            cliente: cliente.nombre,
+            folio: ticket.folio || '',
+            concepto: 'Efectivo de la venta',
+            monto: round2(ticket.efectivo),
+            fecha: ticket.fecha || null,
+          });
+        }
+      }
+      for (const cobro of ticket.cobros || []) {
+        if (!(round2(cobro.monto) > 0)) continue;
+        const ref = `abo:${cobro.id}`;
+        if (selladas.has(ref)) continue;
+        lineas.push({
+          ref,
+          cliente: cliente.nombre,
+          folio: ticket.folio || '',
+          concepto: cobro.nota || 'Cobro',
+          monto: round2(cobro.monto),
+          fecha: cobro.fecha || null,
+        });
+      }
+    }
+  }
+  lineas.sort((a, b) => a.cliente.localeCompare(b.cliente, 'es')
+    || String(a.fecha || '').localeCompare(String(b.fecha || ''))
+    || a.ref.localeCompare(b.ref));
+  const efectivo = round2(lineas.filter((l) => l.ref.startsWith('efe:')).reduce((s, l) => s + l.monto, 0));
+  const abonos = round2(lineas.filter((l) => l.ref.startsWith('abo:')).reduce((s, l) => s + l.monto, 0));
+  return { lineas, historial, totales: { efectivo, abonos, total: round2(efectivo + abonos) } };
+}
+
+async function insertarLiquidacion(supabase, row) {
+  const intento = async (payload) => supabase.from('ruta_cxc_movimientos').insert([payload]).select('id').maybeSingle();
+  let { data, error } = await intento(row);
+  if (error && /cargo_id|pagado_por|pagado_at|folio_venta|estatus|metodo_pago|saldo_despues|usuario_nombre|schema cache/i.test(error.message || '')) {
+    ({ data, error } = await intento({
+      cliente_tipo: row.cliente_tipo,
+      cliente_id: row.cliente_id,
+      cliente_nombre: row.cliente_nombre,
+      tipo: 'liquidacion',
+      monto: row.monto,
+      notas: row.notas,
+    }));
+  }
+  if (error) return { ok: false, error: error.message || 'No se guardó la liquidación.' };
+  return { ok: true, id: data?.id || null };
+}
+
+/** Sella el efectivo y los cobros que el repartidor entrega. No toca la deuda. */
+export async function registrarLiquidacionClienteExt(supabase, { refs, usuarioNombre } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const pedidas = new Set((refs || []).map((r) => String(r || '')).filter(Boolean));
+  if (!pedidas.size) return { ok: false, error: 'No hay montos por liquidar.' };
+  const leido = await listarRegistroClientesExt(supabase);
+  if (!leido.ok) return { ok: false, error: leido.error || 'No se pudo leer el registro.' };
+  const elegidas = (leido.liquidacion?.lineas || []).filter((l) => pedidas.has(l.ref));
+  if (!elegidas.length) return { ok: false, error: 'Esos montos ya se liquidaron. Actualiza la pantalla.' };
+  const efectivo = round2(elegidas.filter((l) => l.ref.startsWith('efe:')).reduce((s, l) => s + l.monto, 0));
+  const abonos = round2(elegidas.filter((l) => l.ref.startsWith('abo:')).reduce((s, l) => s + l.monto, 0));
+  const total = round2(efectivo + abonos);
+  if (!(total > 0)) return { ok: false, error: 'No hay montos por liquidar.' };
+  const quien = String(usuarioNombre || '').trim() || 'RC/Clientes ext.';
+  const ins = await insertarLiquidacion(supabase, {
+    cliente_tipo: 'externo',
+    cliente_id: CLIENTE_LIQUIDACION,
+    cliente_nombre: 'Liquidación clientes ext.',
+    tipo: 'liquidacion',
+    monto: total,
+    saldo_despues: 0,
+    metodo_pago: 'efectivo',
+    estatus: 'cerrada',
+    notas: notaLiquidacion({ efectivo, abonos, refs: elegidas.map((l) => l.ref), usuario: quien }),
+    usuario_nombre: quien,
+  });
+  if (!ins.ok) return ins;
+  return { ok: true, monto: total, efectivo, abonos, id: ins.id };
+}
+
+/** Una liquidación cancelada regresa sus montos a por liquidar. */
+export async function cancelarLiquidacionClienteExt(supabase, { liquidacionId, usuarioNombre } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const id = String(liquidacionId || '');
+  if (!id) return { ok: false, error: 'Falta la liquidación.' };
+  const leido = await listarRegistroClientesExt(supabase);
+  if (!leido.ok) return { ok: false, error: leido.error || 'No se pudo leer el registro.' };
+  const fila = (leido.liquidacion?.historial || []).find((h) => h.id === id);
+  if (!fila) return { ok: false, error: 'No se encontró esa liquidación.' };
+  if (fila.cancelada) return { ok: false, error: 'Esa liquidación ya está cancelada.' };
+  const quien = String(usuarioNombre || '').trim() || 'RC/Clientes ext.';
+  const notas = `CANCELADO · ${notaLiquidacion({
+    efectivo: fila.efectivo,
+    abonos: fila.abonos,
+    refs: fila.refs,
+    usuario: fila.usuario,
+  })} · ${quien}`;
+  const upd = await supabase.from('ruta_cxc_movimientos').update({
+    estatus: 'cancelado',
+    notas,
+  }).eq('id', id);
+  if (upd?.error) return { ok: false, error: upd.error.message || 'No se canceló la liquidación.' };
+  return { ok: true, monto: fila.total };
 }

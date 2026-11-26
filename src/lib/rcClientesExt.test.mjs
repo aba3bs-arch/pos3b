@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { htmlTicketVenta } from './impresion.js';
 import {
+  armarLiquidacionClientesExt,
   armarRegistroClientesExt,
   cancelarCobroClienteExt,
+  cancelarLiquidacionClienteExt,
   cobrosDelRegistro,
   datosTicketAbarrotes,
   planCobroClienteExt,
   registrarCobroClienteExt,
+  registrarLiquidacionClienteExt,
 } from './rcClientesExt.js';
 
 const pepe = {
@@ -397,5 +400,90 @@ assert.equal(movsMix.find((m) => m.id === 'ab-real').estatus, 'cancelado');
 
 const otraVez = await cancelarCobroClienteExt(dbMix, { cobroId: 'ab-real', usuarioNombre: 'Ana' });
 assert.equal(otraVez.ok, false);
+
+const ventaMixLiq = {
+  id: 'vm',
+  folio: 'VR-1',
+  cliente_tipo: 'externo',
+  cliente_id: 'cli-f',
+  cliente_nombre: 'fernán 2',
+  metodo_pago: 'mixto',
+  total: 500,
+  estado_credito: 'pendiente',
+  created_at: '2026-11-25T20:00:00Z',
+  articulos: [
+    { nombre: 'Hulk', cantidad: 10, precio: 50, importe: 500 },
+    { _pago_mixto: true, efectivo: 200, credito: 300 },
+  ],
+};
+const abonoLiq = {
+  id: 'ab-liq',
+  tipo: 'abono',
+  venta_id: 'vm',
+  cliente_tipo: 'externo',
+  cliente_id: 'cli-f',
+  monto: 100,
+  notas: 'Abono',
+  estatus: 'pagado',
+  created_at: '2026-11-25T21:00:00Z',
+};
+const regLiq = armarRegistroClientesExt([ventaMixLiq], [abonoLiq]);
+const liq0 = armarLiquidacionClientesExt(regLiq, [abonoLiq]);
+assert.equal(liq0.totales.efectivo, 200);
+assert.equal(liq0.totales.abonos, 100);
+assert.equal(liq0.totales.total, 300);
+assert.equal(liq0.lineas.length, 2);
+assert.equal(regLiq.totales.pendiente, 200);
+const sello = {
+  id: 'liq-1',
+  tipo: 'liquidacion',
+  cliente_tipo: 'externo',
+  cliente_id: 'rc-liquidacion',
+  monto: 300,
+  estatus: 'cerrada',
+  created_at: '2026-11-25T22:00:00Z',
+  usuario_nombre: 'Ana',
+  notas: `LIQ ${JSON.stringify({ efectivo: 200, abonos: 100, refs: liq0.lineas.map((l) => l.ref), usuario: 'Ana' })}`,
+};
+const liq1 = armarLiquidacionClientesExt(regLiq, [abonoLiq, sello]);
+assert.equal(liq1.lineas.length, 0);
+assert.equal(liq1.historial[0].total, 300);
+assert.equal(liq1.historial[0].usuario, 'Ana');
+const regConSello = armarRegistroClientesExt([ventaMixLiq], [abonoLiq, sello]);
+assert.equal(regConSello.totales.cobrado, regLiq.totales.cobrado);
+assert.equal(regConSello.totales.pendiente, regLiq.totales.pendiente);
+const selloCancel = { ...sello, estatus: 'cancelado', notas: `CANCELADO · ${sello.notas}` };
+const liq2 = armarLiquidacionClientesExt(regLiq, [abonoLiq, selloCancel]);
+assert.equal(liq2.lineas.length, 2);
+assert.equal(liq2.historial[0].cancelada, true);
+const soloDeuda = armarLiquidacionClientesExt(armarRegistroClientesExt([ventaCredito()], []), []);
+assert.equal(soloDeuda.lineas.length, 0);
+const soloEfe = armarLiquidacionClientesExt(armarRegistroClientesExt([contado], []), []);
+assert.equal(soloEfe.totales.efectivo, 80);
+assert.equal(soloEfe.totales.abonos, 0);
+
+const ventasLiq = [ventaMixLiq];
+const movsLiq = [abonoLiq];
+const dbLiq = mockDb(ventasLiq, movsLiq);
+const hecha = await registrarLiquidacionClienteExt(dbLiq, {
+  refs: liq0.lineas.map((l) => l.ref),
+  usuarioNombre: 'Ana',
+});
+assert.equal(hecha.ok, true);
+assert.equal(hecha.monto, 300);
+assert.equal(hecha.efectivo, 200);
+assert.equal(hecha.abonos, 100);
+const guardada = movsLiq.find((m) => m.tipo === 'liquidacion');
+assert.equal(guardada.monto, 300);
+assert.equal(armarLiquidacionClientesExt(armarRegistroClientesExt(ventasLiq, movsLiq), movsLiq).lineas.length, 0);
+const repetida = await registrarLiquidacionClienteExt(dbLiq, { refs: ['efe:vm'], usuarioNombre: 'Ana' });
+assert.equal(repetida.ok, false);
+const cancelLiq = await cancelarLiquidacionClienteExt(dbLiq, { liquidacionId: guardada.id, usuarioNombre: 'Ana' });
+assert.equal(cancelLiq.ok, true);
+assert.equal(cancelLiq.monto, 300);
+assert.equal(guardada.estatus, 'cancelado');
+assert.equal(armarLiquidacionClientesExt(armarRegistroClientesExt(ventasLiq, movsLiq), movsLiq).lineas.length, 2);
+const otraLiq = await cancelarLiquidacionClienteExt(dbLiq, { liquidacionId: guardada.id, usuarioNombre: 'Ana' });
+assert.equal(otraLiq.ok, false);
 
 console.log('rcClientesExt.test.mjs ok');
