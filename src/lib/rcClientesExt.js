@@ -33,16 +33,21 @@ function esCobroSintetico(id) {
   return String(id || '').startsWith('cobro:');
 }
 
-/** Mismos datos que el ticket de venta de abarrotes. */
-export function datosTicketAbarrotes(ticket, { cliente, sucursal, fecha } = {}) {
+/**
+ * Mismos datos que el ticket de venta de abarrotes.
+ * La línea Tienda es el nombre del cliente externo, no la sucursal 3B.
+ */
+export function datosTicketAbarrotes(ticket, { cliente, fecha } = {}) {
+  const nombre = String(cliente || '').trim();
   const metodo = ticket?.metodo || (Number(ticket?.credito) > 0 && Number(ticket?.efectivo) > 0
     ? 'mixto'
     : Number(ticket?.credito) > 0 ? 'credito' : 'efectivo');
   return {
-    sucursal: sucursal || '',
+    sucursal: '',
+    tiendaTexto: nombre,
     vendedor: ticket?.vendedor || '',
     folio: ticket?.folio || '',
-    destino: cliente || '',
+    destino: nombre,
     fecha: fecha || '',
     articulos: (ticket?.lineas || []).map((l) => ({
       nombre: l.nombre,
