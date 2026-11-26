@@ -11,6 +11,8 @@ import {
   registrarCobroClienteExt,
   registrarLiquidacionClienteExt,
 } from '../lib/rcClientesExt.js';
+import { listarGastosClientesExt, resumenVentaConGastos } from '../lib/rcClientesExtGastos.js';
+import RcClientesExtGastos from './RcClientesExtGastos.jsx';
 
 const COLOR = '#0f766e';
 
@@ -360,6 +362,7 @@ const campo = {
 export default function RcClientesExt({ supabase, user, onVolver }) {
   const [registro, setRegistro] = useState(null);
   const [liquidacion, setLiquidacion] = useState(null);
+  const [gastosExt, setGastosExt] = useState({ arbol: [], gastos: [], aviso: '' });
   const [aviso, setAviso] = useState('');
   const [abierto, setAbierto] = useState('');
   const [ticket, setTicket] = useState('');
@@ -374,10 +377,14 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
   const [guardando, setGuardando] = useState(false);
 
   const cargar = useCallback(async () => {
-    const res = await listarRegistroClientesExt(supabase);
+    const [res, gas] = await Promise.all([
+      listarRegistroClientesExt(supabase),
+      listarGastosClientesExt(supabase),
+    ]);
     setRegistro(res.registro);
     setLiquidacion(res.liquidacion || null);
-    setAviso(res.ok ? '' : (res.error || 'No se pudo leer el registro.'));
+    setGastosExt(gas.ok ? gas : { arbol: gas.arbol || [], gastos: gas.gastos || [], aviso: gas.aviso || '' });
+    setAviso([res.ok ? '' : (res.error || 'No se pudo leer el registro.'), gas.aviso || ''].filter(Boolean).join(' '));
     return res.registro;
   }, [supabase]);
 
@@ -388,6 +395,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
   }, [cargar]);
 
   const totales = registro?.totales || { efectivo: 0, credito: 0, cobrado: 0, pendiente: 0 };
+  const ventaNeta = resumenVentaConGastos(totales, gastosExt.gastos);
   const clientes = registro?.clientes || [];
   const porCobrar = useMemo(
     () => clientes
@@ -588,6 +596,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
           Cada venta a un cliente externo, en efectivo o a crédito, tiene su ticket.
           Un crédito se puede abonar por partes. Si el cobro se cancela, el monto regresa a la deuda.
           En Liquidación se entrega el efectivo y los cobros ya recibidos.
+          Los gastos de este submódulo se restan de la venta.
           El inventario sigue en el camión, el mismo de las sucursales.
         </p>
         <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
@@ -615,6 +624,14 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
           >
             Liquidación
           </button>
+          <button
+            type="button"
+            className={`btn ${pestana === 'gastos' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ minHeight: 44 }}
+            onClick={() => setPestana('gastos')}
+          >
+            Gastos
+          </button>
         </div>
       </div>
       {aviso && (
@@ -627,6 +644,9 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
         <Cifra label="Dejado a crédito" valor={totales.credito} color={COLOR} />
         <Cifra label="Cobrado" valor={totales.cobrado} />
         <Cifra label="Pendiente" valor={totales.pendiente} color={COLOR} />
+        <Cifra label="Venta" valor={ventaNeta.venta} />
+        <Cifra label="Gastos" valor={ventaNeta.gastos} />
+        <Cifra label="Venta neta" valor={ventaNeta.neta} color={ventaNeta.neta < 0 ? '#b45309' : COLOR} />
       </div>
       {mensaje && (
         <div className="card" style={{ borderLeft: `4px solid ${COLOR}` }}>
@@ -756,6 +776,16 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
             ))}
           </div>
         </div>
+      )}
+      {pestana === 'gastos' && (
+        <RcClientesExtGastos
+          supabase={supabase}
+          user={user}
+          totales={totales}
+          arbol={gastosExt.arbol}
+          gastos={gastosExt.gastos}
+          onCambio={cargar}
+        />
       )}
       {pestana === 'liquidacion' && (
         <PestanaLiquidacion
