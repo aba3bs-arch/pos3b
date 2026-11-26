@@ -106,7 +106,8 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       sync: 'skip',
     });
     if (gen !== syncGen.current) return;
-    const data = r.data || [];
+    // Clientes externos se cobran en RC/Clientes ext., no en el corte de la tienda.
+    const data = (r.data || []).filter((m) => String(m.cliente_tipo || '') !== 'externo');
     setAviso(armarAvisos(r, data));
     setRows(data);
     // Sucursal: siempre abrir su desglose. Central: conservar selección si sigue existiendo.
@@ -142,7 +143,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           sync: 'skip',
         });
         if (gen !== syncGen.current) return;
-        const data2 = r2.data || [];
+        const data2 = (r2.data || []).filter((m) => String(m.cliente_tipo || '') !== 'externo');
         setRows(data2);
         setAviso(armarAvisos({ ...r2, sync }, data2));
       } else if (sync && !sync.ok && sync.error) {
