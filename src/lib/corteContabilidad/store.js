@@ -630,7 +630,43 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
   return { data: abiertos, error: null };
 }
 
+/** Misma huella que se está insertando en esta pantalla (doble toque, antes de que exista la fila). */
+const gastosEnCurso = new Set();
+
+function claveGastoEnCurso(sucursal, modulo, gasto) {
+  const h = huellaGastoCorte(gasto);
+  return [
+    sucursalIdCorte(sucursal),
+    String(modulo || '').toLowerCase(),
+    h.categoria,
+    h.subcategoria,
+    h.monto,
+    h.usuario_id,
+  ].join('|');
+}
+
 export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
+  const aplicarGate = String(modulo || '').toLowerCase() === 'abarrotes'
+    && !opts.forzarDuplicado
+    && !opts.omitirChequeoDuplicado;
+  const clave = aplicarGate ? claveGastoEnCurso(sucursal, modulo, gasto) : '';
+  if (clave && gastosEnCurso.has(clave)) {
+    return {
+      ok: false,
+      duplicado: true,
+      enCurso: true,
+      error: 'Este gasto se está guardando. No lo registres otra vez.',
+    };
+  }
+  if (clave) gastosEnCurso.add(clave);
+  try {
+    return await registrarGastoTurno(supabase, sucursal, modulo, gasto, opts);
+  } finally {
+    if (clave) gastosEnCurso.delete(clave);
+  }
+}
+
+async function registrarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
   const catUpper = String(gasto.categoria || '').toUpperCase();
   // No van a IE: recuperación inversión, envío MAIN→tienda (solo bajan caja del corte).
   const omitirIe =

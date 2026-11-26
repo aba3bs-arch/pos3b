@@ -5,6 +5,7 @@ import {
   MODULOS_CORTE,
   etiquetaModuloCorte,
   gastoLigadoAOtroFolioCompra,
+  agregarGastoTurno,
 } from './store.js';
 
 test('MODULOS_CORTE tiene los tres cortes', () => {
@@ -51,4 +52,30 @@ test('gasto de otra compra (otro CMP) no cuenta como duplicado de esta compra', 
 test('gasto manual sin folio sigue contando como duplicado', () => {
   assert.equal(gastoLigadoAOtroFolioCompra({ comentario: 'otros' }, 'CMP-FUS-BBBB2222-E'), false);
   assert.equal(gastoLigadoAOtroFolioCompra({ comentario: 'x' }, null), false);
+});
+
+function supabaseQueNoResuelve() {
+  const chain = {
+    select() { return chain; },
+    in() { return chain; },
+    eq() { return chain; },
+    gte() { return chain; },
+    ilike() { return chain; },
+    order() { return chain; },
+    limit() { return new Promise(() => {}); },
+    insert() {
+      return { select() { return { single: async () => ({ data: { id: 'x' }, error: null }) }; } };
+    },
+  };
+  return { from() { return chain; } };
+}
+
+test('doble toque en Abarrotes no abre un segundo guardado del mismo gasto', async () => {
+  const gasto = { categoria: 'PROVEEDORES', subcategoria: 'GAMEZA', monto: 506 };
+  const primero = agregarGastoTurno(supabaseQueNoResuelve(), '3B2', 'abarrotes', gasto, {});
+  primero.catch(() => {});
+  const segundo = await agregarGastoTurno(supabaseQueNoResuelve(), '3B2', 'abarrotes', gasto, {});
+  assert.equal(segundo.ok, false);
+  assert.equal(segundo.enCurso, true);
+  assert.equal(segundo.duplicado, true);
 });

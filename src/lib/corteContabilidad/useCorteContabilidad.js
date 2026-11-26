@@ -113,6 +113,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const saveTimer = useRef(null);
   /** Candado síncrono: evita doble clic en Cerrar corte / Recolectar. */
   const accionLock = useRef(createSubmitLock()).current;
+  /** Otro candado: Agregar gasto no debe dispararse dos veces en el mismo toque. */
+  const gastoLock = useRef(createSubmitLock()).current;
   const perm = useMemo(
     () => permisosCorteContabilidad(user?.rol ?? user?.role, user?.id),
     [user?.rol, user?.role, user?.id],
@@ -359,38 +361,45 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (gastoRequiereEmpleado(modulo, gasto?.categoria) && !gasto?.usuario_id) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
-    // Fija el turno de la sesión al primer registro (si el corte quedó abierto entre turnos).
-    if (modulo === 'virtual' && !estado.turno_sesion) {
-      const sesion = snapshotTurno();
-      if (sesion) patchEstado({ turno_sesion: sesion });
+    if (!gastoLock.tryBegin()) return { ok: false, enCurso: true };
+    try {
+      // Fija el turno de la sesión al primer registro (si el corte quedó abierto entre turnos).
+      if (modulo === 'virtual' && !estado.turno_sesion) {
+        const sesion = snapshotTurno();
+        if (sesion) patchEstado({ turno_sesion: sesion });
+      }
+      const optsBase = {
+        rolActor: user?.rol,
+        nombreActor: user?.nombre,
+        esCubreTurno: esUsuarioCubreTurno(user),
+        user,
+        empleadosCatalogo: empleados,
+        usuariosParaValidarIndirectos: usuariosRawCorte,
+      };
+      let res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, optsBase);
+      // El segundo toque llega mientras el primero sigue guardando: no preguntar si se fuerza.
+      if (res?.enCurso) return { ok: false, enCurso: true };
+      if (res?.duplicado) {
+        const forzar = window.confirm(
+          `${res.error}\n\n¿Registrar de todos modos en este corte?`,
+        );
+        if (!forzar) return { ok: false, cancelado: true, duplicado: true };
+        res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, {
+          ...optsBase,
+          forzarDuplicado: true,
+        });
+      }
+      if (!res.ok) {
+        if (!res.limite) alert(res.error);
+        return { ok: false, error: res.error, limite: Boolean(res.limite) };
+      }
+      await cargar();
+      const gas = await listarGastosTurno(supabase, sucursal, modulo);
+      setGastos(gas.data || []);
+      return { ok: true };
+    } finally {
+      gastoLock.end();
     }
-    const optsBase = {
-      rolActor: user?.rol,
-      nombreActor: user?.nombre,
-      esCubreTurno: esUsuarioCubreTurno(user),
-      user,
-      empleadosCatalogo: empleados,
-      usuariosParaValidarIndirectos: usuariosRawCorte,
-    };
-    let res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, optsBase);
-    if (res?.duplicado) {
-      const forzar = window.confirm(
-        `${res.error}\n\n¿Registrar de todos modos en este corte?`,
-      );
-      if (!forzar) return { ok: false, cancelado: true, duplicado: true };
-      res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, {
-        ...optsBase,
-        forzarDuplicado: true,
-      });
-    }
-    if (!res.ok) {
-      if (!res.limite) alert(res.error);
-      return { ok: false, error: res.error, limite: Boolean(res.limite) };
-    }
-    await cargar();
-    const gas = await listarGastosTurno(supabase, sucursal, modulo);
-    setGastos(gas.data || []);
-    return { ok: true };
   };
 
   const quitarGasto = async (id) => {

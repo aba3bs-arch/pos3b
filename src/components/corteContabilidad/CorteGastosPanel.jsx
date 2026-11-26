@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createSubmitLock } from '../../lib/submitLock.js';
 import {
   listarCatalogoGastos,
   gastoRequiereEmpleado,
@@ -95,6 +96,8 @@ export default function CorteGastosPanel({
   const [ahoraCargo, setAhoraCargo] = useState(() => new Date());
   const [usuariosRaw, setUsuariosRaw] = useState([]);
   const [avisoEmp, setAvisoEmp] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const agregarLock = useRef(createSubmitLock()).current;
 
   const cargarUsuarios = useCallback(async () => {
     if (!supabase) {
@@ -244,7 +247,7 @@ export default function CorteGastosPanel({
     }
   }, [habilitado, cat, catalogo, modulo]);
 
-  const agregar = async () => {
+  const agregarGastoCapturado = async () => {
     const m = Number(monto);
     if (!(m > 0)) return alert('Monto inválido.');
     if (!cat.trim()) return alert('Selecciona categoría.');
@@ -393,6 +396,17 @@ export default function CorteGastosPanel({
     setPinConsumoBenef('');
     setPinsFueraTurno({});
     if (!requiereEmpleado) setUsuarioId('');
+  };
+
+  const agregar = async () => {
+    if (!agregarLock.tryBegin()) return;
+    setGuardando(true);
+    try {
+      await agregarGastoCapturado();
+    } finally {
+      setGuardando(false);
+      agregarLock.end();
+    }
   };
 
   return (
@@ -644,10 +658,12 @@ export default function CorteGastosPanel({
               value={comentario}
               inputMode="text"
               onChange={(e) => setComentario(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && agregar()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !guardando) agregar();
+              }}
             />
-            <button type="button" className="btn btn-primary" onClick={agregar}>
-              Agregar
+            <button type="button" className="btn btn-primary" onClick={agregar} disabled={guardando}>
+              {guardando ? 'Guardando…' : 'Agregar'}
             </button>
           </div>
         </>
