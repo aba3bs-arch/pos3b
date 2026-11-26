@@ -698,12 +698,22 @@ export async function cancelarCobroClienteExt(supabase, { cobroId, usuarioNombre
 
 const CLIENTE_LIQUIDACION = 'rc-liquidacion';
 
-function notaLiquidacion({ efectivo, abonos, refs, usuario }) {
+function partesLiquidacion(lineas) {
+  const map = new Map();
+  for (const l of lineas || []) {
+    const cliente = String(l.cliente || '').trim() || 'Cliente';
+    map.set(cliente, round2((map.get(cliente) || 0) + round2(l.monto)));
+  }
+  return [...map.entries()].map(([cliente, monto]) => ({ cliente, monto })).filter((p) => p.monto > 0);
+}
+
+function notaLiquidacion({ efectivo, abonos, refs, usuario, partes }) {
   return `LIQ ${JSON.stringify({
     efectivo: round2(efectivo),
     abonos: round2(abonos),
     refs: refs || [],
     usuario: usuario || '',
+    partes: partes || [],
   })}`;
 }
 
@@ -714,6 +724,7 @@ function detalleLiquidacion(mov) {
   let efectivo = 0;
   let abonos = 0;
   let refs = [];
+  let partes = [];
   let usuario = mov?.usuario_nombre || '';
   const json = limpia.replace(/^LIQ\s+/i, '');
   if (json.startsWith('{')) {
@@ -722,6 +733,9 @@ function detalleLiquidacion(mov) {
       efectivo = round2(p.efectivo);
       abonos = round2(p.abonos);
       refs = Array.isArray(p.refs) ? p.refs.map((r) => String(r || '')).filter(Boolean) : [];
+      partes = Array.isArray(p.partes)
+        ? p.partes.map((x) => ({ cliente: String(x?.cliente || '').trim(), monto: round2(x?.monto) })).filter((x) => x.cliente && x.monto > 0)
+        : [];
       if (!usuario && p.usuario) usuario = String(p.usuario);
     } catch {
       /* el monto del movimiento sigue siendo el total */
@@ -735,6 +749,7 @@ function detalleLiquidacion(mov) {
     abonos,
     total: round2(mov?.monto || efectivo + abonos),
     refs,
+    partes,
     cancelada,
   };
 }
@@ -833,7 +848,13 @@ export async function registrarLiquidacionClienteExt(supabase, { refs, usuarioNo
     saldo_despues: 0,
     metodo_pago: 'efectivo',
     estatus: 'cerrada',
-    notas: notaLiquidacion({ efectivo, abonos, refs: elegidas.map((l) => l.ref), usuario: quien }),
+    notas: notaLiquidacion({
+      efectivo,
+      abonos,
+      refs: elegidas.map((l) => l.ref),
+      usuario: quien,
+      partes: partesLiquidacion(elegidas),
+    }),
     usuario_nombre: quien,
   });
   if (!ins.ok) return ins;
@@ -856,6 +877,7 @@ export async function cancelarLiquidacionClienteExt(supabase, { liquidacionId, u
     abonos: fila.abonos,
     refs: fila.refs,
     usuario: fila.usuario,
+    partes: fila.partes,
   })} · ${quien}`;
   const upd = await supabase.from('ruta_cxc_movimientos').update({
     estatus: 'cancelado',

@@ -4,7 +4,6 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { entregarTicketVenta, htmlTicketVenta } from '../lib/impresion.js';
 import {
   cancelarCobroClienteExt,
-  cancelarLiquidacionClienteExt,
   cobrosDelRegistro,
   datosTicketAbarrotes,
   listarRegistroClientesExt,
@@ -248,89 +247,104 @@ function TicketVenta({
   );
 }
 
-function PestanaLiquidacion({ liquidacion, ocupado, onLiquidar, onCancelar }) {
-  const lineas = liquidacion?.lineas || [];
-  const historial = liquidacion?.historial || [];
+function PestanaLiquidacion({ liquidacion, pendiente, ocupado, onLiquidar }) {
+  const [abierta, setAbierta] = useState('');
   const tot = liquidacion?.totales || { efectivo: 0, abonos: 0, total: 0 };
-  const grupos = [];
-  for (const linea of lineas) {
-    const ultimo = grupos[grupos.length - 1];
-    if (ultimo && ultimo.cliente === linea.cliente) ultimo.lineas.push(linea);
-    else grupos.push({ cliente: linea.cliente, lineas: [linea] });
-  }
+  const historial = (liquidacion?.historial || []).filter((h) => !h.cancelada);
+  const deuda = Math.round((Number(pendiente) || 0) * 100) / 100;
+  const total = Math.round((deuda + tot.total) * 100) / 100;
   return (
-    <div style={{ display: 'grid', gap: '0.85rem' }}>
-      <div className="card" style={{ borderTop: `4px solid ${COLOR}`, display: 'grid', gap: '0.75rem' }}>
-        <strong style={{ color: COLOR }}>Por liquidar</strong>
-        <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
-          Efectivo de las ventas y cobros ya recibidos de clientes externos.
-          El crédito que sigue pendiente no entra. No se carga al corte de la sucursal.
+    <div className="card" style={{ display: 'grid', gap: '0.85rem', maxWidth: 640 }}>
+      <div>
+        <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Total</p>
+        <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{fmtMonto(total)}</p>
+        <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+          Crédito que sigue pendiente, más el efectivo y los cobros que todavía no se liquidan.
         </p>
-        <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
-          <Cifra label="Efectivo" valor={tot.efectivo} />
-          <Cifra label="Cobros" valor={tot.abonos} />
-          <Cifra label="Total" valor={tot.total} color={COLOR} />
-        </div>
-        {lineas.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>No hay efectivo ni cobros por liquidar.</p>
-        ) : grupos.map((g) => (
-          <div key={g.cliente} style={{ display: 'grid', gap: '0.35rem' }}>
-            <strong>{g.cliente}</strong>
-            {g.lineas.map((l) => (
-              <div key={l.ref} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.35rem' }}>
-                <span style={{ minWidth: 0 }}>
-                  <strong>{l.folio || 'Sin folio'}</strong>
-                  <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
-                    {l.concepto}{l.fecha ? ` · ${fecha(l.fecha)}` : ''}
-                  </span>
-                </span>
-                <strong>{fmtMonto(l.monto)}</strong>
-              </div>
-            ))}
-          </div>
-        ))}
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ minHeight: 44 }}
-          disabled={ocupado || !(tot.total > 0)}
-          onClick={onLiquidar}
-        >
-          {ocupado ? 'Guardando…' : 'Liquidar'}
-        </button>
       </div>
-      <div className="card" style={{ display: 'grid', gap: '0.55rem' }}>
-        <strong style={{ color: COLOR }}>Liquidaciones</strong>
-        {historial.length === 0 && (
-          <p className="muted" style={{ margin: 0 }}>Todavía no hay liquidaciones.</p>
-        )}
-        {historial.map((h) => (
-          <div key={h.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: '0.45rem', display: 'grid', gap: '0.35rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
-              <span>
-                {fecha(h.fecha) || 'Liquidación'}
-                {h.usuario ? <span className="muted"> · {h.usuario}</span> : null}
-              </span>
-              <strong>{fmtMonto(h.total)}</strong>
-            </div>
-            <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
-              Efectivo {fmtMonto(h.efectivo)} · cobros {fmtMonto(h.abonos)}
-            </p>
-            {h.cancelada ? (
-              <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>Cancelada. Los montos volvieron a por liquidar.</p>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ minHeight: 44, color: '#b91c1c' }}
-                disabled={ocupado}
-                onClick={() => onCancelar(h)}
-              >
-                Cancelar liquidación
-              </button>
-            )}
+      <div>
+        <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Cobros</p>
+        <p style={{ margin: '0.15rem 0 0', fontSize: '1.35rem', fontWeight: 700 }}>− {fmtMonto(tot.abonos)}</p>
+        <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+          {tot.abonos > 0 ? 'Cobros recibidos que todavía no se liquidan.' : 'Nadie ha cobrado.'}
+          {tot.efectivo > 0 ? ` Efectivo de ventas ${fmtMonto(tot.efectivo)}.` : ''}
+        </p>
+      </div>
+      <div>
+        <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Liquidación</p>
+        <p style={{ margin: '0.15rem 0 0', fontSize: '1.6rem', fontWeight: 700, color: COLOR }}>{fmtMonto(tot.total)}</p>
+        <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+          {tot.total > 0
+            ? `Al liquidar, el crédito pendiente queda en ${fmtMonto(deuda)}.`
+            : 'Sin efectivo ni cobros, la liquidación queda en cero.'}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="btn btn-primary"
+        style={{ minHeight: 44 }}
+        disabled={ocupado || !(tot.total > 0)}
+        onClick={onLiquidar}
+      >
+        {ocupado ? 'Guardando…' : `Liquidar${tot.total > 0 ? ` · ${fmtMonto(tot.total)}` : ''}`}
+      </button>
+      <div>
+        <h4 style={{ margin: '0.2rem 0 0.5rem' }}>Registro</h4>
+        {historial.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>Al liquidar, aquí queda una línea con ese total.</p>
+        ) : (
+          <div style={{ display: 'grid', gap: '0.4rem' }}>
+            {historial.map((h) => {
+              const abiertaFila = abierta === h.id;
+              const partes = h.partes || [];
+              return (
+                <div key={h.id} style={{ border: '1px solid var(--border, #e5e7eb)', borderRadius: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setAbierta(abiertaFila ? '' : h.id)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      padding: '0.7rem 0.85rem',
+                      background: 'transparent',
+                      border: 0,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      minHeight: 44,
+                    }}
+                  >
+                    <span>
+                      <strong>{fmtMonto(h.total)}</strong>
+                      <span className="muted" style={{ marginLeft: 8, fontSize: '0.8rem' }}>
+                        {fecha(h.fecha)}
+                        {h.usuario ? ` · ${h.usuario}` : ''}
+                      </span>
+                    </span>
+                    <span className="muted">{abiertaFila ? 'Ocultar' : 'Ver'}</span>
+                  </button>
+                  {abiertaFila && (
+                    <div style={{ padding: '0 0.85rem 0.75rem', display: 'grid', gap: '0.35rem' }}>
+                      {partes.length === 0 && (
+                        <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+                          Efectivo {fmtMonto(h.efectivo)} · cobros {fmtMonto(h.abonos)}
+                        </p>
+                      )}
+                      {partes.map((p) => (
+                        <p key={p.cliente} style={{ margin: 0, fontSize: '0.85rem' }}>
+                          <strong>{p.cliente}</strong>
+                          <span className="muted"> · {fmtMonto(p.monto)}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -559,25 +573,7 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
       setMensaje(res.error || 'No se liquidó.');
       return;
     }
-    setMensaje(`Liquidación registrada: ${fmtMonto(res.monto)}.`);
-    await cargar();
-  };
-
-  const cancelarLiquidacion = async (fila) => {
-    if (guardando || !fila) return;
-    if (!window.confirm(`¿Cancelar la liquidación de ${fmtMonto(fila.total)}?\nEsos montos vuelven a por liquidar.`)) return;
-    setGuardando(true);
-    setMensaje('');
-    const res = await cancelarLiquidacionClienteExt(supabase, {
-      liquidacionId: fila.id,
-      usuarioNombre: user?.nombre || '',
-    });
-    setGuardando(false);
-    if (!res.ok) {
-      setMensaje(res.error || 'No se canceló la liquidación.');
-      return;
-    }
-    setMensaje(`Liquidación cancelada: ${fmtMonto(res.monto)} volvió a por liquidar.`);
+    setMensaje(`Quedó en el registro: ${fmtMonto(res.monto)}.`);
     await cargar();
   };
 
@@ -764,9 +760,9 @@ export default function RcClientesExt({ supabase, user, onVolver }) {
       {pestana === 'liquidacion' && (
         <PestanaLiquidacion
           liquidacion={liquidacion}
+          pendiente={totales.pendiente}
           ocupado={guardando}
           onLiquidar={() => { void liquidar(); }}
-          onCancelar={(fila) => { void cancelarLiquidacion(fila); }}
         />
       )}
       {pestana === 'registro' && clientes.length === 0 && (
