@@ -2,9 +2,9 @@
  * Al guardar/corregir Corte de caja, empuja el Total sistema (neto registrado)
  * al campo «venta» del Corte Abarrotes abierto (misma sucursal).
  *
- * Un turno = una clave. Si ese monto ya está en el campo (corte previo del
- * mismo turno, o alguien lo capturó en el celular para calcular la recolección),
- * guardar o corregir lo actualiza. No se vuelve a sumar.
+ * Un turno = una clave. Si ese monto ya está en el campo, guardar o corregir
+ * lo actualiza. No se vuelve a sumar.
+ * Un turno que ya se cerró en Abarrotes no regresa al corte abierto.
  */
 
 function round2(n) {
@@ -287,38 +287,65 @@ export function aplicarAjusteRecargaMpEnVentaAbarrotes(estado = {}, montoAjuste,
   };
 }
 
-async function listarCortesPosDeFechas(supabase, sucursal, fechas) {
-  const fechasArr = [...new Set((fechas || []).map((f) => ymdClaveVentaPos(f)).filter(Boolean))];
-  if (!supabase || !sucursal || !fechasArr.length) return [];
-  try {
-    const { equivalentesCodigoTienda, normalizarCodigoTienda } = await import('../constants/sucursales.js');
-    const vars = equivalentesCodigoTienda(sucursal);
-    const sid = vars[0] || normalizarCodigoTienda(sucursal) || sucursal;
-    let q = supabase
-      .from('cortes_caja')
-      .select('id,fecha,turno_id,turno_nombre,total_ventas,created_at,sucursal_id')
-      .in('fecha', fechasArr)
-      .order('created_at', { ascending: false })
-      .limit(80);
-    q = vars.length > 1 ? q.in('sucursal_id', vars) : q.eq('sucursal_id', sid);
-    const { data, error } = await q;
-    if (error) return [];
-    return data || [];
-  } catch {
-    return [];
-  }
+function esCierreGeneralFila(row) {
+  const tipo = String(row?.detalle?.tipo_cierre || '').toLowerCase();
+  if (tipo === 'cierre_diario') return true;
+  if (/^CGA-\d/i.test(String(row?.folio || '').trim())) return true;
+  const turno = String(row?.turno || '').trim().toLowerCase();
+  return turno === 'corte general';
 }
 
-function fechasDesdeMapaYAporte(map, fecha) {
-  const out = new Set();
-  const f = ymdClaveVentaPos(fecha);
-  if (f) out.add(f);
-  for (const k of Object.keys(map || {})) {
-    const { fecha: fk } = parseClaveVentaPos(k);
-    const ymd = ymdClaveVentaPos(fk);
-    if (ymd) out.add(ymd);
+/** Claves de venta del último cierre de cajero. El corte general no cuenta. */
+export function clavesVentaPosCerradas(cierres = []) {
+  const lista = [...(cierres || [])].filter((c) => c && !esCierreGeneralFila(c));
+  lista.sort((a, b) => {
+    const ta = new Date(a?.created_at || 0).getTime();
+    const tb = new Date(b?.created_at || 0).getTime();
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
+  const map = compactarMapaVentaPos(lista[0]?.detalle?.venta_pos_por_corte);
+  return new Set(Object.keys(map));
+}
+
+export function turnoVentaYaCerrado(clave, cierres = []) {
+  const ck = canonicalizarClaveVentaPos(clave);
+  if (!ck) return false;
+  return clavesVentaPosCerradas(cierres).has(ck);
+}
+
+/**
+ * Quita del corte abierto las ventas que ya se cerraron en Abarrotes.
+ * Si el campo era la suma (turno cerrado + turno nuevo), se queda solo lo abierto.
+ */
+export function estadoSinVentasYaCerradas(estado = {}, cierres = []) {
+  const cerradas = clavesVentaPosCerradas(cierres);
+  const map = compactarMapaVentaPos(estado.venta_pos_por_corte);
+  if (!cerradas.size) {
+    return { estado: { ...estado, venta_pos_por_corte: map }, cambio: false };
   }
-  return [...out];
+  let quitado = 0;
+  let cambio = false;
+  for (const k of Object.keys(map)) {
+    if (!cerradas.has(k)) continue;
+    quitado = round2(quitado + (Number(map[k]) || 0));
+    delete map[k];
+    cambio = true;
+  }
+  if (!cambio) {
+    return { estado: { ...estado, venta_pos_por_corte: map }, cambio: false };
+  }
+  const restante = sumaMapa(map);
+  const prev = round2(estado.venta);
+  const eraSuma = Math.abs(prev - round2(restante + quitado)) < 0.01
+    || Math.abs(prev - quitado) < 0.01;
+  return {
+    estado: {
+      ...estado,
+      venta_pos_por_corte: map,
+      venta: eraSuma ? restante : prev,
+    },
+    cambio: true,
+  };
 }
 
 /**
@@ -340,26 +367,32 @@ export async function sincronizarVentaAbarrotesDesdeCorteCaja(supabase, {
   }
   const clave = claveVentaPosCorteCaja({ fecha, turnoId, turnoNombre });
   try {
-    const { cargarEstadoCorte, guardarEstadoCorte } = await import('./corteContabilidad/store.js');
+    const { cargarEstadoCorte, guardarEstadoCorte, listarCierresCorte } = await import('./corteContabilidad/store.js');
     const cargado = await cargarEstadoCorte(supabase, sucursal, 'abarrotes');
     if (cargado?.lecturaFallida) {
       return { ok: false, error: cargado.error || 'No se pudo leer el corte de abarrotes' };
     }
-    const base = repararVentaPosEnEstado(cargado?.estado || {}).estado;
-    let map = compactarMapaVentaPos(base.venta_pos_por_corte);
-    const fechas = fechasDesdeMapaYAporte(map, fecha);
-    const cortesNube = await listarCortesPosDeFechas(supabase, sucursal, fechas);
-    if (cortesNube.length) {
-      const fromDb = mapaVentaPosDesdeCortes(cortesNube);
-      const fechasSet = new Set(fechas);
-      for (const k of Object.keys(map)) {
-        const { fecha: fk } = parseClaveVentaPos(k);
-        if (fechasSet.has(ymdClaveVentaPos(fk))) delete map[k];
-      }
-      map = { ...map, ...fromDb };
+    const baseRep = repararVentaPosEnEstado(cargado?.estado || {}).estado;
+    let cierres = [];
+    try {
+      const hist = await listarCierresCorte(supabase, sucursal, 'abarrotes', 5);
+      cierres = hist?.data || [];
+    } catch {
+      cierres = [];
     }
+    // Ese turno ya salió en un cierre de Abarrotes: no lo vuelvas a meter en el abierto.
+    if (turnoVentaYaCerrado(clave, cierres)) {
+      return {
+        ok: true,
+        skipped: true,
+        motivo: 'turno_ya_cerrado',
+        clave,
+        venta: round2(baseRep.venta),
+      };
+    }
+    const base = estadoSinVentasYaCerradas(baseRep, cierres).estado;
     const next = aplicarVentaPosEnEstadoAbarrotes(
-      { ...base, venta_pos_por_corte: map },
+      base,
       {
         clave,
         fecha,

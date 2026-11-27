@@ -8,6 +8,8 @@ import {
   repararVentaPosEnEstado,
   mapaVentaPosDesdeCortes,
   turnoCanonVentaPos,
+  estadoSinVentasYaCerradas,
+  turnoVentaYaCerrado,
 } from './corteCajaSyncAbarrotes.js';
 
 test('clave estable por fecha y turno', () => {
@@ -238,6 +240,70 @@ test('reparar: el mismo turno en dos fechas no deja la venta duplicada', () => {
   assert.equal(cambio, true);
   assert.equal(estado.venta, 2003);
   assert.equal(Object.keys(estado.venta_pos_por_corte).length, 1);
+});
+
+test('3B5: el diurno ya cerrado no se suma al nocturno abierto', () => {
+  const cierreDia = {
+    folio: 'AB-239',
+    created_at: '2026-11-27T02:12:50Z',
+    turno: 'Turno nocturno',
+    detalle: {
+      tipo_cierre: 'cierre_operativo',
+      venta_pos_por_corte: { '2026-11-26|diurno': 1554 },
+    },
+  };
+  const corteGeneral = {
+    folio: 'CGA-00014',
+    created_at: '2026-11-27T06:59:59Z',
+    turno: 'Corte general',
+    detalle: {
+      tipo_cierre: 'cierre_diario',
+      venta_pos_por_corte: {
+        '2026-11-26|diurno': 1554,
+        '2026-11-26|nocturno': 1696,
+      },
+    },
+  };
+  const { estado, cambio } = estadoSinVentasYaCerradas(
+    {
+      venta: 3250,
+      tarjeta: 333,
+      venta_pos_por_corte: {
+        '2026-11-26|diurno': 1554,
+        '2026-11-26|nocturno': 1696,
+      },
+    },
+    [corteGeneral, cierreDia],
+  );
+  assert.equal(cambio, true);
+  assert.equal(estado.venta, 1696);
+  assert.equal(estado.tarjeta, 333);
+  assert.equal(estado.venta_pos_por_corte['2026-11-26|diurno'], undefined);
+  assert.equal(estado.venta_pos_por_corte['2026-11-26|nocturno'], 1696);
+  assert.equal(turnoVentaYaCerrado('2026-11-26|diurno', [corteGeneral, cierreDia]), true);
+  assert.equal(turnoVentaYaCerrado('2026-11-26|nocturno', [corteGeneral, cierreDia]), false);
+});
+
+test('dos turnos todavía abiertos siguen sumados', () => {
+  const { estado, cambio } = estadoSinVentasYaCerradas(
+    {
+      venta: 3250,
+      venta_pos_por_corte: {
+        '2026-11-26|diurno': 1554,
+        '2026-11-26|nocturno': 1696,
+      },
+    },
+    [{
+      folio: 'AB-238',
+      created_at: '2026-11-26T14:32:13Z',
+      detalle: {
+        tipo_cierre: 'cierre_operativo',
+        venta_pos_por_corte: { '2026-11-25|nocturno': 2003 },
+      },
+    }],
+  );
+  assert.equal(cambio, false);
+  assert.equal(estado.venta, 3250);
 });
 
 test('clavesReemplazar quita la clave vieja al corregir', () => {
