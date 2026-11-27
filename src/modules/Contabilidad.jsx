@@ -6,7 +6,7 @@ import { SUBMODULOS_CONTABILIDAD } from '../lib/roles.js';
 const DESCRIPCIONES = {
   Tesorería: {
     desc: 'Servicios y fondo de préstamos',
-    ayuda: 'Abre dos módulos: Servicios (fondo de Cheche) y Fondo de préstamos (JLBB). El descuento de nómina reingresa al fondo de préstamos.',
+    ayuda: 'Abre dos módulos: Servicios (fondo de Cheche) y Fondo de préstamos (JLBB). El cobro de préstamos lo hace JLBB y reingresa al fondo.',
   },
   Nómina: {
     desc: 'Periodos, sueldos, asistencia y recibos',

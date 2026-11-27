@@ -165,7 +165,7 @@ export function empleadosVisiblesParaTienda(empleados, sucursalActiva, actorRol 
  * Préstamos a empleado:
  * - Tienda operativa: solo personal tipo tienda de esa sucursal (sin MAIN/indirectos).
  * - En MAIN (admin): empleados de tienda (todas) + usuarios MAIN/indirectos
- *   (estos últimos pueden pedir préstamo solo desde MAIN; no van a corte, sí a nómina).
+ *   (estos últimos pueden pedir préstamo solo desde MAIN; no van a corte; cobro JLBB).
  */
 export function empleadosParaPrestamosEmpleado(empleados, sucursalActiva, actorRol = null) {
   const suc = normalizarCodigoTienda(sucursalActiva);
@@ -206,7 +206,7 @@ export function agruparEmpleadosParaSelectPrestamo(empleados) {
   return { main: main.sort(sortNom), tienda: tienda.sort(sortNom) };
 }
 
-/** Préstamo a usuario MAIN/indirecto: no carga corte; cuota semanal va a nómina. */
+/** Préstamo a usuario MAIN/indirecto: no carga corte; cobro a cargo de JLBB. */
 export function prestamoEmpleadoOmiteCorte(empleado) {
   return esEmpleadoIndirectoOMain(empleado);
 }

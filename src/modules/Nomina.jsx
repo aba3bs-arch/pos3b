@@ -37,6 +37,7 @@ import {
   fraseReglaInventarioNomina,
   tituloColumnaInventarioNomina,
 } from '../lib/nominaInventario.js';
+import { AVISO_PRESTAMOS_COBRO_JLBB, nominaDescuentaPrestamos } from '../lib/nominaPrestamos.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -46,6 +47,15 @@ function fmtPago(n) {
   const v = Number(n) || 0;
   if (v < 0) return `−${fmt(Math.abs(v))}`;
   return fmt(v);
+}
+
+function quitarDeduccionPrestamos(lineas) {
+  return (lineas || []).map((l) => recalcularLineaNomina({
+    ...l,
+    deduccion_prestamos: 0,
+    cuota_prestamos: 0,
+    prestamos_manual: false,
+  }));
 }
 
 const CAMPOS_MANUAL = {
@@ -163,6 +173,7 @@ export default function Nomina({ supabase, sucursal, user }) {
   );
   const desgloseHist = filasDesgloseCuentas(repartoHist);
   const enSemanaCalendario = esSemanaNominaActual(inicio, fin);
+  const cobraPrestamosEnNomina = nominaDescuentaPrestamos({ inicio, fin });
   const ultimoPeriodo = useMemo(() => periodoNominaMasReciente(periodos), [periodos]);
   const puedeEditarUltimaNomina = puedeEliminarNomina && Boolean(ultimoPeriodo);
 
@@ -228,7 +239,8 @@ export default function Nomina({ supabase, sucursal, user }) {
 
       setLineas((prev) => {
         const base = lineasBase ?? (fusionar ? prev : null);
-        return fusionar && base?.length ? fusionarLineasNomina(base, lineasNuevas) : lineasNuevas;
+        const fused = fusionar && base?.length ? fusionarLineasNomina(base, lineasNuevas) : lineasNuevas;
+        return nominaDescuentaPrestamos({ inicio, fin }) ? fused : quitarDeduccionPrestamos(fused);
       });
       setEmpleadosCache(lista);
       setCargando(false);
@@ -349,7 +361,8 @@ export default function Nomina({ supabase, sucursal, user }) {
             'Se cargarán del sábado al viernes:\n' +
             '• Días = jornadas cerradas del checador (ENTRADA + SALIDA), igual que el resumen\n' +
             '• Consumos, recargas, anticipos y faltantes de empleados directos e indirectos\n' +
-            `• ${fraseReglaInventarioNomina(fin)} y préstamos`,
+            `• ${fraseReglaInventarioNomina(fin)}` +
+            (nominaDescuentaPrestamos({ inicio, fin }) ? ' y préstamos' : ' (préstamos ya no se descuentan; cobro JLBB)'),
         )
       ) {
         return;
@@ -417,7 +430,9 @@ export default function Nomina({ supabase, sucursal, user }) {
       !confirm(
         `¿Cerrar nómina del ${inicio} al ${fin}?\n\n`
           + `Se consolidan deducciones de todas las sucursales.\n`
-          + `Se marcarán consumos de cortes y se aplicarán abonos a préstamos.\n\n`
+          + (nominaDescuentaPrestamos({ inicio, fin })
+            ? `Se marcarán consumos de cortes y se aplicarán abonos a préstamos.\n\n`
+            : `Se marcarán consumos de cortes. Los préstamos ya no se descuentan: el cobro queda a cargo de JLBB.\n\n`)
           + `IE: quien reportó sueldo en corte → «Nom corte» (sin duplicar).\n`
           + `Quien no → egreso «Payroll» en IE Virtual/Abarrotes.\n`
           + `Los administradores siempre se registran en IE, aunque no tengan corte.`,
@@ -847,10 +862,13 @@ export default function Nomina({ supabase, sucursal, user }) {
                 min="0"
                 step="0.01"
                 style={{ width: '72px' }}
-                title={Number(l.deduccion_prestamos) > 0
-                  ? `Cuota semanal de préstamo: ${fmt(l.deduccion_prestamos)}`
-                  : 'Préstamos (cuota semanal $500 o remanente)'}
+                title={cobraPrestamosEnNomina
+                  ? (Number(l.deduccion_prestamos) > 0
+                    ? `Cuota semanal de préstamo: ${fmt(l.deduccion_prestamos)}`
+                    : 'Préstamos (cuota semanal $500 o remanente)')
+                  : AVISO_PRESTAMOS_COBRO_JLBB}
                 value={l.deduccion_prestamos ?? 0}
+                disabled={!cobraPrestamosEnNomina}
                 onChange={(e) => actualizarLinea(i, 'deduccion_prestamos', e.target.value)}
               />
               {(Number(l.cuota_prestamos) > 0 || Number(l.deduccion_prestamos) > 0) && (
@@ -963,12 +981,17 @@ export default function Nomina({ supabase, sucursal, user }) {
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: '52rem' }}>
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes (calendario local).
               Días = jornadas cerradas del checador (ENTRADA+SALIDA), igual que el resumen.
-              <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
+              <strong> Pago = (días × $/día) + bono − consumos − inventario{cobraPrestamosEnNomina ? ' − préstamos' : ''} − otros − arrastre.</strong>
               {' '}En Abarrotes y Virtual, Virtual también es un pago por día: se suma (días × Virtual/día). El sueldo sigue siendo solo días × $/día.
               {modoManual
-                ? ' Modo Manual: edita a mano; «Recalcular» conserva ajustes (si inventario/préstamos están en $0, trae la cuota automática).'
-                : ` Modo Automático: días = jornadas del checador; ${fraseReglaInventarioNomina(fin)}; préstamos = cuota semanal ($500 o remanente). Recalcular refresca esas deducciones.`}
+                ? ' Modo Manual: edita a mano; «Recalcular» conserva ajustes (si inventario está en $0, trae la cuota automática).'
+                : ` Modo Automático: días = jornadas del checador; ${fraseReglaInventarioNomina(fin)}${cobraPrestamosEnNomina ? '; préstamos = cuota semanal ($500 o remanente)' : '. Los préstamos ya no se descuentan (cobro JLBB)'}. Recalcular refresca esas deducciones.`}
             </p>
+            {!cobraPrestamosEnNomina && (
+              <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem', maxWidth: '52rem' }}>
+                {AVISO_PRESTAMOS_COBRO_JLBB}
+              </p>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>
             <div
@@ -1138,7 +1161,9 @@ export default function Nomina({ supabase, sucursal, user }) {
                     '• Jornadas cerradas del checador (ENTRADA + SALIDA)\n' +
                     '• Consumos, recargas, anticipos y faltantes (directos e indirectos)\n' +
                     `• ${fraseReglaInventarioNomina(fin)}\n` +
-                    '• Préstamos (cuota semanal)\n\n' +
+                    (cobraPrestamosEnNomina
+                      ? '• Préstamos (cuota semanal)\n\n'
+                      : '• Préstamos: ya no se descuentan (cobro JLBB)\n\n') +
                     'Los salarios por día guardados se conservan; bonos y “otros” del borrador se pierden.',
                 )
               ) {

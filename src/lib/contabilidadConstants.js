@@ -474,7 +474,7 @@ export function etiquetaColectaPrestamo(p) {
     const areaLbl = ETIQUETA_AREA[area] || area;
     partes.push(`${p.colectado_por}${dia ? ` · ${dia}` : ''}${areaLbl ? ` · ${areaLbl}` : ''}${folio}`);
   } else if (p?.omitir_corte) {
-    partes.push('Solo nómina (sin corte)');
+    partes.push('Fondo de préstamos (sin corte)');
   } else if (p?.cargado_corte) {
     partes.push('En corte · pendiente recolección');
   }

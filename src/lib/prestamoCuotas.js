@@ -24,8 +24,8 @@ export function numCuotasPorDefecto(monto) {
 }
 
 /**
- * Primer cobro por defecto: la nómina de la semana siguiente a la fecha del préstamo
- * (se muestra el viernes que cierra esa semana de nómina sáb–vie).
+ * Primer cobro por defecto: la semana siguiente a la fecha del préstamo
+ * (se muestra el viernes que cierra esa semana sáb–vie).
  */
 export function primerCobroPorDefecto(fecha = new Date()) {
   const base = fecha instanceof Date ? fecha : parseYmd(fecha) || new Date();
@@ -50,7 +50,7 @@ export function cuotaProgramada(p) {
   return round2(monto / cr.numCuotas);
 }
 
-/** Número de cuota (1..n) que toca en el periodo de nómina; fuera de rango puede ser <1 o >n. */
+/** Número de cuota (1..n) que toca en el periodo (semana sáb–vie); fuera de rango puede ser <1 o >n. */
 export function numeroCuotaEnPeriodo(p, periodoInicio) {
   const cr = cronogramaPrestamo(p);
   const ini = parseYmd(periodoInicio);
@@ -61,7 +61,7 @@ export function numeroCuotaEnPeriodo(p, periodoInicio) {
 }
 
 /**
- * Cuota de un préstamo con calendario en un periodo de nómina.
+ * Cuota de un préstamo con calendario en un periodo (semana sáb–vie).
  * @returns {{ monto: number, numero: number|null, total: number|null, estado: 'cobrar'|'aun_no'|'terminado'|'sin_calendario' }}
  */
 export function cuotaEnPeriodo(p, periodo = {}) {

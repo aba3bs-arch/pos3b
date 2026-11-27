@@ -109,7 +109,7 @@ export const TUTORIAL_VALES_MAIN = {
       titulo: '7. Pestañas de Préstamos',
       cuerpo: [
         '**Préstamos área / sucursal** — dinero entre Virtual, Abarrotes, Garage o entre tiendas. Abonar, liquidar, recolectar (según rol).',
-        '**Préstamos empleados** — préstamo a persona; cuota semanal mínima $500 en nómina.',
+        '**Préstamos empleados** — préstamo a persona; cobro a cargo de JLBB (ya no se descuenta en nómina).',
         'Admin aprueba; montos **mayores a $1,000** requieren PIN de Antonio, Francisco o José Luis.',
       ],
       imagen: `${IMG}/vales-06-prestamos.jpg`,

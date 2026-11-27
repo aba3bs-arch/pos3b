@@ -228,7 +228,7 @@ const GUIAS = [
     id: 'prestamos',
     tema: 'préstamos y RIF',
     claves: [['prestamo', 5], ['prestamos', 5], ['rif', 5], ['fondos', 3], ['requisicion', 4]],
-    texto: 'Vales y Préstamos tiene las pestañas «RIF · fondos» (requisición de dinero entre tiendas o en la misma tienda; con Abonar, Liquidar e Imprimir firma), «Préstamos área / sucursal» y «Préstamos empleados». Abonar o liquidar lo puede hacer el cajero; aprobar es del administrador (los montos mayores a $1,000 piden PIN).',
+    texto: 'Vales y Préstamos tiene las pestañas «RIF · fondos» (requisición de dinero entre tiendas o en la misma tienda; con Abonar, Liquidar e Imprimir firma), «Préstamos área / sucursal» y «Préstamos empleados». El préstamo a empleado lo cobra JLBB (ya no se descuenta en nómina). Abonar o liquidar préstamos de área/sucursal lo puede hacer el cajero; aprobar es del administrador (los montos mayores a $1,000 piden PIN).',
   },
   {
     id: 'checklist',

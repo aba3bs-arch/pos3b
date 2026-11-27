@@ -754,7 +754,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
   const esAdminActor = tienePrivilegiosCompletos(opts.user) || tienePrivilegiosCompletos(opts.rolActor);
   const ahora = new Date().toISOString();
 
-  // Usuario MAIN: lo registra el admin; no va a corte; sí a nómina ($500/sem).
+  // Usuario MAIN: lo registra el admin; no va a corte. Cobro a cargo de JLBB.
   // Si no requiere socio, queda activo de inmediato.
   // cadenaFondo: empleado. Visto bueno → ABB/FJBB → aviso a JLBB. Nunca a corte.
   let estado = 'pendiente_admin';
@@ -828,7 +828,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
       ref_id: prestamo.id,
       titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
       mensaje: omitirCorte
-        ? `$${monto.toFixed(2)} · solo nómina (sin corte)${necesitaSocio ? ' · requiere socio' : ''}`
+        ? `$${monto.toFixed(2)} · fondo de préstamos (sin corte)${necesitaSocio ? ' · requiere socio' : ''}`
         : `$${monto.toFixed(2)} · corte ${areaCorte}${necesitaSocio ? ' · requiere socio' : ''}`,
       area_buzon: areaCorte || undefined,
     });
@@ -837,7 +837,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
       prestamo,
       pendiente: true,
       mensaje: omitirCorte
-        ? 'Préstamo registrado (solo nómina, sin corte). El administrador debe aprobar antes de imprimir.'
+        ? 'Préstamo registrado (fondo de préstamos, sin corte). El administrador debe aprobar antes de imprimir.'
         : `Préstamo registrado (corte ${areaCorte}). El administrador debe aprobar antes de imprimir el ticket.`,
       areaCorte,
       omitirCorte,
@@ -852,7 +852,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
       ref_id: prestamo.id,
       titulo: `Préstamo +$1,000 · ${row.nombre_empleado}`,
       mensaje: omitirCorte
-        ? `$${monto.toFixed(2)} · solo nómina · espera Antonio, Francisco o José Luis`
+        ? `$${monto.toFixed(2)} · fondo de préstamos · espera Antonio, Francisco o José Luis`
         : `$${monto.toFixed(2)} · espera Antonio, Francisco o José Luis`,
     });
     return {
@@ -872,7 +872,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
     prestamo,
     pendiente: false,
     mensaje: omitirCorte
-      ? `Préstamo activo (usuario MAIN). No va a corte; en nómina se descuenta $${CUOTA_SEMANAL_MINIMA}/semana hasta liquidar.`
+      ? `Préstamo activo (usuario MAIN). No va a corte. El cobro queda a cargo de JLBB (no se descuenta en nómina).`
       : `Préstamo registrado (corte ${areaCorte}). El administrador debe aprobar antes de imprimir el ticket.`,
     areaCorte,
     omitirCorte,
@@ -955,7 +955,7 @@ export async function aprobarPrestamoAdmin(supabase, prestamoId, { nombreAprobad
     cuota,
     mensaje: debeCargarCorte
       ? `Préstamo activo y cargado al corte de ${area}. Ya puede imprimir el ticket.`
-      : `Préstamo activo (sin corte). Cuota $${CUOTA_SEMANAL_MINIMA}/semana. Ya puede imprimir el ticket.`,
+      : `Préstamo activo (sin corte). Cobro a cargo de JLBB. Ya puede imprimir el ticket.`,
   };
 }
 
@@ -996,7 +996,7 @@ export async function aprobarPrestamoSocio(supabase, prestamoId, { pin, sucursal
     prestamo: { ...data, omitir_corte: omitirCorte },
     cuota,
     mensaje: omitirCorte
-      ? `Préstamo autorizado por socio (solo nómina, sin corte). Cuota $${CUOTA_SEMANAL_MINIMA}/semana.`
+      ? `Préstamo autorizado por socio (fondo de préstamos, sin corte). Cobro a cargo de JLBB.`
       : `Préstamo autorizado por socio y cargado al corte de ${area}. Ya puede imprimir.`,
   };
 }
@@ -1014,9 +1014,9 @@ export async function rechazarPrestamo(supabase, prestamoId, { nombre, motivo } 
   return { ok: true, prestamo: data };
 }
 
-export async function abonarPrestamo(supabase, prestamo, montoAbono) {
+export async function abonarPrestamo(supabase, prestamo, montoAbono, opts = {}) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
-  // pendiente_socio: admin ya aprobó (>$1,000); nómina puede abonar y pasa a activo.
+  // pendiente_socio: admin ya aprobó (>$1,000); se puede abonar y pasa a activo.
   if (prestamo.estado !== 'activo' && prestamo.estado !== 'pendiente_socio') {
     return { ok: false, error: 'El préstamo no está activo.' };
   }
@@ -1039,11 +1039,13 @@ export async function abonarPrestamo(supabase, prestamo, montoAbono) {
     })
     .eq('id', prestamo.id);
   if (error) return { ok: false, error: error.message };
+  const tipoReingreso = opts.tipoReingreso === 'reingreso_nomina' ? 'reingreso_nomina' : 'reingreso_cobro';
   const reingreso = await registrarReingresoNomina(supabase, {
     prestamo,
     monto: abono,
-    createdBy: 'Nómina',
-    notas: 'Reingreso de nómina. La cuota se restó del préstamo y se sumó al capital.',
+    createdBy: opts.createdBy || opts.nombreActor || 'JLBB',
+    notas: opts.notas || 'Cobro JLBB. Resta el saldo del préstamo y suma al capital.',
+    tipo: tipoReingreso,
   });
   if (reingreso && reingreso.ok === false) return reingreso;
   return { ok: true, saldo, liquidado: saldo <= 0 };
@@ -1074,10 +1076,10 @@ export async function descontarPrestamo(supabase, prestamo, montoDescuento) {
   return { ok: true, saldo, liquidado: saldo <= 0 };
 }
 
-export async function liquidarPrestamo(supabase, prestamo) {
+export async function liquidarPrestamo(supabase, prestamo, opts = {}) {
   const saldo = Number(prestamo?.saldo) || 0;
   if (!(saldo > 0)) return { ok: false, error: 'No hay saldo por liquidar.' };
-  return abonarPrestamo(supabase, prestamo, saldo);
+  return abonarPrestamo(supabase, prestamo, saldo, opts);
 }
 
 /**
@@ -1097,7 +1099,7 @@ export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } 
     upd.area_corte = area;
   }
   if (patch.cuota_semanal != null && patch.cuota_semanal !== '') {
-    // Cuota fija $500/sem en nómina (o el saldo si es menor).
+    // Cuota de referencia $500/sem (cobro JLBB; o el saldo si es menor).
     const saldoRef = Number(prestamo.saldo) || Number(prestamo.monto_original) || 0;
     upd.cuota_semanal = cuotaSemanalPrestamo(saldoRef, CUOTA_SEMANAL_MINIMA);
   }
@@ -1291,9 +1293,10 @@ export async function aprobarMovimientoPrestamo(supabase, prestamo, { nombre } =
   if (!tipo) return { ok: false, error: 'No hay solicitud pendiente en este préstamo.' };
 
   let r;
+  const cobroOpts = { createdBy: nombre || 'JLBB', nombreActor: nombre };
   if (tipo === 'descuento') r = await descontarPrestamo(supabase, prestamo, monto);
-  else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, prestamo);
-  else r = await abonarPrestamo(supabase, prestamo, monto);
+  else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, prestamo, cobroOpts);
+  else r = await abonarPrestamo(supabase, prestamo, monto, cobroOpts);
 
   if (!r.ok) return r;
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamo.id, nombre);
