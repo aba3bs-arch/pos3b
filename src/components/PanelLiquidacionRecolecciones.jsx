@@ -29,6 +29,7 @@ import HistorialLiquidacionesGlobal from './HistorialLiquidacionesGlobal.jsx';
 import PanelFondoServicios from './PanelFondoServicios.jsx';
 import PendientesRecolectorTiendas from './PendientesRecolectorTiendas.jsx';
 import InventarioCamionRecolector, { useInventariosCamion } from './InventarioCamionRecolector.jsx';
+import TableroCamionRc from './TableroCamionRc.jsx';
 
 const PRESETS_PENDIENTE = [
   { id: 'todos', label: 'Todos los pendientes' },
@@ -415,7 +416,8 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               }}
             >
               {resumenReps.map((r) => {
-                const conMonto = Number(r.total) > 0;
+                const totalCasilla = Math.round((((r.venta || 0) + (r.credito || 0) + (r.servicio || 0)) * 100)) / 100;
+                const conMonto = totalCasilla > 0;
                 return (
                   <div key={r.id} style={{ border: '1px solid rgba(15, 23, 42, 0.12)', borderRadius: '10px', overflow: 'hidden' }}>
                   <button
@@ -442,12 +444,42 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {fmtMonto(r.total)}
+                      {fmtMonto(totalCasilla)}
                     </div>
                     <div className="muted" style={{ marginTop: '0.15rem', fontSize: '0.72rem' }}>
-                      {conMonto ? `${r.count} mov. en tránsito` : 'Sin tránsito'}
+                      {conMonto || r.servicioN
+                        ? `${r.count + (r.servicioN || 0)} mov. en tránsito (${r.ventaN || 0} rc)`
+                        : 'Sin tránsito'}
+                    </div>
+                    <div className="muted" style={{ marginTop: '0.1rem', fontSize: '0.68rem' }}>
+                      ventas {r.ventaN || 0} rc / créditos por cobrar {r.creditoN || 0} rc / servicios {r.servicioN || 0}
                     </div>
                   </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.35rem', padding: '0.45rem' }}>
+                    {[
+                      ['Rc/venta', r.venta, '#15803d'],
+                      ['Rc/créditos por cobrar', r.credito, '#1d4ed8'],
+                      ['Rc/servicios', r.servicio, '#9a3412'],
+                    ].map(([label, monto, color]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => abrirRecolector(r.id)}
+                        style={{
+                          border: 'none',
+                          borderRadius: 8,
+                          background: color,
+                          color: '#fff',
+                          padding: '0.4rem 0.25rem',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                        }}
+                      >
+                        <div style={{ fontSize: '0.62rem', fontWeight: 700, lineHeight: 1.15 }}>{label}</div>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 800, marginTop: 2 }}>{fmtMonto(monto || 0)}</div>
+                      </button>
+                    ))}
+                  </div>
                   <InventarioCamionRecolector
                     datos={inventariosCamion.porRecolector[r.id]}
                     cargando={inventariosCamion.cargando}
@@ -469,6 +501,15 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             </button>
             <strong style={{ color: 'var(--brand-blue)' }}>{repNombre || 'Recolector'}</strong>
           </div>
+
+          <TableroCamionRc
+            supabase={supabase}
+            repId={repLiq}
+            repNombre={repNombre}
+            inventario={inventariosCamion.porRecolector[repLiq]}
+            guardando={guardando}
+            onLiquidar={() => confirmarLiquidacion(enTransito, repNombre || 'este recolector')}
+          />
 
           <div className="grid-2" style={{ gap: '0.75rem' }}>
             <div>
