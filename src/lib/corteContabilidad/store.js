@@ -439,8 +439,18 @@ function faltaColumnaDeletedAt(error) {
 async function repararVentaPosAbarrotesSiAplica(supabase, sid, modulo, estado, persistir) {
   if (String(modulo || '').toLowerCase() !== 'abarrotes') return estado;
   try {
-    const { repararVentaPosEnEstado } = await import('../corteCajaSyncAbarrotes.js');
-    const { estado: next, cambio } = repararVentaPosEnEstado(estado);
+    const { repararVentaPosEnEstado, estadoSinVentasYaCerradas } = await import('../corteCajaSyncAbarrotes.js');
+    const rep = repararVentaPosEnEstado(estado);
+    let next = rep.estado;
+    let cambio = rep.cambio;
+    if (supabase) {
+      const hist = await listarCierresCorte(supabase, sid, modulo, 5);
+      const sin = estadoSinVentasYaCerradas(next, hist?.data || []);
+      if (sin.cambio) {
+        next = sin.estado;
+        cambio = true;
+      }
+    }
     if (!cambio) return next;
     if (persistir && supabase) {
       await supabase.from('cortes_contabilidad_estado').upsert(
