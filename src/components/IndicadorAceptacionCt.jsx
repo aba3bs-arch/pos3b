@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import PortalFlotante from './PortalFlotante.jsx';
 import {
   UMBRAL_ACEPTACION_CT,
@@ -48,9 +48,59 @@ export function IndicadorAceptacionCt({ resumen, onClick, compact = false }) {
   );
 }
 
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+function fechaNota(ymd) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  return `${Number(m[3])} ${MESES[Number(m[2]) - 1] || m[2]} ${m[1]}`;
+}
+
+function NotasSucursal({ fila }) {
+  const notas = Array.isArray(fila?.notas) ? fila.notas : [];
+  if (!notas.length) {
+    return <p className="muted" style={{ margin: 0 }}>Esta tienda no tiene notas guardadas.</p>;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+      {notas.map((n, i) => {
+        const hayNota = Boolean(n.comentario) || (n.problemas || []).length > 0;
+        return (
+          <article
+            key={n.id || `${n.fecha}-${i}`}
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: 8,
+              padding: '0.5rem 0.65rem',
+              background: '#fff',
+            }}
+          >
+            <div style={{ fontSize: '0.78rem', color: '#475569', marginBottom: 4 }}>
+              {[fechaNota(n.fecha), n.etiqueta, n.evaluado_por].filter(Boolean).join(' · ')}
+            </div>
+            {(n.problemas || []).length > 0 && (
+              <ul style={{ margin: '0 0 0.35rem', paddingLeft: '1.1rem', fontSize: '0.82rem' }}>
+                {n.problemas.map((p) => <li key={p}>{p}</li>)}
+              </ul>
+            )}
+            {(n.comentario || !hayNota) && (
+              <p style={{ margin: 0, fontSize: '0.88rem', whiteSpace: 'pre-wrap' }}>
+                {n.comentario || 'Sin nota escrita.'}
+              </p>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Modal con % general y desglose por tienda. */
 export function ModalDesgloseAceptacion({ resumen, nombre, onClose }) {
+  const [tiendaAbierta, setTiendaAbierta] = useState(null);
   if (!resumen) return null;
+  const filas = resumen.porSucursal || [];
+  const abierta = filas.find((r) => r.sucursal_id === tiendaAbierta) || null;
   return (
     <PortalFlotante>
     <div
@@ -70,7 +120,7 @@ export function ModalDesgloseAceptacion({ resumen, nombre, onClose }) {
     >
       <div
         className="card"
-        style={{ maxWidth: 420, width: '100%', margin: 0 }}
+        style={{ maxWidth: 480, width: '100%', margin: 0, maxHeight: '90vh', overflow: 'auto' }}
         onClick={(e) => e.stopPropagation()}
       >
         <h4 style={{ margin: '0 0 0.35rem' }}>Aceptación · {nombre || 'CT'}</h4>
@@ -83,33 +133,64 @@ export function ModalDesgloseAceptacion({ resumen, nombre, onClose }) {
           {' '}
           (mínimo {UMBRAL_ACEPTACION_CT}% para mantener la app).
         </p>
-        {(resumen.porSucursal || []).length === 0 ? (
+        {filas.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
             Aún no hay calificaciones por tienda — se mantiene el 100% inicial.
           </p>
         ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Tienda</th>
-                  <th>Califs.</th>
-                  <th>Prom.</th>
-                  <th>%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resumen.porSucursal.map((r) => (
-                  <tr key={r.sucursal_id}>
-                    <td>{r.tienda}</td>
-                    <td>{r.n}</td>
-                    <td>{r.promedio}/5</td>
-                    <td style={{ fontWeight: 700, color: colorNivelAceptacionCt(r.pct) }}>{r.pct}%</td>
+          <>
+            <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.8rem' }}>
+              Clic en una tienda para ver las notas de cada evaluación.
+            </p>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Tienda</th>
+                    <th>Califs.</th>
+                    <th>Prom.</th>
+                    <th>%</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filas.map((r) => {
+                    const abiertaFila = r.sucursal_id === tiendaAbierta;
+                    return (
+                      <tr
+                        key={r.sucursal_id}
+                        onClick={() => setTiendaAbierta(abiertaFila ? null : r.sucursal_id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setTiendaAbierta(abiertaFila ? null : r.sucursal_id);
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
+                        aria-expanded={abiertaFila}
+                        title="Ver notas de esta tienda"
+                        style={{
+                          cursor: 'pointer',
+                          background: abiertaFila ? '#eff6ff' : undefined,
+                        }}
+                      >
+                        <td style={{ fontWeight: abiertaFila ? 700 : 500 }}>{r.tienda}</td>
+                        <td>{r.n}</td>
+                        <td>{r.promedio}/5</td>
+                        <td style={{ fontWeight: 700, color: colorNivelAceptacionCt(r.pct) }}>{r.pct}%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {abierta && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <h5 style={{ margin: '0 0 0.4rem' }}>Notas · {abierta.tienda}</h5>
+                <NotasSucursal fila={abierta} />
+              </div>
+            )}
+          </>
         )}
         <div style={{ marginTop: '0.85rem', textAlign: 'right' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>

@@ -5,7 +5,11 @@
  * puede desbloquearlo desde RH ABA3B.
  */
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { listarEvaluacionesCt } from './cubreEvaluaciones.js';
+import {
+  CRITERIOS_EVALUACION_CT,
+  etiquetaCalificacionCt,
+  listarEvaluacionesCt,
+} from './cubreEvaluaciones.js';
 
 /** Por debajo de esto se bloquea la app del CT. */
 export const UMBRAL_ACEPTACION_CT = 60;
@@ -39,6 +43,22 @@ export function aceptacionPctDesdeEvals(evals = []) {
   return Math.round((avg / 5) * 1000) / 10;
 }
 
+function notaDeEvaluacion(row, cal) {
+  const problemas = CRITERIOS_EVALUACION_CT
+    .filter((c) => Boolean(row?.[c.id]))
+    .map((c) => c.label);
+  return {
+    id: row?.id || row?.solicitud_id || null,
+    fecha: row?.fecha ? String(row.fecha).slice(0, 10) : null,
+    created_at: row?.created_at || null,
+    calificacion: cal,
+    etiqueta: etiquetaCalificacionCt(cal),
+    comentario: String(row?.comentario || '').trim(),
+    problemas,
+    evaluado_por: String(row?.evaluado_por_nombre || '').trim(),
+  };
+}
+
 export function aceptacionPorSucursal(evals = []) {
   const by = new Map();
   for (const row of evals || []) {
@@ -46,18 +66,26 @@ export function aceptacionPorSucursal(evals = []) {
     if (!Number.isFinite(cal) || cal < 1 || cal > 5) continue;
     const suc = normalizarCodigoTienda(row.sucursal_id) || String(row.sucursal_id || '—');
     if (!by.has(suc)) by.set(suc, []);
-    by.get(suc).push(cal);
+    by.get(suc).push(notaDeEvaluacion(row, cal));
   }
   return [...by.entries()]
-    .map(([sucursal_id, nums]) => {
+    .map(([sucursal_id, notas]) => {
+      const nums = notas.map((n) => n.calificacion);
       const promedio = nums.reduce((a, b) => a + b, 0) / nums.length;
       const pct = Math.round((promedio / 5) * 1000) / 10;
+      const ordenadas = [...notas].sort((a, b) => {
+        const fa = a.fecha || '';
+        const fb = b.fecha || '';
+        if (fa !== fb) return fb.localeCompare(fa);
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      });
       return {
         sucursal_id,
         tienda: etiquetaTienda(sucursal_id),
         n: nums.length,
         promedio: Math.round(promedio * 10) / 10,
         pct,
+        notas: ordenadas,
       };
     })
     .sort((a, b) => a.tienda.localeCompare(b.tienda, 'es'));
