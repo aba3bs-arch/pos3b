@@ -11,6 +11,11 @@
 
 import { esAlmacenCentral, normalizarCodigoTienda } from '../constants/sucursales.js'
 import {
+  faltasTrasReactivacion,
+  listarBonosReactivaciones,
+  mapaReactivacionesBono,
+} from './bonosReactivaciones.js'
+import {
   claveDescansoAutorizado,
   listarDescansosAutorizados,
   setClavesDescansosAutorizados,
@@ -668,9 +673,12 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
  * - Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
  *   (vuelve 7 días después de la última falta de la cadena).
  * - `faltasDesde`: ignora faltas más viejas que esa fecha.
+ * - `reactivacionesPorUsuario`: mapa usuarioId → { vuelveYmd }. Las faltas
+ *   anteriores a esa fecha no bloquean si hoy ya llegó; si la fecha es futura
+ *   se muestra como fecha de regreso (corregir el ban).
  * - El día de `ahora` no cierra falta: aún pueden checar.
  *
- * @param {{ plan?: object, descansosAutorizados?: Array|Set<string>, faltasDesde?: string }} [opts]
+ * @param {{ plan?: object, descansosAutorizados?: Array|Set<string>, faltasDesde?: string, reactivacionesPorUsuario?: object }} [opts]
  */
 export function listarBloqueosBonoPorFalta({
   usuarios = [],
@@ -681,6 +689,7 @@ export function listarBloqueosBonoPorFalta({
   plan = null,
   descansosAutorizados = null,
   faltasDesde = '',
+  reactivacionesPorUsuario = {},
 } = {}) {
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
@@ -731,7 +740,21 @@ export function listarBloqueosBonoPorFalta({
       if (presentes.has(ymd)) continue
       faltas.push(ymd)
     }
-    const susp = calcularSuspensionBonoPorFaltas(faltas, { hoy, diasBloqueo: diasBan })
+    const override = reactivacionesPorUsuario?.[uid]
+      || reactivacionesPorUsuario?.[`id:${uid}`]
+      || null
+    const vuelveOverride = String(override?.vuelveYmd || override?.vuelve_ymd || '').slice(0, 10)
+    const faltasEfectivas = faltasTrasReactivacion(faltas, { hoy, vuelveYmd: vuelveOverride })
+    let susp = calcularSuspensionBonoPorFaltas(faltasEfectivas, { hoy, diasBloqueo: diasBan })
+    if (vuelveOverride && hoy < vuelveOverride && susp) {
+      const sinBonoHasta = sumarDiasYmd(vuelveOverride, -1)
+      susp = {
+        ...susp,
+        sinBonoHasta,
+        vuelveBonoYmd: vuelveOverride,
+        diasRestantes: diasInclusiveEntre(hoy, sinBonoHasta),
+      }
+    }
     if (!susp) continue
     out.push({
       clave: `id:${uid}`,
@@ -745,6 +768,7 @@ export function listarBloqueosBonoPorFalta({
       sinBonoHasta: susp.sinBonoHasta,
       vuelveBonoYmd: susp.vuelveBonoYmd,
       diasRestantes: susp.diasRestantes,
+      reactivacionVuelveYmd: vuelveOverride || '',
     })
   }
 
@@ -1000,11 +1024,12 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
   const desdeIso = `${desdeYmd}T00:00:00`
   const hastaIso = new Date(ahora.getTime() + 24 * 3600 * 1000).toISOString()
 
-  const [uRes, mRes, planSync, autRes] = await Promise.all([
+  const [uRes, mRes, planSync, autRes, recRes] = await Promise.all([
     cargarUsuariosResumen(supabase, { sucursalId: suc }),
     cargarMarcajesResumen(supabase, { desdeIso, hastaIso, sucursalId: suc }),
     sincronizarPlanHorarioDesdeNube(supabase).catch(() => ({ ok: false })),
     listarDescansosAutorizados(supabase, { sucursalId: suc, desdeYmd, hastaYmd: hoy }),
+    listarBonosReactivaciones(supabase, { sucursalId: suc }),
   ])
   if (uRes.error && !uRes.data?.length) {
     return { ok: false, data: [], error: uRes.error.message || String(uRes.error) }
@@ -1019,11 +1044,13 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
     plan,
     descansosAutorizados: autRes?.data || [],
     faltasDesde: corte,
+    reactivacionesPorUsuario: mapaReactivacionesBono(recRes?.data || []),
   })
   return {
     ok: true,
     data,
     error: mRes.error?.message || null,
     avisoDescansos: autRes?.faltaTabla ? autRes.error : null,
+    avisoReactivaciones: recRes?.faltaTabla ? recRes.error : null,
   }
 }

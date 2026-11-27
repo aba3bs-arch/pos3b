@@ -1290,6 +1290,7 @@ export default function Configuracion({
           supabase={supabase}
           inventario={inventario || []}
           esAdmin={esAdmin}
+          user={user}
         />
       )}
 
@@ -4436,6 +4437,9 @@ export default function Configuracion({
           </li>
           <li>
             Ejecuta <code>supabase/fix_bonos_config.sql</code> para sincronizar parámetros del bono por recolección entre sucursales.
+          </li>
+          <li>
+            Ejecuta <code>supabase/fix_bonos_reactivaciones.sql</code> para reactivar el bono de un empleado de tienda (Administrador / Gerente).
           </li>
           <li>
             Ejecuta <code>supabase/schema.sql</code> para tablas de clientes, proveedores y compras.

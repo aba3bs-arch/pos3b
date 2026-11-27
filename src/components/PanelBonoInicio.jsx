@@ -11,6 +11,7 @@ import {
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
 import { ajusteRetardoBono, cargarRetardosBono } from '../lib/bonosRetardos.js';
+import { EVENTO_BONOS_REACTIVACIONES } from '../lib/bonosReactivaciones.js';
 import { EVENTO_DESCANSOS_AUTORIZADOS } from '../lib/descansosAutorizados.js';
 import { EVENTO_PLAN_HORARIO } from '../lib/planHorarioSync.js';
 import {
@@ -21,6 +22,7 @@ import {
 import { resolverTipoEmpleado } from '../lib/empleadosVisibles.js';
 import { usuarioEstaActivo } from '../lib/usuariosAuth.js';
 import PanelAutorizarDescanso from './PanelAutorizarDescanso.jsx';
+import PanelReactivarBono, { FilaReactivarBono } from './PanelReactivarBono.jsx';
 
 function fmtMoney(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -67,6 +69,7 @@ export default function PanelBonoInicio({
   const [pack, setPack] = useState(null);
   const [bloqueosFalta, setBloqueosFalta] = useState([]);
   const [avisoDescansos, setAvisoDescansos] = useState('');
+  const [avisoReactivaciones, setAvisoReactivaciones] = useState('');
   const [usuarios, setUsuarios] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [montoInput, setMontoInput] = useState('');
@@ -92,6 +95,7 @@ export default function PanelBonoInicio({
       setPack(res);
       setBloqueosFalta(bloq?.data || []);
       setAvisoDescansos(bloq?.avisoDescansos || '');
+      setAvisoReactivaciones(bloq?.avisoReactivaciones || '');
       setUsuarios(uRes?.data || []);
       let retardos = {};
       if (res?.ok) {
@@ -116,6 +120,7 @@ export default function PanelBonoInicio({
     window.addEventListener(EVENTO_BONOS_CONFIG, onCfg);
     window.addEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
     window.addEventListener(EVENTO_DESCANSOS_AUTORIZADOS, onCfg);
+    window.addEventListener(EVENTO_BONOS_REACTIVACIONES, onCfg);
     window.addEventListener(EVENTO_PLAN_HORARIO, onCfg);
     const t = setInterval(load, 5 * 60 * 1000);
     return () => {
@@ -123,6 +128,7 @@ export default function PanelBonoInicio({
       window.removeEventListener(EVENTO_BONOS_CONFIG, onCfg);
       window.removeEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
       window.removeEventListener(EVENTO_DESCANSOS_AUTORIZADOS, onCfg);
+      window.removeEventListener(EVENTO_BONOS_REACTIVACIONES, onCfg);
       window.removeEventListener(EVENTO_PLAN_HORARIO, onCfg);
       clearInterval(t);
     };
@@ -388,9 +394,13 @@ export default function PanelBonoInicio({
           (Checador → Plan) o descanso autorizado no es falta.
           Se respetan las faltas de los {DIAS_BLOQUEO_BONO_POR_FALTA} días anteriores al 15/11. Las más viejas no cuentan.
           Quien falte queda sin bono {DIAS_BLOQUEO_BONO_POR_FALTA} días desde ese día, si no vuelve a faltar.
+          Administrador o gerente puede reactivar (o corregir la fecha) a cualquier empleado directo.
         </p>
         {avisoDescansos ? (
           <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoDescansos}</p>
+        ) : null}
+        {avisoReactivaciones ? (
+          <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoReactivaciones}</p>
         ) : null}
         {bloqueosFalta.length === 0 ? (
           <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
@@ -406,6 +416,7 @@ export default function PanelBonoInicio({
                   justifyContent: 'space-between',
                   gap: '0.5rem',
                   flexWrap: 'wrap',
+                  alignItems: 'center',
                   fontSize: '0.8rem',
                   padding: '0.35rem 0.45rem',
                   borderRadius: 6,
@@ -423,11 +434,25 @@ export default function PanelBonoInicio({
                     ) : null}
                   </span>
                 </span>
-                <span style={{ color: '#b91c1c', fontWeight: 700 }}>
-                  vuelve {fmtDia(b.vuelveBonoYmd || b.sinBonoHasta)}
-                  <span className="muted" style={{ fontWeight: 500, marginLeft: 4 }}>
-                    ({b.diasRestantes}d · 0%)
+                <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <span style={{ color: '#b91c1c', fontWeight: 700 }}>
+                    vuelve {fmtDia(b.vuelveBonoYmd || b.sinBonoHasta)}
+                    <span className="muted" style={{ fontWeight: 500, marginLeft: 4 }}>
+                      ({b.diasRestantes}d · 0%)
+                    </span>
                   </span>
+                  <FilaReactivarBono
+                    supabase={supabase}
+                    user={user}
+                    bloqueo={b}
+                    usuarios={usuarios}
+                    onHecho={async () => {
+                      const bloq = await cargarBloqueosBonoPorFalta(supabase, { sucursalId: sucursal });
+                      setBloqueosFalta(bloq?.data || []);
+                      setAvisoDescansos(bloq?.avisoDescansos || '');
+                      setAvisoReactivaciones(bloq?.avisoReactivaciones || '');
+                    }}
+                  />
                 </span>
               </li>
             ))}
@@ -444,6 +469,20 @@ export default function PanelBonoInicio({
           const bloq = await cargarBloqueosBonoPorFalta(supabase, { sucursalId: sucursal });
           setBloqueosFalta(bloq?.data || []);
           setAvisoDescansos(bloq?.avisoDescansos || '');
+          setAvisoReactivaciones(bloq?.avisoReactivaciones || '');
+        }}
+      />
+
+      <PanelReactivarBono
+        supabase={supabase}
+        sucursal={sucursal}
+        user={user}
+        usuarios={usuarios}
+        onCambio={async () => {
+          const bloq = await cargarBloqueosBonoPorFalta(supabase, { sucursalId: sucursal });
+          setBloqueosFalta(bloq?.data || []);
+          setAvisoDescansos(bloq?.avisoDescansos || '');
+          setAvisoReactivaciones(bloq?.avisoReactivaciones || '');
         }}
       />
 
