@@ -10,6 +10,8 @@ import {
   sincronizarBonosConfigDesdeNube,
 } from '../lib/bonosConfig.js';
 import { calcularBonosVariasSucursales } from '../lib/bonosData.js';
+import { cargarUsuariosResumen } from '../lib/resumenDiasAsistencia.js';
+import PanelReactivarBono from './PanelReactivarBono.jsx';
 
 function fmtMoney(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -18,14 +20,15 @@ function fmtMoney(n) {
 /**
  * Submódulo Configuración → Bonos: editar parámetros + monitoreo por tienda.
  */
-export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = false }) {
+export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = false, user = null }) {
   const [cfg, setCfg] = useState(() => leerBonosConfig());
   const [msg, setMsg] = useState('');
   const [aviso, setAviso] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [tab, setTab] = useState('params'); // params | monitor
+  const [tab, setTab] = useState('params'); // params | monitor | reactivar
   const [monitor, setMonitor] = useState([]);
   const [cargandoMon, setCargandoMon] = useState(false);
+  const [usuariosAll, setUsuariosAll] = useState([]);
 
   const tiendas = useMemo(() => listarSucursalesOperativas(), []);
 
@@ -55,6 +58,16 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
   useEffect(() => {
     if (tab === 'monitor') cargarMonitor();
   }, [tab, cargarMonitor]);
+
+  useEffect(() => {
+    if (tab !== 'reactivar' || !supabase) return undefined;
+    let ok = true;
+    cargarUsuariosResumen(supabase, {}).then((res) => {
+      if (!ok) return;
+      setUsuariosAll(res?.data || []);
+    });
+    return () => { ok = false; };
+  }, [tab, supabase]);
 
   const setRango = (idx, patch) => {
     setCfg((c) => {
@@ -138,6 +151,9 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
         </button>
         <button type="button" className={`btn ${tab === 'monitor' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('monitor')}>
           Monitoreo
+        </button>
+        <button type="button" className={`btn ${tab === 'reactivar' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('reactivar')}>
+          Reactivar bono
         </button>
       </div>
 
@@ -520,6 +536,15 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
           </div>
           {!cargandoMon && !monitor.length && <p className="muted">Sin datos.</p>}
         </>
+      )}
+
+      {tab === 'reactivar' && (
+        <PanelReactivarBono
+          supabase={supabase}
+          sucursal=""
+          user={user}
+          usuarios={usuariosAll}
+        />
       )}
     </div>
   );

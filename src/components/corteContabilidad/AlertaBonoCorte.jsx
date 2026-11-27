@@ -5,6 +5,7 @@ import { normalizarRol } from '../../lib/roles.js';
 import { usuarioEstaActivo } from '../../lib/usuariosAuth.js';
 import { calcularBonoSucursal } from '../../lib/bonosData.js';
 import { EVENTO_BONOS_CONFIG, alertasVisiblesBono, calcularPagosBonoPorEmpleado, etiquetaReactivaBono, rangoBonoPorMonto, resumenRepartoBono, textoLineaEmpleadoBono } from '../../lib/bonosConfig.js';
+import { EVENTO_BONOS_REACTIVACIONES } from '../../lib/bonosReactivaciones.js';
 import { ajusteRetardoBono, cargarRetardosBono } from '../../lib/bonosRetardos.js';
 import {
   cargarBloqueosBonoPorFalta,
@@ -51,7 +52,11 @@ export function useAlertaBonoCorte({ supabase, sucursal, monto = null, enabled =
   useEffect(() => {
     const onCfg = () => setRev((n) => n + 1);
     window.addEventListener(EVENTO_BONOS_CONFIG, onCfg);
-    return () => window.removeEventListener(EVENTO_BONOS_CONFIG, onCfg);
+    window.addEventListener(EVENTO_BONOS_REACTIVACIONES, onCfg);
+    return () => {
+      window.removeEventListener(EVENTO_BONOS_CONFIG, onCfg);
+      window.removeEventListener(EVENTO_BONOS_REACTIVACIONES, onCfg);
+    };
   }, []);
 
   useEffect(() => {

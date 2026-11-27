@@ -916,4 +916,65 @@ assert.equal(
   assert.equal(bloq.vuelveBonoYmd, '2026-11-22')
 }
 
+{
+  // Reactivar bono de un empleado de tienda (p. ej. Sandra): las faltas
+  // anteriores a la fecha de reactivación ya no bloquean.
+  const horario = {
+    tipo: 'personalizado',
+    dias: { 1: 'diurno', 2: 'diurno', 3: 'diurno', 4: 'diurno', 5: 'diurno', 6: 'diurno' },
+  }
+  const sandra = {
+    id: 'sandra-1',
+    nombre: 'Sandra Martinez',
+    rol: 'Cajero',
+    sucursal_id: '3B6',
+    activo: true,
+    tipo_empleado: 'tienda',
+    turno_horario: horario,
+  }
+  const laborables = (desde, hasta) => listarYmdInclusive(desde, hasta).filter((ymd) => {
+    const [y, m, d] = ymd.split('-').map(Number)
+    return new Date(y, m - 1, d).getDay() !== 0
+  })
+  const checadas = (dias) => dias.flatMap((ymd) => parDia('sandra-1', 'Sandra Martinez', '3B6', ymd))
+  const diasSinFalta23 = laborables('2026-11-09', '2026-11-26').filter((ymd) => ymd !== '2026-11-23')
+  const base = {
+    usuarios: [sandra],
+    sucursalId: '3B6',
+    diasBloqueo: 7,
+    faltasDesde: '2026-11-08',
+    marcajes: checadas(diasSinFalta23),
+    ahora: new Date(2026, 10, 27, 12, 0, 0),
+  }
+  const bloqueada = listarBloqueosBonoPorFalta(base).find((b) => b.nombre === 'Sandra Martinez')
+  assert.ok(bloqueada, 'sin reactivación sigue el ban por falta')
+  assert.equal(bloqueada.faltaYmd, '2026-11-23')
+  assert.equal(bloqueada.vuelveBonoYmd, '2026-11-30')
+
+  const reactivadaHoy = listarBloqueosBonoPorFalta({
+    ...base,
+    reactivacionesPorUsuario: { 'sandra-1': { vuelveYmd: '2026-11-27' } },
+  }).find((b) => b.nombre === 'Sandra Martinez')
+  assert.equal(reactivadaHoy, undefined, 'reactivar con fecha de hoy quita el bloqueo')
+
+  const fechaCorregida = listarBloqueosBonoPorFalta({
+    ...base,
+    ahora: new Date(2026, 10, 24, 12, 0, 0),
+    marcajes: checadas(laborables('2026-11-09', '2026-11-22')),
+    reactivacionesPorUsuario: { 'sandra-1': { vuelveYmd: '2026-11-28' } },
+  }).find((b) => b.nombre === 'Sandra Martinez')
+  assert.ok(fechaCorregida, 'si la fecha de reactivación es futura, sigue bloqueada')
+  assert.equal(fechaCorregida.vuelveBonoYmd, '2026-11-28')
+
+  const faltaNueva = listarBloqueosBonoPorFalta({
+    ...base,
+    ahora: new Date(2026, 10, 28, 12, 0, 0),
+    marcajes: checadas(diasSinFalta23),
+    reactivacionesPorUsuario: { 'sandra-1': { vuelveYmd: '2026-11-27' } },
+  }).find((b) => b.nombre === 'Sandra Martinez')
+  assert.ok(faltaNueva, 'una falta posterior a la reactivación vuelve a bloquear')
+  assert.equal(faltaNueva.faltaYmd, '2026-11-27')
+  assert.equal(faltaNueva.vuelveBonoYmd, '2026-12-04')
+}
+
 console.log('resumenDiasAsistencia.test.mjs ok')
