@@ -35,6 +35,31 @@ const b2 = por.find((r) => r.sucursal_id === '3B2');
 assert.equal(b2.n, 2);
 assert.equal(b2.promedio, 3);
 assert.equal(b2.pct, 60);
+assert.equal(b2.notas.length, 2);
+
+const conNota = aceptacionPorSucursal([
+  {
+    id: 'e1',
+    calificacion: 1,
+    sucursal_id: '3B6',
+    comentario: 'Llegó tarde y dejó la caja desordenada',
+    fecha: '2026-11-20',
+    evaluado_por_nombre: 'Ana',
+    llego_tarde: true,
+  },
+  {
+    id: 'e2',
+    calificacion: 4,
+    sucursal_id: '3B6',
+    comentario: '',
+    fecha: '2026-11-26',
+  },
+]);
+const b6 = conNota.find((r) => r.sucursal_id === '3B6');
+assert.equal(b6.notas[0].fecha, '2026-11-26');
+assert.equal(b6.notas[1].comentario, 'Llegó tarde y dejó la caja desordenada');
+assert.equal(b6.notas[1].problemas[0], 'Llegó tarde / se fue temprano');
+assert.equal(b6.notas[1].evaluado_por, 'Ana');
 
 const inicial = construirResumenAceptacionCt([]);
 assert.equal(inicial.pct, 100);
