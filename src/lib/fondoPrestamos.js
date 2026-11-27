@@ -13,7 +13,13 @@ export const ESTADO_VISTO_BUENO = 'pendiente_visto_bueno';
 export const ESTADO_ABB_FJBB = 'pendiente_abb_fjbb';
 /** ABB o FJBB ya autorizaron. JLBB desembolsa desde el capital. */
 export const ESTADO_DESEMBOLSO = 'pendiente_desembolso';
-export const METODO_PAGO_NOMINA = 'Descuento en nómina';
+export const METODO_COBRO_JLBB = 'Cobro JLBB';
+/** @deprecated usar METODO_COBRO_JLBB — desde 2026-11-27 ya no se descuenta en nómina. */
+export const METODO_PAGO_NOMINA = METODO_COBRO_JLBB;
+
+export function esReingresoFondo(tipo) {
+  return tipo === 'reingreso_nomina' || tipo === 'reingreso_cobro';
+}
 
 export const ESTADOS_PRESTAMO_EMPLEADO_LISTA = [
   'pendiente_admin',
@@ -69,7 +75,7 @@ function round2(n) {
 }
 
 /**
- * Capital disponible = capital aportado − desembolsos + cuotas que ya reingresaron.
+ * Capital disponible = capital aportado − desembolsos + cobros que ya reingresaron.
  * El historial viejo de préstamos no entra en esta cuenta.
  */
 export function resumenFondoPrestamos(movimientos) {
@@ -81,7 +87,7 @@ export function resumenFondoPrestamos(movimientos) {
     const monto = Number(m.monto) || 0;
     if (m.tipo === 'capital') capitalAportado += monto;
     if (m.tipo === 'desembolso') desembolsado += monto;
-    if (m.tipo === 'reingreso_nomina') reingresado += monto;
+    if (esReingresoFondo(m.tipo)) reingresado += monto;
   }
   return {
     capitalAportado: round2(capitalAportado),
@@ -247,7 +253,7 @@ export async function autorizarPrestamoAbbFjbb(supabase, prestamoId, { user, nom
     ref_tabla: 'prestamos',
     ref_id: p.id,
     titulo: `Desembolso de préstamo · ${p.nombre_empleado}`,
-    mensaje: `$${monto.toFixed(2)} · ${p.num_cuotas || ''} cuotas · descuento en nómina. Autorizó ${quien}. JLBB: desembolsar desde el capital del fondo.`,
+    mensaje: `$${monto.toFixed(2)} · ${p.num_cuotas || ''} cuotas · cobro a cargo de JLBB (no se descuenta en nómina). Autorizó ${quien}. JLBB: desembolsar desde el capital del fondo.`,
   }, { usuarioIds });
   return {
     ok: true,
@@ -298,7 +304,7 @@ export async function desembolsarPrestamo(supabase, prestamoId, { user, nombre }
     tipo: 'desembolso',
     monto,
     nombreEmpleado: p.nombre_empleado,
-    notas: `${METODO_PAGO_NOMINA} · ${p.num_cuotas || ''} cuotas`,
+    notas: `${METODO_COBRO_JLBB} · ${p.num_cuotas || ''} cuotas`,
     createdBy: quien,
   });
   if (!mov.ok) return mov;
@@ -315,11 +321,11 @@ export async function desembolsarPrestamo(supabase, prestamoId, { user, nombre }
     ok: true,
     prestamo: data,
     capital: round2(capital - monto),
-    mensaje: `Desembolso de $${monto.toFixed(2)} a ${p.nombre_empleado}. Salió del capital del fondo. Las cuotas de nómina regresan a ese capital.`,
+    mensaje: `Desembolso de $${monto.toFixed(2)} a ${p.nombre_empleado}. Salió del capital del fondo. El cobro queda a cargo de JLBB y reingresa a ese capital.`,
   };
 }
 
-export async function registrarReingresoNomina(supabase, { prestamo, monto, createdBy, notas } = {}) {
+export async function registrarReingresoNomina(supabase, { prestamo, monto, createdBy, notas, tipo } = {}) {
   if (!supabase || !prestamo?.id || !(Number(monto) > 0)) return { ok: true };
   const { data, error } = await supabase
     .from('fondo_prestamos_mov')
@@ -333,13 +339,16 @@ export async function registrarReingresoNomina(supabase, { prestamo, monto, crea
     return { ok: false, error: error.message };
   }
   if (!data?.length) return { ok: true };
+  const tipoMov = tipo === 'reingreso_nomina' ? 'reingreso_nomina' : 'reingreso_cobro';
   return registrarMovimientoFondo(supabase, {
     prestamoId: prestamo.id,
-    tipo: 'reingreso_nomina',
+    tipo: tipoMov,
     monto,
     nombreEmpleado: prestamo.nombre_empleado,
-    notas: notas || 'Cuota de nómina. Resta el saldo del préstamo y suma al capital.',
-    createdBy: createdBy || 'Nómina',
+    notas: notas || (tipoMov === 'reingreso_nomina'
+      ? 'Cuota de nómina. Resta el saldo del préstamo y suma al capital.'
+      : 'Cobro JLBB. Resta el saldo del préstamo y suma al capital.'),
+    createdBy: createdBy || (tipoMov === 'reingreso_nomina' ? 'Nómina' : 'JLBB'),
   });
 }
 
@@ -396,6 +405,7 @@ export function etiquetaMovimientoFondo(tipo) {
   if (tipo === 'capital') return 'Capital';
   if (tipo === 'desembolso') return 'Desembolso';
   if (tipo === 'reingreso_nomina') return 'Reingreso de nómina';
+  if (tipo === 'reingreso_cobro') return 'Cobro JLBB';
   return tipo || 'Registro';
 }
 
@@ -433,7 +443,7 @@ export async function editarMovimientoFondo(supabase, id, patch = {}, { user } =
   };
   const { error } = await supabase.from('fondo_prestamos_mov').update(upd).eq('id', id);
   if (error) return { ok: false, error: error.message };
-  if (actual.data.tipo === 'reingreso_nomina') {
+  if (esReingresoFondo(actual.data.tipo)) {
     await ajustarSaldoPorReingreso(supabase, actual.data.prestamo_id, round2(antes - monto));
   }
   return { ok: true };
@@ -447,7 +457,7 @@ export async function eliminarMovimientoFondo(supabase, id, { user } = {}) {
   const mov = actual.data;
   const { error } = await supabase.from('fondo_prestamos_mov').delete().eq('id', id);
   if (error) return { ok: false, error: error.message };
-  if (mov.tipo === 'reingreso_nomina') {
+  if (esReingresoFondo(mov.tipo)) {
     await ajustarSaldoPorReingreso(supabase, mov.prestamo_id, Number(mov.monto) || 0);
   }
   if (mov.tipo === 'desembolso' && mov.prestamo_id) {

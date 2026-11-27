@@ -1073,7 +1073,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const cargarPrestamoManual = async (p) => {
     if (prestamoOmiteCorte(p)) {
-      return alert('Este préstamo es de usuario MAIN: solo nómina, no se carga a corte.');
+      return alert('Este préstamo es de usuario MAIN: sale del fondo, no se carga a corte.');
     }
     const res = await cargarPrestamoEmpleadoACorte(supabase, p, p.area_corte || prestEmpForm.areaCorte);
     if (!res.ok) return alert(res.error);
@@ -1174,8 +1174,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (aplicaDirecto && (tipo !== 'descuento' || esAdmin)) {
       let r;
       if (tipo === 'descuento') r = await descontarPrestamo(supabase, p, monto);
-      else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, p);
-      else r = await abonarPrestamo(supabase, p, monto);
+      else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, p, { createdBy: user?.nombre || 'JLBB', nombreActor: user?.nombre });
+      else r = await abonarPrestamo(supabase, p, monto, { createdBy: user?.nombre || 'JLBB', nombreActor: user?.nombre });
       if (!r.ok) return alert(r.error);
       alert(`${tipo} aplicado${r.liquidado ? ' · préstamo liquidado' : ''}. Saldo: $${(r.saldo ?? 0).toFixed(2)}`);
       if (confirm('¿Imprimir recibo actualizado?')) {
@@ -1632,7 +1632,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir (tras aprobación si aplica).
         <br />
         <strong>Préstamos</strong> — No van a corte ni a contabilidad. Visto bueno del gerente o del administrador principal, luego ABB o FJBB, y aviso a JLBB (fondo de préstamos).
-        Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina; ese descuento reingresa al fondo.
+        El cobro queda a cargo de JLBB; ya no se descuenta en nómina. Cada abono reingresa al fondo.
         {requiereAuthAhora && !esAdmin && (
           <span style={{ color: 'var(--danger)' }}> · Este vale irá a bandeja de aprobación del administrador.</span>
         )}
@@ -3131,8 +3131,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               ) : (
                 <>
                   El formato es el mismo. El monto <strong>no va a corte ni a contabilidad</strong>.
-                  En <strong>nómina</strong> se descuenta <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana
-                  y ese dinero reingresa a <strong>Tesorería → Fondo de préstamos</strong>.
+                  El cobro queda a cargo de <strong>JLBB</strong> (no se descuenta en nómina)
+                  y cada abono reingresa a <strong>Tesorería → Fondo de préstamos</strong>.
                 </>
               )}
             </p>
@@ -3147,7 +3147,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 {esMain ? (
                   <>
                     {empleadosPrestamoGrupos.main.length > 0 && (
-                      <optgroup label="Usuarios MAIN (fondo de préstamos · nómina $500/sem)">
+                      <optgroup label="Usuarios MAIN (fondo de préstamos · cobro JLBB)">
                         {empleadosPrestamoGrupos.main.map((e) => (
                           <option key={e.id} value={e.id}>{e.nombre}</option>
                         ))}
@@ -3202,13 +3202,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
-                {arrendatarioPrestamoSel ? 'Primer cobro (abono, no nómina)' : 'Primer cobro (nómina)'}
+                {arrendatarioPrestamoSel ? 'Primer cobro (abono, no nómina)' : 'Primer cobro'}
                 <input
                   className="input"
                   type="date"
                   value={prestEmpForm.primerCobro || primerCobroPorDefecto(prestEmpForm.fecha || hoyISO())}
                   onChange={(e) => setPrestEmpForm({ ...prestEmpForm, primerCobro: e.target.value })}
-                  title="Por defecto: la nómina de la semana siguiente"
+                  title="Por defecto: la semana siguiente"
                 />
               </label>
               <input className="input" placeholder="Notas" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
@@ -3216,7 +3216,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>
               {arrendatarioPrestamoSel
                 ? 'El desembolso carga al corte como egreso. El cobro se registra aquí con abonos; no entra a la nómina.'
-                : 'Se descuenta en nómina desde el primer cobro, una cuota por semana, y se detiene después de la última cuota (la última liquida el saldo). Puedes cambiar las cuotas y la fecha.'}
+                : 'JLBB cobra desde el primer cobro (Abonar / Liquidar). La cuota es de referencia; no se descuenta en nómina. Puedes cambiar las cuotas y la fecha.'}
             </p>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
               {arrendatarioPrestamoSel
@@ -3232,7 +3232,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               ) : (
                 <>
                   Visto bueno del gerente o del administrador principal. Después autorizan ABB o FJBB y se avisa a JLBB.
-                  Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina. No va a corte.
+                  Cobro a cargo de JLBB (no se descuenta en nómina). No va a corte.
                 </>
               )}
             </p>
@@ -3243,7 +3243,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <h3 style={{ margin: '0 0 0.5rem' }}>Editar préstamo · {editPrestamo.nombre_empleado}</h3>
               <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
                 {prestamoOmiteCorte(editPrestamo)
-                  ? 'Préstamo MAIN: sin corte; la cuota semanal ($500) se descuenta en nómina.'
+                  ? 'Préstamo MAIN: sin corte. El cobro queda a cargo de JLBB; no se descuenta en nómina.'
                   : 'Área de cargo: Virtual o Abarrotes (o Garage). Si ya está en corte, el área no se puede cambiar.'}
               </p>
               <div className="grid-2">
@@ -3258,17 +3258,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 {prestamoOmiteCorte(editPrestamo) && (
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
                     Destino
-                    <input className="input" value="Solo nómina (sin corte)" disabled />
+                    <input className="input" value="Fondo de préstamos (sin corte)" disabled />
                   </label>
                 )}
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
-                  Cuota semanal (fija)
+                  Cuota de referencia
                   <input
                     className="input"
                     type="number"
                     value={CUOTA_SEMANAL_MINIMA}
                     disabled
-                    title="Se descuenta $500 por semana en nómina; el remanente en la última semana"
+                    title="Cuota de referencia $500. El cobro lo hace JLBB; no se descuenta en nómina."
                   />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
@@ -3294,7 +3294,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
-                  Primer cobro (nómina)
+                  Primer cobro
                   <input
                     className="input"
                     type="date"
@@ -3309,8 +3309,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </div>
               {!(Number(editForm.num_cuotas) > 0 && editForm.primer_cobro) && (
                 <p className="muted" style={{ fontSize: '0.8rem', margin: '0.4rem 0 0' }}>
-                  Este préstamo no tiene calendario: se cobra {fmt(CUOTA_SEMANAL_MINIMA)} por semana hasta liquidar.
-                  Llena el número de cuotas y la fecha del primer cobro para que la nómina se detenga después de la última cuota.
+                  Este préstamo no tiene calendario: cuota de referencia {fmt(CUOTA_SEMANAL_MINIMA)}.
+                  Llena el número de cuotas y la fecha del primer cobro como guía para JLBB.
                 </p>
               )}
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
@@ -3324,7 +3324,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos</h3>
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
               Acciones: <strong>Visto bueno</strong>, <strong>Autorizar</strong>, <strong>Editar</strong>, <strong>Eliminar</strong>, <strong>Abonar</strong> y <strong>Liquidar</strong>.
-              La cuota semanal va a <strong>Nómina</strong> y reingresa a <strong>Tesorería → Fondo de préstamos</strong>.
+              El cobro queda a cargo de <strong>JLBB</strong> y reingresa a <strong>Tesorería → Fondo de préstamos</strong>. No se descuenta en nómina.
             </p>
             <div className="table-wrap">
               <table className="data">
@@ -3336,7 +3336,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Monto</th>
                     <th>Abonado</th>
                     <th>Saldo</th>
-                    <th>Cuota→Nómina</th>
+                    <th>Cuota</th>
                     <th>Visto bueno</th>
                     <th>Autorizó</th>
                     <th>Desembolso</th>
@@ -3380,7 +3380,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td>{fmt(p.monto_original)}</td>
                           <td className="muted">{fmt(p.abono)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
-                          <td title="Descuento automático en nómina: $500/sem o remanente">
+                          <td title="Cuota de referencia. Cobro a cargo de JLBB; no se descuenta en nómina.">
                             {fmt(CUOTA_SEMANAL_MINIMA)}
                             {textoCuotaPrestamo(p) && (
                               <div className="muted" style={{ fontSize: '0.7rem' }}>{textoCuotaPrestamo(p)}</div>

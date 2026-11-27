@@ -6,7 +6,29 @@ import { cronogramaPrestamo, cuotaEnPeriodo } from './prestamoCuotas.js';
 import { esPrestamoArrendatario } from './beneficiariosExternos.js';
 
 /**
- * Estados que generan cuota en nómina:
+ * A partir de esta fecha (Y-M-D, cierre de semana sáb–vie) los préstamos
+ * ya no se descuentan en nómina. El cobro queda a cargo de JLBB.
+ */
+export const PRESTAMOS_SIN_NOMINA_DESDE = '2026-11-27';
+
+export const AVISO_PRESTAMOS_COBRO_JLBB =
+  'Desde el 27/11/2026 los préstamos ya no se descuentan en nómina. El cobro queda a cargo de JLBB (Tesorería → Fondo de préstamos).';
+
+/**
+ * ¿Este periodo aún descuenta préstamos en nómina?
+ * Si el viernes de cierre (o, si falta, el inicio) es el 27/11/2026 o posterior, no.
+ * Sin fechas (flujo actual) → no descuenta.
+ */
+export function nominaDescuentaPrestamos(periodo = null) {
+  const fin = String(periodo?.fin || periodo?.hasta || periodo?.periodo_fin || '').slice(0, 10);
+  const ini = String(periodo?.inicio || periodo?.desde || periodo?.periodo_inicio || '').slice(0, 10);
+  const marca = fin || ini;
+  if (!marca) return false;
+  return marca < PRESTAMOS_SIN_NOMINA_DESDE;
+}
+
+/**
+ * Estados que generan cuota en nómina (solo periodos anteriores al 27/11/2026):
  * — activo: aprobado (y socio si aplica)
  * — pendiente_socio: ya aprobó admin (>$1,000); la cuota semanal aplica
  *   aunque falte el PIN de socio para cargar a corte
@@ -44,9 +66,12 @@ function cuotaDeducible(p) {
   return cuotaDeducibleNomina(p);
 }
 
-/** Préstamos con saldo por empleado — cuota semanal fija $500 (o remanente). */
+/** Préstamos con saldo por empleado — cuota semanal fija $500 (o remanente). Solo periodos anteriores al 27/11/2026. */
 export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados = [], todasSucursales = true, desde = null, hasta = null }) {
   const periodo = desde ? { inicio: desde, fin: hasta } : null;
+  if (!nominaDescuentaPrestamos(periodo)) {
+    return { map: {}, error: null, avisos: [] };
+  }
   if (!supabase) return { map: {}, error: null, avisos: [] };
   const indice = indiceEmpleados(empleados);
 
@@ -117,6 +142,7 @@ export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, emplea
 
 /** Aplica abonos semanales de nómina a préstamos deducibles del empleado. */
 export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, empleados = [], todasSucursales = true, periodo = null }) {
+  if (!nominaDescuentaPrestamos(periodo)) return { ok: true };
   if (!supabase) return { ok: true };
   const indice = indiceEmpleados(empleados);
 
@@ -148,7 +174,11 @@ export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, emple
       const topeSemana = cuotaDeducibleNomina(p, periodo);
       const abono = Math.min(restante, saldo, topeSemana);
       if (!(abono > 0)) continue;
-      const res = await abonarPrestamo(supabase, p, abono);
+      const res = await abonarPrestamo(supabase, p, abono, {
+        createdBy: 'Nómina',
+        notas: 'Reingreso de nómina. La cuota se restó del préstamo y se sumó al capital.',
+        tipoReingreso: 'reingreso_nomina',
+      });
       if (!res.ok) return res;
       p.saldo = res.saldo;
       p.estado = res.saldo <= 0 ? 'liquidado' : 'activo';

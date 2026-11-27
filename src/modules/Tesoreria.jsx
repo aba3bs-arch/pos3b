@@ -17,8 +17,8 @@ const VISTAS = [
   {
     id: 'fondo',
     label: 'Fondo de préstamos',
-    desc: 'Capital, desembolso y cuotas que regresan',
-    ayuda: 'JLBB lleva el capital. De ahí desembolsa el préstamo. Cada cuota de nómina resta el saldo y vuelve al capital.',
+    desc: 'Capital, desembolso y cobros de JLBB',
+    ayuda: 'JLBB lleva el capital. De ahí desembolsa el préstamo. El cobro queda a cargo de JLBB y vuelve al capital. No se descuenta en nómina.',
     icon: 'dollar',
     color: '#b45309',
   },

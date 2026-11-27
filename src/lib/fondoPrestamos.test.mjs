@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  etiquetaMovimientoFondo,
   prestamoEstaRecordado,
   puedeAutorizarPrestamoAbbFjbb,
   puedeDarVistoBuenoPrestamo,
@@ -37,6 +38,17 @@ assert.equal(fondo.capitalAportado, 10000);
 assert.equal(fondo.desembolsado, 2000);
 assert.equal(fondo.reingresado, 500);
 assert.equal(fondo.capital, 8500);
+
+const fondoCobro = resumenFondoPrestamos([
+  { tipo: 'capital', monto: 10000 },
+  { tipo: 'desembolso', monto: 2000 },
+  { tipo: 'reingreso_nomina', monto: 500 },
+  { tipo: 'reingreso_cobro', monto: 300 },
+]);
+assert.equal(fondoCobro.reingresado, 800);
+assert.equal(fondoCobro.capital, 8800);
+assert.equal(etiquetaMovimientoFondo('reingreso_cobro'), 'Cobro JLBB');
+assert.equal(etiquetaMovimientoFondo('reingreso_nomina'), 'Reingreso de nómina');
 
 assert.equal(resumenFondoPrestamos([]).capital, 0);
 

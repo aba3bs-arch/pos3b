@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { listarPrestamos } from '../lib/valesPrestamos.js';
+import { abonarPrestamo, liquidarPrestamo, listarPrestamos } from '../lib/valesPrestamos.js';
 import {
   aportarCapitalFondo,
   desembolsarPrestamo,
@@ -12,6 +12,7 @@ import {
   quitarPrestamoDelFondo,
   resumenFondoPrestamos,
 } from '../lib/fondoPrestamos.js';
+import { CUOTA_SEMANAL_MINIMA } from '../lib/contabilidadConstants.js';
 import { esPrestamoArrendatario } from '../lib/beneficiariosExternos.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import FormularioDesembolsoPrestamo from './FormularioDesembolsoPrestamo.jsx';
@@ -128,17 +129,43 @@ export default function PanelFondoPrestamos({ supabase, user }) {
     await cargar();
   };
 
+  const cobrarPrest = async (p, liquidar) => {
+    if (!puede) return alert('El cobro lo registra JLBB.');
+    const saldo = Number(p.saldo) || 0;
+    if (!(saldo > 0)) return alert('Sin saldo.');
+    let monto = saldo;
+    if (!liquidar) {
+      const raw = prompt(
+        `Cobro JLBB · ${p.nombre_empleado}\nSaldo: ${fmtMonto(saldo)}\n\nMonto a cobrar:`,
+        String(Math.min(saldo, CUOTA_SEMANAL_MINIMA)),
+      );
+      if (raw === null) return;
+      monto = parseFloat(String(raw).replace(',', '.'));
+      if (!(monto > 0) || monto > saldo + 0.001) return alert('Monto inválido.');
+    } else if (!confirm(`¿Liquidar ${fmtMonto(saldo)} de ${p.nombre_empleado}? El monto vuelve al capital.`)) {
+      return;
+    }
+    setGuardando(true);
+    const r = liquidar
+      ? await liquidarPrestamo(supabase, p, { createdBy: user?.nombre || 'JLBB', nombreActor: user?.nombre })
+      : await abonarPrestamo(supabase, p, monto, { createdBy: user?.nombre || 'JLBB', nombreActor: user?.nombre });
+    setGuardando(false);
+    if (!r.ok) return alert(r.error);
+    alert(r.liquidado ? `Liquidado. Volvió ${fmtMonto(monto)} al capital.` : `Cobro de ${fmtMonto(monto)}. Saldo: ${fmtMonto(r.saldo)}.`);
+    await cargar();
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
-        El fondo tiene un capital. De ahí salen los préstamos. Cada cuota de nómina resta el saldo del préstamo y vuelve a sumar al capital.
+        El fondo tiene un capital. De ahí salen los préstamos. JLBB cobra cada abono: resta el saldo del préstamo y vuelve a sumar al capital. Ya no se descuenta en nómina.
       </p>
       {aviso && <p className="muted" style={{ margin: 0, color: 'var(--warning, #c47f00)' }}>{aviso}</p>}
       <div className="card" style={{ maxWidth: 520 }}>
         <div className="muted" style={{ fontSize: '0.8rem' }}>Capital del fondo</div>
         <strong style={{ fontSize: '1.6rem', color: '#b45309' }}>{fmtMonto(resumen.capital)}</strong>
         <p className="muted" style={{ margin: '0.35rem 0 0.6rem', fontSize: '0.8rem' }}>
-          Aportado {fmtMonto(resumen.capitalAportado)} · desembolsado {fmtMonto(resumen.desembolsado)} · cuotas reingresadas {fmtMonto(resumen.reingresado)}
+          Aportado {fmtMonto(resumen.capitalAportado)} · desembolsado {fmtMonto(resumen.desembolsado)} · cobros reingresados {fmtMonto(resumen.reingresado)}
         </p>
         {puede && (
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -206,7 +233,7 @@ export default function PanelFondoPrestamos({ supabase, user }) {
                       <input className="input" type="number" min="1" step="1" value={editPrest.numCuotas} onChange={(e) => setEditPrest({ ...editPrest, numCuotas: e.target.value })} style={{ maxWidth: 80 }} />
                     ) : (p.num_cuotas || '—')}
                   </td>
-                  <td className="muted">Descuento en nómina</td>
+                  <td className="muted">Cobro JLBB</td>
                   {puede && (
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {editPrest?.id === p.id ? (
@@ -216,6 +243,12 @@ export default function PanelFondoPrestamos({ supabase, user }) {
                         </>
                       ) : (
                         <>
+                          {(Number(p.saldo) || 0) > 0 && p.estado !== 'cancelado' && (
+                            <>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem' }} disabled={guardando} onClick={() => void cobrarPrest(p, false)}>Cobrar</button>
+                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.45rem', fontSize: '0.8rem' }} disabled={guardando} onClick={() => void cobrarPrest(p, true)}>Liquidar</button>
+                            </>
+                          )}
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem' }} onClick={() => setEditPrest({ id: p.id, saldo: p.saldo ?? 0, numCuotas: p.num_cuotas || 1 })}>Editar</button>
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem', color: 'var(--danger)' }} onClick={() => void borrarPrest(p)}>Eliminar</button>
                         </>
@@ -232,7 +265,7 @@ export default function PanelFondoPrestamos({ supabase, user }) {
       <div className="card">
         <h3 style={{ margin: '0 0 0.35rem' }}>Registros</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
-          Cuando nómina descuenta la cuota, aquí aparece un reingreso. Ese monto se suma al capital y se resta del saldo del préstamo.
+          Cuando JLBB cobra, aquí aparece un reingreso. Ese monto se suma al capital y se resta del saldo del préstamo. Los descuentos viejos de nómina siguen en esta lista.
         </p>
         <div className="table-wrap">
           <table className="data">
@@ -248,7 +281,7 @@ export default function PanelFondoPrestamos({ supabase, user }) {
             </thead>
             <tbody>
               {movimientos.length === 0 ? (
-                <tr><td colSpan={puede ? 6 : 5} className="muted">Aún no hay registros. El capital, el desembolso y cada cuota de nómina quedan en esta lista.</td></tr>
+                <tr><td colSpan={puede ? 6 : 5} className="muted">Aún no hay registros. El capital, el desembolso y cada cobro quedan en esta lista.</td></tr>
               ) : movimientos.map((m) => (
                 <tr key={m.id}>
                   <td className="muted">{fechaPhoenix(m.created_at)}</td>

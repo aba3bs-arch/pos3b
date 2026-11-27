@@ -319,7 +319,7 @@
       <div>
         <p class="marca">Contabilidad → Tesorería</p>
         <h1>Fondo de préstamos</h1>
-        <p class="frase">Se pide, se visa, se autoriza, JLBB suelta el capital y la nómina lo devuelve. No va al corte.</p>
+        <p class="frase">Se pide, se visa, se autoriza, JLBB suelta el capital y cobra las cuotas. No va al corte ni a nómina.</p>
       </div>
       <div class="modo">
         <button type="button" class="btn on" id="btn-pasos">Paso a paso</button>
@@ -372,7 +372,7 @@
             <div class="campo"><span>Empleado</span><b>Nombre</b></div>
             <div class="campo"><span>Monto</span><b>Lo que se pide</b></div>
             <div class="campo"><span>Cuotas</span><b>Semanas</b></div>
-            <div class="campo"><span>Método</span><b>Descuento en nómina</b></div>
+            <div class="campo"><span>Método</span><b>Cobro JLBB</b></div>
           </div>
         </div>
         <div class="ficha">
@@ -381,7 +381,7 @@
           <p>El préstamo a empleado se captura en <strong>Vales y préstamos</strong>. Queda esperando visto bueno.</p>
           <ul>
             <li>No se carga al corte ni a contabilidad.</li>
-            <li>La cuota semanal mínima es <strong>$500</strong>, o lo que quede de saldo.</li>
+            <li>La cuota de referencia es <strong>$500</strong>. El cobro lo hace <strong>JLBB</strong>; ya no se descuenta en nómina.</li>
           </ul>
         </div>
       </div>
@@ -468,7 +468,7 @@
           <p>En <strong>Fondo de préstamos</strong>, JLBB registra el capital con <strong>Registrar capital</strong>.</p>
           <ul>
             <li>Capital = aportado − desembolsado + cuotas que ya reingresaron.</li>
-            <li>En la escena: $20,000 aportados − $8,000 ya prestados + $500 que volvió de nómina = <strong>$12,500</strong> disponibles.</li>
+            <li>En la escena: $20,000 aportados − $8,000 ya prestados + $500 que JLBB cobró = <strong>$12,500</strong> disponibles.</li>
             <li>Mueve los números: el resultado de la derecha cambia con ellos.</li>
           </ul>
         </div>
@@ -515,8 +515,8 @@
           <div class="fila">
             <div class="persona">
               <svg class="ico ico-sm"><use href="#persona"/></svg>
-              <strong>Nómina</strong>
-              <span>descuenta la cuota</span>
+              <strong>JLBB</strong>
+              <span>cobra la cuota</span>
             </div>
             <div style="transform:scaleX(-1)">
               <svg class="ico ico-lg alas" style="width:140px;height:84px"><use href="#alas"/></svg>
@@ -532,8 +532,8 @@
         </div>
         <div class="ficha">
           <p class="kicker">Paso 7</p>
-          <h2>La nómina devuelve el dinero</h2>
-          <p>Cuando nómina descuenta la cuota, en el fondo aparece un <strong>reingreso</strong>.</p>
+          <h2>JLBB cobra y el dinero vuelve</h2>
+          <p>Cuando JLBB cobra la cuota, en el fondo aparece un <strong>reingreso</strong>. Ya no se descuenta en nómina.</p>
           <ul>
             <li>Resta el saldo del empleado.</li>
             <li>Suma otra vez al capital de la bóveda.</li>
@@ -676,7 +676,7 @@
       ['¿Quién pone el visto bueno?', ['Cualquier cajero', 'Andrés Marrero', 'Solo el repartidor', 'Nómina, al descontar'], 1, 'Andrés da el visto bueno y se avisa a ABB y FJBB.'],
       ['Después del visto bueno, ¿quién autoriza?', ['ABB o FJBB', 'El cajero de la tienda', 'El recolector', 'Nadie: se desembolsa solo'], 0, 'Con una de las dos llaves basta. Luego se avisa a JLBB.'],
       ['¿De dónde sale el dinero al desembolsar?', ['Del corte de abarrotes', 'Del capital del fondo', 'De la cuenta de Francisco', 'De Servicios de Cheche'], 1, 'Si el capital no alcanza, no deja desembolsar.'],
-      ['Cuando nómina descuenta la cuota, ¿qué pasa?', ['Se pierde el registro', 'Resta el saldo y el monto vuelve al capital', 'Se manda al corte', 'Se le presta otra vez solo'], 1, 'Es un reingreso: sale del saldo y entra a la bóveda.'],
+      ['Cuando JLBB cobra la cuota, ¿qué pasa?', ['Se pierde el registro', 'Resta el saldo y el monto vuelve al capital', 'Se manda al corte', 'Se descuenta en nómina'], 1, 'Es un reingreso: sale del saldo y entra a la bóveda. Ya no va a nómina.'],
       ['Si quien aprueba está ocupado, ¿qué hace?', ['Rechaza el préstamo', 'Recuérdame en 15 min, 30 min o 1 hora', 'Lo manda a corte', 'Borra el capital'], 1, 'La ventana vuelve sola. La × espera 15 minutos.'],
       ['El fiado de un arrendatario, ¿entra al fondo?', ['Sí, igual que el empleado', 'No. Sigue al corte y no va a nómina', 'Solo si JLBB lo pide', 'Entra a Servicios de Cheche'], 1, 'Arrendatario y empleado no comparten camino.'],
     ];
@@ -740,7 +740,7 @@
         score.hidden = false;
         score.classList.toggle('mal', !g[2]);
         score.innerHTML = '<b>' + g[0] + '</b>' + ok + ' de ' + preguntas.length + ' · ' + pct + '% · ' + g[1]
-          + '<p>Se pide, se visa, se autoriza, JLBB suelta el capital y la nómina lo devuelve.</p>';
+          + '<p>Se pide, se visa, se autoriza, JLBB suelta el capital y cobra las cuotas.</p>';
       }
     }
 
